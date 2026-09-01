@@ -13,6 +13,8 @@
 
 원본은 읽기 전용으로 다루고, 쓰기 결과는 별도 경로에 만듭니다. HWP 원본 편집, HWPX→HWP 변환, 암호나 문서 보호 우회는 지원하지 않습니다.
 
+Corpus 연동에서는 원본 경로 대신 상속한 읽기 전용 파일 descriptor만 받습니다. 형식 라이브러리가 파일을 여러 번 안전하게 열 수 있도록 프로세스 전용 임시 파일로 한 번 복사하며, 추출 종료 시 이 사본을 삭제합니다.
+
 Corpus와 함께 사용할 때 역할은 분리됩니다. Document Files는 형식별 파싱·OCR·추출 범위를 담당하고, Corpus는 Source 등록·캡처, revision과 projection 식별, Source unit ID, anchor, 검색과 Context를 담당합니다.
 
 ## 실행 방식

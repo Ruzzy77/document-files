@@ -11,9 +11,12 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 import sys
+import tempfile
 import time
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -31,6 +34,9 @@ from .formats import FORMAT_SPECS
 DESCRIPTOR_SCHEMA_VERSION = "document-files.descriptor.v1"
 DEFAULT_COMPLETION_SECONDS = 580.0
 MAX_CONTINUATION_PASSES = 1_000
+MAX_PROCESS_INPUT_BYTES = 2 * 1024 * 1024 * 1024
+COPY_CHUNK_BYTES = 1024 * 1024
+PROCESSOR_IMPLEMENTATION_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 def _runtime_root() -> Path:
@@ -56,11 +62,15 @@ def _public_route(
     ).hexdigest()
     config = {
         "processor_schema_version": RESULT_SCHEMA_VERSION,
+        "processor_implementation_sha256": PROCESSOR_IMPLEMENTATION_SHA256,
         "route": route,
     }
     descriptor = AdapterDescriptor.from_config(
         adapter_id=f"document-files.process.{format_id}",
-        adapter_version=f"1.0.0+route.{route_digest[:12]}",
+        adapter_version=(
+            f"1.0.0+process.{PROCESSOR_IMPLEMENTATION_SHA256[:12]}"
+            f".route.{route_digest[:12]}"
+        ),
         config=config,
         capabilities=replace(
             internal.descriptor.capabilities,
@@ -167,7 +177,7 @@ def _read_request() -> Mapping[str, Any]:
 
 def _request_input(
     request: Mapping[str, Any], active_registry: AdapterRegistry
-) -> tuple[Path, str]:
+) -> tuple[int, str]:
     if request.get("schema_version") != REQUEST_SCHEMA_VERSION:
         raise ExtractionError(
             "processor request schema is unsupported",
@@ -197,11 +207,16 @@ def _request_input(
     ):
         raise ExtractionError("processor input descriptor is invalid")
     try:
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
-        probe = os.open(path, flags)
-        os.close(probe)
+        source_stat = os.fstat(file_descriptor)
     except OSError as exc:
         raise ExtractionError("processor input descriptor is not readable") from exc
+    if not stat.S_ISREG(source_stat.st_mode):
+        raise ExtractionError("processor input descriptor must be a regular file")
+    if source_stat.st_size > MAX_PROCESS_INPUT_BYTES:
+        raise BudgetExceededError(
+            "processor input exceeds its byte budget",
+            details={"count": source_stat.st_size, "limit": MAX_PROCESS_INPUT_BYTES},
+        )
 
     current, current_config = _public_route(format_id, active_registry)
     expected = {
@@ -214,18 +229,91 @@ def _request_input(
             "processor adapter identity is stale or does not match the requested format",
             details={"format_id": format_id},
         )
-    return Path(path), format_id
+    return file_descriptor, format_id
+
+
+@contextmanager
+def _materialized_input(file_descriptor: int, format_id: str):
+    """Give format libraries an independently reopenable private file.
+
+    Opening ``/dev/fd/N`` duplicates one open-file description on macOS, so
+    multiple parsers can otherwise inherit each other's seek position. The
+    processor therefore copies the inherited descriptor once into its own
+    owner-only temporary directory and removes it when extraction ends.
+    """
+
+    try:
+        before = os.fstat(file_descriptor)
+        os.lseek(file_descriptor, 0, os.SEEK_SET)
+    except OSError as exc:
+        raise ExtractionError("processor input descriptor is not seekable") from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise ExtractionError("processor input descriptor must be a regular file")
+    if before.st_size > MAX_PROCESS_INPUT_BYTES:
+        raise BudgetExceededError(
+            "processor input exceeds its byte budget",
+            details={"count": before.st_size, "limit": MAX_PROCESS_INPUT_BYTES},
+        )
+
+    with tempfile.TemporaryDirectory(prefix="document-files-process-") as folder:
+        private_path = Path(folder) / f"source.{format_id}"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+        destination = os.open(private_path, flags, 0o600)
+        copied = 0
+        try:
+            while True:
+                try:
+                    chunk = os.read(file_descriptor, COPY_CHUNK_BYTES)
+                except OSError as exc:
+                    raise ExtractionError("processor could not read its input descriptor") from exc
+                if not chunk:
+                    break
+                copied += len(chunk)
+                if copied > MAX_PROCESS_INPUT_BYTES:
+                    raise BudgetExceededError(
+                        "processor input exceeds its byte budget",
+                        details={"count": copied, "limit": MAX_PROCESS_INPUT_BYTES},
+                    )
+                offset = 0
+                while offset < len(chunk):
+                    try:
+                        written = os.write(destination, chunk[offset:])
+                    except OSError as exc:
+                        raise ExtractionError(
+                            "processor could not materialize its private input"
+                        ) from exc
+                    if written <= 0:
+                        raise ExtractionError(
+                            "processor could not materialize its private input"
+                        )
+                    offset += written
+        finally:
+            os.close(destination)
+
+        try:
+            after = os.fstat(file_descriptor)
+        except OSError as exc:
+            raise ExtractionError("processor input descriptor became unavailable") from exc
+        identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+        if copied != before.st_size or identity_after != identity_before:
+            raise ExtractionError(
+                "processor input changed while it was being materialized",
+                details={"expected_bytes": before.st_size, "copied_bytes": copied},
+            )
+        yield private_path
 
 
 def process_request() -> None:
     request = _read_request()
     active_registry = registry()
-    path, format_id = _request_input(request, active_registry)
-    result = extract_complete(
-        path,
-        format_id=format_id,
-        active_registry=active_registry,
-    )
+    file_descriptor, format_id = _request_input(request, active_registry)
+    with _materialized_input(file_descriptor, format_id) as path:
+        result = extract_complete(
+            path,
+            format_id=format_id,
+            active_registry=active_registry,
+        )
     payload = {
         "schema_version": RESULT_SCHEMA_VERSION,
         "completeness": result.completeness,

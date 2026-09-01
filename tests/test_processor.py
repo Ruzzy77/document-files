@@ -5,7 +5,12 @@ import os
 import subprocess
 from pathlib import Path
 
-from document_files.processor import DESCRIPTOR_SCHEMA_VERSION, describe_all, extract_complete
+from document_files.processor import (
+    DESCRIPTOR_SCHEMA_VERSION,
+    _materialized_input,
+    describe_all,
+    extract_complete,
+)
 
 
 def test_descriptor_reports_one_public_route_per_supported_format() -> None:
@@ -26,7 +31,9 @@ def test_descriptor_reports_one_public_route_per_supported_format() -> None:
     }
     for format_id, route in described["formats"].items():
         assert route["descriptor"]["adapter_id"] == f"document-files.process.{format_id}"
+        assert route["descriptor"]["adapter_version"].startswith("1.0.0+process.")
         assert route["descriptor"]["config_hash"]
+        assert len(route["config"]["processor_implementation_sha256"]) == 64
         assert route["config"]["route"]["adapter_id"].startswith("document-files.")
 
 
@@ -76,6 +83,23 @@ def test_process_jsonl_uses_read_only_descriptor(tmp_path: Path) -> None:
     assert result["schema_version"] == "document-files.extraction-result.v1"
     assert result["completeness"] == "complete"
     assert [unit["unit_type"] for unit in result["units"]] == ["heading", "paragraph"]
+
+
+def test_process_materializes_a_stable_reopenable_input(tmp_path: Path) -> None:
+    source = tmp_path / "source.hwp"
+    source.write_bytes(b"0123456789" * 100)
+    descriptor = os.open(source, os.O_RDONLY)
+    try:
+        os.lseek(descriptor, 700, os.SEEK_SET)
+        with _materialized_input(descriptor, "hwp") as private_path:
+            assert private_path.suffix == ".hwp"
+            assert private_path.read_bytes() == source.read_bytes()
+            with private_path.open("rb") as first, private_path.open("rb") as second:
+                assert first.read(8) == b"01234567"
+                assert second.read(8) == b"01234567"
+        assert not private_path.exists()
+    finally:
+        os.close(descriptor)
 
 
 def test_plugin_contains_no_removed_plugin_identifiers() -> None:
