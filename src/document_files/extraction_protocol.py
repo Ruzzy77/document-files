@@ -33,16 +33,34 @@ from .extractors import (
 )
 from .formats import FORMAT_SPECS
 
-REQUEST_SCHEMA_VERSION = "document-files.extraction-request.v1"
-RESULT_SCHEMA_VERSION = "document-files.extraction-result.v1"
-ENVELOPE_SCHEMA_VERSION = "document-files.extraction-envelope.v1"
+REQUEST_SCHEMA_VERSION = "document-files.extraction-request.v2"
+RESULT_SCHEMA_VERSION = "document-files.extraction-result.v2"
+ENVELOPE_SCHEMA_VERSION = "document-files.extraction-envelope.v2"
 
 _IDENTIFIER_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _ISSUE_SEVERITIES = frozenset({"info", "warning", "error"})
 _COMPLETENESS_VALUES = frozenset({"complete", "partial"})
 _EXECUTION_MODES = frozenset({"in_process", "jsonl_subprocess"})
-_INFORMATIONAL_ISSUES = frozenset({"unit_split"})
+_INFORMATIONAL_ISSUES = frozenset({"unit_split", "office_image_without_text"})
+_ISSUE_IMPACTS = frozenset(
+    {
+        "observation",
+        "operational_failure",
+        "processing_limit",
+        "content_gap",
+        "structure_gap",
+        "visual_uninterpreted",
+        "reading_order_unverified",
+        "unsupported_feature",
+    }
+)
+_COVERAGE_DIMENSIONS = frozenset(
+    {"text_content", "structure", "visual_content", "reading_order"}
+)
+_COVERAGE_VALUES = frozenset(
+    {"complete", "partial", "unverified", "not_applicable"}
+)
 _DERIVATION_METHODS = frozenset({"native_text", "ocr"})
 _PROHIBITED_CONTROL_FIELDS = frozenset(
     {
@@ -162,6 +180,50 @@ def _validate_short_string(value: object, *, field_name: str, limit: int = 256) 
             details={"field": field_name, "limit": limit},
         )
     return value
+
+
+def _default_issue_semantics(
+    code: str,
+    severity: str,
+) -> tuple[str, tuple[str, ...]]:
+    if code == "reading_order_unverified":
+        return "reading_order_unverified", ("reading_order",)
+    if code == "office_image_without_text" or severity == "info":
+        dimensions = ("visual_content",) if "image" in code else ()
+        return "observation", dimensions
+
+    if "image" in code or "visual" in code or "metafile" in code:
+        dimensions = ("visual_content",)
+    elif (
+        any(value in code for value in ("shape", "layout", "list_marker"))
+        or "structure" in code
+        or "object_type" in code
+    ):
+        dimensions = ("structure",)
+    else:
+        dimensions = ("text_content",)
+
+    if (
+        "budget" in code
+        or "limit" in code
+        or "truncated" in code
+        or code.endswith("range_pending")
+    ):
+        return "processing_limit", dimensions
+    if "unsupported" in code:
+        return "unsupported_feature", dimensions
+    if code.endswith(("failed", "unavailable")):
+        return "operational_failure", dimensions
+    if dimensions == ("visual_content",):
+        return "visual_uninterpreted", dimensions
+    if dimensions == ("structure",) or code.endswith(("partial", "unresolved")):
+        return "structure_gap", dimensions
+    if any(
+        value in code
+        for value in ("content_unread", "without_text", "content_partial")
+    ):
+        return "content_gap", ("text_content",)
+    return "content_gap", dimensions
 
 
 @dataclass(frozen=True)
@@ -368,6 +430,8 @@ class ExtractionIssue:
     message: str
     severity: Literal["info", "warning", "error"] = "warning"
     details: Mapping[str, FrozenJSON] = field(default_factory=dict)
+    impact: str | None = None
+    coverage_dimensions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_identifier(self.code, field_name="issue.code")
@@ -377,18 +441,45 @@ class ExtractionIssue:
                 "adapter issue severity is invalid",
                 details={"severity": self.severity},
             )
+        impact = self.impact
+        dimensions = tuple(self.coverage_dimensions)
+        default_impact, default_dimensions = _default_issue_semantics(
+            self.code,
+            self.severity,
+        )
+        if impact is None:
+            impact = default_impact
+        if not dimensions:
+            dimensions = default_dimensions
+        if impact not in _ISSUE_IMPACTS:
+            raise ExtractionError(
+                "adapter issue impact is invalid",
+                details={"impact": impact},
+            )
+        if not all(
+            isinstance(dimension, str) and dimension in _COVERAGE_DIMENSIONS
+            for dimension in dimensions
+        ):
+            raise ExtractionError(
+                "adapter issue coverage dimensions are invalid",
+                details={"coverage_dimensions": list(dimensions)},
+            )
         if not isinstance(self.details, Mapping):
             raise ExtractionError("adapter issue details must be an object")
         frozen = _freeze_json(self.details, location="$.issue.details")
         if not isinstance(frozen, Mapping):
             raise ExtractionError("adapter issue details must be an object")
         object.__setattr__(self, "details", frozen)
+        object.__setattr__(self, "impact", impact)
+        object.__setattr__(self, "coverage_dimensions", tuple(sorted(set(dimensions))))
 
     def to_dict(self) -> dict:
         result = {
             "code": self.code,
             "message": self.message,
             "severity": self.severity,
+            "impact": self.impact,
+            "coverage_dimensions": list(self.coverage_dimensions),
         }
         if self.details:
             result["details"] = _thaw_json(self.details)
@@ -470,11 +561,114 @@ class ExtractedUnit:
 
 
 @dataclass(frozen=True)
+class CoverageProfile:
+    text_content: str
+    structure: str
+    visual_content: str
+    reading_order: str
+
+    def __post_init__(self) -> None:
+        for name in _COVERAGE_DIMENSIONS:
+            value = getattr(self, name)
+            if not isinstance(value, str) or value not in _COVERAGE_VALUES:
+                raise ExtractionError(
+                    "extraction coverage value is invalid",
+                    details={"dimension": name, "value": value},
+                )
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "text_content": self.text_content,
+            "structure": self.structure,
+            "visual_content": self.visual_content,
+            "reading_order": self.reading_order,
+        }
+
+
+def _coverage_profile(
+    descriptor: AdapterDescriptor,
+    declared: str,
+    units: Sequence[ExtractedUnit],
+    issues: Sequence[ExtractionIssue],
+) -> CoverageProfile:
+    values = {
+        "text_content": "complete" if units else "partial",
+        "structure": "complete" if units else "partial",
+        "visual_content": "not_applicable",
+        "reading_order": (
+            "complete"
+            if descriptor.capabilities.preserves_reading_order
+            else "unverified"
+        ),
+    }
+    all_issues = [*issues, *(issue for unit in units for issue in unit.issues)]
+    for issue in all_issues:
+        for dimension in issue.coverage_dimensions:
+            if issue.impact == "observation":
+                if dimension == "visual_content" and values[dimension] == "not_applicable":
+                    values[dimension] = "unverified"
+                continue
+            if dimension == "reading_order":
+                values[dimension] = "unverified"
+            else:
+                values[dimension] = "partial"
+    if declared == "partial" and not all_issues and "partial" not in values.values():
+        values["text_content"] = "partial"
+    return CoverageProfile(**values)
+
+
+def _coverage_completeness(
+    coverage: CoverageProfile,
+) -> Literal["complete", "partial"]:
+    return "partial" if "partial" in coverage.to_dict().values() else "complete"
+
+
+def _merge_coverage(
+    baseline: CoverageProfile,
+    observed: CoverageProfile,
+) -> CoverageProfile:
+    merged: dict[str, str] = {}
+    for dimension in _COVERAGE_DIMENSIONS:
+        left = getattr(baseline, dimension)
+        right = getattr(observed, dimension)
+        if "partial" in {left, right}:
+            merged[dimension] = "partial"
+        elif "unverified" in {left, right}:
+            merged[dimension] = "unverified"
+        elif left == "not_applicable":
+            merged[dimension] = right
+        elif right == "not_applicable":
+            merged[dimension] = left
+        else:
+            merged[dimension] = "complete"
+    return CoverageProfile(**merged)
+
+
+def _honest_completeness(
+    declared: str,
+    units: Sequence[ExtractedUnit],
+    issues: Sequence[ExtractionIssue],
+) -> Literal["complete", "partial"]:
+    """Preserve the legacy helper signature while applying v2 issue semantics."""
+
+    all_issues = [*issues, *(issue for unit in units for issue in unit.issues)]
+    if not units or (
+        declared == "partial" and not all_issues
+    ) or any(
+        issue.impact not in {"observation", "reading_order_unverified"}
+        for issue in all_issues
+    ):
+        return "partial"
+    return "complete"
+
+
+@dataclass(frozen=True)
 class ExtractionEnvelope:
     """Immutable extraction result whose digest covers all adapter observations."""
 
     descriptor: AdapterDescriptor
     completeness: Literal["complete", "partial"]
+    coverage: CoverageProfile
     units: tuple[ExtractedUnit, ...]
     issues: tuple[ExtractionIssue, ...]
     manifest_hash: str
@@ -506,6 +700,14 @@ class ExtractionEnvelope:
             )
         object.__setattr__(self, "units", units)
         object.__setattr__(self, "issues", issues)
+        if not isinstance(self.coverage, CoverageProfile):
+            raise ExtractionError(
+                "extraction envelope coverage must be a CoverageProfile"
+            )
+        if self.completeness != _coverage_completeness(self.coverage):
+            raise ExtractionError(
+                "extraction completeness does not match its coverage profile"
+            )
         expected_hash = _sha256_json(self._manifest_payload())
         if self.manifest_hash != expected_hash:
             raise ExtractionError(
@@ -520,19 +722,34 @@ class ExtractionEnvelope:
         completeness: Literal["complete", "partial"],
         units: Sequence[ExtractedUnit],
         issues: Sequence[ExtractionIssue] = (),
+        coverage: CoverageProfile | None = None,
     ) -> ExtractionEnvelope:
         units_tuple = tuple(units)
         issues_tuple = tuple(issues)
+        observed_coverage = _coverage_profile(
+            descriptor,
+            completeness,
+            units_tuple,
+            issues_tuple,
+        )
+        coverage = (
+            observed_coverage
+            if coverage is None
+            else _merge_coverage(coverage, observed_coverage)
+        )
+        completeness = _coverage_completeness(coverage)
         provisional = {
             "schema_version": ENVELOPE_SCHEMA_VERSION,
             "descriptor": descriptor.to_dict(),
             "completeness": completeness,
+            "coverage": coverage.to_dict(),
             "units": [unit.to_dict() for unit in units_tuple],
             "issues": [issue.to_dict() for issue in issues_tuple],
         }
         return cls(
             descriptor=descriptor,
             completeness=completeness,
+            coverage=coverage,
             units=units_tuple,
             issues=issues_tuple,
             manifest_hash=_sha256_json(provisional),
@@ -543,6 +760,7 @@ class ExtractionEnvelope:
             "schema_version": self.schema_version,
             "descriptor": self.descriptor.to_dict(),
             "completeness": self.completeness,
+            "coverage": self.coverage.to_dict(),
             "units": [unit.to_dict() for unit in self.units],
             "issues": [issue.to_dict() for issue in self.issues],
         }
@@ -563,7 +781,14 @@ def _issue_from_mapping(
     location: str,
     strict: bool,
 ) -> ExtractionIssue:
-    allowed = {"code", "message", "severity", "details"}
+    allowed = {
+        "code",
+        "message",
+        "severity",
+        "impact",
+        "coverage_dimensions",
+        "details",
+    }
     required = {"code", "message"}
     keys = set(raw)
     if strict and (unknown := keys - allowed):
@@ -603,13 +828,37 @@ def _issue_from_mapping(
             **{
                 key: value
                 for key, value in raw.items()
-                if key not in {"code", "message", "severity", "details"}
+                if key
+                not in {
+                    "code",
+                    "message",
+                    "severity",
+                    "impact",
+                    "coverage_dimensions",
+                    "details",
+                }
             },
         }
+    impact = raw.get("impact")
+    if impact is not None and not isinstance(impact, str):
+        raise ExtractionError(
+            "adapter issue impact must be a string",
+            details={"location": location},
+        )
+    coverage_dimensions = raw.get("coverage_dimensions", ())
+    if not isinstance(coverage_dimensions, (list, tuple)) or not all(
+        isinstance(value, str) for value in coverage_dimensions
+    ):
+        raise ExtractionError(
+            "adapter issue coverage_dimensions must be an array of strings",
+            details={"location": location},
+        )
     return ExtractionIssue(
         code=code,
         message=message,
         severity=severity,
+        impact=impact,
+        coverage_dimensions=tuple(coverage_dimensions),
         details=details,
     )
 
@@ -701,23 +950,6 @@ def _convert_builtin_result(
     return tuple(units), issues
 
 
-def _honest_completeness(
-    declared: str,
-    units: Sequence[ExtractedUnit],
-    issues: Sequence[ExtractionIssue],
-) -> Literal["complete", "partial"]:
-    if declared == "partial" or not units:
-        return "partial"
-    all_issues = [*issues, *(issue for unit in units for issue in unit.issues)]
-    if any(
-        issue.severity in {"warning", "error"}
-        and issue.code not in _INFORMATIONAL_ISSUES
-        for issue in all_issues
-    ):
-        return "partial"
-    return "complete"
-
-
 def run_builtin_extraction(
     path: Path,
     adapter_name: str,
@@ -744,10 +976,9 @@ def run_builtin_extraction(
                 details={"adapter": adapter_name},
             ),
         )
-    completeness = _honest_completeness("complete", units, issues)
     return ExtractionEnvelope.create(
         descriptor=descriptor,
-        completeness=completeness,
+        completeness="complete",
         units=units,
         issues=issues,
     )
@@ -1233,7 +1464,7 @@ class ExternalJSONLAdapter:
     def _validate_result(self, raw: Mapping[str, object]) -> ExtractionEnvelope:
         _strict_fields(
             raw,
-            allowed={"schema_version", "completeness", "units", "issues"},
+            allowed={"schema_version", "completeness", "coverage", "units", "issues"},
             required={"schema_version", "completeness", "units"},
             location="$",
         )
@@ -1302,11 +1533,13 @@ class ExternalJSONLAdapter:
             else _raise_issue_object(f"$.issues[{index}]")
             for index, issue in enumerate(raw_issues)
         )
-        completeness = _honest_completeness(
-            declared_completeness,
-            units,
-            issues,
+        envelope = ExtractionEnvelope.create(
+            descriptor=self.descriptor,
+            completeness=declared_completeness,
+            units=units,
+            issues=issues,
         )
+        completeness = envelope.completeness
         if (
             completeness == "partial"
             and not self.descriptor.capabilities.may_emit_partial
@@ -1314,12 +1547,7 @@ class ExternalJSONLAdapter:
             raise ExtractionError(
                 "external adapter emitted a partial result without declaring that capability"
             )
-        return ExtractionEnvelope.create(
-            descriptor=self.descriptor,
-            completeness=completeness,
-            units=units,
-            issues=issues,
-        )
+        return envelope
 
 
 def _raise_unit_object(index: int):

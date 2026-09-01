@@ -44,6 +44,28 @@ _OBJECTS = {
     "arc",
     "connectLine",
 }
+_PRIMITIVE_OBJECTS = {
+    "container",
+    "rect",
+    "ellipse",
+    "line",
+    "polygon",
+    "curve",
+    "arc",
+    "connectLine",
+}
+_UNREAD_EMBEDDED_OBJECTS = {"ole", "chart", "video", "textart"}
+_OBJECT_ISSUE_MESSAGES = {
+    "hwpx_shape_layout_unverified": (
+        "Native HWPX drawing elements were retained, but their rendered layout was not verified."
+    ),
+    "hwpx_embedded_object_content_unread": (
+        "An embedded HWPX object type was identified without readable native content."
+    ),
+    "hwpx_equation_content_unread": (
+        "An HWPX equation did not expose a readable stored equation script."
+    ),
+}
 
 
 def _number(value: str | None, default: int = 0) -> int:
@@ -537,10 +559,11 @@ class _Reader:
                     **(hwpx_picture(node, self.images) if tag == "pic" else {}),
                 },
             )
-            self.issues["hwpx_object_content_partial"] += 1
             if tag == "equation":
+                script_observed = False
                 for index, child in enumerate(node):
                     if _local_name(child.tag) == "script" and child.text:
+                        script_observed = True
                         self.emit(
                             "embedded_object",
                             {
@@ -550,6 +573,12 @@ class _Reader:
                             },
                             child.text,
                         )
+                if not script_observed:
+                    self.issues["hwpx_equation_content_unread"] += 1
+            elif tag in _PRIMITIVE_OBJECTS:
+                self.issues["hwpx_shape_layout_unverified"] += 1
+            elif tag in _UNREAD_EMBEDDED_OBJECTS:
+                self.issues["hwpx_embedded_object_content_unread"] += 1
         for index, child in enumerate(node):
             self.walk(child, f"{address}.{index}", context, depth + 1)
 
@@ -667,7 +696,10 @@ def extract_structured_hwpx(path) -> ExtractionResult:
             {
                 "code": code,
                 "severity": "warning",
-                "message": "Some HWPX structure could not be fully reconstructed.",
+                "message": _OBJECT_ISSUE_MESSAGES.get(
+                    code,
+                    "Some HWPX structure could not be fully reconstructed.",
+                ),
                 "details": {"occurrences": count},
             }
             for code, count in sorted(reader.issues.items())

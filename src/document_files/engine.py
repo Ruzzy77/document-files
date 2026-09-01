@@ -259,7 +259,7 @@ def capabilities() -> dict[str, Any]:
             "rhwp": rhwp,
         },
         "extraction": {
-            "schemaVersion": "document-files.extraction-result.v1",
+            "schemaVersion": "document-files.extraction-result.v2",
             "maxInputBytes": MAX_FILE_BYTES,
             "coverageReported": True,
             "boundedContinuationCompletedInProcess": True,

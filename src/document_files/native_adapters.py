@@ -249,6 +249,7 @@ class PDFKitVisionAdapter:
         return ExtractionEnvelope.create(
             descriptor=self.descriptor,
             completeness=result.completeness,
+            coverage=result.coverage,
             units=result.units,
             issues=result.issues,
         )

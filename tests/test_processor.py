@@ -54,7 +54,7 @@ def test_process_jsonl_uses_read_only_descriptor(tmp_path: Path) -> None:
     fd = os.open(source, os.O_RDONLY)
     try:
         request = {
-            "schema_version": "document-files.extraction-request.v1",
+            "schema_version": "document-files.extraction-request.v2",
             "operation": "extract",
             "adapter": {
                 "adapter_id": descriptor["adapter_id"],
@@ -80,8 +80,14 @@ def test_process_jsonl_uses_read_only_descriptor(tmp_path: Path) -> None:
     finally:
         os.close(fd)
     result = json.loads(completed.stdout)
-    assert result["schema_version"] == "document-files.extraction-result.v1"
+    assert result["schema_version"] == "document-files.extraction-result.v2"
     assert result["completeness"] == "complete"
+    assert result["coverage"] == {
+        "text_content": "complete",
+        "structure": "complete",
+        "visual_content": "not_applicable",
+        "reading_order": "complete",
+    }
     assert [unit["unit_type"] for unit in result["units"]] == ["heading", "paragraph"]
 
 

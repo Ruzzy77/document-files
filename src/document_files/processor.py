@@ -317,6 +317,7 @@ def process_request() -> None:
     payload = {
         "schema_version": RESULT_SCHEMA_VERSION,
         "completeness": result.completeness,
+        "coverage": result.coverage.to_dict(),
         "units": [unit.to_dict() for unit in result.units],
         "issues": [issue.to_dict() for issue in result.issues],
     }

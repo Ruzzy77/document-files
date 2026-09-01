@@ -31,7 +31,7 @@ def main():
     source, config, budgets = request["input"], request["config"], request["budgets"]
     fd = source["file_descriptor"]
     if (
-        request["schema_version"] != "document-files.extraction-request.v1"
+        request["schema_version"] != "document-files.extraction-request.v2"
         or request["operation"] != "extract"
         or source["kind"] != "read_only_file_descriptor"
         or source["format_id"] != "pdf"
@@ -151,7 +151,7 @@ def main():
     print(
         json.dumps(
             {
-                "schema_version": "document-files.extraction-result.v1",
+                "schema_version": "document-files.extraction-result.v2",
                 "completeness": "partial" if issues or not units else "complete",
                 "units": units,
                 "issues": issues,

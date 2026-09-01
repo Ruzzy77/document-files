@@ -32,7 +32,7 @@ bin/document-files extract input.hwpx --format markdown
 Inspection returns bounded text, structure counts, coverage, issues, format
 metadata, and available format-specific checks. Extraction returns bounded
 content directly and reports `truncated: true` instead of silently omitting the
-limit. Preserve `coverage: partial` and material issue codes in downstream work.
+limit. Preserve the per-dimension `coverage` values and material issue codes in downstream work.
 
 Encrypted HWP content returns `protected-document`; do not attempt to bypass
 protection.

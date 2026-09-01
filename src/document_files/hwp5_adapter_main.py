@@ -23,8 +23,8 @@ else:
     from hwp_images import hwp_binary_items
     from hwp_structure import SectionStructure, doc_info_properties, link_document_memos
 
-REQUEST_SCHEMA_VERSION = "document-files.extraction-request.v1"
-RESULT_SCHEMA_VERSION = "document-files.extraction-result.v1"
+REQUEST_SCHEMA_VERSION = "document-files.extraction-request.v2"
+RESULT_SCHEMA_VERSION = "document-files.extraction-result.v2"
 HWP_SIGNATURE = b"HWP Document File"
 PARA_HEADER = 0x42
 PARA_TEXT = 0x43

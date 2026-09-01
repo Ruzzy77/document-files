@@ -114,7 +114,7 @@ func isVisuallyBlank(_ image: CGImage) -> Bool {
 }
 
 func imageIssue(_ code: String, _ message: String, _ details: [String: Any]) throws {
-    try writeResult(["schema_version": "document-files.extraction-result.v1",
+    try writeResult(["schema_version": "document-files.extraction-result.v2",
                      "completeness": "partial", "units": [], "issues": [[
                         "code": code, "message": message, "severity": "warning",
                         "details": details,
@@ -410,7 +410,7 @@ func runAdapter() async throws {
         let requestLine = readLine(),
         let requestData = requestLine.data(using: .utf8),
         let request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
-        request["schema_version"] as? String == "document-files.extraction-request.v1",
+        request["schema_version"] as? String == "document-files.extraction-request.v2",
         request["operation"] as? String == "extract",
         let input = request["input"] as? [String: Any],
         input["kind"] as? String == "read_only_file_descriptor",
@@ -509,7 +509,7 @@ func runAdapter() async throws {
             return
         }
         guard let source = CGImageSourceCreateWithURL(inputURL as CFURL, nil) else {
-            try writeResult(["schema_version": "document-files.extraction-result.v1",
+            try writeResult(["schema_version": "document-files.extraction-result.v2",
                              "completeness": "partial", "units": [], "issues": [[
                 "code": "image_format_unsupported", "severity": "warning",
                 "message": "ImageIO cannot decode this embedded image format.",
@@ -652,7 +652,7 @@ func runAdapter() async throws {
                             "source_width": width, "source_height": height],
             ])
         }
-        try writeResult(["schema_version": "document-files.extraction-result.v1",
+        try writeResult(["schema_version": "document-files.extraction-result.v2",
                          "completeness": units.isEmpty ? "partial" : "complete",
                          "units": units, "issues": issues])
         return
@@ -865,7 +865,7 @@ func runAdapter() async throws {
     }
 
     try writeResult([
-        "schema_version": "document-files.extraction-result.v1",
+        "schema_version": "document-files.extraction-result.v2",
         "completeness": units.isEmpty || hasIncompleteIssue ? "partial" : "complete",
         "units": units,
         "issues": issues,

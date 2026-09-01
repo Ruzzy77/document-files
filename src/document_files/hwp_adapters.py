@@ -163,6 +163,7 @@ class HWP5ContentRouter:
             completeness=delegated.completeness,
             units=delegated.units,
             issues=issues,
+            coverage=delegated.coverage,
         )
 
     def extract(self, path: Path, *, format_id: str) -> ExtractionEnvelope:

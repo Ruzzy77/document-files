@@ -59,6 +59,22 @@ _SHAPE_KINDS = {
     0x5F: "chart",
     0x62: "video",
 }
+_PRIMITIVE_SHAPES = {"line", "rectangle", "ellipse", "arc", "polygon", "curve", "group"}
+_UNREAD_EMBEDDED_OBJECTS = {"ole", "textart", "form", "chart", "video"}
+_OBJECT_ISSUE_MESSAGES = {
+    "hwp_shape_layout_unverified": (
+        "Native drawing records were retained, but their rendered layout was not verified."
+    ),
+    "hwp_embedded_object_content_unread": (
+        "An embedded HWP object type was identified without readable native content."
+    ),
+    "hwp_equation_content_unread": (
+        "An HWP equation control did not expose a readable stored equation script."
+    ),
+    "hwp_object_type_unresolved": (
+        "An HWP object control did not expose a recognized native object record."
+    ),
+}
 
 _FIELD_KINDS = {
     "%dte": "date",
@@ -213,6 +229,7 @@ class SectionStructure:
         self.pending_memo: tuple[int, int, int] | None = None
         self.field_events: list[dict] = []
         self.field_units: list[dict] = []
+        self.objects: list[dict] = []
 
     def _unit(self, kind: str, locator: dict, text: str = "") -> dict:
         unit = {
@@ -297,6 +314,8 @@ class SectionStructure:
                 "level": level,
                 "context": context,
                 "table": None,
+                "object_kinds": Counter(),
+                "content_observed": False,
             }
             self.controls[level] = control
             if name in {"atno", "nwno"}:
@@ -341,7 +360,7 @@ class SectionStructure:
                 )
                 self.counts[kind] += 1
                 if kind == "embedded_object":
-                    self.issues["hwp_object_content_partial"] += 1
+                    self.objects.append(control)
             elif name.startswith("%"):
                 self.counts["field"] += 1
                 try:
@@ -388,14 +407,18 @@ class SectionStructure:
                 None,
             )
             if control and "unit" in control:
+                shape_kind = _SHAPE_KINDS[tag]
+                control["object_kinds"][shape_kind] += 1
                 observations = control["unit"]["structure_path"].setdefault(
                     "object_records", []
                 )
                 if len(observations) < 256:
-                    observations.append({"record": record, "kind": _SHAPE_KINDS[tag]})
+                    observations.append({"record": record, "kind": shape_kind})
                 else:
                     self.issues["hwp_object_structure_partial"] += 1
             if tag == 0x55:
+                if control:
+                    control["content_observed"] = True
                 self._unit(
                     "embedded_object",
                     {
@@ -419,6 +442,7 @@ class SectionStructure:
                 if 6 + length * 2 <= len(data):
                     try:
                         script = data[6 : 6 + length * 2].decode("utf-16-le")
+                        control["content_observed"] = True
                         self._unit(
                             "embedded_object",
                             {
@@ -638,6 +662,18 @@ class SectionStructure:
 
     def finish(self) -> tuple[list[dict], list[dict]]:
         self._resolve_field_ranges()
+        for control in self.objects:
+            kinds = set(control["object_kinds"])
+            if control["name"] == "eqed":
+                if not control["content_observed"]:
+                    self.issues["hwp_equation_content_unread"] += 1
+                continue
+            if kinds & _UNREAD_EMBEDDED_OBJECTS or control["name"] == "form":
+                self.issues["hwp_embedded_object_content_unread"] += 1
+            if kinds & _PRIMITIVE_SHAPES:
+                self.issues["hwp_shape_layout_unverified"] += 1
+            if not kinds and control["name"] == "gso ":
+                self.issues["hwp_object_type_unresolved"] += 1
         if self.counts["memo_header"] != self.counts["memo"]:
             self.issues["hwp_memo_structure_partial"] += abs(
                 self.counts["memo_header"] - self.counts["memo"]
@@ -677,7 +713,10 @@ class SectionStructure:
             {
                 "code": code,
                 "severity": "warning",
-                "message": "Some HWP structure could not be fully reconstructed.",
+                "message": _OBJECT_ISSUE_MESSAGES.get(
+                    code,
+                    "Some HWP structure could not be fully reconstructed.",
+                ),
                 "details": {**self.base, "occurrences": count},
             }
             for code, count in sorted(self.issues.items())

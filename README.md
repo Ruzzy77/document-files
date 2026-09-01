@@ -6,6 +6,7 @@
 
 - PDF, DOCX, PPTX, XLSX, HWP, HWPX, HTML, Markdown, 일반 텍스트의 구조 보존 추출
 - PDF와 Office 계열 문서의 로컬 OCR 및 추출 범위·경고 보고
+- 본문·구조·시각 내용·읽기 순서를 분리한 coverage 보고
 - 큰 문서의 페이지·이미지 구간을 한 실행 안에서 이어 처리
 - HWP/HWPX의 텍스트·Markdown 변환과 HWP→HWPX 변환
 - HWP/HWPX의 SVG·PDF 렌더링과 HWPX HTML 미리보기

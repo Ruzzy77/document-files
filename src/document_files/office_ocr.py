@@ -243,6 +243,7 @@ class OfficeVisionAdapter:
         return ExtractionEnvelope.create(
             descriptor=result.descriptor,
             completeness=result.completeness,
+            coverage=result.coverage,
             units=tuple(
                 replace(
                     u,
@@ -294,6 +295,7 @@ class OfficeVisionAdapter:
             return ExtractionEnvelope.create(
                 descriptor=self.descriptor,
                 completeness=native.completeness,
+                coverage=native.coverage,
                 units=native.units,
                 issues=native.issues,
             )
@@ -733,6 +735,7 @@ class OfficeVisionAdapter:
                         in {
                             "office_image_ocr_observed",
                             "office_image_ocr_padding_observed",
+                            "office_image_without_text",
                             "office_metafile_text_observed",
                         }
                         else "warning",
@@ -787,4 +790,5 @@ class OfficeVisionAdapter:
             else "complete",
             units=units,
             issues=issues,
+            coverage=native.coverage,
         )

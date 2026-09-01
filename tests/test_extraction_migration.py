@@ -130,7 +130,7 @@ class BuiltinAdapterTest(unittest.TestCase):
         self.assertEqual(result.issues[0].code, "no_extractable_text")
 
     @mock.patch("document_files.extraction_protocol.extract")
-    def test_builtin_unverified_reading_order_is_declared_and_partial(
+    def test_builtin_unverified_reading_order_is_declared_in_coverage(
         self, extract
     ) -> None:
         unit_types = {"docx": "paragraph", "pdf": "page", "pptx": "slide_text"}
@@ -146,11 +146,16 @@ class BuiltinAdapterTest(unittest.TestCase):
                     self.assertFalse(
                         result.descriptor.capabilities.preserves_reading_order
                     )
-                    self.assertEqual(result.completeness, "partial")
-                    self.assertIn(
-                        "reading_order_unverified",
-                        {issue.code for issue in result.issues},
+                    self.assertEqual(result.completeness, "complete")
+                    self.assertEqual(result.coverage.reading_order, "unverified")
+                    self.assertEqual(result.coverage.text_content, "complete")
+                    issue = next(
+                        issue
+                        for issue in result.issues
+                        if issue.code == "reading_order_unverified"
                     )
+                    self.assertEqual(issue.impact, "reading_order_unverified")
+                    self.assertEqual(issue.coverage_dimensions, ("reading_order",))
 
     def test_xlsx_invalid_font_family_is_ignored_in_temporary_copy(self) -> None:
         from xml.etree import ElementTree
@@ -836,7 +841,7 @@ class PackagedAdapterTest(unittest.TestCase):
         reader.observe(
             9, 0x58, 2, struct.pack("<IH", 0, len(script)) + script.encode("utf-16-le")
         )
-        units, _issues = reader.finish()
+        units, issues = reader.finish()
         note = next(u for u in units if u["content"] == "미주")
         self.assertEqual(note["unit_type"], "endnote")
         self.assertEqual(note["structure_path"]["owner_paragraph_record"], 1)
@@ -846,6 +851,9 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertEqual(
             equation["structure_path"]["text_representation"], "hwp_equation_script"
         )
+        issue_codes = {issue["code"] for issue in issues}
+        self.assertNotIn("hwp_object_content_partial", issue_codes)
+        self.assertNotIn("hwp_equation_content_unread", issue_codes)
 
     def test_hwpx_nested_text_order_cells_and_notes_are_not_duplicated(self) -> None:
         xml = """<sec><p><run><t>앞</t><tbl rowCnt="1" colCnt="2"><tr>
@@ -902,6 +910,22 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertIn(
             "hwpx_table_geometry_partial", {issue["code"] for issue in partial.issues}
         )
+
+    def test_hwpx_objects_report_specific_native_coverage(self) -> None:
+        source = BytesIO()
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr(
+                "Contents/section0.xml",
+                "<sec><p><run><equation><script>x+y</script></equation><rect/></run></p></sec>",
+            )
+
+        result = extract_hwpx(source)
+        issue_codes = {issue["code"] for issue in result.issues}
+
+        self.assertIn("x+y", [unit.content for unit in result.units])
+        self.assertIn("hwpx_shape_layout_unverified", issue_codes)
+        self.assertNotIn("hwpx_object_content_partial", issue_codes)
+        self.assertNotIn("hwpx_equation_content_unread", issue_codes)
 
     def test_hwp5_paragraph_control_decoder_preserves_text_boundaries(self) -> None:
         def extended_control(code: int) -> bytes:
@@ -1110,7 +1134,7 @@ class PackagedAdapterTest(unittest.TestCase):
             file_descriptor = path.open("rb")
             try:
                 base_request = {
-                    "schema_version": "document-files.extraction-request.v1",
+                    "schema_version": "document-files.extraction-request.v2",
                     "operation": "extract",
                     "input": {
                         "kind": "read_only_file_descriptor",

@@ -105,4 +105,5 @@ class HWPXContentRouter:
             completeness=delegated.completeness,
             units=delegated.units,
             issues=issues,
+            coverage=delegated.coverage,
         )
