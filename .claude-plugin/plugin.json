@@ -1,0 +1,13 @@
+{
+  "name": "document-files",
+  "version": "1.0.0",
+  "description": "Read, extract, convert, render, create, edit, and verify local document files.",
+  "author": {
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
+  },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "license": "Apache-2.0",
+  "mcpServers": "./.mcp.json"
+}
