@@ -1,0 +1,15 @@
+interface:
+  display_name: "Document Files"
+  short_description: "Read and handle local document files headlessly"
+  icon_small: "./assets/file-document.png"
+  icon_large: "./assets/file-document.png"
+  brand_color: "#5B4BDB"
+  default_prompt: "Use $document-files to inspect, extract, convert, render, or edit this local document without opening its native app."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "document-files"
+      description: "Headless document inspect, extract, convert, create, edit, render, and verify tools"
+      transport: "stdio"
+policy:
+  allow_implicit_invocation: true

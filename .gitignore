@@ -1,0 +1,15 @@
+.DS_Store
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.egg-info/
+build/
+dist/
+
+# Keep real work documents and private templates outside the plugin.
+*.hwp
+*.hwpx
+*.hwt
+private/
+work-products/

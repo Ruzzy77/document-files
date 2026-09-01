@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="360" viewBox="0 0 360 360">
+  <defs>
+    <linearGradient id="body" x1="38" y1="344" x2="285" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="0.52" stop-color="#5B4BDB"/>
+      <stop offset="1" stop-color="#3925A5"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="205" y1="20" x2="324" y2="139" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B9A7FF"/>
+      <stop offset="0.52" stop-color="#C084FC"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="105" y1="150" x2="242" y2="263" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EDE9FE"/>
+    </linearGradient>
+    <filter id="inkShadow" x="-20%" y="-50%" width="140%" height="200%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#2E1A78" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <path d="M95 3H199L340 143V285C340 326 307 359 266 359H94C53 359 20 326 20 285V77C20 36 53 3 95 3Z" fill="url(#body)"/>
+  <path d="M199 3L340 143H255C224 143 199 118 199 87V3Z" fill="url(#fold)"/>
+  <g fill="url(#ink)" filter="url(#inkShadow)">
+    <rect x="105" y="150" width="149" height="18" rx="9"/>
+    <rect x="105" y="199" width="149" height="18" rx="9"/>
+    <rect x="105" y="248" width="112" height="18" rx="9"/>
+  </g>
+</svg>

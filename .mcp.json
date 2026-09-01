@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "document-files": {
+      "command": "./bin/document-files-mcp",
+      "args": [],
+      "cwd": "."
+    }
+  }
+}

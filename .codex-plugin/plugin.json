@@ -1,0 +1,45 @@
+{
+  "name": "document-files",
+  "version": "1.0.0+codex.20260901112050",
+  "description": "Read, extract, convert, render, create, edit, and verify local document files.",
+  "author": {
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
+  },
+  "homepage": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "repository": "https://github.com/Ruzzy77/personal-agent-toolkit",
+  "license": "Apache-2.0",
+  "keywords": [
+    "documents",
+    "pdf",
+    "docx",
+    "pptx",
+    "xlsx",
+    "hwp",
+    "hwpx",
+    "ocr",
+    "forms"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Document Files",
+    "shortDescription": "Headless document reading and file operations",
+    "longDescription": "Inspect and extract PDF, DOCX, PPTX, XLSX, HWP, HWPX, HTML, Markdown, and text files; convert and render supported formats; and create, edit, and verify HWPX artifacts. Sources remain unchanged, outputs are separate, extraction coverage is explicit, and private work files stay outside the plugin package.",
+    "developerName": "Ruzzy77",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "defaultPrompt": [
+      "Read this document without opening its native app",
+      "Extract this document with explicit coverage and warnings",
+      "Fill this HWPX form and preserve its original layout"
+    ],
+    "brandColor": "#5B4BDB",
+    "screenshots": []
+  }
+}

@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+  exec "$PROJECT_ROOT/.venv/bin/python" -m document_files.cli "$@"
+fi
+
+PYTHON_ENV_ROOT="${DOCUMENT_FILES_PYTHON_ENV:-$HOME/Library/Caches/Document Files/python-env}"
+UV_BIN="${UV:-$(command -v uv || true)}"
+if [ -z "$UV_BIN" ]; then
+  echo '{"ok":false,"error":{"code":"runtime-missing","message":"uv is required to provision the Document Files runtime."}}' >&2
+  exit 127
+fi
+
+UV_PROJECT_ENVIRONMENT="$PYTHON_ENV_ROOT" \
+  exec "$UV_BIN" run --project "$PROJECT_ROOT" --frozen python -m document_files.cli "$@"
