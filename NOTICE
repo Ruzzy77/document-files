@@ -1,7 +1,7 @@
 Document Files
-Copyright 2026 Local developer
+Copyright 2026 Ruzzy77
 
-This project uses python-hwpx 6.0.2 and python-hwpx-automation 7.0.1 as installed
+This project uses python-hwpx 6.3.0 and python-hwpx-automation 7.0.3 as installed
 runtime dependencies.
 python-hwpx is maintained by the python-hwpx Maintainers and is licensed under
 the Apache License, Version 2.0.
@@ -21,3 +21,6 @@ Project homepage: https://github.com/edwardkim/rhwp
 rhwp is not vendored into this plugin. The provisioning script downloads an
 official release archive, verifies its pinned SHA-256, and installs the binary
 and its accompanying license into the user cache.
+
+본 제품의 HWP 처리 기능은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여
+개발하였습니다.
