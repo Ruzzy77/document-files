@@ -58,6 +58,183 @@ _MESSAGES = {
     ),
 }
 
+_FALLBACK_OCR_MAX_REGIONS_PER_BLOCK = 32
+_FALLBACK_OCR_MAX_CHARS_PER_BLOCK = 500
+
+
+def _recognition_context(region):
+    path = region.to_dict()["structure_path"]
+    context = {
+        "source_image_orientation": path.get("source_image_orientation", 1),
+    }
+    if "source_crop_bbox" in path:
+        context["recognized_source_crop"] = path["source_crop_bbox"]
+    if "recognition_padding" in path:
+        context["recognition_padding"] = path["recognition_padding"]
+    if "source_bitmap" in path:
+        context["source_bitmap"] = path["source_bitmap"]
+    return context
+
+
+def _bounded_ocr_groups(regions, *, max_regions, max_chars):
+    """Group only unstructured fallback regions without inventing semantics."""
+    groups, pending = [], []
+    pending_chars = 0
+    pending_context = None
+
+    def flush():
+        nonlocal pending, pending_chars, pending_context
+        if pending:
+            groups.append(tuple(pending))
+        pending, pending_chars, pending_context = [], 0, None
+
+    for index, region in enumerate(regions):
+        if region.unit_type != "page_region":
+            flush()
+            groups.append(((index, region),))
+            continue
+        context = (
+            _recognition_context(region),
+            region.geometry.get("coordinate_system"),
+        )
+        added_chars = len(region.content) + (1 if pending else 0)
+        if pending and (
+            context != pending_context
+            or len(pending) >= max_regions
+            or pending_chars + added_chars > max_chars
+        ):
+            flush()
+            added_chars = len(region.content)
+        if not pending:
+            pending_context = context
+        pending.append((index, region))
+        pending_chars += added_chars
+    flush()
+    return tuple(groups)
+
+
+def _image_text_units(
+    regions,
+    *,
+    location,
+    image_part,
+    image_sha256,
+    crop_notes,
+    max_regions=_FALLBACK_OCR_MAX_REGIONS_PER_BLOCK,
+    max_chars=_FALLBACK_OCR_MAX_CHARS_PER_BLOCK,
+):
+    """Wrap OCR observations while keeping fallback blocks exactly reversible."""
+    wrapped = []
+    for group in _bounded_ocr_groups(
+        regions,
+        max_regions=max_regions,
+        max_chars=max_chars,
+    ):
+        first_index, first = group[0]
+        common_path = {
+            **location,
+            "image_part": image_part,
+            "image_sha256": image_sha256,
+            "geometry_scope": "oriented_embedded_image_pixels",
+            **crop_notes,
+            **_recognition_context(first),
+            "source_ocr_unit_type": first.unit_type,
+        }
+        if len(group) == 1:
+            wrapped.append(
+                ExtractedUnit(
+                    unit_type="image_text",
+                    structure_path={
+                        **common_path,
+                        "image_region": first_index,
+                        "text_representation": "vision_ocr",
+                    },
+                    content=first.content,
+                    derivation_method="ocr",
+                    geometry=first.geometry,
+                    confidence=first.confidence,
+                    quality_flags=(*first.quality_flags, "embedded_image_ocr"),
+                    issues=first.issues,
+                )
+            )
+            continue
+
+        parts, segments, boxes = [], [], []
+        confidence_weight = 0
+        confidence_total = 0.0
+        issues, quality_flags = [], []
+        content_offset = 0
+        for region_index, region in group:
+            if parts:
+                content_offset += 1
+            start = content_offset
+            parts.append(region.content)
+            content_offset += len(region.content)
+            segment = {
+                "region": region_index,
+                "content_start": start,
+                "content_end": content_offset,
+            }
+            geometry = region.to_dict()["geometry"]
+            bbox = geometry.get("bbox")
+            if isinstance(bbox, list) and len(bbox) == 4:
+                segment["bbox"] = bbox
+                boxes.append(bbox)
+            extra = {
+                key: value
+                for key, value in geometry.items()
+                if key not in {"bbox", "coordinate_system"}
+            }
+            if extra:
+                segment["geometry"] = extra
+            if region.confidence is not None:
+                segment["confidence"] = region.confidence
+                weight = max(1, len(region.content))
+                confidence_total += region.confidence * weight
+                confidence_weight += weight
+            segments.append(segment)
+            issues.extend(region.issues)
+            quality_flags.extend(region.quality_flags)
+
+        geometry = {"segments": segments}
+        coordinate_system = first.geometry.get("coordinate_system")
+        if coordinate_system is not None:
+            geometry["coordinate_system"] = coordinate_system
+        if boxes:
+            geometry["bbox"] = [
+                min(box[0] for box in boxes),
+                min(box[1] for box in boxes),
+                max(box[2] for box in boxes),
+                max(box[3] for box in boxes),
+            ]
+        wrapped.append(
+            ExtractedUnit(
+                unit_type="image_text",
+                structure_path={
+                    **common_path,
+                    "image_region_start": first_index,
+                    "image_region_end": group[-1][0],
+                    "image_region_count": len(group),
+                    "text_representation": "vision_ocr_block",
+                },
+                content="\n".join(parts),
+                derivation_method="ocr",
+                geometry=geometry,
+                confidence=(
+                    confidence_total / confidence_weight
+                    if confidence_weight
+                    else None
+                ),
+                quality_flags=(
+                    *quality_flags,
+                    "embedded_image_ocr",
+                    "grouped_ocr_regions",
+                ),
+                issues=tuple(issues),
+            )
+        )
+    return tuple(wrapped)
+
 
 def _source_crop(location, observations=None):
     """Return the visible source rectangle, recording how the source bounded it.
@@ -146,6 +323,12 @@ class OfficeVisionAdapter:
             "cropped_images": "verified_visible_source_rect_v2",
             "non_displayed_images": "skip_proven_zero_display_area_v1",
             "metafile_stored_text": "emr_exttextoutw_unicode_records_v1",
+            "fallback_ocr_grouping": "bounded_image_text_blocks_v1",
+            "fallback_ocr_max_regions_per_block": (
+                _FALLBACK_OCR_MAX_REGIONS_PER_BLOCK
+            ),
+            "fallback_ocr_max_chars_per_block": _FALLBACK_OCR_MAX_CHARS_PER_BLOCK,
+            "fallback_ocr_segment_map": "content_offsets_bbox_confidence_v1",
         }
         caps = native.descriptor.capabilities
         self.descriptor = AdapterDescriptor.from_config(
@@ -191,6 +374,7 @@ class OfficeVisionAdapter:
             ).config_hash
 
         self.recognition_profile = profile(recognition_config)
+        self._native_cache = None
 
     def _image_text(self, image_path, seconds, *, crop=None):
         started = time.monotonic()
@@ -268,9 +452,14 @@ class OfficeVisionAdapter:
         return self._extract_range(path, format_id=format_id, previous=previous)
 
     def _extract_range(self, path, *, format_id, previous=None):
-        native = self.native.extract(path, format_id=format_id)
         with Path(path).open("rb") as source:
             source_digest = hashlib.file_digest(source, "sha256").hexdigest()
+        cache_key = (str(Path(path).resolve()), format_id, source_digest)
+        if self._native_cache is not None and self._native_cache[0] == cache_key:
+            native = self._native_cache[1]
+        else:
+            native = self.native.extract(path, format_id=format_id)
+            self._native_cache = (cache_key, native)
         native_characters = Counter()
         for unit in native.units:
             if unit.unit_type not in {"embedded_object", "speaker_notes", "field"}:
@@ -632,71 +821,26 @@ class OfficeVisionAdapter:
                 if not recognized.units:
                     observations["office_image_without_text"] += 1
                     continue
+                regions = _image_text_units(
+                    recognized.units,
+                    location=location,
+                    image_part=part,
+                    image_sha256=digest,
+                    crop_notes=crop_notes,
+                    max_regions=self.config["fallback_ocr_max_regions_per_block"],
+                    max_chars=self.config["fallback_ocr_max_chars_per_block"],
+                )
+                characters = sum(len(region.content) for region in regions)
                 if (
-                    len(native.units) + added_count + len(recognized.units) > 200_000
-                    or native_total
-                    + added_characters
-                    + sum(len(region.content) for region in recognized.units)
-                    > 50_000_000
+                    len(native.units) + added_count + len(regions) > 200_000
+                    or native_total + added_characters + characters > 50_000_000
                 ):
                     observations["office_image_ocr_output_limit"] += 1
                     output_limited = True
                     next_image = image_index
                     break
-                regions = []
-                for index, region in enumerate(recognized.units):
-                    regions.append(
-                        ExtractedUnit(
-                            unit_type="image_text",
-                            structure_path={
-                                **location,
-                                "image_part": part,
-                                "image_sha256": digest,
-                                "image_region": index,
-                                "geometry_scope": "oriented_embedded_image_pixels",
-                                **crop_notes,
-                                "source_image_orientation": region.structure_path.get(
-                                    "source_image_orientation", 1
-                                ),
-                                **(
-                                    {
-                                        "recognized_source_crop": region.to_dict()[
-                                            "structure_path"
-                                        ]["source_crop_bbox"]
-                                    }
-                                    if "source_crop_bbox" in region.structure_path
-                                    else {}
-                                ),
-                                "text_representation": "vision_ocr",
-                                **(
-                                    {
-                                        "recognition_padding": region.to_dict()[
-                                            "structure_path"
-                                        ]["recognition_padding"]
-                                    }
-                                    if "recognition_padding" in region.structure_path
-                                    else {}
-                                ),
-                                **(
-                                    {
-                                        "source_bitmap": region.to_dict()[
-                                            "structure_path"
-                                        ]["source_bitmap"]
-                                    }
-                                    if "source_bitmap" in region.structure_path
-                                    else {}
-                                ),
-                            },
-                            content=region.content,
-                            derivation_method="ocr",
-                            geometry=region.geometry,
-                            confidence=region.confidence,
-                            quality_flags=(*region.quality_flags, "embedded_image_ocr"),
-                            issues=region.issues,
-                        )
-                    )
-                    added_characters += len(region.content)
-                    added_count += 1
+                added_characters += characters
+                added_count += len(regions)
                 if regions:
                     insertions[position] = regions
                     observations["office_image_ocr_observed"] += 1

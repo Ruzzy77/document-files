@@ -14,6 +14,96 @@ from document_files.extraction_protocol import (
 
 
 class OfficeStructureTest(unittest.TestCase):
+    def test_fallback_ocr_regions_form_reversible_bounded_blocks(self):
+        from document_files.office_ocr import _image_text_units
+
+        regions = [
+            ExtractedUnit(
+                "page_region",
+                {"page": 1, "vision_index": index},
+                f"검색 문장 {index}",
+                derivation_method="ocr",
+                geometry={
+                    "coordinate_system": "top_left_normalized",
+                    "bbox": [0.1, index / 100, 0.9, (index + 1) / 100],
+                },
+                confidence=0.8 + index / 1000,
+                quality_flags=("ocr", "reading_order_unverified"),
+            )
+            for index in range(70)
+        ]
+        wrapped = _image_text_units(
+            regions,
+            location={"section": 1, "image_record": 7},
+            image_part="BinData/BIN0001.bmp",
+            image_sha256="a" * 64,
+            crop_notes={},
+            max_regions=32,
+            max_chars=10_000,
+        )
+
+        self.assertEqual(len(wrapped), 3)
+        self.assertEqual(
+            [unit.structure_path["image_region_count"] for unit in wrapped],
+            [32, 32, 6],
+        )
+        recovered, recovered_boxes = [], []
+        for unit in wrapped:
+            self.assertEqual(unit.structure_path["image_record"], 7)
+            self.assertEqual(unit.structure_path["source_ocr_unit_type"], "page_region")
+            self.assertIn("grouped_ocr_regions", unit.quality_flags)
+            self.assertIn("reading_order_unverified", unit.quality_flags)
+            for segment in unit.geometry["segments"]:
+                recovered.append(
+                    unit.content[
+                        segment["content_start"] : segment["content_end"]
+                    ]
+                )
+                recovered_boxes.append(segment["bbox"])
+        self.assertEqual(recovered, [unit.content for unit in regions])
+        self.assertEqual(recovered_boxes, [unit.geometry["bbox"] for unit in regions])
+
+    def test_structured_ocr_units_are_not_grouped_with_fallback_regions(self):
+        from document_files.office_ocr import _image_text_units
+
+        fallback = [
+            ExtractedUnit(
+                "page_region",
+                {"page": 1, "vision_index": index},
+                f"fallback {index}",
+                derivation_method="ocr",
+                quality_flags=("ocr", "reading_order_unverified"),
+            )
+            for index in range(6)
+        ]
+        structured = ExtractedUnit(
+            "paragraph",
+            {"page": 1, "paragraph": 1},
+            "structured paragraph",
+            derivation_method="ocr",
+            quality_flags=("ocr", "structured_ocr", "reading_order_unverified"),
+        )
+        wrapped = _image_text_units(
+            (*fallback[:3], structured, *fallback[3:]),
+            location={"slide": 1, "element": 2},
+            image_part="ppt/media/image1.png",
+            image_sha256="b" * 64,
+            crop_notes={},
+        )
+
+        self.assertEqual(len(wrapped), 3)
+        self.assertEqual(wrapped[1].content, "structured paragraph")
+        self.assertEqual(wrapped[1].structure_path["source_ocr_unit_type"], "paragraph")
+        self.assertNotIn("grouped_ocr_regions", wrapped[1].quality_flags)
+        self.assertEqual(
+            wrapped[0].content.splitlines(),
+            [unit.content for unit in fallback[:3]],
+        )
+        self.assertEqual(
+            wrapped[2].content.splitlines(),
+            [unit.content for unit in fallback[3:]],
+        )
+
     @unittest.skipUnless(sys.platform == "darwin", "Vision requires macOS")
     def test_local_image_ocr_has_source_object_location_and_keeps_native_text(self):
         from PIL import Image, ImageDraw, ImageFont
@@ -130,7 +220,12 @@ class OfficeStructureTest(unittest.TestCase):
                     ],
                 )
 
-            with mock.patch.object(adapter, "_image_text", side_effect=recognize):
+            with (
+                mock.patch.object(adapter, "_image_text", side_effect=recognize),
+                mock.patch.object(
+                    adapter.native, "extract", wraps=adapter.native.extract
+                ) as native_extract,
+            ):
                 result = adapter.extract(path, format_id="pptx")
                 for count in (1, 2, 3):
                     if count > 1:
@@ -153,6 +248,7 @@ class OfficeStructureTest(unittest.TestCase):
                         "office_image_range_pending" in issue_codes,
                         count < 3,
                     )
+                self.assertEqual(native_extract.call_count, 1)
             self.assertEqual(len(calls), 3)
             self.assertEqual(len(set(calls)), 3)
             self.assertEqual(path.read_bytes(), original)

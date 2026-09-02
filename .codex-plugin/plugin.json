@@ -1,6 +1,6 @@
 {
   "name": "document-files",
-  "version": "1.3.0+codex.20260902065527",
+  "version": "1.3.1+codex.20260902160620",
   "description": "Analyze document bytes and inspect, convert, render, create, edit, and verify local document artifacts.",
   "author": {
     "name": "Ruzzy77",
