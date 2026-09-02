@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
+from typing import BinaryIO
 
 import pytest
 
@@ -23,6 +24,24 @@ class SequentialBytes:
 
     def read(self, size: int = -1) -> bytes:
         return self._stream.read(size)
+
+
+class SerializedBackend:
+    """Remote-like test backend that crosses the public JSON boundary."""
+
+    def __init__(self) -> None:
+        self.job_payload: dict | None = None
+        self.result_manifest_hash: str | None = None
+
+    def analyze(self, job: AnalysisJob, source: BinaryIO) -> AnalysisResult:
+        self.job_payload = json.loads(json.dumps(job.to_dict()))
+        wire_job = AnalysisJob.from_dict(self.job_payload)
+        direct = LocalAnalyzerBackend().analyze(wire_job, SequentialBytes(source.read()))
+        self.result_manifest_hash = direct.extraction.manifest_hash
+        return AnalysisResult.from_dict(
+            json.loads(json.dumps(direct.to_dict())),
+            expected_job=wire_job,
+        )
 
 
 def _job(content: bytes) -> AnalysisJob:
@@ -49,17 +68,19 @@ def test_analysis_job_and_result_survive_a_serialized_backend_boundary() -> None
         job_id="portable:test-2",
         input=AnalysisInput.from_bytes(content, format_id="txt"),
     )
-    wire_job = AnalysisJob.from_dict(json.loads(json.dumps(job.to_dict())))
+    backend = SerializedBackend()
 
-    direct = LocalAnalyzerBackend().analyze(wire_job, SequentialBytes(content))
-    restored = AnalysisResult.from_dict(
-        json.loads(json.dumps(direct.to_dict())),
-        expected_job=job,
+    result = extract_structure_from_stream(
+        job,
+        SequentialBytes(content),
+        backend=backend,
     )
 
-    assert restored.input == job.input
-    assert restored.extraction.manifest_hash == direct.extraction.manifest_hash
-    assert restored.to_dict() == direct.to_dict()
+    assert backend.job_payload == job.to_dict()
+    assert "path" not in json.dumps(backend.job_payload)
+    assert result["analysis"]["jobId"] == job.job_id
+    assert result["manifestHash"] == backend.result_manifest_hash
+    assert [unit["text"] for unit in result["units"]] == ["first", "second"]
 
 
 def test_local_backend_rejects_bytes_that_do_not_match_job_identity() -> None:
