@@ -1,7 +1,7 @@
 {
   "name": "document-files",
-  "version": "1.2.2+codex.20260902055141",
-  "description": "Read, extract structure and values, convert, render, create, edit, and verify local document files.",
+  "version": "1.3.0+codex.20260902065527",
+  "description": "Analyze document bytes and inspect, convert, render, create, edit, and verify local document artifacts.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"
@@ -31,7 +31,7 @@
   "interface": {
     "displayName": "Document Files",
     "shortDescription": "Headless document reading and file operations",
-    "longDescription": "Inspect and extract text, source structure, semantic roles, and explicit values from PDF, DOCX, PPTX, XLSX, HWP, HWPX, HTML, Markdown, and text files; convert and render supported formats; and create, edit, and verify HWPX artifacts. Sources remain unchanged, outputs are separate, extraction coverage is explicit, and private work files stay outside the plugin package.",
+    "longDescription": "Analyze PDF, DOCX, PPTX, XLSX, HWP, HWPX, HTML, Markdown, and text bytes through a path-independent job contract; inspect local files; convert and render supported formats; and create, edit, and verify HWPX artifacts. Sources remain unchanged, outputs are separate, extraction coverage is explicit, and private work files stay outside the plugin package.",
     "developerName": "Ruzzy77",
     "category": "Productivity",
     "capabilities": [

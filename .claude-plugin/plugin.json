@@ -1,7 +1,7 @@
 {
   "name": "document-files",
-  "version": "1.2.2",
-  "description": "Read, extract structure and values, convert, render, create, edit, and verify local document files.",
+  "version": "1.3.0",
+  "description": "Analyze document bytes and inspect, convert, render, create, edit, and verify local document artifacts.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"

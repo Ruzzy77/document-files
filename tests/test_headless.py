@@ -53,7 +53,7 @@ def _require_rhwp() -> dict:
 
 def test_capabilities_are_explicitly_headless() -> None:
     result = capabilities()
-    assert result["pluginVersion"] == "1.2.2"
+    assert result["pluginVersion"] == "1.3.0"
     assert result["headless"] is True
     assert result["nativeAppAutomation"] is False
     assert result["runtimeNetworkUsed"] is False
@@ -65,6 +65,8 @@ def test_capabilities_are_explicitly_headless() -> None:
         "document-files.structured-extraction.v1"
     )
     assert result["extraction"]["sourceDeclaredSemanticsOnly"] is True
+    assert result["extraction"]["pathIndependentInput"] is True
+    assert result["extraction"]["replaceableBackend"] is True
     assert set(result["extraction"]["formats"]) == {
         "docx",
         "htm",

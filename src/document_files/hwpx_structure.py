@@ -240,7 +240,15 @@ class _Reader:
             )
             if kind == "textbox":
                 kind = "section_paragraph"
-            if head in {"number", "bullet"} and not properties.get("marker_text"):
+            marker_image = properties.get("marker_image")
+            has_image_marker = isinstance(marker_image, dict) and bool(
+                marker_image.get("image_parts")
+            )
+            if (
+                head in {"number", "bullet"}
+                and not properties.get("marker_text")
+                and not has_image_marker
+            ):
                 marker = (
                     self.list_marker(properties, "container_kind" not in context)
                     if head == "number"
@@ -643,8 +651,35 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                         }
                 elif tag == "style":
                     styles[node.get("id")] = node.get("name", "")
-                elif tag == "bullet" and node.get("useImage", "0") in {"0", "false"}:
-                    bullets[node.get("id")] = node.get("char", "")
+                elif tag == "bullet":
+                    use_image = node.get("useImage", "0").casefold()
+                    if use_image in {"0", "false"}:
+                        bullets[node.get("id")] = {
+                            "marker_text": node.get("char", "")
+                        }
+                    elif use_image in {"1", "true"}:
+                        image_nodes = [
+                            child for child in node if _local_name(child.tag) == "img"
+                        ]
+                        if len(image_nodes) == 1:
+                            image = image_nodes[0]
+                            marker_image = {
+                                "binary_item_ref": image.get("binaryItemIDRef"),
+                                "bright": image.get("bright"),
+                                "contrast": image.get("contrast"),
+                                "effect": image.get("effect"),
+                                "alpha": image.get("alpha"),
+                            }
+                            fallback_text = node.get("char", "")
+                            if fallback_text:
+                                marker_image["fallback_text"] = fallback_text
+                            bullets[node.get("id")] = {
+                                "marker_image": {
+                                    key: value
+                                    for key, value in marker_image.items()
+                                    if value is not None
+                                }
+                            }
                 elif tag == "numbering":
                     numberings[node.get("id")] = {
                         _number(child.get("level")): {
@@ -657,12 +692,6 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                         for child in node
                         if _local_name(child.tag) == "paraHead"
                     }
-            for shape in shapes.values():
-                ref = shape.get("numbering_ref")
-                if shape.get("head_type") == "bullet" and ref in bullets:
-                    shape["marker_text"] = bullets[ref]
-                elif shape.get("head_type") in {"number", "outline"}:
-                    shape.update(numberings.get(ref, {}).get(shape["level"], {}))
         images = (
             hwpx_binary_items(
                 _safe_archive_xml_root(archive, "Contents/content.hpf"),
@@ -671,6 +700,20 @@ def extract_structured_hwpx(path) -> ExtractionResult:
             if "Contents/content.hpf" in archive.namelist()
             else {}
         )
+        for shape in shapes.values():
+            ref = shape.get("numbering_ref")
+            if shape.get("head_type") == "bullet" and ref in bullets:
+                marker = dict(bullets[ref])
+                marker_image = marker.get("marker_image")
+                if isinstance(marker_image, dict):
+                    marker_image = dict(marker_image)
+                    marker_image["image_parts"] = list(
+                        images.get(marker_image.get("binary_item_ref"), [])
+                    )
+                    marker["marker_image"] = marker_image
+                shape.update(marker)
+            elif shape.get("head_type") in {"number", "outline"}:
+                shape.update(numberings.get(ref, {}).get(shape["level"], {}))
         reader = _Reader(shapes, styles, images, numberings)
         if issues:
             reader.contaminated.update(numberings)

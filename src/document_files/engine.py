@@ -9,7 +9,7 @@ import struct
 import tempfile
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from zipfile import BadZipFile, ZipFile
 
 import olefile
@@ -27,6 +27,16 @@ from hwpx_automation.office.authoring import (
     validate_document_plan,
 )
 
+from .analysis import (
+    ANALYSIS_JOB_SCHEMA_VERSION,
+    ANALYSIS_RESULT_SCHEMA_VERSION,
+    AnalysisBudgets,
+    AnalysisInput,
+    AnalysisJob,
+    AnalyzerBackend,
+    analyze_document,
+)
+from .formats import FORMAT_SPECS
 from .rhwp_backend import RHWP_VERSION, RhwpBackend, RhwpBackendError, backend_status
 from .structured_extraction import (
     DEFAULT_PUBLIC_STRUCTURED_UNITS,
@@ -45,7 +55,7 @@ HWP_SIGNATURE = b"HWP Document File"
 try:
     PLUGIN_VERSION = version("document-files")
 except PackageNotFoundError:
-    PLUGIN_VERSION = "1.2.2"
+    PLUGIN_VERSION = "1.3.0"
 PYTHON_HWPX_VERSION = "6.3.0"
 PYTHON_HWPX_AUTOMATION_VERSION = "7.0.3"
 
@@ -219,13 +229,18 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _sha256_file(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def _file_record(path: Path) -> dict[str, Any]:
     stat_result = path.stat()
     return {
         "path": str(path),
         "size": stat_result.st_size,
         "mtimeNs": stat_result.st_mtime_ns,
-        "sha256": _sha256_bytes(path.read_bytes()),
+        "sha256": _sha256_file(path),
     }
 
 
@@ -270,12 +285,16 @@ def capabilities() -> dict[str, Any]:
         "extraction": {
             "schemaVersion": "document-files.extraction-result.v2",
             "structuredSchemaVersion": STRUCTURED_EXTRACTION_SCHEMA_VERSION,
+            "analysisJobSchemaVersion": ANALYSIS_JOB_SCHEMA_VERSION,
+            "analysisResultSchemaVersion": ANALYSIS_RESULT_SCHEMA_VERSION,
             "maxInputBytes": MAX_FILE_BYTES,
             "maxStructuredUnitsPerPage": MAX_PUBLIC_STRUCTURED_UNITS,
             "coverageReported": True,
             "boundedContinuationCompletedInProcess": True,
             "structuredPagination": True,
             "sourceDeclaredSemanticsOnly": True,
+            "pathIndependentInput": True,
+            "replaceableBackend": True,
             "formats": [
                 "docx",
                 "htm",
@@ -769,6 +788,42 @@ def extract_structure(
 ) -> dict[str, Any]:
     """Extract a bounded page of source-addressed structure and explicit values."""
 
+    _validate_structured_page(unit_offset=unit_offset, max_units=max_units)
+    source = _source_file(
+        path,
+        suffixes={f".{format_id}" for format_id in FORMAT_SPECS},
+    )
+    _require_unprotected_hwp(source)
+    source_before = _file_record(source)
+    format_id = source.suffix.casefold().removeprefix(".")
+    analysis_input = AnalysisInput(
+        format_id=format_id,
+        media_type=FORMAT_SPECS[format_id].media_type,
+        byte_size=source_before["size"],
+        sha256=source_before["sha256"],
+    )
+    job = AnalysisJob(
+        job_id=f"local:{format_id}:{analysis_input.sha256[:24]}",
+        input=analysis_input,
+        budgets=AnalysisBudgets(max_input_bytes=MAX_FILE_BYTES),
+    )
+    with source.open("rb") as stream:
+        projected = extract_structure_from_stream(
+            job,
+            stream,
+            unit_offset=unit_offset,
+            max_units=max_units,
+            include_text=include_text,
+        )
+    _ensure_source_unchanged(source, source_before)
+    return {
+        **projected,
+        "source": source_before,
+        "sourceUnchanged": True,
+    }
+
+
+def _validate_structured_page(*, unit_offset: int, max_units: int) -> None:
     if isinstance(unit_offset, bool) or not isinstance(unit_offset, int) or unit_offset < 0:
         raise DocumentFilesError(
             "invalid-unit-offset",
@@ -785,41 +840,42 @@ def extract_structure(
             "max_units is outside the supported range.",
             details={"minimum": 1, "maximum": MAX_PUBLIC_STRUCTURED_UNITS},
         )
-    source = _source_file(
-        path,
-        suffixes={
-            ".docx",
-            ".htm",
-            ".html",
-            ".hwp",
-            ".hwpx",
-            ".markdown",
-            ".md",
-            ".pdf",
-            ".pptx",
-            ".txt",
-            ".xlsx",
-        },
-    )
-    _require_unprotected_hwp(source)
-    from .processor import extract_complete
 
-    source_before = _file_record(source)
-    format_id = source.suffix.casefold().removeprefix(".")
-    result = extract_complete(source, format_id=format_id)
+
+def extract_structure_from_stream(
+    job: AnalysisJob,
+    source: BinaryIO,
+    *,
+    backend: AnalyzerBackend | None = None,
+    unit_offset: int = 0,
+    max_units: int = DEFAULT_PUBLIC_STRUCTURED_UNITS,
+    include_text: bool = True,
+) -> dict[str, Any]:
+    """Extract structure from authorized bytes without a public local-path dependency."""
+
+    _validate_structured_page(unit_offset=unit_offset, max_units=max_units)
+    analysis = analyze_document(job, source, backend=backend)
     projected = project_structured_extraction(
-        result,
-        source_format=format_id,
+        analysis.extraction,
+        source_format=analysis.input.format_id,
         unit_offset=unit_offset,
         max_units=max_units,
         include_text=include_text,
     )
-    _ensure_source_unchanged(source, source_before)
     return {
         "ok": True,
-        "source": source_before,
-        "sourceUnchanged": True,
         **projected,
+        "analysis": {
+            "schemaVersion": analysis.schema_version,
+            "jobId": analysis.job_id,
+            "input": {
+                "formatId": analysis.input.format_id,
+                "mediaType": analysis.input.media_type,
+                "byteSize": analysis.input.byte_size,
+                "sha256": analysis.input.sha256,
+            },
+            "analyzer": analysis.analyzer.to_dict(),
+        },
         "nativeRenderChecked": False,
     }
 

@@ -1,11 +1,12 @@
 # Document Files
 
-네이티브 앱을 열지 않고 로컬 문서를 읽고 추출하며, 지원 형식을 변환·렌더링하고 HWPX 산출물을 생성·편집·검증하는 플러그인입니다.
+네이티브 앱을 열지 않고 문서 바이트에서 구조와 값을 추출하며, 로컬 문서를 검사하고 지원 형식을 변환·렌더링하고 HWPX 산출물을 생성·편집·검증하는 플러그인입니다.
 
 ## 담당 범위
 
 - PDF, DOCX, PPTX, XLSX, HWP, HWPX, HTML, Markdown, 일반 텍스트의 구조 보존 추출
 - 형식에 공통으로 적용되는 구조·시맨틱 역할·명시적 값의 페이지 단위 JSON 추출
+- 로컬 경로를 포함하지 않는 분석 작업·결과 계약과 교체 가능한 분석 백엔드
 - PDF와 Office 계열 문서의 로컬 OCR 및 추출 범위·경고 보고
 - 본문·구조·시각 내용·읽기 순서를 분리한 coverage 보고
 - 큰 문서의 페이지·이미지 구간을 한 실행 안에서 이어 처리
@@ -15,9 +16,11 @@
 
 원본은 읽기 전용으로 다루고, 쓰기 결과는 별도 경로에 만듭니다. HWP 원본 편집, HWPX→HWP 변환, 암호나 문서 보호 우회는 지원하지 않습니다.
 
-Corpus 연동에서는 원본 경로 대신 상속한 읽기 전용 파일 descriptor만 받습니다. 형식 라이브러리가 파일을 여러 번 안전하게 열 수 있도록 프로세스 전용 임시 파일로 한 번 복사하며, 추출 종료 시 이 사본을 삭제합니다.
+분석기의 공통 입력은 형식·미디어 유형·바이트 크기·SHA-256으로 문서를 식별하는 `document-files.analysis-job.v1` 작업과 별도로 전달되는 바이트 스트림입니다. 결과는 `document-files.analysis-result.v1`으로 반환합니다. 두 계약에는 로컬 경로나 전송 방식이 들어가지 않습니다. 현재 포함된 로컬 백엔드는 형식 라이브러리가 파일을 여러 번 안전하게 열 수 있도록 바이트를 프로세스 전용 임시 파일로 복사하고, 추출이 끝나면 삭제합니다. 다른 실행 환경은 같은 `AnalyzerBackend`와 직렬화 계약을 구현해 분석기를 교체할 수 있습니다.
 
-Corpus와 함께 사용할 때 역할은 분리됩니다. Document Files는 형식별 파싱·OCR·추출 범위를 담당하고, Corpus는 Source 등록·캡처, revision과 projection 식별, Source unit ID, anchor, 검색과 Context를 담당합니다.
+Corpus의 기존 로컬 연동은 원본 경로 대신 상속한 읽기 전용 파일 descriptor를 사용하는 엄격한 JSONL 경계를 유지합니다. 이 경계는 기존 호출자를 위한 로컬 전송 방식이며, 문서 분석 계약 자체의 입력 형식은 아닙니다.
+
+Corpus와 함께 사용할 때 역할은 분리됩니다. Document Files는 형식별 파싱·OCR·추출 범위를 담당하고, Corpus와 동기화 계층은 Source 등록·캡처, 로컬·원격 처리 정책, revision과 projection 식별, Source unit ID, anchor, 검색과 Context를 담당합니다.
 
 ## 실행 방식
 
@@ -45,6 +48,12 @@ Corpus 연동용 구조 추출 계약은 같은 실행 파일의 `process` 명�
 문자열·수·불리언·날짜·수식과 저장된 계산값을 구분하며, 표 셀 좌표·병합 범위·필드
 메타데이터도 원본에 기록된 범위에서만 반환합니다. 수식을 실행하거나 인접 셀 관계를
 추정하지 않습니다. 큰 결과는 `unitPage.nextOffset`으로 이어서 읽습니다.
+
+서비스나 다른 런타임에 분석기를 내장할 때에는 `AnalysisJob`과 바이트 스트림을
+`analyze_document` 또는 `extract_structure_from_stream`에 전달합니다. `AnalysisJob`과
+`AnalysisResult`의 `to_dict`·`from_dict`는 로컬·원격 구현이 공유하는 직렬화 경계이며,
+호출자는 결과의 작업 ID와 입력 해시가 요청과 일치하는지 검증받습니다. 접근 승인,
+`local_only` 같은 처리 정책과 원본 보관은 분석기가 아니라 호출 계층이 담당합니다.
 
 ```bash
 launchers/document-files process --describe

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import struct
+import zipfile
 from datetime import date
 from pathlib import Path
 
-from openpyxl import Workbook
-
 from document_files.engine import extract_structure
+from document_files.extraction_protocol import run_builtin_extraction
+from document_files.hwp_structure import SectionStructure, doc_info_properties
+from document_files.structured_extraction import project_structured_extraction
+from openpyxl import Workbook
 
 
 def _digest(path: Path) -> str:
@@ -107,3 +111,84 @@ def test_structured_extraction_is_paged_and_can_omit_text(tmp_path: Path) -> Non
     assert second["unitPage"]["hasMore"] is False
     assert [unit["text"] for unit in second["units"]] == ["둘째 문단"]
     assert first["manifestHash"] == second["manifestHash"]
+
+
+def test_hwp_image_bullet_keeps_its_embedded_source_reference() -> None:
+    bullet = bytearray(25)
+    bullet[12:14] = "◆".encode("utf-16-le")
+    struct.pack_into("<I", bullet, 14, 1)
+    bullet[18:22] = bytes((0, 0, 0, 1))
+    shape = bytearray(32)
+    struct.pack_into("<I", shape, 0, 3 << 23)
+    struct.pack_into("<H", shape, 30, 1)
+    shapes, styles = doc_info_properties(
+        [(1, 0x18, 0, bytes(bullet)), (2, 0x19, 0, bytes(shape))]
+    )
+    reader = SectionStructure(
+        1,
+        "Section0",
+        shapes,
+        styles,
+        images=[{"bindata_record": 3, "image_parts": ["BinData/BIN0001.png"]}],
+    )
+    paragraph = bytearray(24)
+    struct.pack_into("<H", paragraph, 8, 0)
+    reader.observe(3, 0x42, 0, bytes(paragraph))
+
+    reader.text(4, 1, 1, "항목")
+    units, issues = reader.finish()
+
+    marker = units[0]["structure_path"]["marker_image"]
+    assert marker["binary_item_ref"] == 1
+    assert marker["image_parts"] == ["BinData/BIN0001.png"]
+    assert marker["fallback_text"] == "◆"
+    assert "hwp_list_marker_partial" not in {issue["code"] for issue in issues}
+
+
+def test_hwpx_image_bullet_projects_a_format_neutral_semantic_marker(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "image-bullet.hwpx"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "Contents/header.xml",
+            """<header><paraPr id="1"><heading type="BULLET" level="0" idRef="7"/>
+            </paraPr><bullet id="7" char="◆" useImage="1"><img
+            binaryItemIDRef="image7" bright="0" contrast="0" effect="REAL_PIC"
+            alpha="0"/></bullet></header>""",
+        )
+        archive.writestr(
+            "Contents/content.hpf",
+            """<package><manifest><item id="body" href="section0.xml"/>
+            <item id="image7" href="BinData/image7.png" isEmbeded="1"/>
+            </manifest><spine><itemref idref="body"/></spine></package>""",
+        )
+        archive.writestr(
+            "Contents/section0.xml",
+            '<sec><p paraPrIDRef="1"><run><t>항목</t></run></p></sec>',
+        )
+        archive.writestr("BinData/image7.png", b"source image bytes")
+
+    envelope = run_builtin_extraction(path, "hwpx")
+    projected = project_structured_extraction(
+        envelope,
+        source_format="hwpx",
+        unit_offset=0,
+        max_units=10,
+        include_text=True,
+    )
+
+    assert "hwpx_list_marker_partial" not in projected["summary"]["issueCounts"]
+    assert projected["units"][0]["semantic"]["list"]["marker"] == {
+        "kind": "image",
+        "basis": "source_image_reference",
+        "sourceRef": "image7",
+        "sourceParts": ["BinData/image7.png"],
+        "fallbackText": "◆",
+        "rendering": {
+            "brightness": "0",
+            "contrast": "0",
+            "effect": "REAL_PIC",
+            "alpha": "0",
+        },
+    }

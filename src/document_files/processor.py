@@ -14,42 +14,34 @@ import os
 import stat
 import sys
 import tempfile
-import time
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from .analysis import default_registry, extract_complete
 from .extraction_errors import BudgetExceededError, DocumentExtractionError, ExtractionError
 from .extraction_protocol import (
     REQUEST_SCHEMA_VERSION,
     RESULT_SCHEMA_VERSION,
     AdapterDescriptor,
-    ExtractionEnvelope,
 )
-from .extraction_registry import AdapterRegistry, build_default_registry
+from .extraction_registry import AdapterRegistry
 from .formats import FORMAT_SPECS
 
 DESCRIPTOR_SCHEMA_VERSION = "document-files.descriptor.v1"
-DEFAULT_COMPLETION_SECONDS = 580.0
-MAX_CONTINUATION_PASSES = 1_000
 MAX_PROCESS_INPUT_BYTES = 2 * 1024 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
-PROCESSOR_IMPLEMENTATION_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-
-
-def _runtime_root() -> Path:
-    configured = os.environ.get("DOCUMENT_FILES_RUNTIME_ROOT")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "Document Files"
-    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "document-files"
+PROCESSOR_IMPLEMENTATION_SHA256 = hashlib.sha256(
+    Path(__file__).read_bytes()
+    + b"\0"
+    + Path(__file__).with_name("analysis.py").read_bytes()
+).hexdigest()
 
 
 def registry() -> AdapterRegistry:
-    return build_default_registry(_runtime_root())
+    return default_registry()
 
 
 def _public_route(
@@ -111,55 +103,6 @@ def describe_all() -> dict[str, Any]:
         "schema_version": DESCRIPTOR_SCHEMA_VERSION,
         "formats": formats,
     }
-
-
-def _pending_continuation(envelope: ExtractionEnvelope) -> bool:
-    return any(
-        issue.code in {"pdf_page_range_pending", "office_image_range_pending"}
-        for issue in envelope.issues
-    )
-
-
-def extract_complete(
-    path: Path,
-    *,
-    format_id: str,
-    active_registry: AdapterRegistry | None = None,
-    completion_seconds: float = DEFAULT_COMPLETION_SECONDS,
-) -> ExtractionEnvelope:
-    """Extract one document and finish every safely resumable bounded range."""
-
-    active_registry = active_registry or registry()
-    adapter = active_registry.resolve(format_id)
-    result = adapter.extract(path, format_id=format_id)
-    started = time.monotonic()
-    passes = 0
-    while _pending_continuation(result):
-        resume = getattr(adapter, "resume", None)
-        if not callable(resume):
-            raise ExtractionError(
-                "adapter reported pending coverage without a continuation operation",
-                details={"format_id": format_id, "adapter_id": adapter.descriptor.adapter_id},
-            )
-        if passes >= MAX_CONTINUATION_PASSES:
-            raise BudgetExceededError(
-                "document continuation exceeded its pass budget",
-                details={"limit": MAX_CONTINUATION_PASSES, "format_id": format_id},
-            )
-        if time.monotonic() - started >= completion_seconds:
-            raise BudgetExceededError(
-                "document continuation exceeded its total runtime budget",
-                details={"limit_seconds": completion_seconds, "format_id": format_id},
-            )
-        previous_manifest = result.manifest_hash
-        result = resume(path, format_id=format_id, previous=result)
-        passes += 1
-        if result.manifest_hash == previous_manifest:
-            raise ExtractionError(
-                "document continuation made no progress",
-                details={"format_id": format_id, "pass": passes},
-            )
-    return result
 
 
 def _read_request() -> Mapping[str, Any]:

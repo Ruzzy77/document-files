@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import struct
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from contextlib import suppress
 
 if __package__:
@@ -149,13 +150,32 @@ def doc_info_properties(records, *, version: int = 0) -> tuple[list[dict], list[
                 levels = []
             numberings.append(levels)
         elif tag == 0x18:
-            marker = {}
-            if len(data) >= 18 and struct.unpack_from("<I", data, 14)[0] == 0:
+            marker = {"numbering_record": record}
+            marker_text = ""
+            if len(data) >= 14:
                 with suppress(UnicodeError):
-                    marker = {
-                        "marker_text": data[12:14].decode("utf-16-le"),
-                        "numbering_record": record,
+                    marker_text = data[12:14].decode("utf-16-le")
+            if len(data) >= 18:
+                image_bullet_flag = struct.unpack_from("<I", data, 14)[0]
+                if image_bullet_flag == 0:
+                    if marker_text:
+                        marker["marker_text"] = marker_text
+                elif len(data) >= 22:
+                    marker_image = {
+                        "image_bullet_flag": image_bullet_flag,
+                        "contrast": data[18],
+                        "brightness": data[19],
+                        "effect": data[20],
+                        "binary_item_ref": data[21],
                     }
+                    if marker_text:
+                        marker_image["fallback_text"] = marker_text
+                    if len(data) >= 24:
+                        with suppress(UnicodeError):
+                            check_text = data[22:24].decode("utf-16-le")
+                            if check_text and check_text != "\0":
+                                marker_image["check_marker_text"] = check_text
+                    marker["marker_image"] = marker_image
             bullets.append(marker)
         elif tag == 0x19:
             if len(data) < 32:
@@ -646,8 +666,17 @@ class SectionStructure:
             kind = "heading"
         elif head_type in {"number", "bullet"}:
             kind = "list_item"
+            marker_image = properties.get("marker_image")
+            if isinstance(marker_image, Mapping):
+                marker_image = dict(marker_image)
+                reference = marker_image.get("binary_item_ref")
+                if isinstance(reference, int) and 0 < reference <= len(self.images):
+                    marker_image.update(self.images[reference - 1])
+                properties["marker_image"] = marker_image
             # Numbering definitions are referenced, never guessed into source text.
-            if not properties.get("marker_text"):
+            if not properties.get("marker_text") and not (
+                isinstance(marker_image, Mapping) and marker_image.get("image_parts")
+            ):
                 self.issues["hwp_list_marker_partial"] += 1
         self._unit(
             kind,

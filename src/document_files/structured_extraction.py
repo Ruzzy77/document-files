@@ -112,6 +112,36 @@ def _public_hidden_column_ranges(value: Any) -> Any:
     ]
 
 
+def _public_image_marker(value: Mapping[str, Any]) -> dict[str, Any]:
+    marker: dict[str, Any] = {
+        "kind": "image",
+        "basis": "source_image_reference",
+    }
+    if "binary_item_ref" in value:
+        marker["sourceRef"] = value["binary_item_ref"]
+    parts = value.get("image_parts")
+    if isinstance(parts, (list, tuple)):
+        marker["sourceParts"] = list(parts)
+    if "fallback_text" in value:
+        marker["fallbackText"] = value["fallback_text"]
+    if "check_marker_text" in value:
+        marker["checkText"] = value["check_marker_text"]
+    rendering = {
+        public: value[source]
+        for source, public in (
+            ("brightness", "brightness"),
+            ("bright", "brightness"),
+            ("contrast", "contrast"),
+            ("effect", "effect"),
+            ("alpha", "alpha"),
+        )
+        if source in value
+    }
+    if rendering:
+        marker["rendering"] = rendering
+    return marker
+
+
 def _semantic_projection(
     unit_type: str,
     structure: Mapping[str, Any],
@@ -157,6 +187,8 @@ def _semantic_projection(
                 "text": structure["marker_text"],
                 "basis": "source_marker",
             }
+        elif isinstance(structure.get("marker_image"), Mapping):
+            list_data["marker"] = _public_image_marker(structure["marker_image"])
         if "numbering_ref" in structure:
             list_data["numberingRef"] = structure["numbering_ref"]
         if list_data:
