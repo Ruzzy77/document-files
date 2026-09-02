@@ -200,7 +200,7 @@ class BuiltinAdapterTest(unittest.TestCase):
             self.assertEqual(path.read_bytes(), before)
 
         self.assertEqual(result.completeness, "complete")
-        self.assertEqual(result.descriptor.adapter_version, "source-units-v7")
+        self.assertEqual(result.descriptor.adapter_version, "source-units-v8")
         self.assertEqual(
             [(unit.unit_type, unit.content) for unit in result.units],
             [("sheet", ""), ("sheet_cell", "A1=색인 대상")],
@@ -209,6 +209,79 @@ class BuiltinAdapterTest(unittest.TestCase):
             "xlsx_invalid_font_family_ignored",
             {issue.code for issue in result.issues},
         )
+
+    def test_xlsx_alternate_style_fallback_preserves_style_order(self) -> None:
+        from xml.etree import ElementTree
+
+        from openpyxl import Workbook
+
+        spreadsheet_namespace = (
+            "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        )
+        compatibility_namespace = (
+            "http://schemas.openxmlformats.org/markup-compatibility/2006"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "alternate-style.xlsx"
+            rewritten = root / "rewritten.xlsx"
+            workbook = Workbook()
+            workbook.active["A1"] = 42
+            workbook.active["A1"].number_format = "0.00"
+            workbook.save(path)
+
+            with (
+                zipfile.ZipFile(path) as source,
+                zipfile.ZipFile(rewritten, "w", allowZip64=True) as target,
+            ):
+                for member in source.infolist():
+                    data = source.read(member)
+                    if member.filename == "xl/styles.xml":
+                        styles = ElementTree.fromstring(data)
+                        cell_styles = styles.find(
+                            f"{{{spreadsheet_namespace}}}cellXfs"
+                        )
+                        self.assertIsNotNone(cell_styles)
+                        source_style = cell_styles[1]
+                        cell_styles.remove(source_style)
+                        alternate = ElementTree.Element(
+                            f"{{{compatibility_namespace}}}AlternateContent"
+                        )
+                        choice = ElementTree.SubElement(
+                            alternate,
+                            f"{{{compatibility_namespace}}}Choice",
+                            {"Requires": "extension"},
+                        )
+                        choice.append(
+                            ElementTree.fromstring(ElementTree.tostring(source_style))
+                        )
+                        fallback = ElementTree.SubElement(
+                            alternate,
+                            f"{{{compatibility_namespace}}}Fallback",
+                        )
+                        fallback.append(source_style)
+                        cell_styles.insert(1, alternate)
+                        data = ElementTree.tostring(
+                            styles,
+                            encoding="utf-8",
+                            xml_declaration=True,
+                        )
+                    target.writestr(member, data)
+            rewritten.replace(path)
+            before = path.read_bytes()
+
+            result = run_builtin_extraction(path, "xlsx")
+
+            self.assertEqual(path.read_bytes(), before)
+
+        self.assertEqual(result.completeness, "complete")
+        cell = result.units[1]
+        self.assertEqual(cell.content, "A1=42")
+        self.assertEqual(cell.structure_path["style_id"], 1)
+        self.assertEqual(cell.structure_path["number_format"], "0.00")
+        issue_codes = {issue.code for issue in result.issues}
+        self.assertIn("xlsx_alternate_content_resolved", issue_codes)
+        self.assertNotIn("xlsx_cell_style_partial", issue_codes)
 
     def test_xlsx_out_of_range_cell_style_retains_value_and_raw_style_id(self) -> None:
         from xml.etree import ElementTree

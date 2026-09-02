@@ -24,7 +24,7 @@ EXTRACTOR_VERSION_OVERRIDES = {
     "docx": "source-units-v7",
     "pptx": "source-units-v8",
     "hwpx": "source-units-v9",
-    "xlsx": "source-units-v7",
+    "xlsx": "source-units-v8",
 }
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_EXPANDED_BYTES = 512 * 1024 * 1024
@@ -559,48 +559,108 @@ def _xlsx_typed_value(
     }
 
 
+_MARKUP_COMPATIBILITY_NAMESPACE = (
+    "http://schemas.openxmlformats.org/markup-compatibility/2006"
+)
 _SPREADSHEETML_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _XLSX_STYLES_MEMBER = "xl/styles.xml"
 
 
-def _xlsx_styles_without_invalid_font_families(styles: bytes) -> tuple[bytes, int]:
-    """Remove only numeric font-family metadata outside OpenPyXL's safe range."""
+def _resolve_xlsx_style_alternate_content(root) -> int:
+    """Select standard fallbacks while preserving the declared style-list order."""
+
+    alternate_tag = f"{{{_MARKUP_COMPATIBILITY_NAMESPACE}}}AlternateContent"
+    fallback_tag = f"{{{_MARKUP_COMPATIBILITY_NAMESPACE}}}Fallback"
+    resolved = 0
+    while True:
+        pass_resolved = 0
+        for parent in list(root.iter()):
+            for index, child in enumerate(list(parent)):
+                if child.tag != alternate_tag:
+                    continue
+                fallback = next(
+                    (branch for branch in child if branch.tag == fallback_tag),
+                    None,
+                )
+                if fallback is None:
+                    continue
+                replacements = list(fallback)
+                parent.remove(child)
+                for offset, replacement in enumerate(replacements):
+                    parent.insert(index + offset, replacement)
+                pass_resolved += 1
+        resolved += pass_resolved
+        if not pass_resolved:
+            return resolved
+
+
+def _xlsx_compatible_styles(styles: bytes) -> tuple[bytes, dict[str, int]]:
+    """Make source-declared compatibility styles readable in a temporary copy."""
 
     try:
         root = ElementTree.fromstring(styles)
     except (DefusedXmlException, ElementTree.ParseError) as exc:
         raise ExtractionError("could not parse XLSX styles XML") from exc
+    resolved = _resolve_xlsx_style_alternate_content(root)
     fonts = root.find(f"{{{_SPREADSHEETML_NAMESPACE}}}fonts")
-    if fonts is None:
-        return styles, 0
-
     family_tag = f"{{{_SPREADSHEETML_NAMESPACE}}}family"
     removed = 0
-    for font in list(fonts):
-        for child in list(font):
-            if child.tag != family_tag:
-                continue
-            raw_value = child.attrib.get("val")
-            try:
-                value = int(raw_value) if raw_value is not None else None
-            except ValueError:
-                continue
-            if value is not None and not 0 <= value <= 14:
-                font.remove(child)
-                removed += 1
-    if not removed:
-        return styles, 0
+    if fonts is not None:
+        for font in list(fonts):
+            for child in list(font):
+                if child.tag != family_tag:
+                    continue
+                raw_value = child.attrib.get("val")
+                try:
+                    value = int(raw_value) if raw_value is not None else None
+                except ValueError:
+                    continue
+                if value is not None and not 0 <= value <= 14:
+                    font.remove(child)
+                    removed += 1
+    changes = {
+        "alternate_content_fallbacks": resolved,
+        "invalid_font_families": removed,
+    }
+    if not resolved and not removed:
+        return styles, changes
     return ElementTree.tostring(
         root,
         encoding="utf-8",
         xml_declaration=True,
-    ), removed
+    ), changes
 
 
-def _write_xlsx_with_safe_font_families(source: Path, destination: Path) -> int:
-    """Write a temporary package with invalid font-family metadata omitted."""
+def _read_xlsx_compatible_styles(path: Path) -> tuple[bytes | None, dict[str, int]]:
+    with zipfile.ZipFile(path) as package:
+        try:
+            member = package.getinfo(_XLSX_STYLES_MEMBER)
+        except KeyError:
+            return None, {
+                "alternate_content_fallbacks": 0,
+                "invalid_font_families": 0,
+            }
+        if member.file_size > MAX_XML_MEMBER_BYTES:
+            raise ExtractionError(
+                "XLSX styles XML exceeds the extraction limit",
+                details={
+                    "member_bytes": member.file_size,
+                    "limit": MAX_XML_MEMBER_BYTES,
+                },
+            )
+        styles, changes = _xlsx_compatible_styles(package.read(member))
+    if any(changes.values()):
+        return styles, changes
+    return None, changes
 
-    removed = 0
+
+def _write_xlsx_with_compatible_styles(
+    source: Path,
+    destination: Path,
+    styles: bytes,
+) -> None:
+    """Write a temporary package containing already-normalized style XML."""
+
     with (
         zipfile.ZipFile(source) as package,
         zipfile.ZipFile(destination, "w", allowZip64=True) as normalized,
@@ -608,18 +668,7 @@ def _write_xlsx_with_safe_font_families(source: Path, destination: Path) -> int:
         normalized.comment = package.comment
         for member in package.infolist():
             if member.filename == _XLSX_STYLES_MEMBER:
-                if member.file_size > MAX_XML_MEMBER_BYTES:
-                    raise ExtractionError(
-                        "XLSX styles XML exceeds the extraction limit",
-                        details={
-                            "member_bytes": member.file_size,
-                            "limit": MAX_XML_MEMBER_BYTES,
-                        },
-                    )
-                data = package.read(member)
-                data, member_removed = _xlsx_styles_without_invalid_font_families(data)
-                removed += member_removed
-                normalized.writestr(member, data)
+                normalized.writestr(member, styles)
                 continue
             with (
                 package.open(member) as source_member,
@@ -628,7 +677,6 @@ def _write_xlsx_with_safe_font_families(source: Path, destination: Path) -> int:
                 shutil.copyfileobj(
                     source_member, destination_member, length=1024 * 1024
                 )
-    return removed
 
 
 def _open_xlsx_workbook(load_workbook, path: Path, *, data_only: bool):
@@ -785,35 +833,53 @@ def extract_xlsx(path: Path) -> ExtractionResult:
     temporary = None
     workbook_path = path
     try:
-        try:
-            package, workbook = _open_xlsx_workbook(
-                load_workbook,
-                workbook_path,
-                data_only=False,
-            )
-        except ValueError:
+        compatible_styles, style_changes = _read_xlsx_compatible_styles(path)
+        if compatible_styles is not None:
             temporary = tempfile.TemporaryDirectory(prefix="document-files-xlsx-")
             normalized_path = Path(temporary.name) / "normalized.xlsx"
-            removed = _write_xlsx_with_safe_font_families(path, normalized_path)
-            if not removed:
-                raise
+            _write_xlsx_with_compatible_styles(
+                path,
+                normalized_path,
+                compatible_styles,
+            )
             workbook_path = normalized_path
-            package, workbook = _open_xlsx_workbook(
-                load_workbook,
-                workbook_path,
-                data_only=False,
-            )
-            issues.append(
-                {
-                    "code": "xlsx_invalid_font_family_ignored",
-                    "severity": "info",
-                    "message": (
-                        "Invalid XLSX font-family metadata was ignored in a temporary "
-                        "read-only copy."
-                    ),
-                    "details": {"removed_elements": removed},
-                }
-            )
+            if style_changes["alternate_content_fallbacks"]:
+                issues.append(
+                    {
+                        "code": "xlsx_alternate_content_resolved",
+                        "severity": "info",
+                        "message": (
+                            "Standard SpreadsheetML style fallbacks were selected in "
+                            "a temporary read-only copy."
+                        ),
+                        "details": {
+                            "occurrences": style_changes[
+                                "alternate_content_fallbacks"
+                            ]
+                        },
+                    }
+                )
+            if style_changes["invalid_font_families"]:
+                issues.append(
+                    {
+                        "code": "xlsx_invalid_font_family_ignored",
+                        "severity": "info",
+                        "message": (
+                            "Invalid XLSX font-family metadata was ignored in a "
+                            "temporary read-only copy."
+                        ),
+                        "details": {
+                            "removed_elements": style_changes[
+                                "invalid_font_families"
+                            ]
+                        },
+                    }
+                )
+        package, workbook = _open_xlsx_workbook(
+            load_workbook,
+            workbook_path,
+            data_only=False,
+        )
         cached_package, cached_workbook = _open_xlsx_workbook(
             load_workbook,
             workbook_path,
