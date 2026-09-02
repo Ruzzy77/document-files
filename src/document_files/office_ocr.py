@@ -220,11 +220,7 @@ def _image_text_units(
                 content="\n".join(parts),
                 derivation_method="ocr",
                 geometry=geometry,
-                confidence=(
-                    confidence_total / confidence_weight
-                    if confidence_weight
-                    else None
-                ),
+                confidence=(confidence_total / confidence_weight if confidence_weight else None),
                 quality_flags=(
                     *quality_flags,
                     "embedded_image_ocr",
@@ -285,9 +281,7 @@ def _source_crop(location, observations=None):
 
 def _image_position(location):
     return (
-        location.get(
-            "part", location.get("section_file", location.get("section_stream"))
-        ),
+        location.get("part", location.get("section_file", location.get("section_stream"))),
         location.get("element", location.get("image_record")),
     )
 
@@ -324,9 +318,7 @@ class OfficeVisionAdapter:
             "non_displayed_images": "skip_proven_zero_display_area_v1",
             "metafile_stored_text": "emr_exttextoutw_unicode_records_v1",
             "fallback_ocr_grouping": "bounded_image_text_blocks_v1",
-            "fallback_ocr_max_regions_per_block": (
-                _FALLBACK_OCR_MAX_REGIONS_PER_BLOCK
-            ),
+            "fallback_ocr_max_regions_per_block": (_FALLBACK_OCR_MAX_REGIONS_PER_BLOCK),
             "fallback_ocr_max_chars_per_block": _FALLBACK_OCR_MAX_CHARS_PER_BLOCK,
             "fallback_ocr_segment_map": "content_offsets_bbox_confidence_v1",
         }
@@ -446,9 +438,7 @@ class OfficeVisionAdapter:
 
     def resume(self, path, *, format_id, previous):
         if previous.descriptor != self.descriptor:
-            raise ExtractionError(
-                "Office continuation requires the same adapter identity"
-            )
+            raise ExtractionError("Office continuation requires the same adapter identity")
         return self._extract_range(path, format_id=format_id, previous=previous)
 
     def _extract_range(self, path, *, format_id, previous=None):
@@ -471,9 +461,10 @@ class OfficeVisionAdapter:
         failures = {}
         positions = {}
         for position, unit in enumerate(native.units):
-            if unit.unit_type == "embedded_object" and unit.structure_path.get(
-                "object_type"
-            ) in {"image", "pic"}:
+            if unit.unit_type == "embedded_object" and unit.structure_path.get("object_type") in {
+                "image",
+                "pic",
+            }:
                 positions.setdefault(
                     _image_position(unit.structure_path),
                     position,
@@ -498,15 +489,9 @@ class OfficeVisionAdapter:
         start = 0
         if previous is not None:
             coverage = [
-                i.details
-                for i in previous.issues
-                if i.code == "office_image_range_observed"
+                i.details for i in previous.issues if i.code == "office_image_range_observed"
             ]
-            pending = [
-                i.details
-                for i in previous.issues
-                if i.code == "office_image_range_pending"
-            ]
+            pending = [i.details for i in previous.issues if i.code == "office_image_range_pending"]
             if len(coverage) != 1 or len(pending) != 1:
                 raise ExtractionError("Office continuation has no unique image range")
             start = pending[0].get("next_image")
@@ -517,35 +502,26 @@ class OfficeVisionAdapter:
                 or coverage[0].get("image_count") != len(image_order)
                 or coverage[0].get("source_sha256") != source_digest
             ):
-                raise ExtractionError(
-                    "Office continuation source or image range changed"
-                )
+                raise ExtractionError("Office continuation source or image range changed")
             for unit in previous.units:
                 if not (
                     (unit.unit_type == "image_text" and unit.derivation_method == "ocr")
                     or (
                         unit.unit_type == "image_native_text"
                         and unit.derivation_method == "native_text"
-                        and unit.structure_path.get("text_representation")
-                        == "emf_stored_string"
+                        and unit.structure_path.get("text_representation") == "emf_stored_string"
                     )
                 ):
                     continue
                 key = _image_position(unit.structure_path)
                 if key not in positions:
-                    raise ExtractionError(
-                        "Office OCR has no matching native image position"
-                    )
+                    raise ExtractionError("Office OCR has no matching native image position")
                 insertions.setdefault(positions[key], []).append(unit)
             for issue in previous.issues:
-                if (
-                    issue.code in _MESSAGES
-                    and issue.code != "office_image_ocr_budget_reached"
-                ):
+                if issue.code in _MESSAGES and issue.code != "office_image_ocr_budget_reached":
                     observations[issue.code] += issue.details.get("occurrences", 0)
                     diagnostic_examples[issue.code].extend(
-                        dict(example)
-                        for example in issue.details.get("examples", ())[:16]
+                        dict(example) for example in issue.details.get("examples", ())[:16]
                     )
 
         def observe_image(code, location, part, details):
@@ -570,9 +546,7 @@ class OfficeVisionAdapter:
                     }
                 )
 
-        added_characters = sum(
-            len(u.content) for group in insertions.values() for u in group
-        )
+        added_characters = sum(len(u.content) for group in insertions.values() for u in group)
         added_count = sum(len(group) for group in insertions.values())
         native_total = sum(len(u.content) for u in native.units)
         by_part, by_digest, source_data, metafile_strings = {}, {}, {}, {}
@@ -653,12 +627,8 @@ class OfficeVisionAdapter:
                         next_image = image_index
                         break
                     if part not in source_data:
-                        remaining_bytes = (
-                            self.config["max_total_image_bytes"] - bytes_read
-                        )
-                        read_limit = min(
-                            self.config["max_image_bytes"], remaining_bytes
-                        )
+                        remaining_bytes = self.config["max_total_image_bytes"] - bytes_read
+                        read_limit = min(self.config["max_image_bytes"], remaining_bytes)
                         try:
                             source_data[part] = archive.read(part, location, read_limit)
                         except OverflowError:
@@ -731,9 +701,7 @@ class OfficeVisionAdapter:
                     "image_ocr_failed": "office_image_ocr_failed",
                     "image_crop_placement_unresolved": "office_image_placement_unresolved",
                 }
-                failure = next(
-                    (i for i in recognized.issues if i.code in failures_by_code), None
-                )
+                failure = next((i for i in recognized.issues if i.code in failures_by_code), None)
                 if failure is not None:
                     observe_image(
                         failures_by_code[failure.code],
@@ -746,9 +714,7 @@ class OfficeVisionAdapter:
                         # Stored strings are not OCR or a visible rendering; a
                         # source crop would require graphics playback to locate.
                         if digest not in metafile_strings:
-                            metafile_strings[digest] = stored_emf_strings(
-                                source_data[part]
-                            )
+                            metafile_strings[digest] = stored_emf_strings(source_data[part])
                         strings = metafile_strings[digest] or ()
                         stored = [
                             ExtractedUnit(
@@ -788,9 +754,7 @@ class OfficeVisionAdapter:
                     continue
                 if "image_pixel_budget_exceeded" in codes:
                     pixel_issue = next(
-                        i
-                        for i in recognized.issues
-                        if i.code == "image_pixel_budget_exceeded"
+                        i for i in recognized.issues if i.code == "image_pixel_budget_exceeded"
                     )
                     observe_image(
                         "office_image_size_limit",
@@ -813,9 +777,7 @@ class OfficeVisionAdapter:
                                 **dict(issue.details),
                             },
                         )
-                if any(
-                    i.code == "image_text_budget_exceeded" for i in recognized.issues
-                ):
+                if any(i.code == "image_text_budget_exceeded" for i in recognized.issues):
                     observations["office_image_ocr_output_limit"] += 1
                     continue
                 if not recognized.units:
@@ -854,14 +816,11 @@ class OfficeVisionAdapter:
             ):
                 remaining = max(
                     0,
-                    issue.details.get("occurrences", 0)
-                    - observations["office_image_ocr_observed"],
+                    issue.details.get("occurrences", 0) - observations["office_image_ocr_observed"],
                 )
                 if remaining:
                     issues.append(
-                        replace(
-                            issue, details={**issue.details, "occurrences": remaining}
-                        )
+                        replace(issue, details={**issue.details, "occurrences": remaining})
                     )
             else:
                 issues.append(issue)
@@ -890,8 +849,7 @@ class OfficeVisionAdapter:
                             **(
                                 {
                                     "examples": diagnostic_examples[code],
-                                    "examples_truncated": count
-                                    > len(diagnostic_examples[code]),
+                                    "examples_truncated": count > len(diagnostic_examples[code]),
                                 }
                                 if diagnostic_examples[code]
                                 else {}

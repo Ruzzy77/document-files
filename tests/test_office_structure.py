@@ -54,11 +54,7 @@ class OfficeStructureTest(unittest.TestCase):
             self.assertIn("grouped_ocr_regions", unit.quality_flags)
             self.assertIn("reading_order_unverified", unit.quality_flags)
             for segment in unit.geometry["segments"]:
-                recovered.append(
-                    unit.content[
-                        segment["content_start"] : segment["content_end"]
-                    ]
-                )
+                recovered.append(unit.content[segment["content_start"] : segment["content_end"]])
                 recovered_boxes.append(segment["bbox"])
         self.assertEqual(recovered, [unit.content for unit in regions])
         self.assertEqual(recovered_boxes, [unit.geometry["bbox"] for unit in regions])
@@ -117,9 +113,7 @@ class OfficeStructureTest(unittest.TestCase):
             picture = base / "image.png"
             image = Image.new("RGB", (1000, 250), "white")
             font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 70)
-            ImageDraw.Draw(image).text(
-                (50, 50), "Corpus local OCR", font=font, fill="black"
-            )
+            ImageDraw.Draw(image).text((50, 50), "Corpus local OCR", font=font, fill="black")
             image.save(picture)
             # Reusing a large package part must not spend its byte budget again.
             with picture.open("ab") as stream:
@@ -139,36 +133,23 @@ class OfficeStructureTest(unittest.TestCase):
             presentation.save(path)
             original = path.read_bytes()
             adapter = build_default_registry(base / "runtime").resolve("pptx")
-            with mock.patch.object(
-                adapter, "_image_text", wraps=adapter._image_text
-            ) as recognize:
+            with mock.patch.object(adapter, "_image_text", wraps=adapter._image_text) as recognize:
                 result = adapter.extract(path, format_id="pptx")
                 self.assertEqual(recognize.call_count, 1)
             self.assertEqual(path.read_bytes(), original)
         recognized = [u for u in result.units if u.derivation_method == "ocr"]
         self.assertTrue(recognized)
         self.assertIn("Corpus local OCR", " ".join(u.content for u in recognized))
-        self.assertEqual(
-            {u.structure_path["slide"] for u in recognized}, set(range(1, 20))
-        )
-        first_ocr = next(
-            i for i, u in enumerate(result.units) if u.derivation_method == "ocr"
-        )
+        self.assertEqual({u.structure_path["slide"] for u in recognized}, set(range(1, 20)))
+        first_ocr = next(i for i, u in enumerate(result.units) if u.derivation_method == "ocr")
         native_position = next(
-            i
-            for i, u in enumerate(result.units)
-            if u.content.startswith("Existing native content")
+            i for i, u in enumerate(result.units) if u.content.startswith("Existing native content")
         )
         self.assertLess(first_ocr, native_position)
         self.assertNotIn("office_image_size_limit", {i.code for i in result.issues})
+        self.assertTrue(all(u.geometry and u.confidence is not None for u in recognized))
         self.assertTrue(
-            all(u.geometry and u.confidence is not None for u in recognized)
-        )
-        self.assertTrue(
-            all(
-                u.structure_path["image_part"].startswith("ppt/media/")
-                for u in recognized
-            )
+            all(u.structure_path["image_part"].startswith("ppt/media/") for u in recognized)
         )
         self.assertEqual(
             sum(u.content.startswith("Existing native content") for u in result.units),
@@ -192,9 +173,7 @@ class OfficeStructureTest(unittest.TestCase):
                 picture = base / f"{index}.png"
                 Image.new("RGB", (20, 20), color).save(picture)
                 slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-                slide.shapes.add_textbox(
-                    0, 0, Inches(4), Inches(1)
-                ).text = f"Native {index}"
+                slide.shapes.add_textbox(0, 0, Inches(4), Inches(1)).text = f"Native {index}"
                 slide.shapes.add_picture(str(picture), 0, 0, width=Inches(1))
             path = source / "images.pptx"
             presentation.save(path)
@@ -362,9 +341,7 @@ class OfficeStructureTest(unittest.TestCase):
             data = CategoryChartData()
             data.categories = ["North", "South"]
             data.add_series("Revenue", [12, 18])
-            slide.shapes.add_chart(
-                XL_CHART_TYPE.COLUMN_CLUSTERED, 0, 0, Inches(4), Inches(2), data
-            )
+            slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, 0, 0, Inches(4), Inches(2), data)
             slide.notes_slide.notes_text_frame.text = "Speaker notes"
             presentation.save(path)
             original = path.read_bytes()
