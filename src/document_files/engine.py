@@ -28,6 +28,12 @@ from hwpx_automation.office.authoring import (
 )
 
 from .rhwp_backend import RHWP_VERSION, RhwpBackend, RhwpBackendError, backend_status
+from .structured_extraction import (
+    DEFAULT_PUBLIC_STRUCTURED_UNITS,
+    MAX_PUBLIC_STRUCTURED_UNITS,
+    STRUCTURED_EXTRACTION_SCHEMA_VERSION,
+    project_structured_extraction,
+)
 
 EDIT_PLAN_SCHEMA_VERSION = "document-files.edit.v1"
 MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024
@@ -39,7 +45,7 @@ HWP_SIGNATURE = b"HWP Document File"
 try:
     PLUGIN_VERSION = version("document-files")
 except PackageNotFoundError:
-    PLUGIN_VERSION = "1.1.2"
+    PLUGIN_VERSION = "1.2.0"
 PYTHON_HWPX_VERSION = "6.3.0"
 PYTHON_HWPX_AUTOMATION_VERSION = "7.0.3"
 
@@ -263,9 +269,13 @@ def capabilities() -> dict[str, Any]:
         },
         "extraction": {
             "schemaVersion": "document-files.extraction-result.v2",
+            "structuredSchemaVersion": STRUCTURED_EXTRACTION_SCHEMA_VERSION,
             "maxInputBytes": MAX_FILE_BYTES,
+            "maxStructuredUnitsPerPage": MAX_PUBLIC_STRUCTURED_UNITS,
             "coverageReported": True,
             "boundedContinuationCompletedInProcess": True,
+            "structuredPagination": True,
+            "sourceDeclaredSemanticsOnly": True,
             "formats": [
                 "docx",
                 "htm",
@@ -748,6 +758,70 @@ def _require_unprotected_hwp(source: Path) -> None:
             details={"path": str(source), "encrypted": True},
             suggestion="Provide an authorized unprotected HWP or HWPX copy.",
         )
+
+
+def extract_structure(
+    path: str | Path,
+    *,
+    unit_offset: int = 0,
+    max_units: int = DEFAULT_PUBLIC_STRUCTURED_UNITS,
+    include_text: bool = True,
+) -> dict[str, Any]:
+    """Extract a bounded page of source-addressed structure and explicit values."""
+
+    if isinstance(unit_offset, bool) or not isinstance(unit_offset, int) or unit_offset < 0:
+        raise DocumentFilesError(
+            "invalid-unit-offset",
+            "unit_offset must be a non-negative integer.",
+            details={"minimum": 0},
+        )
+    if (
+        isinstance(max_units, bool)
+        or not isinstance(max_units, int)
+        or not 1 <= max_units <= MAX_PUBLIC_STRUCTURED_UNITS
+    ):
+        raise DocumentFilesError(
+            "invalid-unit-limit",
+            "max_units is outside the supported range.",
+            details={"minimum": 1, "maximum": MAX_PUBLIC_STRUCTURED_UNITS},
+        )
+    source = _source_file(
+        path,
+        suffixes={
+            ".docx",
+            ".htm",
+            ".html",
+            ".hwp",
+            ".hwpx",
+            ".markdown",
+            ".md",
+            ".pdf",
+            ".pptx",
+            ".txt",
+            ".xlsx",
+        },
+    )
+    _require_unprotected_hwp(source)
+    from .processor import extract_complete
+
+    source_before = _file_record(source)
+    format_id = source.suffix.casefold().removeprefix(".")
+    result = extract_complete(source, format_id=format_id)
+    projected = project_structured_extraction(
+        result,
+        source_format=format_id,
+        unit_offset=unit_offset,
+        max_units=max_units,
+        include_text=include_text,
+    )
+    _ensure_source_unchanged(source, source_before)
+    return {
+        "ok": True,
+        "source": source_before,
+        "sourceUnchanged": True,
+        **projected,
+        "nativeRenderChecked": False,
+    }
 
 
 def extract_file(

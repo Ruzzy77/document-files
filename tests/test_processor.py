@@ -71,7 +71,10 @@ def test_process_jsonl_uses_read_only_descriptor(tmp_path: Path) -> None:
             "budgets": {},
         }
         completed = subprocess.run(
-            [str(Path(__file__).parents[1] / "bin" / "document-files"), "process"],
+            [
+                str(Path(__file__).parents[1] / "launchers" / "document-files"),
+                "process",
+            ],
             input=json.dumps(request, ensure_ascii=False).encode("utf-8") + b"\n",
             capture_output=True,
             check=True,

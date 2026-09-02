@@ -53,7 +53,7 @@ def _require_rhwp() -> dict:
 
 def test_capabilities_are_explicitly_headless() -> None:
     result = capabilities()
-    assert result["pluginVersion"] == "1.1.2"
+    assert result["pluginVersion"] == "1.2.0"
     assert result["headless"] is True
     assert result["nativeAppAutomation"] is False
     assert result["runtimeNetworkUsed"] is False
@@ -61,6 +61,10 @@ def test_capabilities_are_explicitly_headless() -> None:
     assert result["artifactFormats"]["hwp"]["edit"] is False
     assert result["artifactFormats"]["hwpx"]["convertToHwp"] is False
     assert result["extraction"]["coverageReported"] is True
+    assert result["extraction"]["structuredSchemaVersion"] == (
+        "document-files.structured-extraction.v1"
+    )
+    assert result["extraction"]["sourceDeclaredSemanticsOnly"] is True
     assert set(result["extraction"]["formats"]) == {
         "docx",
         "htm",
@@ -114,6 +118,7 @@ def test_mcp_surface_is_small_and_headless() -> None:
         "document_capabilities",
         "document_inspect_file",
         "document_extract_file",
+        "document_extract_structure",
         "document_convert_file",
         "document_create_hwpx",
         "document_edit_hwpx",
@@ -122,6 +127,7 @@ def test_mcp_surface_is_small_and_headless() -> None:
     }
     assert by_name["document_capabilities"].annotations.readOnlyHint is True
     assert by_name["document_extract_file"].annotations.readOnlyHint is True
+    assert by_name["document_extract_structure"].annotations.readOnlyHint is True
     assert "computer control" in by_name["document_render_file"].description
 
 

@@ -41,7 +41,7 @@ FORMAT_SPECS = {
         "xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "xlsx",
-        ("sheet_row",),
+        ("sheet", "sheet_cell"),
     ),
     "hwpx": FormatSpec(
         "hwpx",

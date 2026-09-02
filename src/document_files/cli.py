@@ -15,6 +15,7 @@ from .engine import (
     create_hwpx,
     edit_hwpx,
     extract_file,
+    extract_structure,
     inspect_file,
     render_file,
     verify_hwpx,
@@ -55,6 +56,15 @@ def _parser() -> argparse.ArgumentParser:
     extract_parser.add_argument("path")
     extract_parser.add_argument("--format", choices=("text", "markdown"), default="text")
     extract_parser.add_argument("--max-chars", type=int, default=200_000)
+
+    structure_parser = subparsers.add_parser(
+        "extract-structure",
+        help="Extract paged source structure and explicit values",
+    )
+    structure_parser.add_argument("path")
+    structure_parser.add_argument("--unit-offset", type=int, default=0)
+    structure_parser.add_argument("--max-units", type=int, default=500)
+    structure_parser.add_argument("--no-text", action="store_true")
 
     create_parser = subparsers.add_parser("create", help="Create HWPX from a JSON plan")
     create_parser.add_argument("plan")
@@ -116,6 +126,13 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             args.path,
             output_format=args.format,
             max_chars=args.max_chars,
+        )
+    if args.command == "extract-structure":
+        return extract_structure(
+            args.path,
+            unit_offset=args.unit_offset,
+            max_units=args.max_units,
+            include_text=not args.no_text,
         )
     if args.command == "create":
         return create_hwpx(

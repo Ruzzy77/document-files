@@ -17,6 +17,7 @@ from .engine import (
     create_hwpx,
     edit_hwpx,
     extract_file,
+    extract_structure,
     inspect_file,
     render_file,
     verify_hwpx,
@@ -176,6 +177,32 @@ def create_server() -> FastMCP:
                 path,
                 output_format=output_format,
                 max_chars=max_chars,
+            )
+        )
+
+    @server.tool(
+        name="document_extract_structure",
+        title="Extract Document Structure",
+        description=(
+            "Extract a paged, format-neutral view of source-declared structure and values. "
+            "Results retain source locators, typed spreadsheet values, table-cell coordinates, "
+            "field metadata, semantic roles, coverage, and issues without evaluating formulas "
+            "or inferring adjacent-cell relationships."
+        ),
+        annotations=READ_ONLY,
+    )
+    def document_extract_structure(
+        path: str,
+        unit_offset: int = 0,
+        max_units: int = 500,
+        include_text: bool = True,
+    ) -> dict[str, Any]:
+        return _safe_call(
+            lambda: extract_structure(
+                path,
+                unit_offset=unit_offset,
+                max_units=max_units,
+                include_text=include_text,
             )
         )
 

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import html.parser
+import math
 import re
 import shutil
 import tempfile
 import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import ClassVar
 
@@ -22,7 +24,7 @@ EXTRACTOR_VERSION_OVERRIDES = {
     "docx": "source-units-v7",
     "pptx": "source-units-v8",
     "hwpx": "source-units-v9",
-    "xlsx": "source-units-v5",
+    "xlsx": "source-units-v6",
 }
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_EXPANDED_BYTES = 512 * 1024 * 1024
@@ -30,6 +32,9 @@ MAX_XML_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_UNIT_CHARS = 50_000
 MAX_SHEET_ROWS = 100_000
 MAX_SHEET_CELLS = 1_000_000
+MAX_XLSX_SHEET_STRUCTURE_ITEMS = 100_000
+MAX_XLSX_UNITS = 200_000
+MAX_XLSX_CONTENT_CHARS = 100_000_000
 
 
 @dataclass
@@ -461,12 +466,72 @@ def extract_pptx(path: Path) -> ExtractionResult:
 
 
 def _cell_value(cell) -> str:
-    value = cell.value
+    value = getattr(cell, "value", None)
     if value is None:
         return ""
     if isinstance(value, str):
         return normalize_text(value)
     return str(value)
+
+
+def _xlsx_scalar(value, data_type: str | None = None) -> dict:
+    """Return a JSON-safe scalar without guessing from formatted display text."""
+
+    if data_type == "e":
+        return {"kind": "error", "value": str(value)}
+    if isinstance(value, bool):
+        return {"kind": "boolean", "value": value}
+    if isinstance(value, datetime):
+        return {"kind": "datetime", "value": value.isoformat()}
+    if isinstance(value, date):
+        return {"kind": "date", "value": value.isoformat()}
+    if isinstance(value, time):
+        return {"kind": "time", "value": value.isoformat()}
+    if isinstance(value, int):
+        return {"kind": "integer", "value": value}
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ExtractionError("XLSX cell contains a non-finite number")
+        return {"kind": "number", "value": value}
+    if isinstance(value, str):
+        return {"kind": "string", "value": value}
+    return {
+        "kind": "string",
+        "value": str(value),
+        "coercion": "source_value_string",
+    }
+
+
+def _xlsx_cell_scalar(cell) -> dict:
+    value = getattr(cell, "value", None)
+    data_type = getattr(cell, "data_type", None)
+    if isinstance(value, datetime):
+        from openpyxl.styles.numbers import is_datetime
+
+        temporal_kind = is_datetime(getattr(cell, "number_format", "General"))
+        if temporal_kind == "date":
+            return {"kind": "date", "value": value.date().isoformat()}
+        if temporal_kind == "time":
+            return {"kind": "time", "value": value.time().isoformat()}
+    return _xlsx_scalar(value, data_type)
+
+
+def _xlsx_typed_value(cell, cached_cell=None) -> dict:
+    value = getattr(cell, "value", None)
+    data_type = getattr(cell, "data_type", None)
+    if data_type != "f":
+        return _xlsx_cell_scalar(cell)
+    cached = getattr(cached_cell, "value", None)
+    cached_value = None
+    if cached is not None:
+        cached_value = _xlsx_cell_scalar(cached_cell)
+    return {
+        "kind": "formula",
+        "formula": str(value),
+        "cached_available": cached is not None,
+        "cached_value": cached_value,
+        "evaluation": "stored_cached_value_only",
+    }
 
 
 _SPREADSHEETML_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -541,19 +606,143 @@ def _write_xlsx_with_safe_font_families(source: Path, destination: Path) -> int:
     return removed
 
 
-def _open_xlsx_workbook(load_workbook, path: Path):
+def _open_xlsx_workbook(load_workbook, path: Path, *, data_only: bool):
     package = path.open("rb")
     try:
         workbook = load_workbook(
             filename=package,
             read_only=True,
-            data_only=False,
+            data_only=data_only,
             keep_links=False,
         )
     except Exception:
         package.close()
         raise
     return package, workbook
+
+
+def _xlsx_sheet_structure(
+    archive: zipfile.ZipFile,
+    worksheet_path: str,
+) -> tuple[dict, list[dict]]:
+    """Read bounded, source-declared sheet structure omitted by read-only OpenPyXL."""
+
+    from openpyxl.utils.cell import range_boundaries
+
+    structure = {
+        "merged_ranges": [],
+        "hidden_rows": [],
+        "hidden_column_ranges": [],
+    }
+    issues: list[dict] = []
+    try:
+        member = archive.getinfo(worksheet_path)
+    except KeyError:
+        return structure, [
+            {
+                "code": "xlsx_sheet_structure_partial",
+                "severity": "warning",
+                "message": "The worksheet XML part could not be located.",
+                "details": {"worksheet_part": worksheet_path},
+            }
+        ]
+    if member.file_size > MAX_XML_MEMBER_BYTES:
+        return structure, [
+            {
+                "code": "xlsx_sheet_structure_partial",
+                "severity": "warning",
+                "message": (
+                    "Merged-cell and hidden-range metadata exceeded the bounded XML "
+                    "inspection limit."
+                ),
+                "details": {
+                    "worksheet_part": worksheet_path,
+                    "member_bytes": member.file_size,
+                    "limit": MAX_XML_MEMBER_BYTES,
+                },
+            }
+        ]
+    root = _safe_archive_xml_root(archive, worksheet_path)
+
+    item_count = 0
+    invalid_ranges = 0
+    for node in root.iter():
+        name = _local_name(node.tag)
+        if name == "dimension" and node.get("ref"):
+            structure["declared_dimension"] = node.get("ref")
+        elif name == "mergeCell" and node.get("ref"):
+            if item_count >= MAX_XLSX_SHEET_STRUCTURE_ITEMS:
+                break
+            reference = node.get("ref")
+            try:
+                min_col, min_row, max_col, max_row = range_boundaries(reference)
+                if min_col < 1 or min_row < 1 or max_col < min_col or max_row < min_row:
+                    raise ValueError("invalid merged range")
+            except (TypeError, ValueError):
+                invalid_ranges += 1
+                continue
+            structure["merged_ranges"].append(
+                {
+                    "range": reference,
+                    "origin": {"row": min_row, "col": min_col},
+                    "row_span": max_row - min_row + 1,
+                    "col_span": max_col - min_col + 1,
+                }
+            )
+            item_count += 1
+        elif name == "row" and node.get("hidden") in {"1", "true"}:
+            if item_count >= MAX_XLSX_SHEET_STRUCTURE_ITEMS:
+                break
+            try:
+                row = int(node.get("r", ""))
+            except ValueError:
+                invalid_ranges += 1
+                continue
+            if row < 1:
+                invalid_ranges += 1
+                continue
+            structure["hidden_rows"].append(row)
+            item_count += 1
+        elif name == "col" and node.get("hidden") in {"1", "true"}:
+            if item_count >= MAX_XLSX_SHEET_STRUCTURE_ITEMS:
+                break
+            try:
+                minimum = int(node.get("min", ""))
+                maximum = int(node.get("max", ""))
+            except ValueError:
+                invalid_ranges += 1
+                continue
+            if minimum < 1 or maximum < minimum:
+                invalid_ranges += 1
+                continue
+            structure["hidden_column_ranges"].append({"min_col": minimum, "max_col": maximum})
+            item_count += 1
+
+    if item_count >= MAX_XLSX_SHEET_STRUCTURE_ITEMS:
+        issues.append(
+            {
+                "code": "xlsx_sheet_structure_partial",
+                "severity": "warning",
+                "message": "Worksheet structure metadata reached its configured item limit.",
+                "details": {
+                    "worksheet_part": worksheet_path,
+                    "limit": MAX_XLSX_SHEET_STRUCTURE_ITEMS,
+                },
+            }
+        )
+    if invalid_ranges:
+        issues.append(
+            {
+                "code": "xlsx_sheet_structure_partial",
+                "severity": "warning",
+                "message": "Some worksheet range metadata was invalid and was not projected.",
+                "details": {
+                    "worksheet_part": worksheet_path,
+                    "occurrences": invalid_ranges,
+                },
+            }
+        )
+    return structure, issues
 
 
 def extract_xlsx(path: Path) -> ExtractionResult:
@@ -565,19 +754,30 @@ def extract_xlsx(path: Path) -> ExtractionResult:
     units: list[UnitDraft] = []
     issues: list[dict] = []
     cells_seen = 0
-    package = None
-    workbook = None
+    content_chars = 0
+    package = cached_package = None
+    workbook = cached_workbook = None
     temporary = None
+    workbook_path = path
     try:
         try:
-            package, workbook = _open_xlsx_workbook(load_workbook, path)
+            package, workbook = _open_xlsx_workbook(
+                load_workbook,
+                workbook_path,
+                data_only=False,
+            )
         except ValueError:
             temporary = tempfile.TemporaryDirectory(prefix="document-files-xlsx-")
             normalized_path = Path(temporary.name) / "normalized.xlsx"
             removed = _write_xlsx_with_safe_font_families(path, normalized_path)
             if not removed:
                 raise
-            package, workbook = _open_xlsx_workbook(load_workbook, normalized_path)
+            workbook_path = normalized_path
+            package, workbook = _open_xlsx_workbook(
+                load_workbook,
+                workbook_path,
+                data_only=False,
+            )
             issues.append(
                 {
                     "code": "xlsx_invalid_font_family_ignored",
@@ -589,61 +789,214 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                     "details": {"removed_elements": removed},
                 }
             )
+        cached_package, cached_workbook = _open_xlsx_workbook(
+            load_workbook,
+            workbook_path,
+            data_only=True,
+        )
         try:
-            for sheet in workbook.worksheets:
-                for row_index, row in enumerate(sheet.iter_rows(), start=1):
-                    if row_index > MAX_SHEET_ROWS or cells_seen >= MAX_SHEET_CELLS:
+            if len(workbook.worksheets) != len(cached_workbook.worksheets):
+                raise ExtractionError("XLSX formula and cached-value views disagree")
+            missing_formula_cache = 0
+            workbook_limit_kind = None
+            with zipfile.ZipFile(workbook_path) as structure_archive:
+                for sheet_index, (sheet, cached_sheet) in enumerate(
+                    zip(workbook.worksheets, cached_workbook.worksheets, strict=True),
+                    start=1,
+                ):
+                    if len(units) >= MAX_XLSX_UNITS:
+                        workbook_limit_kind = "units"
                         issues.append(
                             {
                                 "code": "sheet_limit_reached",
                                 "severity": "warning",
                                 "message": (
-                                    "Workbook extraction stopped at the configured cell limit."
+                                    "Workbook extraction stopped at a configured output limit."
                                 ),
                                 "sheet": sheet.title,
+                                "details": {
+                                    "limit": MAX_XLSX_UNITS,
+                                    "kind": workbook_limit_kind,
+                                },
                             }
                         )
                         break
-                    rendered: list[str] = []
-                    first_cell = None
-                    last_cell = None
-                    for cell in row:
-                        cells_seen += 1
-                        value = _cell_value(cell)
-                        if not value:
-                            continue
-                        first_cell = first_cell or cell.coordinate
-                        last_cell = cell.coordinate
-                        rendered.append(f"{cell.coordinate}={value}")
-                    if rendered:
-                        units.append(
-                            UnitDraft(
-                                "sheet_row",
-                                {
-                                    "sheet": sheet.title,
-                                    "row": row_index,
-                                    "range": f"{first_cell}:{last_cell}",
-                                },
-                                "\t".join(rendered),
-                            )
+                    if sheet.title != cached_sheet.title:
+                        raise ExtractionError("XLSX worksheet order is inconsistent")
+                    worksheet_path = getattr(sheet, "_worksheet_path", "")
+                    sheet_structure, sheet_issues = _xlsx_sheet_structure(
+                        structure_archive,
+                        worksheet_path,
+                    )
+                    issues.extend(sheet_issues)
+                    units.append(
+                        UnitDraft(
+                            "sheet",
+                            {
+                                "sheet": sheet.title,
+                                "sheet_index": sheet_index,
+                                "sheet_state": sheet.sheet_state,
+                                "max_row": sheet.max_row,
+                                "max_col": sheet.max_column,
+                                **sheet_structure,
+                            },
+                            "",
                         )
+                    )
+                    merge_origins = {
+                        (item["origin"]["row"], item["origin"]["col"]): item
+                        for item in sheet_structure["merged_ranges"]
+                    }
+                    cached_rows = iter(cached_sheet.iter_rows())
+                    for row_index, row in enumerate(sheet.iter_rows(), start=1):
+                        if row_index > MAX_SHEET_ROWS:
+                            issues.append(
+                                {
+                                    "code": "sheet_limit_reached",
+                                    "severity": "warning",
+                                    "message": (
+                                        "Worksheet extraction stopped at the configured "
+                                        "row limit."
+                                    ),
+                                    "sheet": sheet.title,
+                                    "details": {
+                                        "limit": MAX_SHEET_ROWS,
+                                        "kind": "rows",
+                                    },
+                                }
+                            )
+                            break
+                        cached_row = next(cached_rows, ())
+                        for col_index, cell in enumerate(row, start=1):
+                            if cells_seen >= MAX_SHEET_CELLS:
+                                workbook_limit_kind = "cells"
+                                break
+                            cells_seen += 1
+                            value = getattr(cell, "value", None)
+                            if value is None:
+                                continue
+                            cached_cell = (
+                                cached_row[col_index - 1]
+                                if col_index <= len(cached_row)
+                                else None
+                            )
+                            typed_value = _xlsx_typed_value(cell, cached_cell)
+                            if (
+                                typed_value["kind"] == "formula"
+                                and not typed_value["cached_available"]
+                            ):
+                                missing_formula_cache += 1
+                            coordinate = getattr(cell, "coordinate", None)
+                            if not coordinate:
+                                raise ExtractionError(
+                                    "XLSX non-empty cell is missing its coordinate"
+                                )
+                            cell_content = f"{coordinate}={_cell_value(cell)}"
+                            if len(units) >= MAX_XLSX_UNITS:
+                                workbook_limit_kind = "units"
+                                break
+                            if content_chars + len(cell_content) > MAX_XLSX_CONTENT_CHARS:
+                                workbook_limit_kind = "content_chars"
+                                break
+                            location = {
+                                "sheet": sheet.title,
+                                "sheet_index": sheet_index,
+                                "sheet_state": sheet.sheet_state,
+                                "row": row_index,
+                                "col": col_index,
+                                "coordinate": coordinate,
+                                "value": typed_value,
+                                "number_format": getattr(
+                                    cell,
+                                    "number_format",
+                                    "General",
+                                ),
+                                "style_id": getattr(cell, "style_id", 0),
+                            }
+                            if merge := merge_origins.get((row_index, col_index)):
+                                location.update(
+                                    {
+                                        "merged_range": merge["range"],
+                                        "row_span": merge["row_span"],
+                                        "col_span": merge["col_span"],
+                                    }
+                                )
+                            units.append(
+                                UnitDraft(
+                                    "sheet_cell",
+                                    location,
+                                    cell_content,
+                                )
+                            )
+                            content_chars += len(cell_content)
+                        if workbook_limit_kind:
+                            break
+                    if workbook_limit_kind:
+                        limits = {
+                            "cells": MAX_SHEET_CELLS,
+                            "units": MAX_XLSX_UNITS,
+                            "content_chars": MAX_XLSX_CONTENT_CHARS,
+                        }
+                        issues.append(
+                            {
+                                "code": "sheet_limit_reached",
+                                "severity": "warning",
+                                "message": (
+                                    "Workbook extraction stopped at a configured output limit."
+                                ),
+                                "sheet": sheet.title,
+                                "details": {
+                                    "limit": limits[workbook_limit_kind],
+                                    "kind": workbook_limit_kind,
+                                },
+                            }
+                        )
+                        break
+            if missing_formula_cache:
+                issues.append(
+                    {
+                        "code": "xlsx_formula_without_cached_value",
+                        "severity": "info",
+                        "impact": "observation",
+                        "coverage_dimensions": [],
+                        "message": (
+                            "Some formulas have no stored cached result; their expressions "
+                            "were retained without evaluation."
+                        ),
+                        "details": {"occurrences": missing_formula_cache},
+                    }
+                )
         finally:
             workbook.close()
             package.close()
+            cached_workbook.close()
+            cached_package.close()
             workbook = None
             package = None
+            cached_workbook = None
+            cached_package = None
     except Exception as exc:
-        raise ExtractionError(
-            "could not extract XLSX", details={"error": str(exc)}
-        ) from exc
+        raise ExtractionError("could not extract XLSX", details={"error": str(exc)}) from exc
     finally:
         if workbook is not None:
             workbook.close()
         if package is not None:
             package.close()
+        if cached_workbook is not None:
+            cached_workbook.close()
+        if cached_package is not None:
+            cached_package.close()
         if temporary is not None:
             temporary.cleanup()
-    return _finish(units, issues)
+    if not any(unit.content for unit in units):
+        issues.append(
+            {
+                "code": "no_extractable_text",
+                "severity": "warning",
+                "message": "The workbook contains structure but no non-empty cell values.",
+            }
+        )
+    return ExtractionResult(units=units, issues=issues)
 
 
 EXTRACTORS = {

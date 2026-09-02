@@ -5,6 +5,7 @@
 ## 담당 범위
 
 - PDF, DOCX, PPTX, XLSX, HWP, HWPX, HTML, Markdown, 일반 텍스트의 구조 보존 추출
+- 형식에 공통으로 적용되는 구조·시맨틱 역할·명시적 값의 페이지 단위 JSON 추출
 - PDF와 Office 계열 문서의 로컬 OCR 및 추출 범위·경고 보고
 - 본문·구조·시각 내용·읽기 순서를 분리한 coverage 보고
 - 큰 문서의 페이지·이미지 구간을 한 실행 안에서 이어 처리
@@ -29,6 +30,7 @@ launchers/document-files capabilities
 launchers/document-files inspect input.pdf
 launchers/document-files extract input.docx --format text
 launchers/document-files extract input.pptx --format markdown
+launchers/document-files extract-structure input.xlsx --max-units 500
 launchers/document-files inspect input.hwp
 launchers/document-files convert input.hwp output.hwpx
 launchers/document-files render input.hwpx output.pdf
@@ -36,6 +38,13 @@ launchers/document-files verify output.hwpx
 ```
 
 Corpus 연동용 구조 추출 계약은 같은 실행 파일의 `process` 명령을 사용합니다.
+
+다른 프로젝트에서 구조와 값을 직접 사용할 때에는 `extract-structure` 명령이나
+`document_extract_structure` 도구를 사용합니다. 결과는 원본 형식의 위치 정보인
+`sourceStructure`와 형식 공통 `semanticRole`·`semantic`을 함께 제공합니다. XLSX 셀은
+문자열·수·불리언·날짜·수식과 저장된 계산값을 구분하며, 표 셀 좌표·병합 범위·필드
+메타데이터도 원본에 기록된 범위에서만 반환합니다. 수식을 실행하거나 인접 셀 관계를
+추정하지 않습니다. 큰 결과는 `unitPage.nextOffset`으로 이어서 읽습니다.
 
 ```bash
 launchers/document-files process --describe

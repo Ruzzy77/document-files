@@ -18,9 +18,11 @@ Treat document handling as a local background file operation. Keep source files 
 
 1. Inspect the document when format, structure, protection, or extraction quality affects the task.
 2. Extract bounded text or Markdown for ordinary reading tasks.
-3. Preserve the reported `coverage`, issues, unit counts, page or slide locations, and OCR provenance. Do not describe a partial result as complete.
-4. For large PDF or Office documents, let the plugin finish bounded page or image continuations in the same process. Do not create a second parser or reimplement format logic in the caller.
-5. Use OCR text as a derived observation. Keep native text and source structure when both are available.
+3. Use `document_extract_structure` when a caller needs reusable semantic roles, table or cell coordinates, fields, typed spreadsheet values, or stable source locators. Continue with `unitPage.nextOffset` when present.
+4. Preserve the reported `coverage`, issues, unit counts, page or slide locations, and OCR provenance. Do not describe a partial result as complete.
+5. For large PDF or Office documents, let the plugin finish bounded page or image continuations in the same process. Do not create a second parser or reimplement format logic in the caller.
+6. Use OCR text as a derived observation. Keep native text and source structure when both are available.
+7. Treat structured values as source-declared observations. Do not evaluate formulas or infer label/value relationships from adjacent cells unless the calling project explicitly owns and reports that inference.
 
 ## Corpus integration
 

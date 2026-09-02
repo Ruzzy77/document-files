@@ -1,7 +1,7 @@
 {
   "name": "document-files",
-  "version": "1.1.2",
-  "description": "Read, extract, convert, render, create, edit, and verify local document files.",
+  "version": "1.2.0",
+  "description": "Read, extract structure and values, convert, render, create, edit, and verify local document files.",
   "author": {
     "name": "Ruzzy77",
     "url": "https://github.com/Ruzzy77"

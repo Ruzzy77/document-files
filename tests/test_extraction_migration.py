@@ -200,8 +200,11 @@ class BuiltinAdapterTest(unittest.TestCase):
             self.assertEqual(path.read_bytes(), before)
 
         self.assertEqual(result.completeness, "complete")
-        self.assertEqual(result.descriptor.adapter_version, "source-units-v5")
-        self.assertEqual([unit.content for unit in result.units], ["A1=색인 대상"])
+        self.assertEqual(result.descriptor.adapter_version, "source-units-v6")
+        self.assertEqual(
+            [(unit.unit_type, unit.content) for unit in result.units],
+            [("sheet", ""), ("sheet_cell", "A1=색인 대상")],
+        )
         self.assertIn(
             "xlsx_invalid_font_family_ignored",
             {issue.code for issue in result.issues},
