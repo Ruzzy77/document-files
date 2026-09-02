@@ -71,6 +71,8 @@ def test_xlsx_structure_and_typed_values_are_source_addressed(tmp_path: Path) ->
     assert cells["B2"]["value"] == {"kind": "integer", "value": 3}
     assert cells["C2"]["value"] == {"kind": "boolean", "value": True}
     assert cells["D2"]["value"] == {"kind": "date", "value": "2026-09-02"}
+    assert cells["D2"]["cell"]["numberFormat"] == "yyyy-mm-dd"
+    assert cells["D2"]["cell"]["styleId"] > 0
     assert cells["E2"]["value"] == {
         "kind": "formula",
         "formula": "=B2*2",

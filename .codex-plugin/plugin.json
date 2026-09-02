@@ -1,6 +1,6 @@
 {
   "name": "document-files",
-  "version": "1.2.0+codex.20260902051427",
+  "version": "1.2.1+codex.20260902054124",
   "description": "Read, extract structure and values, convert, render, create, edit, and verify local document files.",
   "author": {
     "name": "Ruzzy77",

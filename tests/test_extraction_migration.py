@@ -200,7 +200,7 @@ class BuiltinAdapterTest(unittest.TestCase):
             self.assertEqual(path.read_bytes(), before)
 
         self.assertEqual(result.completeness, "complete")
-        self.assertEqual(result.descriptor.adapter_version, "source-units-v6")
+        self.assertEqual(result.descriptor.adapter_version, "source-units-v7")
         self.assertEqual(
             [(unit.unit_type, unit.content) for unit in result.units],
             [("sheet", ""), ("sheet_cell", "A1=색인 대상")],
@@ -209,6 +209,59 @@ class BuiltinAdapterTest(unittest.TestCase):
             "xlsx_invalid_font_family_ignored",
             {issue.code for issue in result.issues},
         )
+
+    def test_xlsx_out_of_range_cell_style_retains_value_and_raw_style_id(self) -> None:
+        from xml.etree import ElementTree
+
+        from openpyxl import Workbook
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "out-of-range-style.xlsx"
+            rewritten = root / "rewritten.xlsx"
+            workbook = Workbook()
+            workbook.active["A1"] = 42
+            workbook.save(path)
+
+            with (
+                zipfile.ZipFile(path) as source,
+                zipfile.ZipFile(rewritten, "w", allowZip64=True) as target,
+            ):
+                for member in source.infolist():
+                    data = source.read(member)
+                    if member.filename == "xl/worksheets/sheet1.xml":
+                        sheet = ElementTree.fromstring(data)
+                        cell = next(
+                            element
+                            for element in sheet.iter()
+                            if element.tag.rsplit("}", 1)[-1] == "c"
+                        )
+                        cell.set("s", "99")
+                        data = ElementTree.tostring(
+                            sheet,
+                            encoding="utf-8",
+                            xml_declaration=True,
+                        )
+                    target.writestr(member, data)
+            rewritten.replace(path)
+            before = path.read_bytes()
+
+            result = run_builtin_extraction(path, "xlsx")
+
+            self.assertEqual(path.read_bytes(), before)
+
+        self.assertEqual(result.completeness, "partial")
+        self.assertEqual(
+            [(unit.unit_type, unit.content) for unit in result.units],
+            [("sheet", ""), ("sheet_cell", "A1=42")],
+        )
+        cell = result.units[1]
+        self.assertEqual(cell.structure_path["style_id"], 99)
+        self.assertNotIn("number_format", cell.structure_path)
+        issue = next(issue for issue in result.issues if issue.code == "xlsx_cell_style_partial")
+        self.assertEqual(issue.impact, "structure_gap")
+        self.assertEqual(issue.coverage_dimensions, ("structure",))
+        self.assertEqual(issue.details["occurrences"], 1)
 
 
 class ExternalAdapterTest(unittest.TestCase):

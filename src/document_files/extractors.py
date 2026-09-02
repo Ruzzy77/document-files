@@ -24,7 +24,7 @@ EXTRACTOR_VERSION_OVERRIDES = {
     "docx": "source-units-v7",
     "pptx": "source-units-v8",
     "hwpx": "source-units-v9",
-    "xlsx": "source-units-v6",
+    "xlsx": "source-units-v7",
 }
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_EXPANDED_BYTES = 512 * 1024 * 1024
@@ -502,13 +502,30 @@ def _xlsx_scalar(value, data_type: str | None = None) -> dict:
     }
 
 
-def _xlsx_cell_scalar(cell) -> dict:
+def _xlsx_cell_style_metadata(cell) -> tuple[dict, str | None]:
+    """Return source style metadata without letting a broken style table drop a cell."""
+
+    metadata: dict = {}
+    style_id = getattr(cell, "_style_id", None)
+    if isinstance(style_id, int) and not isinstance(style_id, bool) and style_id >= 0:
+        metadata["style_id"] = style_id
+    try:
+        number_format = cell.number_format
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+        return metadata, type(exc).__name__
+    if isinstance(number_format, str):
+        metadata["number_format"] = number_format
+        return metadata, None
+    return metadata, "InvalidNumberFormat"
+
+
+def _xlsx_cell_scalar(cell, *, number_format: str | None = None) -> dict:
     value = getattr(cell, "value", None)
     data_type = getattr(cell, "data_type", None)
-    if isinstance(value, datetime):
+    if isinstance(value, datetime) and number_format is not None:
         from openpyxl.styles.numbers import is_datetime
 
-        temporal_kind = is_datetime(getattr(cell, "number_format", "General"))
+        temporal_kind = is_datetime(number_format)
         if temporal_kind == "date":
             return {"kind": "date", "value": value.date().isoformat()}
         if temporal_kind == "time":
@@ -516,15 +533,23 @@ def _xlsx_cell_scalar(cell) -> dict:
     return _xlsx_scalar(value, data_type)
 
 
-def _xlsx_typed_value(cell, cached_cell=None) -> dict:
+def _xlsx_typed_value(
+    cell,
+    cached_cell=None,
+    *,
+    number_format: str | None = None,
+) -> dict:
     value = getattr(cell, "value", None)
     data_type = getattr(cell, "data_type", None)
     if data_type != "f":
-        return _xlsx_cell_scalar(cell)
+        return _xlsx_cell_scalar(cell, number_format=number_format)
     cached = getattr(cached_cell, "value", None)
     cached_value = None
     if cached is not None:
-        cached_value = _xlsx_cell_scalar(cached_cell)
+        cached_value = _xlsx_cell_scalar(
+            cached_cell,
+            number_format=number_format,
+        )
     return {
         "kind": "formula",
         "formula": str(value),
@@ -798,6 +823,9 @@ def extract_xlsx(path: Path) -> ExtractionResult:
             if len(workbook.worksheets) != len(cached_workbook.worksheets):
                 raise ExtractionError("XLSX formula and cached-value views disagree")
             missing_formula_cache = 0
+            unresolved_cell_styles = 0
+            unresolved_cell_style_samples: list[dict] = []
+            unresolved_cell_style_errors: dict[str, int] = {}
             workbook_limit_kind = None
             with zipfile.ZipFile(workbook_path) as structure_archive:
                 for sheet_index, (sheet, cached_sheet) in enumerate(
@@ -880,7 +908,29 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                                 if col_index <= len(cached_row)
                                 else None
                             )
-                            typed_value = _xlsx_typed_value(cell, cached_cell)
+                            style_metadata, style_error = _xlsx_cell_style_metadata(cell)
+                            if style_error is not None:
+                                unresolved_cell_styles += 1
+                                unresolved_cell_style_errors[style_error] = (
+                                    unresolved_cell_style_errors.get(style_error, 0) + 1
+                                )
+                                if len(unresolved_cell_style_samples) < 20:
+                                    unresolved_cell_style_samples.append(
+                                        {
+                                            "sheet": sheet.title,
+                                            "coordinate": getattr(
+                                                cell,
+                                                "coordinate",
+                                                None,
+                                            ),
+                                            "style_id": style_metadata.get("style_id"),
+                                        }
+                                    )
+                            typed_value = _xlsx_typed_value(
+                                cell,
+                                cached_cell,
+                                number_format=style_metadata.get("number_format"),
+                            )
                             if (
                                 typed_value["kind"] == "formula"
                                 and not typed_value["cached_available"]
@@ -906,12 +956,7 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                                 "col": col_index,
                                 "coordinate": coordinate,
                                 "value": typed_value,
-                                "number_format": getattr(
-                                    cell,
-                                    "number_format",
-                                    "General",
-                                ),
-                                "style_id": getattr(cell, "style_id", 0),
+                                **style_metadata,
                             }
                             if merge := merge_origins.get((row_index, col_index)):
                                 location.update(
@@ -964,6 +1009,24 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                             "were retained without evaluation."
                         ),
                         "details": {"occurrences": missing_formula_cache},
+                    }
+                )
+            if unresolved_cell_styles:
+                issues.append(
+                    {
+                        "code": "xlsx_cell_style_partial",
+                        "severity": "warning",
+                        "impact": "structure_gap",
+                        "coverage_dimensions": ["structure"],
+                        "message": (
+                            "Some cell style metadata could not be resolved; source "
+                            "values and raw style references were retained."
+                        ),
+                        "details": {
+                            "occurrences": unresolved_cell_styles,
+                            "error_types": unresolved_cell_style_errors,
+                            "samples": unresolved_cell_style_samples,
+                        },
                     }
                 )
         finally:
