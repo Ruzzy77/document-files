@@ -6,11 +6,12 @@ import zipfile
 from datetime import date
 from pathlib import Path
 
+from openpyxl import Workbook
+
 from document_files.engine import extract_structure
 from document_files.extraction_protocol import run_builtin_extraction
 from document_files.hwp_structure import SectionStructure, doc_info_properties
 from document_files.structured_extraction import project_structured_extraction
-from openpyxl import Workbook
 
 
 def _digest(path: Path) -> str:

@@ -4,6 +4,7 @@ import json
 from io import BytesIO
 
 import pytest
+
 from document_files.analysis import (
     AnalysisInput,
     AnalysisJob,
