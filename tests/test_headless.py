@@ -53,7 +53,7 @@ def _require_rhwp() -> dict:
 
 def test_capabilities_are_explicitly_headless() -> None:
     result = capabilities()
-    assert result["pluginVersion"] == "1.0.0"
+    assert result["pluginVersion"] == "1.1.2"
     assert result["headless"] is True
     assert result["nativeAppAutomation"] is False
     assert result["runtimeNetworkUsed"] is False

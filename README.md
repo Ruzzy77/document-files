@@ -25,20 +25,20 @@ Corpus와 함께 사용할 때 역할은 분리됩니다. Document Files는 형�
 ## 주요 명령
 
 ```bash
-bin/document-files capabilities
-bin/document-files inspect input.pdf
-bin/document-files extract input.docx --format text
-bin/document-files extract input.pptx --format markdown
-bin/document-files inspect input.hwp
-bin/document-files convert input.hwp output.hwpx
-bin/document-files render input.hwpx output.pdf
-bin/document-files verify output.hwpx
+launchers/document-files capabilities
+launchers/document-files inspect input.pdf
+launchers/document-files extract input.docx --format text
+launchers/document-files extract input.pptx --format markdown
+launchers/document-files inspect input.hwp
+launchers/document-files convert input.hwp output.hwpx
+launchers/document-files render input.hwpx output.pdf
+launchers/document-files verify output.hwpx
 ```
 
 Corpus 연동용 구조 추출 계약은 같은 실행 파일의 `process` 명령을 사용합니다.
 
 ```bash
-bin/document-files process --describe
+launchers/document-files process --describe
 ```
 
 이 명령은 사람이 읽을 본문을 만드는 용도가 아니라, 읽기 전용 파일 디스크립터를 받아 구조 단위·추출 범위·이슈를 JSONL로 반환하는 내부 경계입니다.

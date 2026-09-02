@@ -2,6 +2,7 @@
 
 from .engine import (
     EDIT_PLAN_SCHEMA_VERSION,
+    PLUGIN_VERSION,
     DocumentFilesError,
     capabilities,
     convert_file,
@@ -28,4 +29,4 @@ __all__ = [
     "verify_hwpx",
 ]
 
-__version__ = "1.1.1"
+__version__ = PLUGIN_VERSION

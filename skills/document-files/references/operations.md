@@ -1,13 +1,13 @@
 # Document Files operations
 
-Use the `document_*` MCP tools or the plugin-root `bin/document-files` command. All
+Use the `document_*` MCP tools or the plugin-root `launchers/document-files` command. All
 document operations are local and headless. PDF, DOCX, PPTX, XLSX, HWP, HWPX,
 HTML, Markdown, and text share one extraction and coverage contract.
 
 ## Check capabilities
 
 ```bash
-bin/document-files capabilities
+launchers/document-files capabilities
 ```
 
 Confirm `headless: true`, `nativeAppAutomation: false`, the exact backend
@@ -19,14 +19,14 @@ fails closed before document work begins.
 ## Inspect and extract
 
 ```bash
-bin/document-files inspect input.pdf
-bin/document-files inspect input.docx --max-chars 20000
-bin/document-files extract input.pptx --format text
-bin/document-files extract input.xlsx --format markdown
-bin/document-files inspect input.hwp
-bin/document-files inspect input.hwpx --max-chars 20000
-bin/document-files extract input.hwp --format text
-bin/document-files extract input.hwpx --format markdown
+launchers/document-files inspect input.pdf
+launchers/document-files inspect input.docx --max-chars 20000
+launchers/document-files extract input.pptx --format text
+launchers/document-files extract input.xlsx --format markdown
+launchers/document-files inspect input.hwp
+launchers/document-files inspect input.hwpx --max-chars 20000
+launchers/document-files extract input.hwp --format text
+launchers/document-files extract input.hwpx --format markdown
 ```
 
 Inspection returns bounded text, structure counts, coverage, issues, format
@@ -40,10 +40,10 @@ protection.
 ## Corpus process boundary
 
 ```bash
-bin/document-files process --describe
+launchers/document-files process --describe
 ```
 
-Corpus uses `bin/document-files process` with one inherited read-only file
+Corpus uses `launchers/document-files process` with one inherited read-only file
 descriptor and one JSONL request. The process returns structural units,
 derivation methods, geometry, confidence, quality flags, coverage, and issues.
 It does not accept or return Corpus document IDs, revision IDs, Source unit IDs,
@@ -53,10 +53,10 @@ continuations finish inside this process before the result crosses into Corpus.
 ## Convert
 
 ```bash
-bin/document-files convert input.hwp output.hwpx
-bin/document-files convert input.hwp output.md --format markdown
-bin/document-files convert input.hwpx output.pdf
-bin/document-files convert input.hwp svg-pages --format svg
+launchers/document-files convert input.hwp output.hwpx
+launchers/document-files convert input.hwp output.md --format markdown
+launchers/document-files convert input.hwpx output.pdf
+launchers/document-files convert input.hwp svg-pages --format svg
 ```
 
 HWP-to-HWPX conversion writes to a temporary location, runs package/reopen
@@ -71,9 +71,9 @@ contract.
 ## Render in the background
 
 ```bash
-bin/document-files render input.hwp output.pdf
-bin/document-files render input.hwp svg-pages --format svg
-bin/document-files render input.hwpx preview.html
+launchers/document-files render input.hwp output.pdf
+launchers/document-files render input.hwp svg-pages --format svg
+launchers/document-files render input.hwpx preview.html
 ```
 
 - PDF and SVG use `rhwp` and support HWP/HWPX.
@@ -115,8 +115,8 @@ Create a JSON plan:
 Run the same plan twice:
 
 ```bash
-bin/document-files edit input.hwpx edit-plan.json
-bin/document-files edit input.hwpx edit-plan.json \
+launchers/document-files edit input.hwpx edit-plan.json
+launchers/document-files edit input.hwpx edit-plan.json \
   --output output.hwpx --apply
 ```
 
@@ -127,7 +127,7 @@ planned edits pass package and reopen checks. `expectedOldText` and
 ## Verify
 
 ```bash
-bin/document-files verify output.hwpx \
+launchers/document-files verify output.hwpx \
   --reference input.hwpx \
   --expect "새 제목" \
   --forbid "기존 제목"
@@ -181,7 +181,7 @@ Use the `hwpx.document_plan.v1` shape:
 ```
 
 ```bash
-bin/document-files create document-plan.json output.hwpx
+launchers/document-files create document-plan.json output.hwpx
 ```
 
 ## Result receipts

@@ -10,7 +10,7 @@ Treat document handling as a local background file operation. Keep source files 
 ## Choose the execution surface
 
 - Prefer the `document_*` MCP tools when they are available.
-- Otherwise resolve the plugin root from this skill directory and run `bin/document-files`.
+- Otherwise resolve the plugin root from this skill directory and run `launchers/document-files`.
 - Call `document_capabilities` before relying on optional conversion, rendering, OCR, or HWPX writes.
 - Read [operations.md](references/operations.md) before conversion, rendering, editing, or new-document creation.
 
@@ -26,7 +26,7 @@ Treat document handling as a local background file operation. Keep source files 
 
 - Document Files owns file-format detection after capture, parsing, OCR, structural units, extraction coverage, and continuation.
 - Corpus owns Source registration and capture, document and revision identity, projection identity, Source unit IDs, anchors, search, and Context.
-- Use `bin/document-files process` only for the strict read-only JSONL extraction boundary. It accepts an inherited file descriptor and must not receive index IDs, source paths, anchors, or authority fields.
+- Use `launchers/document-files process` only for the strict read-only JSONL extraction boundary. It accepts an inherited file descriptor and must not receive index IDs, source paths, anchors, or authority fields.
 - Do not place format-specific parsers, OCR code, rendering code, or conversion backends in Corpus.
 
 ## HWP intake workflow
