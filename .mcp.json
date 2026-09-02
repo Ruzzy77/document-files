@@ -1,9 +1,8 @@
 {
   "mcpServers": {
     "document-files": {
-      "command": "./bin/document-files-mcp",
-      "args": [],
-      "cwd": "."
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/document-files-mcp",
+      "args": []
     }
   }
 }
