@@ -22,6 +22,11 @@ Corpus의 기존 로컬 연동은 원본 경로 대신 상속한 읽기 전용 �
 
 Corpus와 함께 사용할 때 역할은 분리됩니다. Document Files는 형식별 파싱·OCR·추출 범위를 담당하고, Corpus와 동기화 계층은 Source 등록·캡처, 로컬·원격 처리 정책, revision과 projection 식별, Source unit ID, anchor, 검색과 Context를 담당합니다.
 
+descriptor의 adapter ID, 구현 version과 config hash는 결과가 만들어진 조건을 정확히 기록합니다.
+이 값은 자동 재분석 조건이 아닙니다. 각 형식의 `reanalysis_generation`은 내용이 같은 기존
+문서에서도 추출 결과를 다시 만들어야 하는 변경에만 올립니다. 코드 정리, 패키징, 실행 환경과
+일반 구성 변경은 projection의 provenance에는 남을 수 있지만 재분석 세대는 바꾸지 않습니다.
+
 ## 실행 방식
 
 문서 읽기와 렌더링은 백그라운드에서 수행합니다. 배경 렌더 결과에는 `nativeRenderChecked: false`가 기록되며, 네이티브 앱에서 본 화면과 같다고 간주하지 않습니다.

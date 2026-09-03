@@ -30,6 +30,7 @@ def test_descriptor_reports_one_public_route_per_supported_format() -> None:
         "xlsx",
     }
     for format_id, route in described["formats"].items():
+        assert route["reanalysis_generation"] == 1
         assert route["descriptor"]["adapter_id"] == f"document-files.process.{format_id}"
         assert route["descriptor"]["adapter_version"].startswith("1.0.0+process.")
         assert route["descriptor"]["config_hash"]

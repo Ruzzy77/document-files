@@ -34,9 +34,7 @@ DESCRIPTOR_SCHEMA_VERSION = "document-files.descriptor.v1"
 MAX_PROCESS_INPUT_BYTES = 2 * 1024 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
 PROCESSOR_IMPLEMENTATION_SHA256 = hashlib.sha256(
-    Path(__file__).read_bytes()
-    + b"\0"
-    + Path(__file__).with_name("analysis.py").read_bytes()
+    Path(__file__).read_bytes() + b"\0" + Path(__file__).with_name("analysis.py").read_bytes()
 ).hexdigest()
 
 
@@ -60,8 +58,7 @@ def _public_route(
     descriptor = AdapterDescriptor.from_config(
         adapter_id=f"document-files.process.{format_id}",
         adapter_version=(
-            f"1.0.0+process.{PROCESSOR_IMPLEMENTATION_SHA256[:12]}"
-            f".route.{route_digest[:12]}"
+            f"1.0.0+process.{PROCESSOR_IMPLEMENTATION_SHA256[:12]}.route.{route_digest[:12]}"
         ),
         config=config,
         capabilities=replace(
@@ -84,6 +81,7 @@ def describe_format(format_id: str) -> dict[str, Any]:
         "schema_version": DESCRIPTOR_SCHEMA_VERSION,
         "format_id": format_id,
         "media_type": FORMAT_SPECS[format_id].media_type,
+        "reanalysis_generation": FORMAT_SPECS[format_id].reanalysis_generation,
         "descriptor": descriptor.to_dict(),
         "config": config,
     }
@@ -96,6 +94,7 @@ def describe_all() -> dict[str, Any]:
         descriptor, config = _public_route(format_id, active)
         formats[format_id] = {
             "media_type": specification.media_type,
+            "reanalysis_generation": specification.reanalysis_generation,
             "descriptor": descriptor.to_dict(),
             "config": config,
         }
@@ -118,9 +117,7 @@ def _read_request() -> Mapping[str, Any]:
     return request
 
 
-def _request_input(
-    request: Mapping[str, Any], active_registry: AdapterRegistry
-) -> tuple[int, str]:
+def _request_input(request: Mapping[str, Any], active_registry: AdapterRegistry) -> tuple[int, str]:
     if request.get("schema_version") != REQUEST_SCHEMA_VERSION:
         raise ExtractionError(
             "processor request schema is unsupported",
@@ -226,9 +223,7 @@ def _materialized_input(file_descriptor: int, format_id: str):
                             "processor could not materialize its private input"
                         ) from exc
                     if written <= 0:
-                        raise ExtractionError(
-                            "processor could not materialize its private input"
-                        )
+                        raise ExtractionError("processor could not materialize its private input")
                     offset += written
         finally:
             os.close(destination)

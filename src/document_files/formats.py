@@ -14,13 +14,23 @@ class FormatSpec:
     media_type: str
     adapter: str
     structural_units: tuple[str, ...]
+    # Increment only when unchanged documents should be analyzed again.  Exact
+    # adapter and build identities remain useful provenance, but ordinary code,
+    # packaging, runtime, and configuration changes must not imply a bulk refresh.
+    reanalysis_generation: int = 1
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.reanalysis_generation, bool)
+            or not isinstance(self.reanalysis_generation, int)
+            or self.reanalysis_generation < 1
+        ):
+            raise ValueError("reanalysis generation must be a positive integer")
 
 
 FORMAT_SPECS = {
     "md": FormatSpec("md", "text/markdown", "markdown", ("heading", "paragraph")),
-    "markdown": FormatSpec(
-        "markdown", "text/markdown", "markdown", ("heading", "paragraph")
-    ),
+    "markdown": FormatSpec("markdown", "text/markdown", "markdown", ("heading", "paragraph")),
     "txt": FormatSpec("txt", "text/plain", "text", ("paragraph",)),
     "html": FormatSpec("html", "text/html", "html", ("heading", "paragraph", "table")),
     "htm": FormatSpec("htm", "text/html", "html", ("heading", "paragraph", "table")),
