@@ -81,3 +81,5 @@ python3 scripts/provision_rhwp.py
 ```
 
 별도 실행 파일은 `DOCUMENT_FILES_RHWP`로 지정할 수 있습니다. 편집·생성 계획과 검증 절차는 `skills/document-files/references/operations.md`에 있습니다.
+
+실행 경계와 데이터 소유 원칙은 [DESIGN.md](./DESIGN.md)에 있습니다.
