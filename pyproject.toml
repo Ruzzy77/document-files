@@ -19,6 +19,11 @@ dependencies = [
   "python-pptx>=1.0,<2",
 ]
 
+[dependency-groups]
+dev = [
+  "pytest>=8,<10",
+]
+
 [project.scripts]
 document-files = "document_files.cli:main"
 document-files-mcp = "document_files.mcp_server:main"
