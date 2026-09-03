@@ -16,7 +16,7 @@
 
 원본은 읽기 전용으로 다루고, 쓰기 결과는 별도 경로에 만듭니다. HWP 원본 편집, HWPX→HWP 변환, 암호나 문서 보호 우회는 지원하지 않습니다.
 
-분석기의 공통 입력은 형식·미디어 유형·바이트 크기·SHA-256으로 문서를 식별하는 `document-files.analysis-job.v1` 작업과 별도로 전달되는 바이트 스트림입니다. 결과는 `document-files.analysis-result.v1`으로 반환합니다. 두 계약에는 로컬 경로나 전송 방식이 들어가지 않습니다. 현재 포함된 로컬 백엔드는 형식 라이브러리가 파일을 여러 번 안전하게 열 수 있도록 바이트를 프로세스 전용 임시 파일로 복사하고, 추출이 끝나면 삭제합니다. 다른 실행 환경은 같은 `AnalyzerBackend`와 직렬화 계약을 구현해 분석기를 교체할 수 있습니다.
+분석기의 공통 입력은 형식·미디어 유형·바이트 크기·SHA-256으로 문서를 식별하는 `document-files.analysis-job.v1` 작업과 별도로 전달되는 바이트 스트림입니다. 결과는 `document-files.analysis-result.v1`으로 반환합니다. 두 계약에는 로컬 경로나 전송 방식이 들어가지 않습니다. 포함된 로컬 백엔드는 형식 라이브러리가 파일을 여러 번 안전하게 열 수 있도록 바이트를 프로세스 전용 임시 파일로 복사하고, 추출이 끝나면 삭제합니다. `services/document-analyzer`는 같은 계약으로 승인된 바이트를 비저장 원격 환경에서 처리합니다.
 
 Corpus의 기존 로컬 연동은 원본 경로 대신 상속한 읽기 전용 파일 descriptor를 사용하는 엄격한 JSONL 경계를 유지합니다. 이 경계는 기존 호출자를 위한 로컬 전송 방식이며, 문서 분석 계약 자체의 입력 형식은 아닙니다.
 
@@ -55,7 +55,7 @@ Corpus 연동용 구조 추출 계약은 같은 실행 파일의 `process` 명�
 추정하지 않습니다. 큰 결과는 `unitPage.nextOffset`으로 이어서 읽습니다.
 
 서비스나 다른 런타임에 분석기를 내장할 때에는 `AnalysisJob`과 바이트 스트림을
-`analyze_document` 또는 `extract_structure_from_stream`에 전달합니다. `AnalysisJob`과
+`analyze_document` 또는 같은 contract의 remote backend에 전달합니다. `AnalysisJob`과
 `AnalysisResult`의 `to_dict`·`from_dict`는 로컬·원격 구현이 공유하는 직렬화 경계이며,
 호출자는 결과의 작업 ID와 입력 해시가 요청과 일치하는지 검증받습니다. 접근 승인,
 `local_only` 같은 처리 정책과 원본 보관은 분석기가 아니라 호출 계층이 담당합니다.
