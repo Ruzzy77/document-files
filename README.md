@@ -28,9 +28,10 @@ descriptor의 adapter ID, 구현 version과 config hash는 결과가 만들어�
 
 ## 실행 방식
 
-Sync와 로컬 Codex는 로컬 package를 사용하고 ChatGPT·원격 Codex는 통합 plugin의 host runtime을
-사용합니다. 필요한 라이브러리나 호환 `rhwp`가 없으면 지원 가능한 순수 parser 결과와 coverage를
-반환하거나 `runtime_unavailable`로 중단하며 자동 원격 폴백하지 않습니다. 렌더 결과에는
+Sync와 로컬 Codex는 로컬 package를 사용하고 원격 Codex는 통합 plugin, 개인 ChatGPT는 같은
+정본에서 만든 Personal Skill의 host runtime을 사용합니다. 필요한 라이브러리나 호환 `rhwp`가
+없으면 지원 가능한 순수 parser 결과와 coverage를 반환하거나 `runtime_unavailable`로 중단하며
+자동 원격 폴백하지 않습니다. 렌더 결과에는
 `nativeRenderChecked: false`가 기록되며 화면 충실도의 주 검증으로 간주하지 않습니다.
 
 ## 주요 명령

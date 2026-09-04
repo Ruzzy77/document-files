@@ -10,8 +10,9 @@ Personal Agent Toolkit 서버와 Corpus 원격 저장층에 보관하지 않는�
 
 plugin 안의 Python package가 형식 판별, parser adapter, 공통 분석 contract와 HWPX artifact 작업을
 구현하는 단일 정본이다. CLI와 Claude local MCP는 같은 application 함수를 사용하고, Sync는 같은
-package를 자기 환경에 설치한다. OpenAI 통합 plugin은 이 소스에서 만든 host 실행 번들과 다섯 문서
-Skill을 포함한다. `AnalysisJob v1`·`AnalysisResult v1` 계약은 모든 실행 위치에서 동일하다.
+package를 자기 환경에 설치한다. OpenAI 통합 plugin과 개인 ChatGPT용 Personal Skills는 이 소스에서
+만든 host 실행 번들과 다섯 문서 Skill을 사용한다. `AnalysisJob v1`·`AnalysisResult v1` 계약은 모든
+실행 위치에서 동일하다.
 
 형식별 구현은 공통 결과에서 원본 구조, 의미 역할, coverage와 issue를 구분한다. adapter의 정확한
 version과 설정은 결과 재현 정보이며, 내용이 같은 문서의 재분석 여부를 자동으로 결정하지 않는다.
@@ -28,7 +29,8 @@ Sync는 immutable capture를 로컬에서 분석하고 projection만 Corpus에 �
 Claude의 공개 local MCP는 capability 확인, 검사, 텍스트·구조 추출, 변환, HWPX 생성·편집·검증과
 보조 렌더링을 제공한다. 모든 도구는 구체적인 Pydantic `outputSchema`와 `{ok, result, error}` 응답을
 사용한다. OpenAI에서는 별도 Document Files MCP나 Codex plugin 없이 통합 plugin의 Skill과 host
-runtime을 쓴다. 정확한 도구 목록과 version은 루트 [`products.json`](../../products.json)이 정본이다.
+runtime을 쓴다. 개인 ChatGPT에서는 같은 정본에서 만든 Personal Skill archive를 쓴다. 정확한 도구
+목록과 version은 루트 [`products.json`](../../products.json)이 정본이다.
 
 ## 버전과 검증
 
