@@ -285,9 +285,7 @@ class _Reader:
 
             def inline(element, element_address, inline_depth):
                 if inline_depth > 64:
-                    raise ExtractionError(
-                        "HWPX inline structure exceeds its depth budget"
-                    )
+                    raise ExtractionError("HWPX inline structure exceeds its depth budget")
                 name = _local_name(element.tag)
                 if name == "t":
                     chunks.append(element.text or "")
@@ -323,12 +321,7 @@ class _Reader:
                         chunks.append(child.tail or "")
                         text_offset += len(child.tail or "")
                     return
-                if (
-                    name == "p"
-                    or name == "tbl"
-                    or name in _CONTAINERS
-                    or name in _OBJECTS
-                ):
+                if name == "p" or name == "tbl" or name in _CONTAINERS or name in _OBJECTS:
                     flush()
                     self.walk(element, element_address, context, inline_depth)
                     return
@@ -457,9 +450,7 @@ class _Reader:
                         {
                             **context,
                             "element": element_address,
-                            "field_type": "auto_number"
-                            if name == "autoNum"
-                            else "new_number",
+                            "field_type": "auto_number" if name == "autoNum" else "new_number",
                             "stored_number": number,
                             "number_type": element.get("numType"),
                             "number_origin": "stored_control_value",
@@ -489,15 +480,11 @@ class _Reader:
             return
         if tag == "tbl":
             parent = {
-                key: context[key]
-                for key in ("table", "cell", "note", "object")
-                if key in context
+                key: context[key] for key in ("table", "cell", "note", "object") if key in context
             }
             for key in ("cell", "row", "col", "row_span", "col_span", "is_header"):
                 context.pop(key, None)
-            context.update(
-                {"table": address, "object": address, "container_kind": "table"}
-            )
+            context.update({"table": address, "object": address, "container_kind": "table"})
             if parent:
                 context["container_path"] = [*context.get("container_path", []), parent]
             table = {
@@ -523,11 +510,7 @@ class _Reader:
                 "cell": address,
                 "is_header": node.get("header", "0") in {"1", "true"},
             }
-            if (
-                cell_address is None
-                or span is None
-                or context.get("table") not in self.tables
-            ):
+            if cell_address is None or span is None or context.get("table") not in self.tables:
                 self.issues["hwpx_table_structure_partial"] += 1
             else:
                 geometry = {
@@ -601,9 +584,7 @@ class _Reader:
             if not table["rows"] or not table["cols"] or not table["cells"]:
                 self.issues["hwpx_table_structure_partial"] += 1
             for cell in sorted(table["cells"], key=lambda c: (c["row"], c["col"])):
-                row, col, height, width = (
-                    cell[k] for k in ("row", "col", "row_span", "col_span")
-                )
+                row, col, height, width = (cell[k] for k in ("row", "col", "row_span", "col_span"))
                 if (
                     height < 1
                     or width < 1
@@ -616,10 +597,7 @@ class _Reader:
                 if comparisons > 1_000_000:
                     self.issues["hwpx_table_geometry_partial"] += 1
                     break
-                if any(
-                    col < c["col"] + c["col_span"] and col + width > c["col"]
-                    for c in active
-                ):
+                if any(col < c["col"] + c["col_span"] and col + width > c["col"] for c in active):
                     self.issues["hwpx_table_geometry_partial"] += 1
                 active.append(cell)
         self.tables.clear()
@@ -636,11 +614,7 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                 tag = _local_name(node.tag)
                 if tag == "paraPr":
                     heading = next(
-                        (
-                            child
-                            for child in node
-                            if _local_name(child.tag) == "heading"
-                        ),
+                        (child for child in node if _local_name(child.tag) == "heading"),
                         None,
                     )
                     if heading is not None:
@@ -654,13 +628,9 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                 elif tag == "bullet":
                     use_image = node.get("useImage", "0").casefold()
                     if use_image in {"0", "false"}:
-                        bullets[node.get("id")] = {
-                            "marker_text": node.get("char", "")
-                        }
+                        bullets[node.get("id")] = {"marker_text": node.get("char", "")}
                     elif use_image in {"1", "true"}:
-                        image_nodes = [
-                            child for child in node if _local_name(child.tag) == "img"
-                        ]
+                        image_nodes = [child for child in node if _local_name(child.tag) == "img"]
                         if len(image_nodes) == 1:
                             image = image_nodes[0]
                             marker_image = {
@@ -730,9 +700,7 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                 and "computed_list_marker" in location
             ):
                 del location["computed_list_marker"]
-                invalidated.add(
-                    (location.get("section_file"), location.get("paragraph"))
-                )
+                invalidated.add((location.get("section_file"), location.get("paragraph")))
         if invalidated:
             reader.issues["hwpx_list_marker_partial"] += len(invalidated)
         issues.extend(

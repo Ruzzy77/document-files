@@ -8,30 +8,35 @@ import os
 import platform
 import shutil
 import stat
+import subprocess
 import tarfile
 import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
 
-VERSION = "0.8.2"
+VERSION = "0.8.6"
 RELEASE_BASE = f"https://github.com/edwardkim/rhwp/releases/download/v{VERSION}"
 ASSETS = {
     "macos-aarch64": (
         f"rhwp-v{VERSION}-macos-aarch64.tar.gz",
-        "2833431bed6034a0af03f7d889f1a41603e61b4bda5e16c93d2fc58efee5b5ea",
+        "7d8928faeb03f00c35c8028f0b562f08f3da22bef86f750e0d7e0cd19344eaa3",
     ),
     "macos-x86_64": (
         f"rhwp-v{VERSION}-macos-x86_64.tar.gz",
-        "7f53cb75dc3ff2a8c3d3178caaa0d3bffb396e7a768d215a747254e79471cbbd",
+        "a9581617e7ccab75481b9d36069d28c46e30a543a1fb0aa9ff581567a25321b8",
     ),
     "linux-x86_64": (
         f"rhwp-v{VERSION}-linux-x86_64.tar.gz",
-        "3225246533eca2b10ec2926228aee0d1cbf0ea6de0553e053ec8d6cb79fa9570",
+        "458de22a6b9b86088dfdcd59552d4e8fab5362a64578c64761fa28df9be45e9a",
+    ),
+    "linux-aarch64": (
+        f"rhwp-v{VERSION}-linux-aarch64.tar.gz",
+        "1288aa5609a67574a6b1372397bef9a8941fda9ad16b1224342512f915ae016e",
     ),
     "windows-x86_64": (
         f"rhwp-v{VERSION}-windows-x86_64.zip",
-        "d99b952ce2322d59530b86453a7314ebe18e86bdea165d2b75ef0b2af39ec6de",
+        "867e0a84b778ebda92b88433ede301818eaea21e7d58eb77ff9a732f41d170d9",
     ),
 }
 
@@ -45,6 +50,8 @@ def platform_key() -> str:
         return "macos-x86_64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x86_64"
+    if system == "linux" and machine in {"arm64", "aarch64"}:
+        return "linux-aarch64"
     if system == "windows" and machine in {"x86_64", "amd64"}:
         return "windows-x86_64"
     raise SystemExit(f"Unsupported rhwp platform: {platform.system()} {platform.machine()}")
@@ -78,6 +85,34 @@ def archive_member(archive: Path, member_name: str, destination: Path) -> None:
                 shutil.copyfileobj(source, target)
 
 
+def verify_executable(path: Path, key: str) -> None:
+    """Verify the extracted binary before it becomes an installed backend."""
+
+    try:
+        completed = subprocess.run(
+            [str(path), "--version"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SystemExit("rhwp executable verification failed") from exc
+    if completed.returncode != 0 or completed.stdout.strip() != f"rhwp v{VERSION}":
+        raise SystemExit("rhwp executable version does not match the pinned release")
+    if key.startswith("macos-"):
+        verified = subprocess.run(
+            ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(path)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+        if verified.returncode != 0:
+            raise SystemExit("rhwp macOS code signature verification failed")
+
+
 def main() -> None:
     key = platform_key()
     asset, expected_sha256 = ASSETS[key]
@@ -86,6 +121,7 @@ def main() -> None:
     destination = destination_dir / executable_name
     license_destination = destination_dir.parent / "LICENSE"
     if destination.is_file() and license_destination.is_file():
+        verify_executable(destination, key)
         print(destination)
         return
 
@@ -106,6 +142,7 @@ def main() -> None:
         staged_executable.chmod(
             staged_executable.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
         )
+        verify_executable(staged_executable, key)
         destination_dir.mkdir(parents=True, exist_ok=True)
         os.replace(staged_executable, destination)
         os.replace(staged_license, license_destination)

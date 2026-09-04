@@ -10,7 +10,13 @@ import sys
 import zlib
 from collections import Counter
 
-import olefile
+try:
+    import olefile
+except ModuleNotFoundError:
+    if __package__:
+        from ._vendor import olefile
+    else:
+        from _vendor import olefile
 
 if __package__:
     from .hwp_images import hwp_binary_items
@@ -161,9 +167,7 @@ def _decode_paragraph(
     if field_markers is not None:
         leading = len(raw_text) - len(raw_text.lstrip())
         for marker in field_markers:
-            marker["content_offset"] = min(
-                len(text), max(0, marker["content_offset"] - leading)
-            )
+            marker["content_offset"] = min(len(text), max(0, marker["content_offset"] - leading))
         if anomalies:
             field_markers.clear()
     return text, controls, anomalies
@@ -285,9 +289,7 @@ def _extract(request: dict) -> dict:
         section_names = [
             parts[1]
             for parts in compound.listdir(streams=True, storages=False)
-            if len(parts) == 2
-            and parts[0] == "BodyText"
-            and parts[1].startswith("Section")
+            if len(parts) == 2 and parts[0] == "BodyText" and parts[1].startswith("Section")
         ]
         section_names.sort(key=_section_number)
         if not section_names:
@@ -299,9 +301,7 @@ def _extract(request: dict) -> dict:
         version = struct.unpack_from("<I", file_header, 32)[0]
         doc_info_bytes = 0
         if compound.exists("DocInfo"):
-            raw_info = compound.openstream("DocInfo").read(
-                max_inflated_section_bytes + 1
-            )
+            raw_info = compound.openstream("DocInfo").read(max_inflated_section_bytes + 1)
             if len(raw_info) > max_inflated_section_bytes:
                 raise HWPAdapterError("HWP DocInfo exceeds its byte budget")
             info = (
@@ -335,9 +335,7 @@ def _extract(request: dict) -> dict:
         for section_ordinal, section_name in enumerate(section_names, start=1):
             raw = compound.openstream(["BodyText", section_name]).read()
             data = (
-                _inflate_raw_deflate(raw, limit=max_inflated_section_bytes)
-                if compressed
-                else raw
+                _inflate_raw_deflate(raw, limit=max_inflated_section_bytes) if compressed else raw
             )
             if len(data) > max_inflated_section_bytes:
                 raise HWPAdapterError("HWP section exceeds its byte budget")
@@ -359,9 +357,7 @@ def _extract(request: dict) -> dict:
             ):
                 total_records += 1
                 if total_records > max_total_records:
-                    raise HWPAdapterError(
-                        "HWP records exceed their aggregate count budget"
-                    )
+                    raise HWPAdapterError("HWP records exceed their aggregate count budget")
                 try:
                     structure.observe(record_index, tag_id, level, payload)
                 except ValueError as exc:
@@ -381,9 +377,7 @@ def _extract(request: dict) -> dict:
                     )
                     total_field_markers += len(field_markers)
                     if total_field_markers > max_units:
-                        raise HWPAdapterError(
-                            "HWP field positions exceed the unit budget"
-                        )
+                        raise HWPAdapterError("HWP field positions exceed the unit budget")
                     structure.fields(record_index, level, field_markers)
                     all_controls.update(controls)
                     all_anomalies.update(anomalies)
@@ -391,29 +385,21 @@ def _extract(request: dict) -> dict:
                         total_empty_paragraphs += 1
                         continue
                     if len(text) > max_unit_content_chars:
-                        raise HWPAdapterError(
-                            "HWP paragraph exceeds its content budget"
-                        )
+                        raise HWPAdapterError("HWP paragraph exceeds its content budget")
                     if len(units) >= max_units:
                         raise HWPAdapterError("HWP unit count exceeds its budget")
                     total_content_chars += len(text)
                     if total_content_chars > max_total_content_chars:
-                        raise HWPAdapterError(
-                            "HWP content exceeds its aggregate character budget"
-                        )
+                        raise HWPAdapterError("HWP content exceeds its aggregate character budget")
                     structure.text(record_index, level, paragraph_ordinal, text)
             section_units, section_issues = structure.finish()
             if len(units) + len(section_units) > max_units:
                 raise HWPAdapterError("HWP unit count exceeds its budget")
             units.extend(section_units)
-            if any(
-                len(unit["content"]) > max_unit_content_chars for unit in section_units
-            ):
+            if any(len(unit["content"]) > max_unit_content_chars for unit in section_units):
                 raise HWPAdapterError("HWP unit exceeds its content budget")
             if sum(len(unit["content"]) for unit in units) > max_total_content_chars:
-                raise HWPAdapterError(
-                    "HWP content exceeds its aggregate character budget"
-                )
+                raise HWPAdapterError("HWP content exceeds its aggregate character budget")
             structure_issues.extend(section_issues)
 
     issues = link_document_memos(units, structure_issues)

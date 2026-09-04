@@ -1,6 +1,6 @@
 {
   "name": "document-files",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Analyze document bytes and inspect, convert, render, create, edit, and verify local document artifacts.",
   "author": {
     "name": "Ruzzy77",

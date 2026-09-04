@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PYTHON=${DOCUMENT_FILES_HOST_PYTHON:-python3}
+
+if ! command -v "$PYTHON" >/dev/null 2>&1; then
+  printf '%s\n' '{"ok":false,"error":{"code":"runtime_unavailable","message":"The OpenAI host does not provide a Python runtime for Document Files."}}' >&2
+  exit 127
+fi
+
+if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+  printf '%s\n' '{"ok":false,"error":{"code":"runtime_unavailable","message":"Document Files requires Python 3.11 or newer in the OpenAI host runtime."}}' >&2
+  exit 127
+fi
+
+exec "$PYTHON" "$SCRIPT_DIR/host_cli.py" "$@"

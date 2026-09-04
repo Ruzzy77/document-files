@@ -40,7 +40,6 @@ ANALYSIS_JOB_SCHEMA_VERSION = "document-files.analysis-job.v1"
 ANALYSIS_RESULT_SCHEMA_VERSION = "document-files.analysis-result.v1"
 DEFAULT_COMPLETION_SECONDS = 580.0
 MAX_ANALYSIS_INPUT_BYTES = 2 * 1024 * 1024 * 1024
-MAX_CONTINUATION_PASSES = 1_000
 COPY_CHUNK_BYTES = 1024 * 1024
 
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -547,7 +546,7 @@ class AnalysisResult:
 
 
 class AnalyzerBackend(Protocol):
-    """One replaceable local or remote implementation of the analysis contract."""
+    """One replaceable host implementation of the analysis contract."""
 
     def analyze(self, job: AnalysisJob, source: BinaryIO) -> AnalysisResult: ...
 
@@ -565,13 +564,6 @@ def default_registry() -> AdapterRegistry:
     return build_default_registry(runtime_root())
 
 
-def _pending_continuation(envelope: ExtractionEnvelope) -> bool:
-    return any(
-        issue.code in {"pdf_page_range_pending", "office_image_range_pending"}
-        for issue in envelope.issues
-    )
-
-
 def extract_complete(
     path: Path,
     *,
@@ -579,43 +571,17 @@ def extract_complete(
     active_registry: AdapterRegistry | None = None,
     completion_seconds: float = DEFAULT_COMPLETION_SECONDS,
 ) -> ExtractionEnvelope:
-    """Extract one privately staged document and finish resumable ranges."""
+    """Extract one privately staged document through its selected parser."""
 
     active_registry = active_registry or default_registry()
     adapter = active_registry.resolve(format_id)
     started = time.monotonic()
     result = adapter.extract(path, format_id=format_id)
-    passes = 0
     if time.monotonic() - started >= completion_seconds:
         raise BudgetExceededError(
             "document extraction exceeded its total runtime budget",
             details={"limit_seconds": completion_seconds, "format_id": format_id},
         )
-    while _pending_continuation(result):
-        resume = getattr(adapter, "resume", None)
-        if not callable(resume):
-            raise ExtractionError(
-                "adapter reported pending coverage without a continuation operation",
-                details={"format_id": format_id, "adapter_id": adapter.descriptor.adapter_id},
-            )
-        if passes >= MAX_CONTINUATION_PASSES:
-            raise BudgetExceededError(
-                "document continuation exceeded its pass budget",
-                details={"limit": MAX_CONTINUATION_PASSES, "format_id": format_id},
-            )
-        if time.monotonic() - started >= completion_seconds:
-            raise BudgetExceededError(
-                "document continuation exceeded its total runtime budget",
-                details={"limit_seconds": completion_seconds, "format_id": format_id},
-            )
-        previous_manifest = result.manifest_hash
-        result = resume(path, format_id=format_id, previous=result)
-        passes += 1
-        if result.manifest_hash == previous_manifest:
-            raise ExtractionError(
-                "document continuation made no progress",
-                details={"format_id": format_id, "pass": passes},
-            )
     return result
 
 

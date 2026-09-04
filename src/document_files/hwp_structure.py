@@ -126,9 +126,7 @@ def doc_info_properties(records, *, version: int = 0) -> tuple[list[dict], list[
                         raise ValueError("truncated numbering")
                     levels.append(
                         {
-                            "marker_pattern": data[offset + 14 : end].decode(
-                                "utf-16-le"
-                            ),
+                            "marker_pattern": data[offset + 14 : end].decode("utf-16-le"),
                             # Only bits 0--4 of these flags have a verified interpretation.
                             # Preserve the rest without inventing a numbering style.
                             "numbering_flags": flags,
@@ -140,9 +138,7 @@ def doc_info_properties(records, *, version: int = 0) -> tuple[list[dict], list[
                     start = struct.unpack_from("<H", data, offset)[0]
                     for index, item in enumerate(levels):
                         item["numbering_start_number"] = start
-                        if version >= 0x05000205 and offset + 2 + 4 * len(
-                            levels
-                        ) <= len(data):
+                        if version >= 0x05000205 and offset + 2 + 4 * len(levels) <= len(data):
                             item["level_start_number"] = struct.unpack_from(
                                 "<I", data, offset + 2 + index * 4
                             )[0]
@@ -264,9 +260,7 @@ class SectionStructure:
         return unit
 
     def _context(self, level: int) -> dict:
-        containers = [
-            item["locator"] for key, item in sorted(self.lists.items()) if key <= level
-        ]
+        containers = [item["locator"] for key, item in sorted(self.lists.items()) if key <= level]
         result: dict = {"container_path": containers} if containers else {}
         for container in containers:
             for key in (
@@ -409,9 +403,9 @@ class SectionStructure:
                         },
                     )
                     if end + 8 <= len(data):
-                        field["structure_path"]["field_header_tail_value"] = (
-                            struct.unpack_from("<I", data, end + 4)[0]
-                        )
+                        field["structure_path"]["field_header_tail_value"] = struct.unpack_from(
+                            "<I", data, end + 4
+                        )[0]
                     self.field_units.append(field)
                     if field_type == "unknown":
                         self.issues["hwp_field_semantics_partial"] += 1
@@ -419,19 +413,13 @@ class SectionStructure:
                     self.issues["hwp_field_structure_partial"] += 1
         elif tag in _SHAPE_KINDS:
             control = next(
-                (
-                    v
-                    for k, v in sorted(self.controls.items(), reverse=True)
-                    if k < level
-                ),
+                (v for k, v in sorted(self.controls.items(), reverse=True) if k < level),
                 None,
             )
             if control and "unit" in control:
                 shape_kind = _SHAPE_KINDS[tag]
                 control["object_kinds"][shape_kind] += 1
-                observations = control["unit"]["structure_path"].setdefault(
-                    "object_records", []
-                )
+                observations = control["unit"]["structure_path"].setdefault("object_records", [])
                 if len(observations) < 256:
                     observations.append({"record": record, "kind": shape_kind})
                 else:
@@ -450,11 +438,7 @@ class SectionStructure:
                 )
         elif tag == 0x58:
             control = next(
-                (
-                    v
-                    for k, v in sorted(self.controls.items(), reverse=True)
-                    if k < level
-                ),
+                (v for k, v in sorted(self.controls.items(), reverse=True) if k < level),
                 None,
             )
             if control and control["name"] == "eqed" and len(data) >= 6:
@@ -503,16 +487,10 @@ class SectionStructure:
             self.controls = {k: v for k, v in self.controls.items() if k < level}
             self.lists = {k: v for k, v in self.lists.items() if k < level}
             control = next(
-                (
-                    v
-                    for k, v in sorted(self.controls.items(), reverse=True)
-                    if k < level
-                ),
+                (v for k, v in sorted(self.controls.items(), reverse=True) if k < level),
                 None,
             )
-            kind = (
-                _CONTROL_KINDS.get(control["name"], "unknown") if control else "unknown"
-            )
+            kind = _CONTROL_KINDS.get(control["name"], "unknown") if control else "unknown"
             if control and control["name"] == "secd":
                 # HWP5 table 129: section-owned paragraph lists are master pages.
                 # Keep ownership only; the list does not establish rendered pages.
@@ -533,9 +511,7 @@ class SectionStructure:
                 self.issues["hwp_memo_attachment_unresolved"] += 1
             if control:
                 locator["object"] = f"r{control['record']}"
-                locator["owner_paragraph_record"] = control["context"].get(
-                    "owner_paragraph_record"
-                )
+                locator["owner_paragraph_record"] = control["context"].get("owner_paragraph_record")
             if kind == "table":
                 locator["table"] = f"r{control['record']}"
                 table = control["table"]
@@ -575,9 +551,7 @@ class SectionStructure:
 
     def fields(self, record: int, level: int, markers: list[dict]) -> None:
         properties = self.paragraphs.get(level - 1, {})
-        flow = tuple(
-            item["list_record"] for item in properties.get("container_path", [])
-        )
+        flow = tuple(item["list_record"] for item in properties.get("container_path", []))
         for marker in markers:
             self.field_events.append(
                 {
@@ -625,10 +599,7 @@ class SectionStructure:
                     else None
                 )
                 stack.append((event, unit))
-            elif (
-                not stack
-                or stack[-1][0]["control_type"][-3:] != event["control_type"][-3:]
-            ):
+            elif not stack or stack[-1][0]["control_type"][-3:] != event["control_type"][-3:]:
                 unresolved_markers += 1
                 stack.clear()
             else:
@@ -647,9 +618,7 @@ class SectionStructure:
                 if location["field_type"] == "memo" and event["end_token"] > 0:
                     location["memo_end_token"] = event["end_token"]
                 self.counts["field_range"] += 1
-        unresolved = sum(
-            "field_range" not in unit["structure_path"] for unit in self.field_units
-        )
+        unresolved = sum("field_range" not in unit["structure_path"] for unit in self.field_units)
         unresolved += unresolved_markers + sum(len(stack) for stack in stacks.values())
         if unresolved:
             self.issues["hwp_field_range_partial"] += unresolved
@@ -715,9 +684,7 @@ class SectionStructure:
             comparisons = 0
             active: list[dict] = []
             for cell in sorted(table["cells"], key=lambda c: (c["row"], c["col"])):
-                row, col, height, width = (
-                    cell[k] for k in ("row", "col", "row_span", "col_span")
-                )
+                row, col, height, width = (cell[k] for k in ("row", "col", "row_span", "col_span"))
                 if (
                     height < 1
                     or width < 1
@@ -730,10 +697,7 @@ class SectionStructure:
                 if comparisons > 1_000_000:
                     self.issues["hwp_table_geometry_partial"] += 1
                     break
-                if any(
-                    col < c["col"] + c["col_span"] and col + width > c["col"]
-                    for c in active
-                ):
+                if any(col < c["col"] + c["col_span"] and col + width > c["col"] for c in active):
                     self.issues["hwp_table_geometry_partial"] += 1
                 active.append(cell)
             if not table["cells"]:

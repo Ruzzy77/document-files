@@ -153,9 +153,7 @@ def _own_descriptions(node):
         if name in {"docPr", "cNvPr"}:
             properties.append(child)
         elif name.startswith("nv"):
-            properties.extend(
-                c for c in child if _local_name(c.tag) in {"docPr", "cNvPr"}
-            )
+            properties.extend(c for c in child if _local_name(c.tag) in {"docPr", "cNvPr"})
     for prop in properties:
         for key in ("title", "descr"):
             value = prop.get(key)
@@ -224,9 +222,7 @@ class _Package:
     def rels(self, part):
         if part not in self.relationships:
             name = (
-                posixpath.join(
-                    posixpath.dirname(part), "_rels", posixpath.basename(part) + ".rels"
-                )
+                posixpath.join(posixpath.dirname(part), "_rels", posixpath.basename(part) + ".rels")
                 if part
                 else "_rels/.rels"
             )
@@ -249,9 +245,7 @@ class _Package:
                     )
                     result[node.get("Id")] = {
                         "type": node.get("Type", "").rsplit("/", 1)[-1],
-                        "part": resolved
-                        if not external and resolved in self.names
-                        else None,
+                        "part": resolved if not external and resolved in self.names else None,
                     }
             self.relationships[part] = result
         return self.relationships[part]
@@ -379,9 +373,7 @@ class _Reader:
                 "image_parts": [reference["part"]]
                 if reference is not None and reference["part"]
                 else [],
-                "source_crops": _crop_values(
-                    reference["crop"] if reference is not None else None
-                ),
+                "source_crops": _crop_values(reference["crop"] if reference is not None else None),
                 **(
                     {"image_reference_element": reference["element"]}
                     if reference is not None
@@ -403,10 +395,7 @@ class _Reader:
             },
             "\n".join(
                 dict.fromkeys(
-                    text
-                    for item in records
-                    if item["count"] > 1
-                    for text in item["descriptions"]
+                    text for item in records if item["count"] > 1 for text in item["descriptions"]
                 )
             ),
         )
@@ -421,16 +410,8 @@ class _Reader:
                     "image_reference_element": reference["element"],
                     "image_shape": shape["element"],
                     "image_group": location["element"],
-                    **(
-                        {"image_group_path": reference["groups"]}
-                        if reference["groups"]
-                        else {}
-                    ),
-                    **(
-                        {"source_transform": shape["transform"]}
-                        if shape["transform"]
-                        else {}
-                    ),
+                    **({"image_group_path": reference["groups"]} if reference["groups"] else {}),
+                    **({"source_transform": shape["transform"]} if shape["transform"] else {}),
                 },
                 [
                     text
@@ -548,11 +529,7 @@ class _WordReader(_Reader):
             current = _value(style, "basedOn")
         result = {"style": style_id} if style_id else {}
         outline = next(
-            (
-                _value(p, "outlineLvl")
-                for p in properties
-                if _value(p, "outlineLvl") is not None
-            ),
+            (_value(p, "outlineLvl") for p in properties if _value(p, "outlineLvl") is not None),
             None,
         )
         if outline is not None and _integer(outline) < 9:
@@ -562,9 +539,7 @@ class _WordReader(_Reader):
             (_value(p, "numId") for p in num_props if _value(p, "numId") is not None),
             None,
         )
-        level = next(
-            (_value(p, "ilvl") for p in num_props if _value(p, "ilvl") is not None), "0"
-        )
+        level = next((_value(p, "ilvl") for p in num_props if _value(p, "ilvl") is not None), "0")
         if num_id not in {None, "0"}:
             result.update({"numbering_ref": num_id, "list_level": _integer(level)})
             definition = self.numberings.get(num_id, {}).get("levels", {})
@@ -661,9 +636,7 @@ class _WordReader(_Reader):
             if name in {"instrText", "fldChar", "fldSimple"}:
                 flush()
                 instruction = (
-                    (element.text or "")
-                    if name == "instrText"
-                    else _attr(element, "instr", "")
+                    (element.text or "") if name == "instrText" else _attr(element, "instr", "")
                 )
                 if len(instruction) > 16_384:
                     self.issues["docx_field_instruction_truncated"] += 1
@@ -825,11 +798,7 @@ class _WordReader(_Reader):
                     "container_kind": "table_cell",
                 }
                 loc["cell"] = loc["element"]
-                if (
-                    merge == "continue"
-                    and col in active
-                    and active[col]["col_span"] == span
-                ):
+                if merge == "continue" and col in active and active[col]["col_span"] == span:
                     origin = active[col]
                     origin["row_span"] += 1
                     next_active[col] = origin
@@ -878,9 +847,7 @@ class _WordReader(_Reader):
                     "attributes": dict(element.attrib),
                     **({"text": element.text} if element.text else {}),
                 }
-                structure_bytes += len(
-                    json.dumps(item, ensure_ascii=False).encode("utf-8")
-                )
+                structure_bytes += len(json.dumps(item, ensure_ascii=False).encode("utf-8"))
                 if len(structure) >= 512 or structure_bytes > 65_536:
                     self.issues["docx_math_structure_limit"] += 1
                     structure = []
@@ -967,9 +934,7 @@ class _SlideReader(_Reader):
 
     def group_geometry(self, node, location):
         """Observe a finite, explicit group mapping, never an inherited one."""
-        transform, address = _addressed_path(
-            node, location["element"], ("grpSpPr", "xfrm")
-        )
+        transform, address = _addressed_path(node, location["element"], ("grpSpPr", "xfrm"))
         if transform is None or location.get("shape_id") is None:
             return None
         values = {}
@@ -996,8 +961,7 @@ class _SlideReader(_Reader):
         except ValueError:
             return None
         if any(
-            transform.get(key, "0") not in {"0", "1", "true", "false"}
-            for key in ("flipH", "flipV")
+            transform.get(key, "0") not in {"0", "1", "true", "false"} for key in ("flipH", "flipV")
         ):
             return None
         return {"shape_id": location["shape_id"], "element": address, **values}
@@ -1014,9 +978,7 @@ class _SlideReader(_Reader):
             or next(_desc(node, "ph"), None) is not None
         ):
             return {}
-        extent, address = _addressed_path(
-            node, location["element"], ("spPr", "xfrm", "ext")
-        )
+        extent, address = _addressed_path(node, location["element"], ("spPr", "xfrm", "ext"))
         values = _extent(extent)
         if (
             values is None
@@ -1027,9 +989,7 @@ class _SlideReader(_Reader):
         groups = location.get("group_geometry", [])
         if location.get("group_path") and (
             len(groups) != len(location["group_path"])
-            or any(
-                group is None or group["shape_id"] in self.animated for group in groups
-            )
+            or any(group is None or group["shape_id"] in self.animated for group in groups)
             or any(values.values())
         ):
             return {}
@@ -1047,10 +1007,7 @@ class _SlideReader(_Reader):
                 continue
             prop = _child(child, "pPr")
             declared = (
-                any(
-                    _local_name(c.tag) in {"buNone", "buChar", "buAutoNum"}
-                    for c in prop
-                )
+                any(_local_name(c.tag) in {"buNone", "buChar", "buAutoNum"} for c in prop)
                 if prop is not None
                 else False
             )
@@ -1139,9 +1096,7 @@ class _SlideReader(_Reader):
         origins = []
         for row_index, (ri, row) in enumerate(rows):
             origins = [
-                origin
-                for origin in origins
-                if origin["row"] + origin["row_span"] > row_index
+                origin for origin in origins if origin["row"] + origin["row_span"] > row_index
             ]
             col = 0
             for ci, cell in enumerate(row):
@@ -1156,9 +1111,7 @@ class _SlideReader(_Reader):
                     "col_span": _integer(cell.get("gridSpan", "1")),
                 }
                 loc["cell"] = loc["element"]
-                spanned = any(
-                    cell.get(k) in {"1", "true"} for k in ("hMerge", "vMerge")
-                )
+                spanned = any(cell.get(k) in {"1", "true"} for k in ("hMerge", "vMerge"))
                 if not spanned:
                     self.emit("table_cell", {**loc, "structural_only": True})
                     if (
@@ -1175,10 +1128,8 @@ class _SlideReader(_Reader):
                         self.guard(0)
                         if (
                             origin["col"] <= col < origin["col"] + origin["col_span"]
-                            and (cell.get("hMerge") in {"1", "true"})
-                            == (col > origin["col"])
-                            and (cell.get("vMerge") in {"1", "true"})
-                            == (row_index > origin["row"])
+                            and (cell.get("hMerge") in {"1", "true"}) == (col > origin["col"])
+                            and (cell.get("vMerge") in {"1", "true"}) == (row_index > origin["row"])
                             and loc["row_span"]
                             == (origin["row_span"] if row_index == origin["row"] else 1)
                             and loc["col_span"]
@@ -1219,10 +1170,7 @@ class _SlideReader(_Reader):
                     "attributes": dict(element.attrib),
                 }
                 size += len(json.dumps(item, ensure_ascii=False).encode("utf-8"))
-                if (
-                    sum(len(items) for items in structure.values()) >= 512
-                    or size > 65536
-                ):
+                if sum(len(items) for items in structure.values()) >= 512 or size > 65536:
                     self.issues["pptx_diagram_structure_limit"] += 1
                     return
                 target.append(item)
@@ -1299,9 +1247,7 @@ class _SlideReader(_Reader):
                     )
                 return
             if name in {"txBody", "rich"} or (kind == "diagram" and name == "t"):
-                self.paragraphs(
-                    element, loc, "diagram_text" if kind == "diagram" else "chart_data"
-                )
+                self.paragraphs(element, loc, "diagram_text" if kind == "diagram" else "chart_data")
                 return
             if name == "v" and element.text:
                 self.emit("chart_data", loc, element.text)
@@ -1365,9 +1311,7 @@ class _SlideReader(_Reader):
                 for k, v in location.items()
                 if k not in {"shape_id", "shape_name", "source_transform"}
             }
-            nonvisual = next(
-                (c for c in node if _local_name(c.tag).startswith("nv")), None
-            )
+            nonvisual = next((c for c in node if _local_name(c.tag).startswith("nv")), None)
             prop = _child(nonvisual, "cNvPr") if nonvisual is not None else None
             if prop is not None:
                 location = {
@@ -1492,12 +1436,8 @@ def extract_structured_pptx(path):
         main = package.main("ppt/presentation.xml")
         reader = _SlideReader(package)
         slide_list = _child(package.xml(main), "sldIdLst")
-        for slide_index, slide in enumerate(
-            slide_list if slide_list is not None else [], 1
-        ):
-            identifier = next(
-                (v for k, v in slide.attrib.items() if k.endswith("}id")), None
-            )
+        for slide_index, slide in enumerate(slide_list if slide_list is not None else [], 1):
+            identifier = next((v for k, v in slide.attrib.items() if k.endswith("}id")), None)
             part = package.related(main, identifier)
             if not part:
                 reader.issues["pptx_slide_unavailable"] += 1

@@ -51,16 +51,10 @@ def stored_emf_strings(raw):
             if options == 0 and count:
                 if size < 76 or start < 76 or start % 2 or start + count * 2 > size:
                     return None
-                if (
-                    count > 50_000
-                    or characters + count > 2_000_000
-                    or len(result) >= 20_000
-                ):
+                if count > 50_000 or characters + count > 2_000_000 or len(result) >= 20_000:
                     return None
                 try:
-                    text = raw[offset + start : offset + start + count * 2].decode(
-                        "utf-16-le"
-                    )
+                    text = raw[offset + start : offset + start + count * 2].decode("utf-16-le")
                 except UnicodeError:
                     return None
                 characters += count

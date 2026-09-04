@@ -12,7 +12,7 @@ Automation homepage: https://github.com/airmang/python-hwpx-automation
 The Python packages are not vendored into this plugin. Their packages and
 licenses are installed separately through the locked Python environment.
 
-This project can provision the rhwp 0.8.2 command-line application as a local
+This project can provision the rhwp 0.8.6 command-line application as a local
 runtime backend. rhwp is maintained by the rhwp contributors and is licensed
 under the MIT License.
 
@@ -21,6 +21,9 @@ Project homepage: https://github.com/edwardkim/rhwp
 rhwp is not vendored into this plugin. The provisioning script downloads an
 official release archive, verifies its pinned SHA-256, and installs the binary
 and its accompanying license into the user cache.
+
+The OpenAI host bundle includes the unmodified pure-Python module from olefile
+0.47 as a fallback. Its BSD-style license is included with the module.
 
 본 제품의 HWP 처리 기능은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여
 개발하였습니다.

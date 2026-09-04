@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-RHWP_VERSION = "0.8.2"
+RHWP_VERSION = "0.8.6"
 MAX_BACKEND_OUTPUT_BYTES = 32 * 1024 * 1024
 DEFAULT_TIMEOUT_SECONDS = 120
 
@@ -42,6 +42,8 @@ def _platform_key() -> str | None:
         return "macos-x86_64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x86_64"
+    if system == "linux" and machine in {"arm64", "aarch64"}:
+        return "linux-aarch64"
     if system == "windows" and machine in {"x86_64", "amd64"}:
         return "windows-x86_64"
     return None
@@ -61,14 +63,7 @@ def _cache_executable() -> Path | None:
     else:
         cache_root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
         cache_root = cache_root / "document-files"
-    return (
-        cache_root
-        / "rhwp"
-        / f"v{RHWP_VERSION}"
-        / key
-        / "bin"
-        / name
-    )
+    return cache_root / "rhwp" / f"v{RHWP_VERSION}" / key / "bin" / name
 
 
 def resolve_rhwp() -> Path | None:

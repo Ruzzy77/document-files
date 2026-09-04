@@ -75,7 +75,7 @@ def _parser() -> argparse.ArgumentParser:
     edit_parser.add_argument("input")
     edit_parser.add_argument("plan")
     edit_parser.add_argument("--output")
-    edit_parser.add_argument("--apply", action="store_true")
+    edit_parser.add_argument("--dry-run", action="store_true")
     edit_parser.add_argument("--overwrite", action="store_true")
 
     verify_parser = subparsers.add_parser("verify", help="Verify HWPX")
@@ -145,7 +145,7 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             args.input,
             plan=_load_json(args.plan),
             output_path=args.output,
-            dry_run=not args.apply,
+            dry_run=args.dry_run,
             overwrite=args.overwrite,
         )
     if args.command == "verify":
@@ -189,6 +189,24 @@ def main() -> None:
     except DocumentFilesError as exc:
         print(
             json.dumps({"ok": False, "error": exc.to_dict()}, ensure_ascii=False, indent=2),
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from None
+    except (ImportError, ModuleNotFoundError) as exc:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "runtime_unavailable",
+                        "message": "This host is missing a required Document Files dependency.",
+                        "details": {"missingModule": getattr(exc, "name", None)},
+                        "suggestion": None,
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             file=sys.stderr,
         )
         raise SystemExit(2) from None

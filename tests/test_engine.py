@@ -78,7 +78,7 @@ def test_create_inspect_edit_verify_and_preview(tmp_path: Path) -> None:
             }
         ],
     }
-    dry_run = edit_hwpx(source, plan=edit_plan)
+    dry_run = edit_hwpx(source, plan=edit_plan, dry_run=True)
     assert dry_run["dryRun"] is True
     assert dry_run["output"] is None
 

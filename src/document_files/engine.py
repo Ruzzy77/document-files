@@ -12,20 +12,36 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from zipfile import BadZipFile, ZipFile
 
-import olefile
-from hwpx import (
-    HwpxDocument,
-    TextExtractor,
-    validate_editor_open_safety,
-)
-from hwpx.body_patch import apply_body_ops
-from hwpx.experimental import render_layout_preview
-from hwpx.table_patch import apply_table_ops, table_summary
-from hwpx_automation.office.authoring import (
-    create_document_from_plan,
-    inspect_document_authoring_quality,
-    validate_document_plan,
-)
+try:
+    import olefile
+except ModuleNotFoundError:  # Optional in a reduced OpenAI host runtime.
+    from ._vendor import olefile
+
+try:
+    from hwpx import (
+        HwpxDocument,
+        TextExtractor,
+        validate_editor_open_safety,
+    )
+    from hwpx.body_patch import apply_body_ops
+    from hwpx.experimental import render_layout_preview
+    from hwpx.table_patch import apply_table_ops, table_summary
+    from hwpx_automation.office.authoring import (
+        create_document_from_plan,
+        inspect_document_authoring_quality,
+        validate_document_plan,
+    )
+except ModuleNotFoundError:  # HWPX authoring is optional in an OpenAI host runtime.
+    HwpxDocument = None  # type: ignore[assignment,misc]
+    TextExtractor = None  # type: ignore[assignment,misc]
+    validate_editor_open_safety = None  # type: ignore[assignment]
+    apply_body_ops = None  # type: ignore[assignment]
+    render_layout_preview = None  # type: ignore[assignment]
+    apply_table_ops = None  # type: ignore[assignment]
+    table_summary = None  # type: ignore[assignment]
+    create_document_from_plan = None  # type: ignore[assignment]
+    inspect_document_authoring_quality = None  # type: ignore[assignment]
+    validate_document_plan = None  # type: ignore[assignment]
 
 from .analysis import (
     ANALYSIS_JOB_SCHEMA_VERSION,
@@ -55,7 +71,7 @@ HWP_SIGNATURE = b"HWP Document File"
 try:
     PLUGIN_VERSION = version("document-files")
 except PackageNotFoundError:
-    PLUGIN_VERSION = "1.3.2"
+    PLUGIN_VERSION = "1.4.0"
 PYTHON_HWPX_VERSION = "6.3.0"
 PYTHON_HWPX_AUTOMATION_VERSION = "7.0.3"
 
@@ -107,6 +123,8 @@ def _python_hwpx_status() -> dict[str, Any]:
     available = (
         core_version == PYTHON_HWPX_VERSION
         and automation_version == PYTHON_HWPX_AUTOMATION_VERSION
+        and HwpxDocument is not None
+        and validate_document_plan is not None
     )
     return {
         "available": available,
@@ -290,7 +308,7 @@ def capabilities() -> dict[str, Any]:
             "maxInputBytes": MAX_FILE_BYTES,
             "maxStructuredUnitsPerPage": MAX_PUBLIC_STRUCTURED_UNITS,
             "coverageReported": True,
-            "boundedContinuationCompletedInProcess": True,
+            "singlePassBoundedAnalysis": True,
             "structuredPagination": True,
             "sourceDeclaredSemanticsOnly": True,
             "pathIndependentInput": True,
@@ -337,7 +355,8 @@ def capabilities() -> dict[str, Any]:
             "sourceReadOnly": True,
             "separateOutput": True,
             "atomicFilePublish": True,
-            "dryRunDefaultForEdits": True,
+            "dryRunDefaultForEdits": False,
+            "preflightAndReopenInWrite": True,
             "dependencyMismatchFailsClosed": True,
         },
     }
@@ -559,9 +578,7 @@ def _hwp_header(source: Path) -> dict[str, Any]:
         sections = [
             parts[1]
             for parts in compound.listdir(streams=True, storages=False)
-            if len(parts) == 2
-            and parts[0] == "BodyText"
-            and parts[1].startswith("Section")
+            if len(parts) == 2 and parts[0] == "BodyText" and parts[1].startswith("Section")
         ]
 
     return {
@@ -634,9 +651,7 @@ def _inspect_hwp(
     except RhwpBackendError as exc:
         raise _translate_backend_error(exc) from exc
 
-    extracted = "\n\n".join(
-        str(page.get("text", "")) for page in text_payload.get("pages", [])
-    )
+    extracted = "\n\n".join(str(page.get("text", "")) for page in text_payload.get("pages", []))
     text, text_truncated = _trim_text(extracted, max_chars)
     tables: list[dict[str, Any]] = []
     returned_cells = 0
@@ -721,11 +736,7 @@ def inspect_file(
         extracted = "\n\n".join(unit.content for unit in result.units) if include_text else ""
         content, truncated = _trim_text(extracted, max_chars)
         _ensure_source_unchanged(source, source_before)
-        warnings = [
-            issue.code
-            for issue in result.issues
-            if issue.severity in {"warning", "error"}
-        ]
+        warnings = [issue.code for issue in result.issues if issue.severity in {"warning", "error"}]
         if truncated:
             warnings.append("content-truncated")
         return {
@@ -925,11 +936,7 @@ def extract_file(
         extracted = "\n\n".join(unit.content for unit in result.units)
         content, truncated = _trim_text(extracted, max_chars)
         _ensure_source_unchanged(source, source_before)
-        warnings = [
-            issue.code
-            for issue in result.issues
-            if issue.severity in {"warning", "error"}
-        ]
+        warnings = [issue.code for issue in result.issues if issue.severity in {"warning", "error"}]
         if truncated:
             warnings.append("content-truncated")
         return {
@@ -956,8 +963,10 @@ def extract_file(
     _require_unprotected_hwp(source)
     source_before = _file_record(source)
     status = backend_status()
-    if source.suffix.casefold() == ".hwpx" and output_format == "text" and not status.get(
-        "available"
+    if (
+        source.suffix.casefold() == ".hwpx"
+        and output_format == "text"
+        and not status.get("available")
     ):
         extracted = _document_text(source)
         page_count = None
@@ -1552,7 +1561,7 @@ def edit_hwpx(
     *,
     plan: dict[str, Any],
     output_path: str | Path | None = None,
-    dry_run: bool = True,
+    dry_run: bool = False,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Apply bounded edits to an HWPX copy and return a measured change report."""

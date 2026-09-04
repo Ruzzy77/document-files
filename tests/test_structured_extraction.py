@@ -122,9 +122,7 @@ def test_hwp_image_bullet_keeps_its_embedded_source_reference() -> None:
     shape = bytearray(32)
     struct.pack_into("<I", shape, 0, 3 << 23)
     struct.pack_into("<H", shape, 30, 1)
-    shapes, styles = doc_info_properties(
-        [(1, 0x18, 0, bytes(bullet)), (2, 0x19, 0, bytes(shape))]
-    )
+    shapes, styles = doc_info_properties([(1, 0x18, 0, bytes(bullet)), (2, 0x19, 0, bytes(shape))])
     reader = SectionStructure(
         1,
         "Section0",

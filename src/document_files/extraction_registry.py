@@ -7,7 +7,6 @@ the service continues to own revisions, projections, anchors, and authority.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -138,18 +137,5 @@ def build_default_registry(
     )
     routes["hwp"] = hwp_adapter
     routes["hwpx"] = HWPXContentRouter(routes["hwpx"], hwp_adapter)
-    if (
-        runtime_root is not None
-        and sys.platform == "darwin"
-        and Path("/usr/bin/xcrun").is_file()
-    ):
-        from .native_adapters import PDFKitVisionAdapter
-        from .office_ocr import OfficeVisionAdapter
-
-        routes["pdf"] = PDFKitVisionAdapter(runtime_root)
-        for format_id in ("docx", "pptx", "hwp", "hwpx"):
-            routes[format_id] = OfficeVisionAdapter(
-                routes[format_id], runtime_root, format_id=format_id
-            )
     routes.update(overrides or {})
     return AdapterRegistry(routes)

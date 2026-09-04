@@ -32,8 +32,8 @@ def single_bitmap_emf(raw):
     if struct.unpack_from("<4i", record, 8) != bounds:
         return None
     x, y, sx, sy, sw, sh = struct.unpack_from("<6i", record, 24)
-    info_offset, info_size, bits_offset, bits_size, usage, operation = (
-        struct.unpack_from("<6I", record, 48)
+    info_offset, info_size, bits_offset, bits_size, usage, operation = struct.unpack_from(
+        "<6I", record, 48
     )
     width, height = struct.unpack_from("<2i", record, 72)
     if (

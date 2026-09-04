@@ -53,7 +53,7 @@ def _require_rhwp() -> dict:
 
 def test_capabilities_are_explicitly_headless() -> None:
     result = capabilities()
-    assert result["pluginVersion"] == "1.3.2"
+    assert result["pluginVersion"] == "1.4.0"
     assert result["headless"] is True
     assert result["nativeAppAutomation"] is False
     assert result["runtimeNetworkUsed"] is False
@@ -67,6 +67,7 @@ def test_capabilities_are_explicitly_headless() -> None:
     assert result["extraction"]["sourceDeclaredSemanticsOnly"] is True
     assert result["extraction"]["pathIndependentInput"] is True
     assert result["extraction"]["replaceableBackend"] is True
+    assert result["extraction"]["singlePassBoundedAnalysis"] is True
     assert set(result["extraction"]["formats"]) == {
         "docx",
         "htm",
@@ -88,6 +89,8 @@ def test_capabilities_are_explicitly_headless() -> None:
         "automationVersion": "7.0.3",
         "reason": None,
     }
+    assert result["outputPolicy"]["dryRunDefaultForEdits"] is False
+    assert result["outputPolicy"]["preflightAndReopenInWrite"] is True
     assert result["outputPolicy"]["dependencyMismatchFailsClosed"] is True
 
 
@@ -127,10 +130,15 @@ def test_mcp_surface_is_small_and_headless() -> None:
         "document_verify_hwpx",
         "document_render_file",
     }
-    assert by_name["document_capabilities"].annotations.readOnlyHint is True
-    assert by_name["document_extract_file"].annotations.readOnlyHint is True
-    assert by_name["document_extract_structure"].annotations.readOnlyHint is True
+    assert by_name["document_capabilities"].annotations.read_only_hint is True
+    assert by_name["document_extract_file"].annotations.read_only_hint is True
+    assert by_name["document_extract_structure"].annotations.read_only_hint is True
     assert "computer control" in by_name["document_render_file"].description
+    for tool in by_name.values():
+        schema = tool.output_schema
+        assert schema.get("additionalProperties") is not True
+        assert {"ok", "result", "error"}.issubset(schema["properties"])
+        assert "$defs" in schema
 
 
 def test_headless_hwp_read_convert_and_render(tmp_path: Path) -> None:
@@ -155,11 +163,14 @@ def test_headless_hwp_read_convert_and_render(tmp_path: Path) -> None:
     assert inspected["tableMap"]["tables"]
 
     extracted = extract_file(binary_hwp, output_format="markdown")
-    assert extracted["engine"] == {"name": "rhwp", "version": "0.8.2"}
+    assert extracted["engine"] == {"name": "rhwp", "version": "0.8.6"}
     assert "headless" in extracted["content"]
 
     converted_path = tmp_path / "converted.hwpx"
-    converted = convert_file(binary_hwp, converted_path)
+    with pytest.raises(DocumentFilesError) as exc_info:
+        convert_file(binary_hwp, converted_path)
+    assert exc_info.value.code == "conversion-loss-detected"
+    converted = convert_file(binary_hwp, converted_path, allow_lossy=True)
     assert converted["validation"]["packageAndReopen"]["ok"] is True
     assert converted["validation"]["pageCountPreserved"] is True
     assert converted_path.exists()

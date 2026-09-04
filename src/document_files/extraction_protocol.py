@@ -55,12 +55,8 @@ _ISSUE_IMPACTS = frozenset(
         "unsupported_feature",
     }
 )
-_COVERAGE_DIMENSIONS = frozenset(
-    {"text_content", "structure", "visual_content", "reading_order"}
-)
-_COVERAGE_VALUES = frozenset(
-    {"complete", "partial", "unverified", "not_applicable"}
-)
+_COVERAGE_DIMENSIONS = frozenset({"text_content", "structure", "visual_content", "reading_order"})
+_COVERAGE_VALUES = frozenset({"complete", "partial", "unverified", "not_applicable"})
 _DERIVATION_METHODS = frozenset({"native_text", "ocr"})
 _PROHIBITED_CONTROL_FIELDS = frozenset(
     {
@@ -203,12 +199,7 @@ def _default_issue_semantics(
     else:
         dimensions = ("text_content",)
 
-    if (
-        "budget" in code
-        or "limit" in code
-        or "truncated" in code
-        or code.endswith("range_pending")
-    ):
+    if "budget" in code or "limit" in code or "truncated" in code or code.endswith("range_pending"):
         return "processing_limit", dimensions
     if "unsupported" in code:
         return "unsupported_feature", dimensions
@@ -218,10 +209,7 @@ def _default_issue_semantics(
         return "visual_uninterpreted", dimensions
     if dimensions == ("structure",) or code.endswith(("partial", "unresolved")):
         return "structure_gap", dimensions
-    if any(
-        value in code
-        for value in ("content_unread", "without_text", "content_partial")
-    ):
+    if any(value in code for value in ("content_unread", "without_text", "content_partial")):
         return "content_gap", ("text_content",)
     return "content_gap", dimensions
 
@@ -248,9 +236,7 @@ class AdapterCapabilities:
         format_ids = tuple(sorted(set(self.format_ids)))
         unit_types = tuple(sorted(set(self.structural_unit_types)))
         if not format_ids:
-            raise ExtractionError(
-                "adapter capabilities must declare at least one format"
-            )
+            raise ExtractionError("adapter capabilities must declare at least one format")
         for value in format_ids:
             _validate_identifier(value, field_name="format_id")
         if not unit_types:
@@ -259,10 +245,7 @@ class AdapterCapabilities:
             )
         for value in unit_types:
             _validate_identifier(value, field_name="structural_unit_type")
-        if (
-            not isinstance(self.execution_mode, str)
-            or self.execution_mode not in _EXECUTION_MODES
-        ):
+        if not isinstance(self.execution_mode, str) or self.execution_mode not in _EXECUTION_MODES:
             raise ExtractionError(
                 "adapter execution mode is invalid",
                 details={"execution_mode": self.execution_mode},
@@ -315,9 +298,7 @@ class AdapterDescriptor:
             limit=128,
         )
         if not _HASH_RE.fullmatch(self.config_hash):
-            raise ExtractionError(
-                "adapter config hash must be a lowercase SHA-256 digest"
-            )
+            raise ExtractionError("adapter config hash must be a lowercase SHA-256 digest")
 
     @classmethod
     def from_config(
@@ -596,9 +577,7 @@ def _coverage_profile(
         "structure": "complete" if units else "partial",
         "visual_content": "not_applicable",
         "reading_order": (
-            "complete"
-            if descriptor.capabilities.preserves_reading_order
-            else "unverified"
+            "complete" if descriptor.capabilities.preserves_reading_order else "unverified"
         ),
     }
     all_issues = [*issues, *(issue for unit in units for issue in unit.issues)]
@@ -652,11 +631,12 @@ def _honest_completeness(
     """Preserve the legacy helper signature while applying v2 issue semantics."""
 
     all_issues = [*issues, *(issue for unit in units for issue in unit.issues)]
-    if not units or (
-        declared == "partial" and not all_issues
-    ) or any(
-        issue.impact not in {"observation", "reading_order_unverified"}
-        for issue in all_issues
+    if (
+        not units
+        or (declared == "partial" and not all_issues)
+        or any(
+            issue.impact not in {"observation", "reading_order_unverified"} for issue in all_issues
+        )
     ):
         return "partial"
     return "complete"
@@ -680,10 +660,7 @@ class ExtractionEnvelope:
                 "extraction envelope schema version is unsupported",
                 details={"schema_version": self.schema_version},
             )
-        if (
-            not isinstance(self.completeness, str)
-            or self.completeness not in _COMPLETENESS_VALUES
-        ):
+        if not isinstance(self.completeness, str) or self.completeness not in _COMPLETENESS_VALUES:
             raise ExtractionError(
                 "extraction completeness is invalid",
                 details={"completeness": self.completeness},
@@ -691,28 +668,18 @@ class ExtractionEnvelope:
         units = tuple(self.units)
         issues = tuple(self.issues)
         if not all(isinstance(unit, ExtractedUnit) for unit in units):
-            raise ExtractionError(
-                "extraction envelope units must be ExtractedUnit values"
-            )
+            raise ExtractionError("extraction envelope units must be ExtractedUnit values")
         if not all(isinstance(issue, ExtractionIssue) for issue in issues):
-            raise ExtractionError(
-                "extraction envelope issues must be ExtractionIssue values"
-            )
+            raise ExtractionError("extraction envelope issues must be ExtractionIssue values")
         object.__setattr__(self, "units", units)
         object.__setattr__(self, "issues", issues)
         if not isinstance(self.coverage, CoverageProfile):
-            raise ExtractionError(
-                "extraction envelope coverage must be a CoverageProfile"
-            )
+            raise ExtractionError("extraction envelope coverage must be a CoverageProfile")
         if self.completeness != _coverage_completeness(self.coverage):
-            raise ExtractionError(
-                "extraction completeness does not match its coverage profile"
-            )
+            raise ExtractionError("extraction completeness does not match its coverage profile")
         expected_hash = _sha256_json(self._manifest_payload())
         if self.manifest_hash != expected_hash:
-            raise ExtractionError(
-                "extraction envelope manifest hash does not match its contents"
-            )
+            raise ExtractionError("extraction envelope manifest hash does not match its contents")
 
     @classmethod
     def create(
@@ -733,9 +700,7 @@ class ExtractionEnvelope:
             issues_tuple,
         )
         coverage = (
-            observed_coverage
-            if coverage is None
-            else _merge_coverage(coverage, observed_coverage)
+            observed_coverage if coverage is None else _merge_coverage(coverage, observed_coverage)
         )
         completeness = _coverage_completeness(coverage)
         provisional = {
@@ -1377,9 +1342,7 @@ class ExternalJSONLAdapter:
             isinstance(argument, str) and argument and "\x00" not in argument
             for argument in command
         ):
-            raise ExtractionError(
-                "external adapter command must contain bounded strings"
-            )
+            raise ExtractionError("external adapter command must contain bounded strings")
         executable = command[0]
         executable_path = (
             Path(os.path.abspath(Path(executable).expanduser()))
@@ -1478,9 +1441,7 @@ class ExternalJSONLAdapter:
             not isinstance(declared_completeness, str)
             or declared_completeness not in _COMPLETENESS_VALUES
         ):
-            raise ExtractionError(
-                "external adapter completeness must be complete or partial"
-            )
+            raise ExtractionError("external adapter completeness must be complete or partial")
         raw_units = raw["units"]
         raw_issues = raw.get("issues", [])
         if not isinstance(raw_units, list):
@@ -1540,10 +1501,7 @@ class ExternalJSONLAdapter:
             issues=issues,
         )
         completeness = envelope.completeness
-        if (
-            completeness == "partial"
-            and not self.descriptor.capabilities.may_emit_partial
-        ):
+        if completeness == "partial" and not self.descriptor.capabilities.may_emit_partial:
             raise ExtractionError(
                 "external adapter emitted a partial result without declaring that capability"
             )

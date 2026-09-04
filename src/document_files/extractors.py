@@ -14,8 +14,18 @@ from datetime import date, datetime, time
 from pathlib import Path
 from typing import ClassVar
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
+try:
+    from defusedxml import ElementTree
+    from defusedxml.common import DefusedXmlException
+
+    _DEFUSED_XML_AVAILABLE = True
+except ModuleNotFoundError:  # OpenAI hosts may provide only the standard library parser.
+    from xml.etree import ElementTree
+
+    class DefusedXmlException(Exception):
+        """Compatibility exception used by the guarded standard-library fallback."""
+
+    _DEFUSED_XML_AVAILABLE = False
 
 from .extraction_errors import ExtractionError
 
@@ -140,9 +150,7 @@ def _preflight_zip(path: Path) -> None:
                     },
                 )
     except zipfile.BadZipFile as exc:
-        raise ExtractionError(
-            "invalid ZIP-based document", details={"error": str(exc)}
-        ) from exc
+        raise ExtractionError("invalid ZIP-based document", details={"error": str(exc)}) from exc
 
 
 def _safe_archive_xml_root(
@@ -170,13 +178,21 @@ def _safe_archive_xml_root(
                 "limit": MAX_XML_MEMBER_BYTES,
             },
         )
-    try:
-        return ElementTree.fromstring(
-            content,
-            forbid_dtd=True,
-            forbid_entities=True,
-            forbid_external=True,
+    upper = content.upper()
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+        raise ExtractionError(
+            "archive XML contains a forbidden construct",
+            details={"reason": "unsafe_xml"},
         )
+    try:
+        if _DEFUSED_XML_AVAILABLE:
+            return ElementTree.fromstring(
+                content,
+                forbid_dtd=True,
+                forbid_entities=True,
+                forbid_external=True,
+            )
+        return ElementTree.fromstring(content)
     except DefusedXmlException as exc:
         raise ExtractionError(
             "archive XML contains a forbidden construct",
@@ -403,9 +419,7 @@ def extract_pdf(
         issues = []
         total_pages = len(reader.pages)
         page_end = (
-            min(total_pages, page_start - 1 + max_pages)
-            if max_pages is not None
-            else total_pages
+            min(total_pages, page_start - 1 + max_pages) if max_pages is not None else total_pages
         )
         if not 1 <= page_start <= total_pages + 1:
             raise ExtractionError("PDF page range is invalid")
@@ -438,7 +452,9 @@ def extract_pdf(
                     {
                         "code": "pdf_page_range_pending",
                         "severity": "warning",
-                        "message": "Further original pages remain for a bounded continuation.",
+                        "message": (
+                            "Further original pages were not read because of the page limit."
+                        ),
                         "next_page": page_end + 1,
                         "document_pages": total_pages,
                         "reason": "page_limit",
@@ -447,9 +463,7 @@ def extract_pdf(
     except ExtractionError:
         raise
     except Exception as exc:
-        raise ExtractionError(
-            "could not extract PDF", details={"error": str(exc)}
-        ) from exc
+        raise ExtractionError("could not extract PDF", details={"error": str(exc)}) from exc
     return _finish(units, issues, preserve_empty=True)
 
 
@@ -559,9 +573,7 @@ def _xlsx_typed_value(
     }
 
 
-_MARKUP_COMPATIBILITY_NAMESPACE = (
-    "http://schemas.openxmlformats.org/markup-compatibility/2006"
-)
+_MARKUP_COMPATIBILITY_NAMESPACE = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _SPREADSHEETML_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _XLSX_STYLES_MEMBER = "xl/styles.xml"
 
@@ -597,6 +609,9 @@ def _resolve_xlsx_style_alternate_content(root) -> int:
 def _xlsx_compatible_styles(styles: bytes) -> tuple[bytes, dict[str, int]]:
     """Make source-declared compatibility styles readable in a temporary copy."""
 
+    upper = styles.upper()
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+        raise ExtractionError("XLSX styles XML contains a forbidden construct")
     try:
         root = ElementTree.fromstring(styles)
     except (DefusedXmlException, ElementTree.ParseError) as exc:
@@ -674,9 +689,7 @@ def _write_xlsx_with_compatible_styles(
                 package.open(member) as source_member,
                 normalized.open(member, "w", force_zip64=True) as destination_member,
             ):
-                shutil.copyfileobj(
-                    source_member, destination_member, length=1024 * 1024
-                )
+                shutil.copyfileobj(source_member, destination_member, length=1024 * 1024)
 
 
 def _open_xlsx_workbook(load_workbook, path: Path, *, data_only: bool):
@@ -852,11 +865,7 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                             "Standard SpreadsheetML style fallbacks were selected in "
                             "a temporary read-only copy."
                         ),
-                        "details": {
-                            "occurrences": style_changes[
-                                "alternate_content_fallbacks"
-                            ]
-                        },
+                        "details": {"occurrences": style_changes["alternate_content_fallbacks"]},
                     }
                 )
             if style_changes["invalid_font_families"]:
@@ -868,11 +877,7 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                             "Invalid XLSX font-family metadata was ignored in a "
                             "temporary read-only copy."
                         ),
-                        "details": {
-                            "removed_elements": style_changes[
-                                "invalid_font_families"
-                            ]
-                        },
+                        "details": {"removed_elements": style_changes["invalid_font_families"]},
                     }
                 )
         package, workbook = _open_xlsx_workbook(
@@ -949,8 +954,7 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                                     "code": "sheet_limit_reached",
                                     "severity": "warning",
                                     "message": (
-                                        "Worksheet extraction stopped at the configured "
-                                        "row limit."
+                                        "Worksheet extraction stopped at the configured row limit."
                                     ),
                                     "sheet": sheet.title,
                                     "details": {
@@ -970,9 +974,7 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                             if value is None:
                                 continue
                             cached_cell = (
-                                cached_row[col_index - 1]
-                                if col_index <= len(cached_row)
-                                else None
+                                cached_row[col_index - 1] if col_index <= len(cached_row) else None
                             )
                             style_metadata, style_error = _xlsx_cell_style_metadata(cell)
                             if style_error is not None:
@@ -1143,7 +1145,5 @@ EXTRACTORS = {
 def extract(path: Path, adapter: str) -> ExtractionResult:
     extractor = EXTRACTORS.get(adapter)
     if extractor is None:
-        raise ExtractionError(
-            "no extractor is registered", details={"adapter": adapter}
-        )
+        raise ExtractionError("no extractor is registered", details={"adapter": adapter})
     return extractor(path)

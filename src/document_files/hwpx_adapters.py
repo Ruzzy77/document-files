@@ -46,9 +46,7 @@ class HWPXContentRouter:
                 structural_unit_types=tuple(
                     sorted(
                         set(hwpx_adapter.descriptor.capabilities.structural_unit_types)
-                        | set(
-                            binary_hwp_adapter.descriptor.capabilities.structural_unit_types
-                        )
+                        | set(binary_hwp_adapter.descriptor.capabilities.structural_unit_types)
                     )
                 ),
                 execution_mode="in_process",
@@ -72,9 +70,7 @@ class HWPXContentRouter:
             with path.open("rb") as source:
                 signature = source.read(len(OLE_COMPOUND_FILE_SIGNATURE))
         except OSError as exc:
-            raise ExtractionError(
-                "adapter input is not a readable regular file"
-            ) from exc
+            raise ExtractionError("adapter input is not a readable regular file") from exc
 
         if signature == OLE_COMPOUND_FILE_SIGNATURE:
             delegated = self._binary_hwp_adapter.extract(path, format_id="hwp")
@@ -90,9 +86,7 @@ class HWPXContentRouter:
                     details={
                         "detected_format": "hwp",
                         "declared_format": "hwpx",
-                        "delegated_adapter_id": (
-                            self._binary_hwp_adapter.descriptor.adapter_id
-                        ),
+                        "delegated_adapter_id": (self._binary_hwp_adapter.descriptor.adapter_id),
                     },
                 ),
             )

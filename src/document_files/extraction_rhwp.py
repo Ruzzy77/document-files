@@ -21,7 +21,7 @@ from .extraction_protocol import (
     _bounded_subprocess,
 )
 
-RHWP_VERSION = "0.8.2"
+RHWP_VERSION = "0.8.6"
 _SOURCE = Path(__file__)
 
 
@@ -34,6 +34,8 @@ def _platform_key() -> str | None:
         return "macos-x86_64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x86_64"
+    if system == "linux" and machine in {"arm64", "aarch64"}:
+        return "linux-aarch64"
     return None
 
 
@@ -48,9 +50,7 @@ def _rhwp_name() -> str:
     return "rhwp.exe" if platform.system().casefold() == "windows" else "rhwp"
 
 
-def _candidate_executables(
-    runtime_root: Path, explicit: Path | None
-) -> tuple[Path, ...]:
+def _candidate_executables(runtime_root: Path, explicit: Path | None) -> tuple[Path, ...]:
     key = _platform_key()
     candidates: list[Path] = []
     configured = os.environ.get("DOCUMENT_FILES_RHWP")
@@ -73,16 +73,12 @@ class RhwpPageTextAdapter:
         *,
         executable: Path | None = None,
     ) -> None:
-        self.runtime_root = (
-            Path(runtime_root or _global_cache_root()).expanduser().resolve()
-        )
+        self.runtime_root = Path(runtime_root or _global_cache_root()).expanduser().resolve()
         self._explicit_executable = executable
         try:
             source_hash = hashlib.sha256(_SOURCE.read_bytes()).hexdigest()
         except OSError as exc:
-            raise ExtractionError(
-                "packaged rhwp adapter source is unavailable"
-            ) from exc
+            raise ExtractionError("packaged rhwp adapter source is unavailable") from exc
         self.config = {
             "backend": "rhwp",
             "backend_version": RHWP_VERSION,
@@ -253,9 +249,7 @@ class RhwpPageTextAdapter:
                 )
             total_chars += len(content)
             if total_chars > self.budgets.max_total_content_chars:
-                raise BudgetExceededError(
-                    "rhwp text exceeds its aggregate character budget"
-                )
+                raise BudgetExceededError("rhwp text exceeds its aggregate character budget")
             units.append(
                 ExtractedUnit(
                     unit_type="page_text",

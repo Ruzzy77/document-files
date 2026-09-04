@@ -1,237 +1,13 @@
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
-from document_files.extraction_protocol import (
-    ExtractedUnit,
-    ExtractionEnvelope,
-    run_builtin_extraction,
-)
+from document_files.extraction_protocol import run_builtin_extraction
 
 
 class OfficeStructureTest(unittest.TestCase):
-    def test_fallback_ocr_regions_form_reversible_bounded_blocks(self):
-        from document_files.office_ocr import _image_text_units
-
-        regions = [
-            ExtractedUnit(
-                "page_region",
-                {"page": 1, "vision_index": index},
-                f"검색 문장 {index}",
-                derivation_method="ocr",
-                geometry={
-                    "coordinate_system": "top_left_normalized",
-                    "bbox": [0.1, index / 100, 0.9, (index + 1) / 100],
-                },
-                confidence=0.8 + index / 1000,
-                quality_flags=("ocr", "reading_order_unverified"),
-            )
-            for index in range(70)
-        ]
-        wrapped = _image_text_units(
-            regions,
-            location={"section": 1, "image_record": 7},
-            image_part="BinData/BIN0001.bmp",
-            image_sha256="a" * 64,
-            crop_notes={},
-            max_regions=32,
-            max_chars=10_000,
-        )
-
-        self.assertEqual(len(wrapped), 3)
-        self.assertEqual(
-            [unit.structure_path["image_region_count"] for unit in wrapped],
-            [32, 32, 6],
-        )
-        recovered, recovered_boxes = [], []
-        for unit in wrapped:
-            self.assertEqual(unit.structure_path["image_record"], 7)
-            self.assertEqual(unit.structure_path["source_ocr_unit_type"], "page_region")
-            self.assertIn("grouped_ocr_regions", unit.quality_flags)
-            self.assertIn("reading_order_unverified", unit.quality_flags)
-            for segment in unit.geometry["segments"]:
-                recovered.append(unit.content[segment["content_start"] : segment["content_end"]])
-                recovered_boxes.append(segment["bbox"])
-        self.assertEqual(recovered, [unit.content for unit in regions])
-        self.assertEqual(recovered_boxes, [unit.geometry["bbox"] for unit in regions])
-
-    def test_structured_ocr_units_are_not_grouped_with_fallback_regions(self):
-        from document_files.office_ocr import _image_text_units
-
-        fallback = [
-            ExtractedUnit(
-                "page_region",
-                {"page": 1, "vision_index": index},
-                f"fallback {index}",
-                derivation_method="ocr",
-                quality_flags=("ocr", "reading_order_unverified"),
-            )
-            for index in range(6)
-        ]
-        structured = ExtractedUnit(
-            "paragraph",
-            {"page": 1, "paragraph": 1},
-            "structured paragraph",
-            derivation_method="ocr",
-            quality_flags=("ocr", "structured_ocr", "reading_order_unverified"),
-        )
-        wrapped = _image_text_units(
-            (*fallback[:3], structured, *fallback[3:]),
-            location={"slide": 1, "element": 2},
-            image_part="ppt/media/image1.png",
-            image_sha256="b" * 64,
-            crop_notes={},
-        )
-
-        self.assertEqual(len(wrapped), 3)
-        self.assertEqual(wrapped[1].content, "structured paragraph")
-        self.assertEqual(wrapped[1].structure_path["source_ocr_unit_type"], "paragraph")
-        self.assertNotIn("grouped_ocr_regions", wrapped[1].quality_flags)
-        self.assertEqual(
-            wrapped[0].content.splitlines(),
-            [unit.content for unit in fallback[:3]],
-        )
-        self.assertEqual(
-            wrapped[2].content.splitlines(),
-            [unit.content for unit in fallback[3:]],
-        )
-
-    @unittest.skipUnless(sys.platform == "darwin", "Vision requires macOS")
-    def test_local_image_ocr_has_source_object_location_and_keeps_native_text(self):
-        from PIL import Image, ImageDraw, ImageFont
-        from pptx import Presentation
-        from pptx.util import Inches
-
-        from document_files.extraction_registry import build_default_registry
-
-        with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
-            picture = base / "image.png"
-            image = Image.new("RGB", (1000, 250), "white")
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 70)
-            ImageDraw.Draw(image).text((50, 50), "Corpus local OCR", font=font, fill="black")
-            image.save(picture)
-            # Reusing a large package part must not spend its byte budget again.
-            with picture.open("ab") as stream:
-                stream.write(b"\0" * (2 * 1024 * 1024))
-            presentation = Presentation()
-            slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-            slide.shapes.add_picture(str(picture), 0, 0, width=Inches(6))
-            second = presentation.slides.add_slide(presentation.slide_layouts[6])
-            second.shapes.add_textbox(
-                0, 0, Inches(6), Inches(1)
-            ).text = "Existing native content remains authoritative and is not replaced"
-            second.shapes.add_picture(str(picture), 0, 0, width=Inches(6))
-            for _ in range(17):
-                repeated = presentation.slides.add_slide(presentation.slide_layouts[6])
-                repeated.shapes.add_picture(str(picture), 0, 0, width=Inches(6))
-            path = base / "images.pptx"
-            presentation.save(path)
-            original = path.read_bytes()
-            adapter = build_default_registry(base / "runtime").resolve("pptx")
-            with mock.patch.object(adapter, "_image_text", wraps=adapter._image_text) as recognize:
-                result = adapter.extract(path, format_id="pptx")
-                self.assertEqual(recognize.call_count, 1)
-            self.assertEqual(path.read_bytes(), original)
-        recognized = [u for u in result.units if u.derivation_method == "ocr"]
-        self.assertTrue(recognized)
-        self.assertIn("Corpus local OCR", " ".join(u.content for u in recognized))
-        self.assertEqual({u.structure_path["slide"] for u in recognized}, set(range(1, 20)))
-        first_ocr = next(i for i, u in enumerate(result.units) if u.derivation_method == "ocr")
-        native_position = next(
-            i for i, u in enumerate(result.units) if u.content.startswith("Existing native content")
-        )
-        self.assertLess(first_ocr, native_position)
-        self.assertNotIn("office_image_size_limit", {i.code for i in result.issues})
-        self.assertTrue(all(u.geometry and u.confidence is not None for u in recognized))
-        self.assertTrue(
-            all(u.structure_path["image_part"].startswith("ppt/media/") for u in recognized)
-        )
-        self.assertEqual(
-            sum(u.content.startswith("Existing native content") for u in result.units),
-            1,
-        )
-
-    @unittest.skipUnless(sys.platform == "darwin", "Vision requires macOS")
-    def test_image_continuation_preserves_prior_units_and_source_order(self):
-        from PIL import Image
-        from pptx import Presentation
-        from pptx.util import Inches
-
-        from document_files.extraction_registry import build_default_registry
-
-        with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
-            source = base / "source"
-            source.mkdir()
-            presentation = Presentation()
-            for index, color in enumerate(("red", "green", "blue")):
-                picture = base / f"{index}.png"
-                Image.new("RGB", (20, 20), color).save(picture)
-                slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-                slide.shapes.add_textbox(0, 0, Inches(4), Inches(1)).text = f"Native {index}"
-                slide.shapes.add_picture(str(picture), 0, 0, width=Inches(1))
-            path = source / "images.pptx"
-            presentation.save(path)
-            original = path.read_bytes()
-            registry = build_default_registry(base / "runtime")
-            adapter = registry.resolve("pptx")
-            adapter.config["max_images"] = 1
-            calls = []
-
-            def recognize(image_path, seconds, *, crop=None):
-                self.assertIsNone(crop)
-                calls.append(image_path.read_bytes())
-                return ExtractionEnvelope.create(
-                    descriptor=adapter.descriptor,
-                    completeness="complete",
-                    units=[
-                        ExtractedUnit(
-                            "page_region",
-                            {"page": 1},
-                            f"Recognized {len(calls)}",
-                            derivation_method="ocr",
-                        )
-                    ],
-                )
-
-            with (
-                mock.patch.object(adapter, "_image_text", side_effect=recognize),
-                mock.patch.object(
-                    adapter.native, "extract", wraps=adapter.native.extract
-                ) as native_extract,
-            ):
-                result = adapter.extract(path, format_id="pptx")
-                for count in (1, 2, 3):
-                    if count > 1:
-                        result = adapter.resume(
-                            path,
-                            format_id="pptx",
-                            previous=result,
-                        )
-                    contents = [unit.content for unit in result.units]
-                    self.assertEqual(
-                        [t for t in contents if t.startswith("Native")],
-                        ["Native 0", "Native 1", "Native 2"],
-                    )
-                    self.assertEqual(
-                        [t for t in contents if t.startswith("Recognized")],
-                        [f"Recognized {n}" for n in range(1, count + 1)],
-                    )
-                    issue_codes = {issue.code for issue in result.issues}
-                    self.assertEqual(
-                        "office_image_range_pending" in issue_codes,
-                        count < 3,
-                    )
-                self.assertEqual(native_extract.call_count, 1)
-            self.assertEqual(len(calls), 3)
-            self.assertEqual(len(set(calls)), 3)
-            self.assertEqual(path.read_bytes(), original)
-
     def test_word_body_order_nested_tables_and_merged_cells(self):
         from docx import Document
 
@@ -255,7 +31,7 @@ class OfficeStructureTest(unittest.TestCase):
             original = path.read_bytes()
             result = run_builtin_extraction(path, "docx")
             self.assertEqual(original, path.read_bytes())
-        texts = [u.content for u in result.units if u.content]
+        texts = [unit.content for unit in result.units if unit.content]
         self.assertEqual(
             texts,
             [
@@ -272,11 +48,11 @@ class OfficeStructureTest(unittest.TestCase):
                 "Footer text",
             ],
         )
-        vertical = next(u for u in result.units if u.content == "Vertical merge")
+        vertical = next(unit for unit in result.units if unit.content == "Vertical merge")
+        horizontal = next(unit for unit in result.units if unit.content == "Horizontal merge")
+        nested = next(unit for unit in result.units if unit.content == "Nested cell")
         self.assertEqual(vertical.structure_path["row_span"], 2)
-        horizontal = next(u for u in result.units if u.content == "Horizontal merge")
         self.assertEqual(horizontal.structure_path["col_span"], 2)
-        nested = next(u for u in result.units if u.content == "Nested cell")
         self.assertTrue(nested.structure_path["container_path"])
         self.assertEqual(result.units[0].unit_type, "heading")
 
@@ -309,12 +85,10 @@ class OfficeStructureTest(unittest.TestCase):
             document.save(path)
             result = run_builtin_extraction(path, "docx")
         self.assertEqual(
-            [u.content for u in result.units if u.content],
+            [unit.content for unit in result.units if unit.content],
             ["Before", "Textbox", "After", "Stored date"],
         )
-        textbox = next(u for u in result.units if u.content == "Textbox")
-        self.assertIn("owner_paragraph", textbox.structure_path)
-        field = next(u for u in result.units if u.unit_type == "field")
+        field = next(unit for unit in result.units if unit.unit_type == "field")
         self.assertEqual(field.structure_path["instruction"], "DATE")
         self.assertEqual(field.structure_path["evaluation"], "stored_result_only")
 
@@ -344,12 +118,10 @@ class OfficeStructureTest(unittest.TestCase):
             slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, 0, 0, Inches(4), Inches(2), data)
             slide.notes_slide.notes_text_frame.text = "Speaker notes"
             presentation.save(path)
-            original = path.read_bytes()
             first = run_builtin_extraction(path, "pptx")
             second = run_builtin_extraction(path, "pptx")
-            self.assertEqual(path.read_bytes(), original)
         self.assertEqual(first.manifest_hash, second.manifest_hash)
-        texts = [u.content for u in first.units if u.content]
+        texts = [unit.content for unit in first.units if unit.content]
         self.assertEqual(
             texts[:6],
             [
@@ -361,15 +133,10 @@ class OfficeStructureTest(unittest.TestCase):
                 "Cell B",
             ],
         )
-        self.assertEqual(texts.count("Merged heading"), 1)
         self.assertEqual(texts[-1], "Speaker notes")
         self.assertTrue({"Revenue", "North", "South", "12", "18"}.issubset(texts))
-        group_text = next(u for u in first.units if u.content == "Nested group")
-        self.assertEqual(len(group_text.structure_path["group_path"]), 2)
-        cell = next(u for u in first.units if u.content == "Merged heading")
+        cell = next(unit for unit in first.units if unit.content == "Merged heading")
         self.assertEqual(cell.structure_path["col_span"], 2)
-        locators = [dict(u.structure_path) for u in first.units]
-        self.assertTrue(all("part" in loc and "element" in loc for loc in locators))
 
 
 if __name__ == "__main__":

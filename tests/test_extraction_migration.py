@@ -35,7 +35,6 @@ from document_files.hwp5_adapter_main import (
     _records,
 )
 from document_files.hwp_structure import SectionStructure, link_document_memos
-from document_files.native_adapters import _PDF_VISION_SOURCE, PDFKitVisionAdapter
 
 
 def write_text_pdf(path: Path, text: bytes = b"Source backed PDF page") -> None:
@@ -130,9 +129,7 @@ class BuiltinAdapterTest(unittest.TestCase):
         self.assertEqual(result.issues[0].code, "no_extractable_text")
 
     @mock.patch("document_files.extraction_protocol.extract")
-    def test_builtin_unverified_reading_order_is_declared_in_coverage(
-        self, extract
-    ) -> None:
+    def test_builtin_unverified_reading_order_is_declared_in_coverage(self, extract) -> None:
         unit_types = {"docx": "paragraph", "pdf": "page", "pptx": "slide_text"}
         extract.side_effect = lambda _path, adapter_name: ExtractionResult(
             units=[UnitDraft(unit_types[adapter_name], {"ordinal": 1}, "text")]
@@ -143,16 +140,12 @@ class BuiltinAdapterTest(unittest.TestCase):
             for adapter_name in ("docx", "pdf", "pptx"):
                 with self.subTest(adapter=adapter_name):
                     result = run_builtin_extraction(path, adapter_name)
-                    self.assertFalse(
-                        result.descriptor.capabilities.preserves_reading_order
-                    )
+                    self.assertFalse(result.descriptor.capabilities.preserves_reading_order)
                     self.assertEqual(result.completeness, "complete")
                     self.assertEqual(result.coverage.reading_order, "unverified")
                     self.assertEqual(result.coverage.text_content, "complete")
                     issue = next(
-                        issue
-                        for issue in result.issues
-                        if issue.code == "reading_order_unverified"
+                        issue for issue in result.issues if issue.code == "reading_order_unverified"
                     )
                     self.assertEqual(issue.impact, "reading_order_unverified")
                     self.assertEqual(issue.coverage_dimensions, ("reading_order",))
@@ -215,12 +208,8 @@ class BuiltinAdapterTest(unittest.TestCase):
 
         from openpyxl import Workbook
 
-        spreadsheet_namespace = (
-            "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-        )
-        compatibility_namespace = (
-            "http://schemas.openxmlformats.org/markup-compatibility/2006"
-        )
+        spreadsheet_namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        compatibility_namespace = "http://schemas.openxmlformats.org/markup-compatibility/2006"
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = root / "alternate-style.xlsx"
@@ -238,9 +227,7 @@ class BuiltinAdapterTest(unittest.TestCase):
                     data = source.read(member)
                     if member.filename == "xl/styles.xml":
                         styles = ElementTree.fromstring(data)
-                        cell_styles = styles.find(
-                            f"{{{spreadsheet_namespace}}}cellXfs"
-                        )
+                        cell_styles = styles.find(f"{{{spreadsheet_namespace}}}cellXfs")
                         self.assertIsNotNone(cell_styles)
                         source_style = cell_styles[1]
                         cell_styles.remove(source_style)
@@ -252,9 +239,7 @@ class BuiltinAdapterTest(unittest.TestCase):
                             f"{{{compatibility_namespace}}}Choice",
                             {"Requires": "extension"},
                         )
-                        choice.append(
-                            ElementTree.fromstring(ElementTree.tostring(source_style))
-                        )
+                        choice.append(ElementTree.fromstring(ElementTree.tostring(source_style)))
                         fallback = ElementTree.SubElement(
                             alternate,
                             f"{{{compatibility_namespace}}}Fallback",
@@ -487,9 +472,7 @@ print(json.dumps({{
                             {
                                 "code": "external_reference",
                                 "message": "reference",
-                                "details": {
-                                    forbidden_field: "file:///private/source.hwp"
-                                },
+                                "details": {forbidden_field: "file:///private/source.hwp"},
                             }
                         ],
                     }
@@ -626,23 +609,16 @@ print(json.dumps({{
 
 
 class PackagedAdapterTest(unittest.TestCase):
-    def test_pdf_native_source_is_installed_package_data(self) -> None:
-        self.assertTrue(_PDF_VISION_SOURCE.is_file())
-        self.assertEqual(_PDF_VISION_SOURCE.parent.name, "native")
-        self.assertEqual(_PDF_VISION_SOURCE.parent.parent.name, "document_files")
-
-    def test_default_registry_routes_pdf_and_binary_hwp_independently(self) -> None:
+    def test_default_registry_routes_general_parsers_before_hwp_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             registry = build_default_registry(Path(temporary) / "runtime")
 
         pdf = registry.resolve("pdf").descriptor
         hwp = registry.resolve("hwp").descriptor
-        self.assertEqual(pdf.adapter_id, "document-files.native.pdfkit-vision")
-        self.assertTrue(pdf.capabilities.supports_ocr)
-        self.assertTrue(pdf.capabilities.supports_geometry)
-        self.assertIn("table_cell", pdf.capabilities.structural_unit_types)
-        self.assertEqual(hwp.adapter_id, "document-files.native.office-vision.hwp")
-        self.assertTrue(hwp.capabilities.supports_ocr)
+        self.assertEqual(pdf.adapter_id, "document-files.builtin.pdf")
+        self.assertFalse(pdf.capabilities.supports_ocr)
+        self.assertEqual(hwp.adapter_id, "document-files.hwp5.content-router")
+        self.assertFalse(hwp.capabilities.supports_ocr)
         self.assertTrue(hwp.capabilities.may_emit_partial)
 
     def test_hwp_and_hwpx_structure_upgrade_requires_reindex(self) -> None:
@@ -684,7 +660,7 @@ class PackagedAdapterTest(unittest.TestCase):
                 f"#!{sys.executable}\n"
                 "import json, sys\n"
                 "if sys.argv[1] == '--version':\n"
-                "    print('rhwp v0.8.2')\n"
+                "    print('rhwp v0.8.6')\n"
                 "    raise SystemExit(0)\n"
                 "assert sys.argv[1] == 'export-text'\n"
                 "assert sys.argv[2].startswith('/dev/fd/')\n"
@@ -710,81 +686,6 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertNotIn("source", result.to_dict())
         self.assertEqual(result.completeness, "partial")
 
-    @unittest.skipUnless(sys.platform == "darwin", "PDFKit is available only on macOS")
-    def test_pdf_native_adapter_treats_blank_page_as_observed(self) -> None:
-        from pypdf import PdfReader, PdfWriter
-
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            first_page = root / "text.pdf"
-            path = root / "text-with-blank-page.pdf"
-            write_text_pdf(first_page, b"Searchable first page with enough native text")
-            writer = PdfWriter()
-            writer.add_page(PdfReader(first_page).pages[0])
-            writer.add_blank_page(width=100, height=100)
-            with path.open("wb") as handle:
-                writer.write(handle)
-            result = PDFKitVisionAdapter(root / "runtime").extract(
-                path,
-                format_id="pdf",
-            )
-
-        self.assertEqual(result.completeness, "complete")
-        self.assertEqual(len(result.units), 1)
-        self.assertNotIn(
-            "pdf_page_without_text", {issue.code for issue in result.issues}
-        )
-
-    @unittest.skipUnless(sys.platform == "darwin", "PDFKit is available only on macOS")
-    def test_pdf_native_adapter_uses_hybrid_ocr_and_keeps_text_pdf_complete(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            path = root / "text.pdf"
-            write_text_pdf(
-                path, b"This native PDF page has enough searchable text for indexing"
-            )
-            adapter = PDFKitVisionAdapter(root / "runtime")
-            result = adapter.extract(path, format_id="pdf")
-
-        self.assertEqual(adapter.config["ocr_scope"], "hybrid")
-        self.assertEqual(result.completeness, "complete")
-        self.assertEqual(
-            [unit.derivation_method for unit in result.units],
-            ["native_text"],
-        )
-        self.assertIn("reading_order_unverified", result.units[0].quality_flags)
-        self.assertEqual({i.code for i in result.issues}, {"pdf_page_range_observed"})
-        self.assertTrue(all(i.severity == "info" for i in result.issues))
-
-    @unittest.skipUnless(sys.platform == "darwin", "PDFKit is available only on macOS")
-    def test_pdf_native_adapter_falls_back_to_pypdf_on_native_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            path = root / "fallback.pdf"
-            write_text_pdf(path, b"PDFKit compatibility fallback text")
-            adapter = PDFKitVisionAdapter(root / "runtime")
-            with (
-                mock.patch.object(adapter, "_build", return_value=Path(sys.executable)),
-                mock.patch(
-                    "document_files.native_adapters.ExternalJSONLAdapter.extract",
-                    side_effect=ExtractionError("native PDF adapter failed"),
-                ),
-            ):
-                result = adapter.extract(path, format_id="pdf")
-
-        self.assertEqual(result.descriptor, adapter.descriptor)
-        self.assertEqual(result.completeness, "complete")
-        self.assertEqual(
-            [unit.content for unit in result.units],
-            ["PDFKit compatibility fallback text"],
-        )
-        self.assertIn("pypdf_fallback", result.units[0].quality_flags)
-        self.assertIn("reading_order_unverified", result.units[0].quality_flags)
-        self.assertEqual({i.code for i in result.issues}, {"pdf_page_range_observed"})
-        self.assertTrue(all(i.severity == "info" for i in result.issues))
-
     def test_hwpx_security_change_does_not_invalidate_other_builtin_formats(
         self,
     ) -> None:
@@ -809,19 +710,20 @@ class PackagedAdapterTest(unittest.TestCase):
             with zipfile.ZipFile(path, "w") as archive:
                 archive.writestr("Contents/section0.xml", xml)
 
-            binary_hwp = registry.resolve("hwp").native
+            hwpx = registry.resolve("hwpx")
+            binary_hwp = hwpx._binary_hwp_adapter
             with mock.patch.object(
                 binary_hwp,
                 "extract",
                 side_effect=AssertionError("binary HWP adapter must not be called"),
             ) as binary_extract:
-                result = registry.resolve("hwpx").extract(path, format_id="hwpx")
+                result = hwpx.extract(path, format_id="hwpx")
 
         binary_extract.assert_not_called()
         self.assertEqual([unit.content for unit in result.units], ["정상 HWPX"])
         self.assertEqual(
             result.descriptor.adapter_id,
-            "document-files.native.office-vision.hwpx",
+            "document-files.hwpx.content-router",
         )
 
     def test_hwpx_router_sends_ole_bytes_to_binary_hwp_adapter_read_only(self) -> None:
@@ -831,7 +733,8 @@ class PackagedAdapterTest(unittest.TestCase):
             original = bytes.fromhex("d0cf11e0a1b11ae1") + b"binary-hwp-fixture"
             path.write_bytes(original)
 
-            binary_hwp = registry.resolve("hwp").native
+            hwpx = registry.resolve("hwpx")
+            binary_hwp = hwpx._binary_hwp_adapter
             binary_result = ExtractionEnvelope.create(
                 descriptor=binary_hwp.descriptor,
                 completeness="partial",
@@ -849,7 +752,7 @@ class PackagedAdapterTest(unittest.TestCase):
                 "extract",
                 return_value=binary_result,
             ) as binary_extract:
-                result = registry.resolve("hwpx").extract(path, format_id="hwpx")
+                result = hwpx.extract(path, format_id="hwpx")
 
             self.assertEqual(path.read_bytes(), original)
 
@@ -862,7 +765,7 @@ class PackagedAdapterTest(unittest.TestCase):
         )
         self.assertEqual(
             result.descriptor.adapter_id,
-            "document-files.native.office-vision.hwpx",
+            "document-files.hwpx.content-router",
         )
 
     def test_rhwp_output_is_stopped_at_the_shared_runtime_budget(self) -> None:
@@ -873,7 +776,7 @@ class PackagedAdapterTest(unittest.TestCase):
                 f"#!{sys.executable}\n"
                 "import sys\n"
                 "if sys.argv[1] == '--version':\n"
-                " print('rhwp v0.8.2')\n"
+                " print('rhwp v0.8.6')\n"
                 "else:\n"
                 " sys.stdout.write('X' * 100000)\n",
                 encoding="utf-8",
@@ -955,9 +858,7 @@ class PackagedAdapterTest(unittest.TestCase):
         self.assertFalse(any(i["code"].startswith("hwp_table_") for i in issues))
 
     def test_hwp_endnote_and_equation_keep_source_owned_locations(self) -> None:
-        reader = SectionStructure(
-            1, "Section0", [{"head_type": "none"}], [{"name": "Normal"}]
-        )
+        reader = SectionStructure(1, "Section0", [{"head_type": "none"}], [{"name": "Normal"}])
         reader.observe(1, 0x42, 0, bytes(24))
         reader.text(2, 1, 1, "참조")
         reader.observe(3, 0x47, 1, b"en  "[::-1] + struct.pack("<I", 7))
@@ -967,9 +868,7 @@ class PackagedAdapterTest(unittest.TestCase):
         reader.observe(7, 0x42, 0, bytes(24))
         reader.observe(8, 0x47, 1, b"eqed"[::-1])
         script = "x + y"
-        reader.observe(
-            9, 0x58, 2, struct.pack("<IH", 0, len(script)) + script.encode("utf-16-le")
-        )
+        reader.observe(9, 0x58, 2, struct.pack("<IH", 0, len(script)) + script.encode("utf-16-le"))
         units, issues = reader.finish()
         note = next(u for u in units if u["content"] == "미주")
         self.assertEqual(note["unit_type"], "endnote")
@@ -977,9 +876,7 @@ class PackagedAdapterTest(unittest.TestCase):
         equation = next(u for u in units if u["content"] == script)
         self.assertEqual(equation["structure_path"]["record"], 9)
         self.assertEqual(equation["structure_path"]["owner_paragraph_record"], 7)
-        self.assertEqual(
-            equation["structure_path"]["text_representation"], "hwp_equation_script"
-        )
+        self.assertEqual(equation["structure_path"]["text_representation"], "hwp_equation_script")
         issue_codes = {issue["code"] for issue in issues}
         self.assertNotIn("hwp_object_content_partial", issue_codes)
         self.assertNotIn("hwp_equation_content_unread", issue_codes)
@@ -996,12 +893,8 @@ class PackagedAdapterTest(unittest.TestCase):
         source = BytesIO()
         with zipfile.ZipFile(source, "w") as archive:
             archive.writestr("Contents/section0.xml", xml)
-            archive.writestr(
-                "Contents/section10.xml", "<sec><p><run><t>열</t></run></p></sec>"
-            )
-            archive.writestr(
-                "Contents/section2.xml", "<sec><p><run><t>둘</t></run></p></sec>"
-            )
+            archive.writestr("Contents/section10.xml", "<sec><p><run><t>열</t></run></p></sec>")
+            archive.writestr("Contents/section2.xml", "<sec><p><run><t>둘</t></run></p></sec>")
         result = extract_hwpx(source)
         text = [u for u in result.units if u.content]
         self.assertEqual(
@@ -1019,9 +912,7 @@ class PackagedAdapterTest(unittest.TestCase):
         package_order = BytesIO()
         with zipfile.ZipFile(package_order, "w") as archive:
             archive.writestr("Contents/section0.xml", "<sec><p><t>끝</t></p></sec>")
-            archive.writestr(
-                "Contents/section2.xml", xml.replace('colAddr="1"', 'colAddr="bad"')
-            )
+            archive.writestr("Contents/section2.xml", xml.replace('colAddr="1"', 'colAddr="bad"'))
             archive.writestr(
                 "Contents/content.hpf",
                 '<package><manifest><item id="a" href="section0.xml"/>'
@@ -1036,9 +927,7 @@ class PackagedAdapterTest(unittest.TestCase):
         unmapped = next(u for u in partial.units if u.content == "100\t원")
         self.assertNotIn("col", unmapped.structure_path)
         self.assertIn("cell", unmapped.structure_path)
-        self.assertIn(
-            "hwpx_table_geometry_partial", {issue["code"] for issue in partial.issues}
-        )
+        self.assertIn("hwpx_table_geometry_partial", {issue["code"] for issue in partial.issues})
 
     def test_hwpx_objects_report_specific_native_coverage(self) -> None:
         source = BytesIO()
@@ -1081,10 +970,7 @@ class PackagedAdapterTest(unittest.TestCase):
         reader.observe(1, 0x42, 0, b"\0" * 12)
         command = "native field instruction".encode("utf-16-le")
         data = (
-            b"klc%"
-            + struct.pack("<IBH", 0, 0, len(command) // 2)
-            + command
-            + struct.pack("<I", 77)
+            b"klc%" + struct.pack("<IBH", 0, 0, len(command) // 2) + command + struct.pack("<I", 77)
         )
         reader.observe(2, 0x47, 1, data)
         reader.observe(3, 0x5D, 1, b"\0" * 4)
@@ -1107,12 +993,7 @@ class PackagedAdapterTest(unittest.TestCase):
 
     def test_hwp_field_range_and_unique_memo_token_preserve_text(self) -> None:
         def marker(code, token=0):
-            return (
-                struct.pack("<H", code)
-                + b"em%%"
-                + b"\0" * 4
-                + struct.pack("<IH", token, code)
-            )
+            return struct.pack("<H", code) + b"em%%" + b"\0" * 4 + struct.pack("<IH", token, code)
 
         payload = (
             "  가😀".encode("utf-16-le")
@@ -1148,36 +1029,22 @@ class PackagedAdapterTest(unittest.TestCase):
                 units, issues = reader.finish()
                 issues = link_document_memos(units, issues)
                 memo = next(u for u in units if u["content"] == "Memo text")
-                fields = [
-                    u["structure_path"] for u in units if u["unit_type"] == "field"
-                ]
-                self.assertEqual(
-                    [u["content"] for u in units if u["content"]], [text, "Memo text"]
-                )
+                fields = [u["structure_path"] for u in units if u["unit_type"] == "field"]
+                self.assertEqual([u["content"] for u in units if u["content"]], [text, "Memo text"])
                 if duplicate:
                     self.assertTrue(all("field_range" not in f for f in fields))
                     self.assertNotIn("memo_attachment", memo["structure_path"])
-                    self.assertIn(
-                        "hwp_field_range_partial", {i["code"] for i in issues}
-                    )
+                    self.assertIn("hwp_field_range_partial", {i["code"] for i in issues})
                 else:
                     span = fields[0]["field_range"]
                     self.assertEqual(span["start"]["offset_utf16"], 13)
                     self.assertEqual(
-                        text[
-                            span["start"]["content_offset"] : span["end"][
-                                "content_offset"
-                            ]
-                        ],
+                        text[span["start"]["content_offset"] : span["end"]["content_offset"]],
                         "본문",
                     )
                     self.assertEqual(fields[0]["field_header_tail_value"], 900)
-                    self.assertEqual(
-                        memo["structure_path"]["memo_attachment"]["field_id"], 77
-                    )
-                    self.assertNotIn(
-                        "hwp_memo_attachment_unresolved", {i["code"] for i in issues}
-                    )
+                    self.assertEqual(memo["structure_path"]["memo_attachment"]["field_id"], 77)
+                    self.assertNotIn("hwp_memo_attachment_unresolved", {i["code"] for i in issues})
 
     def test_hwpx_field_ranges_memo_and_highlight_preserve_text(self) -> None:
         xml = """<sec><p><run><t>Before</t><ctrl>
@@ -1285,9 +1152,7 @@ class PackagedAdapterTest(unittest.TestCase):
                     with self.assertRaisesRegex(HWPAdapterError, "unit count"):
                         _extract(base_request)
                     self.assertEqual(len(opened_file_descriptors), 1)
-                    self.assertNotEqual(
-                        opened_file_descriptors[0], file_descriptor.fileno()
-                    )
+                    self.assertNotEqual(opened_file_descriptors[0], file_descriptor.fileno())
                     traversal = {
                         **base_request,
                         "input": {

@@ -7,7 +7,10 @@ import struct
 import sys
 from pathlib import Path
 
-import olefile
+try:
+    import olefile
+except ModuleNotFoundError:  # Optional in a reduced OpenAI host runtime.
+    from ._vendor import olefile
 
 from .extraction_errors import BudgetExceededError, ExtractionError
 from .extraction_protocol import (

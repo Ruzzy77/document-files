@@ -15,7 +15,13 @@ from collections import Counter
 from contextlib import ExitStack
 from pathlib import Path
 
-import olefile
+try:
+    import olefile
+except ModuleNotFoundError:  # Optional in a reduced OpenAI host runtime.
+    if __package__:
+        from ._vendor import olefile
+    else:
+        from _vendor import olefile
 
 
 def normalized_clip(clip, dimensions):
@@ -54,9 +60,7 @@ def hwp_binary_items(records, members, *, compressed):
         if len(matches) == 1:
             item.update(
                 image_parts=matches,
-                image_compressed=compressed
-                if (flags >> 4) & 3 == 0
-                else (flags >> 4) & 3 == 1,
+                image_compressed=compressed if (flags >> 4) & 3 == 0 else (flags >> 4) & 3 == 1,
             )
     return items
 
@@ -88,9 +92,7 @@ def hwp_picture(data, items, *, version):
         if data[70]:
             result["image_effect_applied"] = False
         try:
-            result["source_crop_bbox"] = normalized_clip(
-                result["image_clip"], dimensions
-            )
+            result["source_crop_bbox"] = normalized_clip(result["image_clip"], dimensions)
             result["image_crop_unresolved"] = False
         except ValueError:
             pass
@@ -151,12 +153,8 @@ def hwpx_picture(node, items):
     if effect != "REAL_PIC":
         result["image_effect_applied"] = False
     try:
-        result["image_clip"] = [
-            int(clip.get(k)) for k in ("left", "top", "right", "bottom")
-        ]
-        result["image_dimensions"] = [
-            int(dimensions.get(k)) for k in ("dimwidth", "dimheight")
-        ]
+        result["image_clip"] = [int(clip.get(k)) for k in ("left", "top", "right", "bottom")]
+        result["image_dimensions"] = [int(dimensions.get(k)) for k in ("dimwidth", "dimheight")]
         result["source_crop_bbox"] = normalized_clip(
             result["image_clip"], result["image_dimensions"]
         )
@@ -182,8 +180,7 @@ class EmbeddedImageArchive:
             if self.binary:
                 self.archive = self.stack.enter_context(olefile.OleFileIO(source))
                 self.members = Counter(
-                    "/".join(p)
-                    for p in self.archive.listdir(streams=True, storages=False)
+                    "/".join(p) for p in self.archive.listdir(streams=True, storages=False)
                 )
             else:
                 self.archive = self.stack.enter_context(zipfile.ZipFile(source))
@@ -199,11 +196,7 @@ class EmbeddedImageArchive:
     def size(self, part):
         if self.members[part] != 1:
             raise ValueError("embedded image member is missing or ambiguous")
-        return (
-            self.archive.get_size(part)
-            if self.binary
-            else self.archive.getinfo(part).file_size
-        )
+        return self.archive.get_size(part) if self.binary else self.archive.getinfo(part).file_size
 
     def read(self, part, location, limit):
         if self.size(part) > limit:
@@ -223,8 +216,7 @@ class EmbeddedImageArchive:
                 raise OverflowError("inflated image exceeds its byte budget")
             trailer = inflater.unused_data
             if trailer and (
-                len(trailer) != 8
-                or struct.unpack("<II", trailer) != (zlib.crc32(raw), len(raw))
+                len(trailer) != 8 or struct.unpack("<II", trailer) != (zlib.crc32(raw), len(raw))
             ):
                 raise ValueError("embedded image compression trailer is invalid")
             if not inflater.eof:
