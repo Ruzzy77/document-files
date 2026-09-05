@@ -763,18 +763,29 @@ def inspect_file(
             "nativeRenderChecked": False,
         }
     if source.suffix.casefold() == ".hwp":
-        return _inspect_hwp(
+        inspected = _inspect_hwp(
             source,
             include_text=include_text,
             include_cells=include_cells,
             max_chars=max_chars,
         )
-    return _inspect_hwpx(
-        source,
-        include_text=include_text,
-        include_cells=include_cells,
-        max_chars=max_chars,
-    )
+    else:
+        inspected = _inspect_hwpx(
+            source,
+            include_text=include_text,
+            include_cells=include_cells,
+            max_chars=max_chars,
+        )
+    return {
+        **inspected,
+        "schemaVersion": "document-files.inspect.v1",
+        "ok": True,
+        "source": inspected["file"],
+        "engine": inspected.get(
+            "engine",
+            {"name": "olefile", "version": olefile.__version__},
+        ),
+    }
 
 
 def _require_unprotected_hwp(source: Path) -> None:

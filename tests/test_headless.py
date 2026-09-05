@@ -116,8 +116,9 @@ def test_hwpx_version_mismatch_fails_closed(
     assert not (tmp_path / "blocked.hwpx").exists()
 
 
-def test_mcp_surface_is_small_and_headless() -> None:
-    tools = asyncio.run(create_server().list_tools())
+def test_mcp_surface_is_small_and_headless(tmp_path: Path) -> None:
+    server = create_server()
+    tools = asyncio.run(server.list_tools())
     by_name = {tool.name: tool for tool in tools}
     assert set(by_name) == {
         "document_capabilities",
@@ -140,8 +141,22 @@ def test_mcp_surface_is_small_and_headless() -> None:
         assert {"ok", "result", "error"}.issubset(schema["properties"])
         assert "$defs" in schema
 
+    source = tmp_path / "source.hwpx"
+    create_hwpx(source, plan=_plan())
+    response = asyncio.run(server.call_tool("document_inspect_file", {"path": str(source)}))
+    assert response.is_error is False
+    assert response.structured_content["ok"] is True
+    inspected = response.structured_content["result"]
+    assert inspected["schemaVersion"] == "document-files.inspect.v1"
+    assert inspected["ok"] is True
+    assert inspected["source"] == inspected["file"]
+    assert "화면을 열지 않고 처리합니다." in inspected["text"]
 
-def test_headless_hwp_read_convert_and_render(tmp_path: Path) -> None:
+
+def test_headless_hwp_read_convert_and_render(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     status = _require_rhwp()
     source_hwpx = tmp_path / "source.hwpx"
     binary_hwp = tmp_path / "source.hwp"
@@ -161,6 +176,22 @@ def test_headless_hwp_read_convert_and_render(tmp_path: Path) -> None:
     assert inspected["contentAccess"]["ok"] is True
     assert "화면을 열지 않고 처리합니다." in inspected["text"]
     assert inspected["tableMap"]["tables"]
+
+    server = create_server()
+    response = asyncio.run(server.call_tool("document_inspect_file", {"path": str(binary_hwp)}))
+    assert response.is_error is False
+    assert response.structured_content["ok"] is True
+    assert response.structured_content["result"]["source"] == inspected["file"]
+    assert response.structured_content["result"]["engine"]["name"] == "rhwp"
+    with monkeypatch.context() as patch:
+        patch.setattr(engine, "backend_status", lambda: {"available": False})
+        response = asyncio.run(server.call_tool("document_inspect_file", {"path": str(binary_hwp)}))
+    assert response.structured_content["ok"] is True
+    metadata = response.structured_content["result"]
+    assert metadata["source"] == inspected["file"]
+    assert metadata["contentAccess"]["ok"] is False
+    assert metadata["contentAccess"]["error"]["code"] == "backend-unavailable"
+    assert metadata["engine"]["name"] == "olefile"
 
     extracted = extract_file(binary_hwp, output_format="markdown")
     assert extracted["engine"] == {"name": "rhwp", "version": "0.8.6"}
