@@ -76,7 +76,7 @@ HWP_SIGNATURE = b"HWP Document File"
 try:
     PLUGIN_VERSION = version("document-files")
 except PackageNotFoundError:
-    PLUGIN_VERSION = "1.5.0"
+    PLUGIN_VERSION = "1.6.0"
 PYTHON_HWPX_VERSION = "6.3.0"
 PYTHON_HWPX_AUTOMATION_VERSION = "7.0.3"
 

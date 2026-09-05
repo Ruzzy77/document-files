@@ -1,8 +1,23 @@
 # Document Files
 
-네이티브 앱을 열지 않고 문서 바이트에서 구조와 값을 추출하며, 로컬 문서를 검사하고 지원 형식을 변환·렌더링하고 HWPX 산출물을 생성·편집·검증하는 플러그인입니다.
+문서 파일의 읽기·작성·편집·변환을 단일 `document-files` Skill로 안내하고, 로컬 분석기와
+HWP/HWPX 실행 기능을 제공하는 플러그인입니다.
 
-## 담당 범위
+## 단일 문서 Skill
+
+사용자에게는 `Document Files` 하나만 노출합니다. DOCX, PDF, XLSX·CSV, PPTX의 작성·편집과
+Google Docs·Sheets·Slides 처리 방법은 Skill 내부의 조건부 참고 자료로 유지하며 별도
+`documents`, `pdf`, `spreadsheets`, `presentations` Skill이나 별칭으로 배포하지 않습니다.
+
+로컬 문서 작성·편집은 형식에 맞는 호스트 라이브러리를 사용합니다. Google native 문서 요청은
+현재 연결 도구로 해당 문서를 직접 다루고, 새 문서를 만들 때에는 지원되는 native 변환 경로를
+사용합니다. 로컬 파일 요청을 업로드·공유 요청으로 확대하지 않습니다. 열린 Excel 앱 제어는
+별도 live-control 기능의 범위이며, 단일 Skill 통합을 이유로 제거하지 않습니다.
+
+아래 분석기와 명령 목록은 로컬 실행 계약입니다. Skill의 일반 문서 작성 기능 전체를 분석기
+명령이나 MCP 도구가 직접 제공한다는 뜻은 아닙니다.
+
+## 로컬 분석·HWPX 실행 기능
 
 - PDF, DOCX, PPTX, XLSX, HWP, HWPX, HTML, Markdown, 일반 텍스트의 구조 보존 추출
 - 형식에 공통으로 적용되는 구조·시맨틱 역할·명시적 값의 페이지 단위 JSON 추출
@@ -13,7 +28,7 @@
 - 요청된 HWP/HWPX SVG·PDF 렌더링과 HWPX HTML 미리보기
 - HWPX 생성, 문구·표 셀 편집, 패키지·구조 검증
 
-원본은 읽기 전용으로 다루고, 쓰기 결과는 별도 경로에 만듭니다. HWP 원본 편집, HWPX→HWP 변환, 암호나 문서 보호 우회는 지원하지 않습니다.
+로컬 원본은 읽기 전용으로 다루고, 쓰기 결과는 별도 경로에 만듭니다. HWP 원본 편집, HWPX→HWP 변환, 암호나 문서 보호 우회는 지원하지 않습니다.
 
 분석기의 공통 입력은 형식·미디어 유형·바이트 크기·SHA-256으로 문서를 식별하는 `document-files.analysis-job.v1` 작업과 별도로 전달되는 바이트 스트림입니다. 결과는 `document-files.analysis-result.v1`으로 반환합니다. 두 계약에는 로컬 경로나 전송 방식이 들어가지 않습니다. 분석기는 형식 라이브러리가 파일을 여러 번 안전하게 열 수 있도록 바이트를 프로세스 전용 임시 파일로 복사하고, 추출이 끝나면 삭제합니다.
 
@@ -29,8 +44,10 @@ descriptor의 adapter ID, 구현 version과 config hash는 결과가 만들어�
 ## 실행 방식
 
 Sync와 로컬 Codex는 로컬 package를 사용하고 원격 Codex는 통합 plugin, 개인 ChatGPT는 같은
-정본에서 만든 Personal Skill의 host runtime을 사용합니다. 필요한 라이브러리나 호환 `rhwp`가
-없으면 지원 가능한 순수 parser 결과와 coverage를 반환하거나 `runtime_unavailable`로 중단하며
+정본에서 만든 단일 `Document Files` Personal Skill의 host runtime을 사용합니다. 기존 네 형식별
+Personal Skill의 제거와 통합 plugin 갱신은 저장소 루트 [갱신 안내](../../README.md#chatgpt와-codex)의
+반영 묶음으로 수행하며, 실행 코드나 호스트 라이브러리를 제거하지 않습니다. 필요한 라이브러리나
+호환 `rhwp`가 없으면 지원 가능한 순수 parser 결과와 coverage를 반환하거나 `runtime_unavailable`로 중단하며
 자동 원격 폴백하지 않습니다. 렌더 결과에는
 `nativeRenderChecked: false`가 기록되며 화면 충실도의 주 검증으로 간주하지 않습니다.
 

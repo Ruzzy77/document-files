@@ -2,17 +2,23 @@
 
 ## 목적과 경계
 
-Document Files는 호출자가 허용한 문서 바이트에서 구조·본문·coverage를 추출하고, 실행 가능한
-호스트에서 지원 형식을 변환하며 HWPX 산출물을 만들고 검증한다. 원본과 사용자 데이터를 소유하거나
-Personal Agent Toolkit 서버와 Corpus 원격 저장층에 보관하지 않는다.
+Document Files는 문서·스프레드시트·발표 자료의 읽기·제작·편집을 제공하는 단일 Skill이다.
+호출자가 허용한 문서 바이트에서 구조·본문·coverage를 추출하고, 지원 형식을 변환하며 HWPX
+산출물을 만들고 검증한다. 일반 문서 제작은 호스트 라이브러리, Google 문서는 요청된 연결 도구를
+사용한다. 원본과 사용자 데이터를 소유하거나 Personal Agent Toolkit 서버와 Corpus 원격 저장층에
+보관하지 않는다.
 
 ## 구성과 실행
 
 plugin 안의 Python package가 형식 판별, parser adapter, 공통 분석 contract와 HWPX artifact 작업을
 구현하는 단일 정본이다. CLI와 Claude local MCP는 같은 application 함수를 사용하고, Sync는 같은
 package를 자기 환경에 설치한다. OpenAI 통합 plugin과 개인 ChatGPT용 Personal Skills는 이 소스에서
-만든 host 실행 번들과 다섯 문서 Skill을 사용한다. `AnalysisJob v1`·`AnalysisResult v1` 계약은 모든
+만든 host 실행 번들과 `document-files` Skill 하나를 사용한다. `AnalysisJob v1`·`AnalysisResult v1` 계약은 모든
 실행 위치에서 동일하다.
+
+DOCX·XLSX/CSV·PPTX·PDF의 제작·편집 조건과 Google 문서 경로는 단일 Skill의 `references/`에
+두고 해당 작업에서만 읽는다. 별도 형식별 Skill이나 이를 되살리는 호환 별칭은 배포하지 않는다.
+라이브러리·실행 번들과 열린 앱 제어 기능은 Skill의 노출 단위와 구분한다.
 
 형식별 구현은 공통 결과에서 원본 구조, 의미 역할, coverage와 issue를 구분한다. adapter의 정확한
 version과 설정은 결과 재현 정보이며, 내용이 같은 문서의 재분석 여부를 자동으로 결정하지 않는다.
@@ -44,8 +50,14 @@ package와 Skill에서 생성하며 복사본을 정본으로 편집하지 않�
 
 전면 검토의 범위 04에서는 HWP/HWPX의 원본 위치·표·병합 셀·각주·필드 추출과 손실을 알리는
 변환, 원본을 보존하는 HWPX 편집을 직접 유지한다. 공통 분석 계약과 XLSX의 저장값·수식·캐시
-구분도 유지한다. 일반 DOCX·PPTX·XLSX·PDF 제작은 호스트 라이브러리에 맡기고, 문서 Skill은
-작업 분담과 보존·완료 기준을 제공한다. 자체 제작 엔진을 추가하지 않는다.
+구분도 유지한다. 일반 DOCX·PPTX·XLSX·PDF 제작은 호스트 라이브러리에 맡기고, 단일 Skill과
+내부 안내는 실행 경로와 보존·완료 기준을 제공한다. 자체 제작 엔진을 추가하지 않는다.
+
+초기 통합은 설치 단위만 합치고 네 형식별 Skill을 따로 남겼다. 후속 검토에서도 이 구조를 전제로
+제작 조건을 보강했으므로, 아래 1.5.0의 기능·설치 확인을 단일 Skill 통합 완료로 해석하지 않는다.
+현재 수정은 네 Skill의 기능을 내부 안내로 옮기고 공개 목록·생성 archive를 하나로 만드는 데 한정한다.
+분석·편집 engine과 재분석 세대는 바꾸지 않는다. 기존 네 항목은 단일 Skill의 기능 확인 후 해당
+클라이언트의 정상 갱신·제거 기능으로 정리하며 설치 캐시를 직접 편집하지 않는다.
 
 첫 구현에서는 기존 기능을 사용할 때 발생하는 두 결함을 복구했다. 후속 읽기 경로 정리와 문서
 Skill의 보존·완료 기준까지 Document Files 1.5.0 반영 묶음에 포함했다.
