@@ -57,6 +57,25 @@ Corpus 연동용 구조 추출 계약은 같은 실행 파일의 `process` 명�
 메타데이터도 원본에 기록된 범위에서만 반환합니다. 수식을 실행하거나 인접 셀 관계를
 추정하지 않습니다. 큰 결과는 `unitPage.nextOffset`으로 이어서 읽습니다.
 
+`inspect`, `extract`, `extract-structure`는 같은 분석 결과를 각각 요약·본문·구조로 제공합니다.
+필요한 응답 하나를 선택하면 되며, 읽기 전에 세 명령을 순서대로 호출할 필요는 없습니다.
+HWP/HWPX의 일반 읽기에는 편집용 `python-hwpx`나 `rhwp`가 필요하지 않습니다.
+`inspect`·`extract`의 `completeness`와 호환용 `coverage` 문자열은 추출의 완전성을,
+`coverageProfile`은 본문·구조·시각 내용·읽기 순서의 범위를 나타냅니다. 구조 추출에서는 같은
+차원별 객체를 기존 `coverage` 필드로 제공합니다. 텍스트 잘림과 구조 페이지의 남은 항목은
+추출 실패나 부분 추출과 별도로 확인합니다. Markdown은 선언된 제목·목록·표 셀 위치를 나타내며
+원본의 페이지 배치를 복원하지 않습니다.
+
+HWPX 표를 편집할 때에는 `inspect`의 `tableMap.tables`에서 검증된 `sectionPath`·`tableIndex`와
+셀의 `row`·`col`을 선택합니다. `selectorBasis="verified-section-xml-table-order"`는 해당 section
+XML과 편집기의 표 순서를 대조했다는 뜻입니다. 선택자가 없는 표에는 목록 순서나 `sourceRef`를
+대신 넣지 않습니다. 읽은 셀 텍스트가 잘리지 않았는지 확인하고 `expectedOldText`로 대조합니다.
+이 값은 첫 문단이 아니라 셀 전체 텍스트이며, 편집 전에 같은 입력 바이트에서 확인합니다.
+동일 물리 셀의 중복 지정, 기존 문단 수로 담을 수 없는 새 줄, 중첩 표를 포함하는 바깥 셀의
+편집은 값 손실을 막기 위해 거절합니다. 중첩 표 안의 일반 셀은 편집할 수 있습니다. `verify`의
+`ok`와 reference 비교의 `tableGeometryPreserved`는 별도 결과이므로 표 구조 보존은 후자도
+확인합니다.
+
 다른 런타임에 분석기를 내장할 때에는 `AnalysisJob`과 바이트 스트림을 `analyze_document`에
 전달합니다. `AnalysisJob`과 `AnalysisResult`의 `to_dict`·`from_dict`는 실행 위치가 공유하는 직렬화
 경계이며, 호출자는 결과의 작업 ID와 입력 해시가 요청과 일치하는지 검증받습니다. 원본 보관과
@@ -72,7 +91,7 @@ launchers/document-files process --describe
 
 - `python-docx`, `python-pptx`, `openpyxl`, `pypdf`: Office와 PDF 구조 추출
 - `olefile` 0.47: HWP compound-file parser; OpenAI host용 순수 Python fallback을 함께 배포
-- `python-hwpx` 6.3.0: HWPX 읽기·편집과 왕복 충실도 검사
+- `python-hwpx` 6.3.0: HWPX 편집과 왕복 충실도 검사
 - `python-hwpx-automation` 7.0.3: HWPX 생성과 품질 검사
 - `rhwp` 0.8.6: HWP 복구 추출, HWP→HWPX 변환과 선택적 미리보기
 

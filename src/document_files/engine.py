@@ -7,6 +7,8 @@ import io
 import os
 import struct
 import tempfile
+from collections import Counter
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -49,10 +51,13 @@ from .analysis import (
     AnalysisBudgets,
     AnalysisInput,
     AnalysisJob,
+    AnalysisResult,
     AnalyzerBackend,
     analyze_document,
 )
+from .extraction_errors import DocumentExtractionError
 from .formats import FORMAT_SPECS
+from .read_projection import analysis_record, project_read_text, project_tables_and_fields
 from .rhwp_backend import RHWP_VERSION, RhwpBackend, RhwpBackendError, backend_status
 from .structured_extraction import (
     DEFAULT_PUBLIC_STRUCTURED_UNITS,
@@ -71,7 +76,7 @@ HWP_SIGNATURE = b"HWP Document File"
 try:
     PLUGIN_VERSION = version("document-files")
 except PackageNotFoundError:
-    PLUGIN_VERSION = "1.4.0"
+    PLUGIN_VERSION = "1.5.0"
 PYTHON_HWPX_VERSION = "6.3.0"
 PYTHON_HWPX_AUTOMATION_VERSION = "7.0.3"
 
@@ -330,18 +335,24 @@ def capabilities() -> dict[str, Any]:
         "artifactFormats": {
             "hwp": {
                 "inspectMetadata": True,
-                "inspectContent": rhwp_available,
-                "extractText": rhwp_available,
-                "extractMarkdown": rhwp_available,
-                "convertToHwpx": rhwp_available,
+                "inspectContent": True,
+                "extractText": True,
+                "extractMarkdown": True,
+                "extractStructure": True,
+                "readBackend": "source-parser-first",
+                "protectedContent": False,
+                "distributionRecoveryRequiresRhwp": True,
+                "convertToHwpx": rhwp_available and python_hwpx_available,
                 "renderSvg": rhwp_available,
                 "renderPdf": rhwp_available,
                 "edit": False,
             },
             "hwpx": {
-                "inspect": python_hwpx_available,
-                "extractText": python_hwpx_available or rhwp_available,
-                "extractMarkdown": rhwp_available,
+                "inspect": True,
+                "extractText": True,
+                "extractMarkdown": True,
+                "extractStructure": True,
+                "readBackend": "source-parser-first",
                 "create": python_hwpx_available,
                 "editCopy": python_hwpx_available,
                 "verify": python_hwpx_available,
@@ -382,172 +393,7 @@ def _atomic_write(path: Path, data: bytes) -> None:
             temporary.unlink()
 
 
-def _trim_text(value: str, limit: int) -> tuple[str, bool]:
-    if len(value) <= limit:
-        return value, False
-    return value[:limit], True
-
-
-def _bounded_table_map(
-    table_map: dict[str, Any],
-    *,
-    include_cells: bool,
-) -> tuple[dict[str, Any], bool]:
-    tables: list[dict[str, Any]] = []
-    returned_cells = 0
-    truncated = False
-    for raw in table_map.get("tables", []):
-        table = dict(raw)
-        cells = list(table.get("cells", []))
-        if not include_cells:
-            table.pop("cells", None)
-            table["cell_count"] = len(cells)
-        else:
-            remaining = MAX_TABLE_CELLS_RETURNED - returned_cells
-            if remaining <= 0:
-                table["cells"] = []
-                truncated = truncated or bool(cells)
-            else:
-                table["cells"] = cells[:remaining]
-                returned_cells += len(table["cells"])
-                truncated = truncated or len(cells) > remaining
-        tables.append(table)
-    return {"tables": tables}, truncated
-
-
-def _form_field_record(field: Any) -> dict[str, Any]:
-    location = field.location
-    parameters = []
-    for item in field.parameters:
-        if hasattr(item, "to_dict"):
-            parameters.append(item.to_dict())
-        elif hasattr(item, "_asdict"):
-            parameters.append(dict(item._asdict()))
-        else:
-            parameters.append({"name": item.name, "value": item.value})
-    return {
-        "fieldId": field.field_id,
-        "name": field.name,
-        "value": field.value,
-        "isPlaceholder": field.is_placeholder,
-        "editable": field.editable,
-        "fieldType": field.field_type,
-        "hasEnd": field.has_end,
-        "location": location.to_dict() if hasattr(location, "to_dict") else None,
-        "memo": field.memo,
-        "parameters": parameters,
-        "prompt": field.prompt,
-    }
-
-
-def _inspect_hwpx(
-    source: Path,
-    *,
-    include_text: bool,
-    include_cells: bool,
-    max_chars: int,
-) -> dict[str, Any]:
-    _require_python_hwpx_backend()
-    if not 0 <= max_chars <= MAX_TEXT_CHARS:
-        raise DocumentFilesError(
-            "invalid-limit",
-            "max_chars is outside the supported range.",
-            details={"minimum": 0, "maximum": MAX_TEXT_CHARS},
-        )
-
-    source_before = _file_record(source)
-    safety = validate_editor_open_safety(source)
-    try:
-        document = HwpxDocument.open(source)
-    except Exception as exc:
-        raise DocumentFilesError(
-            "hwpx-open-failed",
-            "The HWPX package could not be opened.",
-            details={"errorType": type(exc).__name__, "message": str(exc)},
-        ) from exc
-
-    try:
-        raw_table_map = document.tables.map()
-        table_map, tables_truncated = _bounded_table_map(
-            raw_table_map,
-            include_cells=include_cells,
-        )
-        form_fields = [_form_field_record(item) for item in document.fields.all]
-        section_count = len(list(document.sections))
-        paragraph_count = len(list(document.paragraphs))
-    finally:
-        document.close()
-
-    text = ""
-    text_truncated = False
-    if include_text and max_chars:
-        with TextExtractor(source) as extractor:
-            extracted = extractor.extract_text(
-                include_nested=True,
-                object_behavior="placeholder",
-                object_placeholder="[{type}]",
-            )
-        text, text_truncated = _trim_text(extracted, max_chars)
-
-    cross_validation: dict[str, Any]
-    rhwp = backend_status()
-    if rhwp.get("available"):
-        try:
-            rhwp_info = RhwpBackend(rhwp["executable"]).info(source)
-            cross_validation = {
-                "engine": "rhwp",
-                "engineVersion": rhwp.get("version"),
-                "ok": (
-                    rhwp_info.get("sections") == section_count
-                    and rhwp_info.get("paraCount") == paragraph_count
-                ),
-                "sectionCount": rhwp_info.get("sections"),
-                "paragraphCount": rhwp_info.get("paraCount"),
-                "pageCount": rhwp_info.get("pageCount"),
-            }
-        except RhwpBackendError as exc:
-            cross_validation = {
-                "engine": "rhwp",
-                "engineVersion": rhwp.get("version"),
-                "ok": False,
-                "error": {"code": exc.code, "details": exc.details},
-            }
-    else:
-        cross_validation = {
-            "engine": "rhwp",
-            "engineVersion": None,
-            "ok": None,
-            "reason": rhwp.get("reason"),
-        }
-
-    _ensure_source_unchanged(source, source_before)
-    return {
-        "format": "hwpx",
-        "file": source_before,
-        "sourceUnchanged": True,
-        "engine": {
-            "name": "python-hwpx",
-            "version": _package_version("python-hwpx"),
-            "automationVersion": _package_version("python-hwpx-automation"),
-        },
-        "sectionCount": section_count,
-        "paragraphCount": paragraph_count,
-        "tableMap": table_map,
-        "tablesTruncated": tables_truncated,
-        "formFields": form_fields,
-        "text": text,
-        "textTruncated": text_truncated,
-        "verification": safety.to_dict(),
-        "crossValidation": cross_validation,
-        "supportedOperations": (
-            ["inspect", "extract", "create", "edit-copy", "verify", "render-html"]
-            + (["render-svg", "render-pdf"] if rhwp.get("available") else [])
-        ),
-        "nativeRenderChecked": False,
-    }
-
-
-def _hwp_header(source: Path) -> dict[str, Any]:
+def _hwp_header(source: Path, *, file_record: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         compound = olefile.OleFileIO(
             str(source),
@@ -566,7 +412,7 @@ def _hwp_header(source: Path) -> dict[str, Any]:
                 "invalid-hwp",
                 "The HWP FileHeader stream is missing.",
             )
-        header = compound.openstream("FileHeader").read()
+        header = compound.openstream("FileHeader").read(40)
         if len(header) < 40 or not header.startswith(HWP_SIGNATURE):
             raise DocumentFilesError(
                 "invalid-hwp",
@@ -583,7 +429,7 @@ def _hwp_header(source: Path) -> dict[str, Any]:
 
     return {
         "format": "hwp5",
-        "file": _file_record(source),
+        "file": file_record if file_record is not None else _file_record(source),
         "version": version,
         "compressed": bool(flags & 0x01),
         "encrypted": bool(flags & 0x02),
@@ -592,106 +438,89 @@ def _hwp_header(source: Path) -> dict[str, Any]:
     }
 
 
-def _inspect_hwp(
-    source: Path,
-    *,
-    include_text: bool,
-    include_cells: bool,
-    max_chars: int,
-) -> dict[str, Any]:
-    metadata = _hwp_header(source)
-    if metadata["encrypted"]:
-        _ensure_source_unchanged(source, metadata["file"])
-        return {
-            **metadata,
-            "sourceUnchanged": True,
-            "text": "",
-            "textTruncated": False,
-            "tableMap": {"tables": []},
-            "formFields": [],
-            "contentAccess": {
-                "ok": False,
-                "error": {
-                    "code": "protected-document",
-                    "message": "The HWP body is encrypted and was not opened.",
-                },
-            },
-            "supportedOperations": ["inspect-metadata"],
-            "nativeRenderChecked": False,
-        }
+def _validate_text_limit(max_chars: int) -> None:
+    if (
+        isinstance(max_chars, bool)
+        or not isinstance(max_chars, int)
+        or not 0 <= max_chars <= MAX_TEXT_CHARS
+    ):
+        raise DocumentFilesError(
+            "invalid-limit",
+            "max_chars is outside the supported range.",
+            details={"minimum": 0, "maximum": MAX_TEXT_CHARS},
+        )
 
-    status = backend_status()
-    if not status.get("available"):
-        _ensure_source_unchanged(source, metadata["file"])
-        return {
-            **metadata,
-            "sourceUnchanged": True,
-            "text": "",
-            "textTruncated": False,
-            "tableMap": {"tables": []},
-            "formFields": [],
-            "contentAccess": {
-                "ok": False,
-                "error": {
-                    "code": "backend-unavailable",
-                    "message": "The rhwp backend is unavailable; only HWP metadata was read.",
-                    "details": status,
-                },
-            },
-            "supportedOperations": ["inspect-metadata"],
-            "nativeRenderChecked": False,
-        }
 
+@contextmanager
+def _read_document(path: str | Path, *, allow_protected_metadata: bool = False):
+    """Bind every local read view to one budgeted analysis of the same bytes."""
+
+    source = _source_file(path, suffixes={f".{format_id}" for format_id in FORMAT_SPECS})
+    before = _file_record(source)
+    format_id = source.suffix.casefold().removeprefix(".")
+    metadata: dict[str, Any] = {}
     try:
-        backend = RhwpBackend(status["executable"])
-        info = backend.info(source)
-        text_payload = backend.text_pages(source) if include_text and max_chars else {"pages": []}
-        table_payload = backend.tables(source)
-        field_payload = backend.fields(source)
-    except RhwpBackendError as exc:
-        raise _translate_backend_error(exc) from exc
+        # The HWPX content router also recognizes binary HWP under a .hwpx name.
+        with source.open("rb") as stream:
+            binary_hwp = stream.read(8) == bytes.fromhex("d0cf11e0a1b11ae1")
+        if format_id == "hwp" or (format_id == "hwpx" and binary_hwp):
+            metadata = _hwp_header(source, file_record=before)
+            if metadata["encrypted"]:
+                if allow_protected_metadata:
+                    yield source, before, None, metadata
+                    return
+                raise DocumentFilesError(
+                    "protected-document",
+                    "The HWP body is encrypted and was not opened.",
+                    details={"path": str(source), "encrypted": True},
+                    suggestion="Provide an authorized unprotected HWP or HWPX copy.",
+                )
+        job = AnalysisJob(
+            job_id=f"local:{format_id}:{before['sha256'][:24]}",
+            input=AnalysisInput(
+                format_id=format_id,
+                media_type=FORMAT_SPECS[format_id].media_type,
+                byte_size=before["size"],
+                sha256=before["sha256"],
+            ),
+            budgets=AnalysisBudgets(max_input_bytes=MAX_FILE_BYTES),
+        )
+        try:
+            with source.open("rb") as stream:
+                analysis = analyze_document(job, stream)
+        except DocumentExtractionError as exc:
+            raise DocumentFilesError(exc.code, str(exc), details=exc.details) from exc
+        yield source, before, analysis, metadata
+    finally:
+        _ensure_source_unchanged(source, before)
 
-    extracted = "\n\n".join(str(page.get("text", "")) for page in text_payload.get("pages", []))
-    text, text_truncated = _trim_text(extracted, max_chars)
-    tables: list[dict[str, Any]] = []
-    returned_cells = 0
-    tables_truncated = False
-    for raw_table in table_payload.get("tables", []):
-        table = dict(raw_table)
-        cells = list(table.get("cells", []))
-        if not include_cells:
-            table.pop("cells", None)
-            table["cellCount"] = len(cells)
-        else:
-            remaining = MAX_TABLE_CELLS_RETURNED - returned_cells
-            table["cells"] = cells[: max(0, remaining)]
-            returned_cells += len(table["cells"])
-            tables_truncated = tables_truncated or len(cells) > max(0, remaining)
-        tables.append(table)
 
-    _ensure_source_unchanged(source, metadata["file"])
+def _read_summary(analysis: AnalysisResult) -> dict[str, Any]:
+    envelope = analysis.extraction
     return {
-        **metadata,
-        "sourceUnchanged": True,
-        "version": info.get("version", metadata["version"]),
-        "sectionCount": info.get("sections", metadata["sectionCount"]),
-        "pageCount": info.get("pageCount"),
-        "paragraphCount": info.get("paraCount"),
-        "fonts": info.get("fonts", []),
-        "text": text,
-        "textTruncated": text_truncated,
-        "tableMap": {"tables": tables},
-        "tablesTruncated": tables_truncated,
-        "formFields": field_payload.get("fields", []),
-        "contentAccess": {"ok": True},
-        "engine": {"name": "rhwp", "version": status.get("version")},
-        "supportedOperations": [
-            "inspect",
-            "extract",
-            "convert-hwpx",
-            "render-svg",
-            "render-pdf",
-        ],
+        "sourceFormat": analysis.input.format_id,
+        "manifestHash": envelope.manifest_hash,
+        "completeness": envelope.completeness,
+        "coverage": envelope.completeness,
+        "coverageProfile": envelope.coverage.to_dict(),
+        "unitCount": len(envelope.units),
+        "unitTypes": dict(sorted(Counter(unit.unit_type for unit in envelope.units).items())),
+        "issues": [issue.to_dict() for issue in envelope.issues],
+        "engine": {
+            "name": envelope.descriptor.adapter_id,
+            "version": envelope.descriptor.adapter_version,
+        },
+        "analysis": analysis_record(analysis),
+        "warnings": sorted(
+            {
+                issue.code
+                for issue in (
+                    *envelope.issues,
+                    *(issue for unit in envelope.units for issue in unit.issues),
+                )
+                if issue.severity in {"warning", "error"}
+            }
+        ),
         "nativeRenderChecked": False,
     }
 
@@ -703,89 +532,84 @@ def inspect_file(
     include_cells: bool = True,
     max_chars: int = 20_000,
 ) -> dict[str, Any]:
-    """Inspect a supported document without writing it."""
+    """Inspect source-declared content without requiring an authoring backend."""
 
-    if not 0 <= max_chars <= MAX_TEXT_CHARS:
-        raise DocumentFilesError(
-            "invalid-limit",
-            "max_chars is outside the supported range.",
-            details={"minimum": 0, "maximum": MAX_TEXT_CHARS},
-        )
-    source = _source_file(
-        path,
-        suffixes={
-            ".docx",
-            ".htm",
-            ".html",
-            ".hwp",
-            ".hwpx",
-            ".markdown",
-            ".md",
-            ".pdf",
-            ".pptx",
-            ".txt",
-            ".xlsx",
-        },
-    )
-    if source.suffix.casefold() not in {".hwp", ".hwpx"}:
-        from .processor import extract_complete
-
-        format_id = source.suffix.casefold().removeprefix(".")
-        source_before = _file_record(source)
-        result = extract_complete(source, format_id=format_id)
-        extracted = "\n\n".join(unit.content for unit in result.units) if include_text else ""
-        content, truncated = _trim_text(extracted, max_chars)
-        _ensure_source_unchanged(source, source_before)
-        warnings = [issue.code for issue in result.issues if issue.severity in {"warning", "error"}]
-        if truncated:
-            warnings.append("content-truncated")
-        return {
+    _validate_text_limit(max_chars)
+    with _read_document(path, allow_protected_metadata=True) as (
+        source,
+        before,
+        analysis,
+        metadata,
+    ):
+        base = {
+            **metadata,
             "schemaVersion": "document-files.inspect.v1",
             "ok": True,
-            "source": source_before,
+            "source": before,
+            "file": before,
             "sourceUnchanged": True,
-            "format": format_id,
-            "text": content,
-            "textChars": len(content),
-            "textTruncated": truncated,
-            "coverage": result.completeness,
-            "unitCount": len(result.units),
-            "unitTypes": {
-                unit_type: sum(unit.unit_type == unit_type for unit in result.units)
-                for unit_type in sorted({unit.unit_type for unit in result.units})
-            },
-            "issues": [issue.to_dict() for issue in result.issues],
-            "engine": {
-                "name": result.descriptor.adapter_id,
-                "version": result.descriptor.adapter_version,
-            },
-            "warnings": sorted(set(warnings)),
+            "format": metadata.get("format", source.suffix.casefold().removeprefix(".")),
             "nativeRenderChecked": False,
         }
-    if source.suffix.casefold() == ".hwp":
-        inspected = _inspect_hwp(
-            source,
-            include_text=include_text,
+        if analysis is None:
+            return {
+                **base,
+                "sourceFormat": source.suffix.casefold().removeprefix("."),
+                "text": "",
+                "textChars": 0,
+                "textIncluded": include_text,
+                "textTruncated": False,
+                "tableMap": {"tables": []},
+                "tablesTruncated": False,
+                "formFields": [],
+                "completeness": "partial",
+                "coverage": "partial",
+                "coverageProfile": {
+                    "text_content": "unverified",
+                    "structure": "unverified",
+                    "visual_content": "unverified",
+                    "reading_order": "unverified",
+                },
+                "contentAccess": {
+                    "ok": False,
+                    "error": {
+                        "code": "protected-document",
+                        "message": "The HWP body is encrypted and was not opened.",
+                    },
+                },
+                "engine": {"name": "olefile", "version": olefile.__version__},
+                "supportedOperations": ["inspect-metadata"],
+                "warnings": ["protected-document"],
+            }
+        text, truncated = (
+            project_read_text(analysis, output_format="text", max_chars=max_chars)
+            if include_text
+            else ("", False)
+        )
+        table_map, fields, tables_truncated = project_tables_and_fields(
+            analysis,
+            source=source,
             include_cells=include_cells,
+            max_cells=MAX_TABLE_CELLS_RETURNED,
             max_chars=max_chars,
         )
-    else:
-        inspected = _inspect_hwpx(
-            source,
-            include_text=include_text,
-            include_cells=include_cells,
-            max_chars=max_chars,
-        )
-    return {
-        **inspected,
-        "schemaVersion": "document-files.inspect.v1",
-        "ok": True,
-        "source": inspected["file"],
-        "engine": inspected.get(
-            "engine",
-            {"name": "olefile", "version": olefile.__version__},
-        ),
-    }
+        summary = _read_summary(analysis)
+        return {
+            **base,
+            **summary,
+            "text": text,
+            "textChars": len(text),
+            "textIncluded": include_text,
+            "textTruncated": truncated,
+            "textRepresentation": "source-unit-order",
+            "tableMap": table_map,
+            "tablesTruncated": tables_truncated,
+            "formFields": fields,
+            "contentAccess": {"ok": True},
+            "warnings": sorted(
+                set(summary["warnings"] + (["content-truncated"] if truncated else []))
+            ),
+        }
 
 
 def _require_unprotected_hwp(source: Path) -> None:
@@ -811,38 +635,14 @@ def extract_structure(
     """Extract a bounded page of source-addressed structure and explicit values."""
 
     _validate_structured_page(unit_offset=unit_offset, max_units=max_units)
-    source = _source_file(
-        path,
-        suffixes={f".{format_id}" for format_id in FORMAT_SPECS},
-    )
-    _require_unprotected_hwp(source)
-    source_before = _file_record(source)
-    format_id = source.suffix.casefold().removeprefix(".")
-    analysis_input = AnalysisInput(
-        format_id=format_id,
-        media_type=FORMAT_SPECS[format_id].media_type,
-        byte_size=source_before["size"],
-        sha256=source_before["sha256"],
-    )
-    job = AnalysisJob(
-        job_id=f"local:{format_id}:{analysis_input.sha256[:24]}",
-        input=analysis_input,
-        budgets=AnalysisBudgets(max_input_bytes=MAX_FILE_BYTES),
-    )
-    with source.open("rb") as stream:
-        projected = extract_structure_from_stream(
-            job,
-            stream,
+    with _read_document(path) as (_source, before, analysis, _metadata):
+        projected = _project_structure(
+            analysis,
             unit_offset=unit_offset,
             max_units=max_units,
             include_text=include_text,
         )
-    _ensure_source_unchanged(source, source_before)
-    return {
-        **projected,
-        "source": source_before,
-        "sourceUnchanged": True,
-    }
+        return {**projected, "source": before, "sourceUnchanged": True}
 
 
 def _validate_structured_page(*, unit_offset: int, max_units: int) -> None:
@@ -877,6 +677,14 @@ def extract_structure_from_stream(
 
     _validate_structured_page(unit_offset=unit_offset, max_units=max_units)
     analysis = analyze_document(job, source, backend=backend)
+    return _project_structure(
+        analysis, unit_offset=unit_offset, max_units=max_units, include_text=include_text
+    )
+
+
+def _project_structure(
+    analysis: AnalysisResult, *, unit_offset: int, max_units: int, include_text: bool
+) -> dict[str, Any]:
     projected = project_structured_extraction(
         analysis.extraction,
         source_format=analysis.input.format_id,
@@ -887,17 +695,7 @@ def extract_structure_from_stream(
     return {
         "ok": True,
         **projected,
-        "analysis": {
-            "schemaVersion": analysis.schema_version,
-            "jobId": analysis.job_id,
-            "input": {
-                "formatId": analysis.input.format_id,
-                "mediaType": analysis.input.media_type,
-                "byteSize": analysis.input.byte_size,
-                "sha256": analysis.input.sha256,
-            },
-            "analyzer": analysis.analyzer.to_dict(),
-        },
+        "analysis": analysis_record(analysis),
         "nativeRenderChecked": False,
     }
 
@@ -916,104 +714,31 @@ def extract_file(
             "output_format must be text or markdown.",
             details={"outputFormat": output_format},
         )
-    if not 0 <= max_chars <= MAX_TEXT_CHARS:
-        raise DocumentFilesError(
-            "invalid-limit",
-            "max_chars is outside the supported range.",
-            details={"minimum": 0, "maximum": MAX_TEXT_CHARS},
+    _validate_text_limit(max_chars)
+    with _read_document(path) as (_source, before, analysis, _metadata):
+        content, truncated = project_read_text(
+            analysis, output_format=output_format, max_chars=max_chars
         )
-    source = _source_file(
-        path,
-        suffixes={
-            ".docx",
-            ".htm",
-            ".html",
-            ".hwp",
-            ".hwpx",
-            ".markdown",
-            ".md",
-            ".pdf",
-            ".pptx",
-            ".txt",
-            ".xlsx",
-        },
-    )
-    if source.suffix.casefold() not in {".hwp", ".hwpx"}:
-        from .processor import extract_complete
-
-        format_id = source.suffix.casefold().removeprefix(".")
-        source_before = _file_record(source)
-        result = extract_complete(source, format_id=format_id)
-        extracted = "\n\n".join(unit.content for unit in result.units)
-        content, truncated = _trim_text(extracted, max_chars)
-        _ensure_source_unchanged(source, source_before)
-        warnings = [issue.code for issue in result.issues if issue.severity in {"warning", "error"}]
-        if truncated:
-            warnings.append("content-truncated")
+        summary = _read_summary(analysis)
         return {
             "schemaVersion": "document-files.extract.v1",
             "ok": True,
-            "source": source_before,
+            "source": before,
             "sourceUnchanged": True,
-            "sourceFormat": format_id,
+            **summary,
             "format": output_format,
+            "representation": (
+                "source-structure-markdown" if output_format == "markdown" else "source-unit-order"
+            ),
+            "layoutPreserved": False,
             "content": content,
             "contentChars": len(content),
             "contentSha256": _sha256_bytes(content.encode("utf-8")),
             "truncated": truncated,
-            "coverage": result.completeness,
-            "unitCount": len(result.units),
-            "issues": [issue.to_dict() for issue in result.issues],
-            "engine": {
-                "name": result.descriptor.adapter_id,
-                "version": result.descriptor.adapter_version,
-            },
-            "warnings": sorted(set(warnings)),
-            "nativeRenderChecked": False,
+            "warnings": sorted(
+                set(summary["warnings"] + (["content-truncated"] if truncated else []))
+            ),
         }
-    _require_unprotected_hwp(source)
-    source_before = _file_record(source)
-    status = backend_status()
-    if (
-        source.suffix.casefold() == ".hwpx"
-        and output_format == "text"
-        and not status.get("available")
-    ):
-        extracted = _document_text(source)
-        page_count = None
-        engine = {"name": "python-hwpx", "version": _package_version("python-hwpx")}
-    else:
-        backend = _rhwp_backend()
-        try:
-            info = backend.info(source)
-            if output_format == "markdown":
-                extracted = backend.markdown(source)
-            else:
-                payload = backend.text_pages(source)
-                extracted = "\n\n".join(
-                    str(page.get("text", "")) for page in payload.get("pages", [])
-                )
-        except RhwpBackendError as exc:
-            raise _translate_backend_error(exc) from exc
-        page_count = info.get("pageCount")
-        engine = {"name": "rhwp", "version": backend.version()}
-    content, truncated = _trim_text(extracted, max_chars)
-    _ensure_source_unchanged(source, source_before)
-    return {
-        "schemaVersion": "document-files.extract.v1",
-        "ok": True,
-        "source": source_before,
-        "sourceUnchanged": True,
-        "format": output_format,
-        "content": content,
-        "contentChars": len(content),
-        "contentSha256": _sha256_bytes(content.encode("utf-8")),
-        "truncated": truncated,
-        "pageCount": page_count,
-        "engine": engine,
-        "warnings": ["content-truncated"] if truncated else [],
-        "nativeRenderChecked": False,
-    }
 
 
 def _convert_to_hwpx(
@@ -1505,44 +1230,183 @@ def _normalize_edit_plan(
 
 
 def _check_table_expectations(
-    applied: list[dict[str, Any]],
+    source_bytes: bytes,
     expectations: list[dict[str, Any]],
-) -> None:
-    by_address = {
-        (
-            item["sectionPath"],
-            item["tableIndex"],
-            item["row"],
-            item["col"],
-        ): item
-        for item in applied
-    }
-    mismatches: list[dict[str, Any]] = []
-    for expectation in expectations:
-        key = (
-            expectation["sectionPath"],
-            expectation["tableIndex"],
-            expectation["row"],
-            expectation["col"],
+) -> tuple[dict[tuple, str], dict[str, Any] | None]:
+    """Check whole addressed cells before mutation, not the editor's first-line report."""
+
+    if not expectations:
+        return {}, None
+    analysis_input = AnalysisInput.from_bytes(source_bytes, format_id="hwpx")
+    job = AnalysisJob(
+        job_id=f"edit-preflight:{analysis_input.sha256[:24]}",
+        input=analysis_input,
+        budgets=AnalysisBudgets(max_input_bytes=MAX_FILE_BYTES),
+    )
+    try:
+        analysis = analyze_document(job, io.BytesIO(source_bytes))
+        envelope = analysis.extraction
+        profile = envelope.coverage.to_dict()
+        if profile["text_content"] != "complete" or profile["structure"] != "complete":
+            raise DocumentFilesError(
+                "edit-precondition-unverified",
+                "Whole-cell preconditions require complete text and structure observations.",
+                details={"coverageProfile": profile},
+                suggestion="Use a source whose target cell contents can be read completely.",
+            )
+        # These internal bounds cover this already-bounded envelope, not a
+        # truncated public inspection page. Selector XML uses the same bytes.
+        table_map, _fields, truncated = project_tables_and_fields(
+            analysis,
+            source=io.BytesIO(source_bytes),
+            include_cells=True,
+            max_cells=len(envelope.units),
+            max_chars=sum(len(unit.content) + 2 for unit in envelope.units),
         )
-        actual = by_address.get(key)
-        if actual is None:
-            mismatches.append({**expectation, "actualOldText": None})
-            continue
-        if actual["originalText"] != expectation["expectedOldText"]:
+    except DocumentExtractionError as exc:
+        raise DocumentFilesError(exc.code, str(exc), details=exc.details) from exc
+    observed: dict[tuple, str] = {}
+    mismatches = []
+    for expectation in expectations:
+        section, table_index, row, col = (
+            expectation[key] for key in ("sectionPath", "tableIndex", "row", "col")
+        )
+        tables = [
+            table
+            for table in table_map["tables"]
+            if table.get("sectionPath") == section and table.get("tableIndex") == table_index
+        ]
+        cells = []
+        if len(tables) == 1:
+            for cell in tables[0]["cells"]:
+                geometry = [cell.get(key) for key in ("row", "col", "rowSpan", "colSpan")]
+                if not all(
+                    isinstance(value, int) and not isinstance(value, bool) for value in geometry
+                ):
+                    continue
+                r, c, height, width = geometry
+                if height > 0 and width > 0 and r <= row < r + height and c <= col < c + width:
+                    cells.append(cell)
+        if truncated or len(cells) != 1 or cells[0].get("textTruncated"):
             mismatches.append(
                 {
                     **expectation,
-                    "actualOldText": actual["originalText"],
+                    "actualOldText": None,
+                    "reason": "missing-ambiguous-or-incomplete-cell",
                 }
             )
+            continue
+        actual = cells[0]["text"]
+        if actual != expectation["expectedOldText"]:
+            mismatches.append({**expectation, "actualOldText": actual[:MAX_OPERATION_TEXT_CHARS]})
+        else:
+            observed[(section, table_index, row, col)] = actual
     if mismatches:
         raise DocumentFilesError(
             "stale-edit-plan",
-            "One or more table cells no longer contain the expected value.",
+            "One or more whole table cells could not be matched to the expected value.",
             details={"mismatches": mismatches},
             suggestion="Inspect the current document and rebuild the edit plan.",
         )
+    return observed, {
+        "scope": "whole-cell",
+        "checked": len(expectations),
+        "sourceSha256": analysis_input.sha256,
+        "manifestHash": envelope.manifest_hash,
+    }
+
+
+def _preflight_table_operations(
+    source_bytes: bytes,
+    operations: list[dict[str, Any]],
+    observed: dict[tuple, str],
+) -> list[dict[str, Any]]:
+    """Refuse conflicting cells and text that the pinned editor would silently omit."""
+
+    # These selectors must track the pinned byte-preserving editor, not a
+    # different high-level table traversal. This never runs for read-only calls.
+    from hwpx.patch import _text_edit_for_paragraph
+    from hwpx.table_patch import _all_paragraph_spans, _iter_table_spans, _sections, build_grid
+
+    sections = _sections(source_bytes)
+    spans_by_section = {name: _iter_table_spans(content) for name, content in sections.items()}
+    grids: dict[tuple, tuple] = {}
+    occupied: set[tuple] = set()
+    effective = []
+    for operation in operations:
+        section, table_index, row, col = (
+            operation[key] for key in ("section_path", "table_index", "row", "col")
+        )
+        address = {"sectionPath": section, "tableIndex": table_index, "row": row, "col": col}
+        spans = spans_by_section.get(section, [])
+        if table_index >= len(spans):
+            raise DocumentFilesError(
+                "table-edit-refused", "The target table is unavailable.", details=address
+            )
+        start, end = spans[table_index]
+        key = (section, table_index)
+        if key not in grids:
+            table = sections[section][start:end]
+            grid, report = build_grid(table)
+            if not report.ok:
+                raise DocumentFilesError(
+                    "table-edit-refused",
+                    "The target table does not have an unambiguous cell grid.",
+                    details={**address, "grid": report.to_dict()},
+                )
+            grids[key] = (table, grid)
+        table, grid = grids[key]
+        cell = grid.get((row, col))
+        if cell is None:
+            raise DocumentFilesError(
+                "table-edit-refused", "The target cell is unavailable.", details=address
+            )
+        physical = (section, start + cell.start, start + cell.end)
+        if physical in occupied:
+            raise DocumentFilesError(
+                "conflicting-cell-edits",
+                "Multiple operations target the same physical cell, including merged coordinates.",
+                details=address,
+            )
+        occupied.add(physical)
+        if (
+            operation.get("max_lines") is None
+            and observed.get((section, table_index, row, col)) == operation["text"]
+        ):
+            continue
+        cell_bytes = table[cell.start : cell.end]
+        if _iter_table_spans(cell_bytes):
+            raise DocumentFilesError(
+                "unsupported-nested-cell-edit",
+                "Editing a cell that contains a nested table could erase the nested table text.",
+                details=address,
+                suggestion="Edit an ordinary cell inside the nested table instead.",
+            )
+        paragraphs = _all_paragraph_spans(cell_bytes)
+        lines = operation["text"].split("\n")
+        if len(lines) > len(paragraphs):
+            raise DocumentFilesError(
+                "table-text-capacity-exceeded",
+                "The replacement has more lines than the existing cell paragraphs can hold.",
+                details={
+                    **address,
+                    "requestedLines": len(lines),
+                    "availableParagraphs": len(paragraphs),
+                },
+                suggestion=(
+                    "Use text that fits the existing paragraphs "
+                    "or explicitly restructure the document."
+                ),
+            )
+        for line, (begin, finish) in zip(lines, paragraphs, strict=False):
+            if line and _text_edit_for_paragraph(cell_bytes[begin:finish], line) is None:
+                raise DocumentFilesError(
+                    "table-text-capacity-exceeded",
+                    "An existing cell paragraph cannot receive the requested line.",
+                    details=address,
+                )
+        effective.append(operation)
+    return effective
 
 
 def _zip_payload_changes(before: bytes, after: bytes) -> dict[str, list[str]]:
@@ -1601,9 +1465,11 @@ def edit_hwpx(
     table_report: dict[str, Any] | None = None
     intermediate = source_bytes
     if table_ops:
+        observed, preconditions = _check_table_expectations(source_bytes, table_expectations)
+        effective_ops = _preflight_table_operations(source_bytes, table_ops, observed)
         table_result = apply_table_ops(
             source_bytes,
-            table_ops,
+            effective_ops,
             dry_run=True,
         )
         table_report = table_result.to_dict()
@@ -1613,10 +1479,9 @@ def edit_hwpx(
                 "The table edit plan could not be applied safely.",
                 details=table_report,
             )
-        _check_table_expectations(
-            [item.to_dict() for item in table_result.applied],
-            table_expectations,
-        )
+        if preconditions is not None:
+            table_report["preconditions"] = preconditions
+            table_report["unchangedCellCount"] = len(table_ops) - len(effective_ops)
         intermediate = table_result.data
 
     text_report: dict[str, Any] | None = None

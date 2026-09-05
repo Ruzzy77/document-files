@@ -58,6 +58,13 @@ def test_create_inspect_edit_verify_and_preview(tmp_path: Path) -> None:
     assert inspected["format"] == "hwpx"
     assert "초안 내용" in inspected["text"]
     assert inspected["tableMap"]["tables"]
+    table, cell = next(
+        (table, cell)
+        for table in inspected["tableMap"]["tables"]
+        for cell in table["cells"]
+        if cell["text"] == "1,000원"
+    )
+    assert table["selectorBasis"] == "verified-section-xml-table-order"
 
     edit_plan = {
         "schemaVersion": EDIT_PLAN_SCHEMA_VERSION,
@@ -70,11 +77,12 @@ def test_create_inspect_edit_verify_and_preview(tmp_path: Path) -> None:
         ],
         "tableCells": [
             {
-                "tableIndex": 1,
-                "row": 1,
-                "col": 1,
+                "tableIndex": table["tableIndex"],
+                "sectionPath": table["sectionPath"],
+                "row": cell["row"],
+                "col": cell["col"],
                 "text": "2,000원",
-                "expectedOldText": "1,000원",
+                "expectedOldText": cell["text"],
             }
         ],
     }
@@ -90,6 +98,9 @@ def test_create_inspect_edit_verify_and_preview(tmp_path: Path) -> None:
         dry_run=False,
     )
     assert edited["ok"] is True
+    assert edited["tableEdits"]["preconditions"]["scope"] == "whole-cell"
+    assert edited["tableEdits"]["preconditions"]["checked"] == 1
+    assert edited["tableEdits"]["preconditions"]["sourceSha256"] == before
     assert output.exists()
     assert _digest(source) == before
 

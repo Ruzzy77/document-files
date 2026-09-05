@@ -14,6 +14,7 @@ from document_files.engine import (
     convert_file,
     create_hwpx,
     extract_file,
+    extract_structure,
     inspect_file,
     render_file,
 )
@@ -53,7 +54,7 @@ def _require_rhwp() -> dict:
 
 def test_capabilities_are_explicitly_headless() -> None:
     result = capabilities()
-    assert result["pluginVersion"] == "1.4.0"
+    assert result["pluginVersion"] == "1.5.0"
     assert result["headless"] is True
     assert result["nativeAppAutomation"] is False
     assert result["runtimeNetworkUsed"] is False
@@ -182,20 +183,31 @@ def test_headless_hwp_read_convert_and_render(
     assert response.is_error is False
     assert response.structured_content["ok"] is True
     assert response.structured_content["result"]["source"] == inspected["file"]
-    assert response.structured_content["result"]["engine"]["name"] == "rhwp"
+    assert response.structured_content["result"]["engine"] == inspected["engine"]
     with monkeypatch.context() as patch:
         patch.setattr(engine, "backend_status", lambda: {"available": False})
+        patch.setattr(engine, "HwpxDocument", None)
+        patch.setattr(engine, "TextExtractor", None)
+        patch.setattr(
+            "document_files.extraction_rhwp.RhwpPageTextAdapter.extract",
+            lambda *_a, **_k: pytest.fail("Unexpected rhwp fallback"),
+        )
         response = asyncio.run(server.call_tool("document_inspect_file", {"path": str(binary_hwp)}))
-    assert response.structured_content["ok"] is True
-    metadata = response.structured_content["result"]
-    assert metadata["source"] == inspected["file"]
-    assert metadata["contentAccess"]["ok"] is False
-    assert metadata["contentAccess"]["error"]["code"] == "backend-unavailable"
-    assert metadata["engine"]["name"] == "olefile"
-
-    extracted = extract_file(binary_hwp, output_format="markdown")
-    assert extracted["engine"] == {"name": "rhwp", "version": "0.8.6"}
-    assert "headless" in extracted["content"]
+        extracted = extract_file(binary_hwp, output_format="markdown")
+        structured = extract_structure(binary_hwp)
+        assert response.structured_content["ok"] is True
+        without_optional_backends = response.structured_content["result"]
+        assert without_optional_backends["source"] == inspected["file"]
+        assert without_optional_backends["contentAccess"]["ok"] is True
+        assert without_optional_backends["engine"] == inspected["engine"]
+        assert without_optional_backends["text"] == inspected["text"]
+        assert extracted["manifestHash"] == structured["manifestHash"] == inspected["manifestHash"]
+        assert extracted["coverageProfile"] == structured["coverage"]
+        assert extracted["coverage"] == structured["completeness"]
+        assert "headless" in extracted["content"]
+        assert "### Table" in extracted["content"]
+        assert extracted["representation"] == "source-structure-markdown"
+        assert extracted["layoutPreserved"] is False
 
     converted_path = tmp_path / "converted.hwpx"
     with pytest.raises(DocumentFilesError) as exc_info:
