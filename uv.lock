@@ -373,10 +373,11 @@ wheels = [
 
 [[package]]
 name = "document-files"
-version = "1.6.0"
+version = "1.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "defusedxml" },
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "olefile" },
     { name = "openpyxl" },
@@ -385,6 +386,7 @@ dependencies = [
     { name = "python-hwpx" },
     { name = "python-hwpx-automation" },
     { name = "python-pptx" },
+    { name = "referencing" },
     { name = "reportlab" },
 ]
 
@@ -396,6 +398,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1,<1" },
+    { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "mcp", specifier = "==2.1.1" },
     { name = "olefile", specifier = ">=0.47,<1" },
     { name = "openpyxl", specifier = ">=3.1,<4" },
@@ -404,6 +407,7 @@ requires-dist = [
     { name = "python-hwpx", specifier = "==6.3.0" },
     { name = "python-hwpx-automation", specifier = "==7.0.3" },
     { name = "python-pptx", specifier = ">=1.0,<2" },
+    { name = "referencing", specifier = ">=0.37,<1" },
     { name = "reportlab", specifier = ">=4,<5" },
 ]
 

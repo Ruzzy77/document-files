@@ -5,9 +5,8 @@ import hashlib
 import subprocess
 from pathlib import Path
 
-import pytest
-
 import document_files.engine as engine
+import pytest
 from document_files.engine import (
     DocumentFilesError,
     capabilities,
@@ -54,7 +53,7 @@ def _require_rhwp() -> dict:
 
 def test_capabilities_are_explicitly_headless() -> None:
     result = capabilities()
-    assert result["pluginVersion"] == "1.6.0"
+    assert result["pluginVersion"] == "1.7.0"
     assert result["headless"] is True
     assert result["nativeAppAutomation"] is False
     assert result["runtimeNetworkUsed"] is False
@@ -126,6 +125,8 @@ def test_mcp_surface_is_small_and_headless(tmp_path: Path) -> None:
         "document_inspect_file",
         "document_extract_file",
         "document_extract_structure",
+        "document_extract_schema",
+        "document_get_extraction",
         "document_convert_file",
         "document_create_hwpx",
         "document_edit_hwpx",

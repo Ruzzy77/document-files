@@ -1,0 +1,257 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index a232ee6..aa71a2e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2253,7 +2253,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "rhwp"
+-version = "0.8.6"
++version = "0.8.6+pat.checkbox.1"
+ dependencies = [
+  "aes",
+  "argon2",
+diff --git a/Cargo.toml b/Cargo.toml
+index 1d6474f..d72d9aa 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "rhwp"
+-version = "0.8.6"
++version = "0.8.6+pat.checkbox.1"
+ edition = "2021"
+ description = "HWP file viewer and editor written in Rust, targeting WebAssembly"
+ license = "MIT"
+diff --git a/src/model/style.rs b/src/model/style.rs
+index b9e652c..93e9efd 100644
+--- a/src/model/style.rs
++++ b/src/model/style.rs
+@@ -432,7 +432,7 @@ pub struct NumberingHead {
+     pub number_format: u8,
+ }
+ 
+-/// 글머리표 정의 (HWPTAG_BULLET, 표 44, 24바이트)
++/// 글머리표 정의 (HWPTAG_BULLET, 표 44, 25바이트)
+ #[derive(Debug, Clone, Default, serde::Serialize)]
+ pub struct Bullet {
+     /// 원본 레코드 바이트 (라운드트립 보존용)
+@@ -450,7 +450,7 @@ pub struct Bullet {
+     /// 이미지 글머리표 여부 (0=문자, ID=이미지)
+     pub image_bullet: i32,
+     /// 이미지 글머리 데이터 (대비, 밝기, 효과, ID)
+-    pub image_data: [u8; 4],
++    pub image_data: [u8; 5],
+     /// 체크 글머리표 문자
+     pub check_bullet_char: char,
+     /// HWPX `<hh:bullet>` 자식 `<hh:paraHead>`(+`<hh:img>`) 원본 구간 (무손실 splice 용).
+diff --git a/src/parser/doc_info.rs b/src/parser/doc_info.rs
+index 4115a28..0f1bd8b 100644
+--- a/src/parser/doc_info.rs
++++ b/src/parser/doc_info.rs
+@@ -743,22 +743,14 @@ fn parse_para_shape(data: &[u8]) -> Result<ParaShape, DocInfoError> {
+     }
+ 
+     // 속성2 (5.0.1.7 이상)
+-    let mut attr2 = if r.remaining() >= 4 {
++    let attr2 = if r.remaining() >= 4 {
+         r.read_u32().unwrap_or(0)
+     } else {
+         0
+     };
+ 
+-    // #2777 이전 rhwp HWPX 파서는 breakSetting의 keep 계열을 attr2 6-8에
+-    // 저장했고 HWP5 직렬화는 이를 그대로 기록했다. 한컴 HWP5는 이 비트를 쓰지
+-    // 않으므로 식별 가능한 구규약만 attr1 17-19로 1회 이관한다. attr2 bit 5는
+-    // 구 widowOrphan과 정본 autoSpaceKrNum을 구별할 수 없어 정본 의미로 보존한다.
+-    const LEGACY_BREAK_SETTING_MASK: u32 = (1 << 6) | (1 << 7) | (1 << 8);
+-    let legacy_break_setting = attr2 & LEGACY_BREAK_SETTING_MASK;
+-    if legacy_break_setting != 0 {
+-        attr1 |= legacy_break_setting << 11;
+-        attr2 &= !LEGACY_BREAK_SETTING_MASK;
+-    }
++    // Preserve native extended flags, including the checkbox state (bit 7).
++    // A legacy rhwp convention cannot be inferred from these bits alone.
+ 
+     // 속성3 - 줄 간격 종류 확장 (5.0.2.5 이상)
+     let attr3 = if r.remaining() >= 4 {
+@@ -889,9 +881,11 @@ fn parse_bullet(data: &[u8]) -> Result<Bullet, DocInfoError> {
+     // 이미지 글머리표 여부 (INT32, 4바이트)
+     let image_bullet = r.read_i32().unwrap_or(0);
+ 
+-    // 이미지 글머리 데이터 (4바이트)
+-    let mut image_data = [0u8; 4];
+-    for byte in &mut image_data {
++    // Native image data: brightness, contrast, effect, and a two-byte ID.
++    // Older rhwp records used four bytes; accept that exact legacy length.
++    let image_len = if r.remaining() == 6 { 4 } else { 5 };
++    let mut image_data = [0u8; 5];
++    for byte in image_data.iter_mut().take(image_len) {
+         *byte = r.read_u8().unwrap_or(0);
+     }
+ 
+@@ -1284,27 +1278,26 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn para_shape_migrates_identifiable_legacy_break_bits_without_repurposing_bit5() {
+-        let mut data = make_para_shape_bytes(0, None);
+-        let legacy_attr2: u32 = (1 << 5) | (1 << 6) | (1 << 8);
+-        data[42..46].copy_from_slice(&legacy_attr2.to_le_bytes());
++    fn para_shape_preserves_native_checkbox_flags() {
++        for flags in [0x08u32, 0x88, 0x80, 0x160] {
++            let mut data = make_para_shape_bytes(0, None);
++            data[42..46].copy_from_slice(&flags.to_le_bytes());
++            let ps = parse_para_shape(&data).unwrap();
++            assert_eq!(ps.attr2, flags);
++            assert_eq!(ps.attr1, 0);
++        }
++    }
+ 
+-        let ps = parse_para_shape(&data).expect("parse legacy para shape");
+-        assert_eq!(
+-            ps.attr1 & ((1 << 17) | (1 << 19)),
+-            (1 << 17) | (1 << 19),
+-            "식별 가능한 구 keepWithNext/pageBreakBefore는 attr1로 이관해야 한다"
+-        );
+-        assert_eq!(
+-            ps.attr2 & ((1 << 6) | (1 << 7) | (1 << 8)),
+-            0,
+-            "이관한 구규약 비트는 소거해야 한다"
+-        );
+-        assert_eq!(
+-            ps.attr2 & (1 << 5),
+-            1 << 5,
+-            "모호한 bit 5는 정본 autoSpaceKrNum으로 유지해야 한다"
+-        );
++    #[test]
++    fn bullet_reads_native_checked_character_and_legacy_record() {
++        for image_len in [4, 5] {
++            let mut data = vec![0u8; 18 + image_len];
++            data[12..14].copy_from_slice(&0x2610u16.to_le_bytes());
++            data.extend_from_slice(&0x2611u16.to_le_bytes());
++            let bullet = parse_bullet(&data).unwrap();
++            assert_eq!(bullet.bullet_char, '☐');
++            assert_eq!(bullet.check_bullet_char, '☑');
++        }
+     }
+ 
+     #[test]
+diff --git a/src/parser/hwpx/header.rs b/src/parser/hwpx/header.rs
+index 8c26e1e..189f800 100644
+--- a/src/parser/hwpx/header.rs
++++ b/src/parser/hwpx/header.rs
+@@ -893,6 +893,11 @@ fn parse_para_shape(
+         match attr.key.as_ref().as_bytes() {
+             b"id" => id = Some(parse_u32(&attr) as usize),
+             b"tabPrIDRef" => ps.tab_def_id = parse_u16(&attr),
++            b"checked" => {
++                if parse_bool(&attr) {
++                    ps.attr2 |= 1 << 7;
++                }
++            }
+             b"condense" => {
+                 let condense = parse_u32(&attr).min(75);
+                 ps.attr1 = (ps.attr1 & !(0x7f << 9)) | (condense << 9);
+@@ -2072,6 +2077,13 @@ fn parse_bullet_hwpx(
+ fn apply_bullet_para_head_attrs(bullet: &mut Bullet, e: &quick_xml::events::BytesStart) {
+     for attr in e.attributes().flatten() {
+         match attr.key.as_ref().as_bytes() {
++            b"checkable" => {
++                if parse_bool(&attr) {
++                    bullet.attr |= 1 << 5;
++                } else {
++                    bullet.attr &= !(1 << 5);
++                }
++            }
+             b"charPrIDRef" => bullet.char_shape_id = parse_u32(&attr),
+             b"widthAdjust" => bullet.width_adjust = parse_i16(&attr),
+             b"textOffset" => bullet.text_distance = parse_i16(&attr),
+@@ -2444,6 +2456,14 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn test_checkbox_flags_hwpx_roundtrip() {
++        let xml = r#"<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head"><hh:refList><hh:paraProperties itemCnt="2"><hh:paraPr id="0" checked="1"><hh:heading type="NONE"/></hh:paraPr><hh:paraPr id="1" checked="0"><hh:heading type="NONE"/></hh:paraPr></hh:paraProperties></hh:refList></hh:head>"#;
++        let (info, _) = parse_hwpx_header(xml).unwrap();
++        assert_eq!(info.para_shapes[0].attr2 & 0x80, 0x80);
++        assert_eq!(info.para_shapes[1].attr2 & 0x80, 0);
++    }
++
+     #[test]
+     fn test_parse_bullet_hwpx_checked_char() {
+         // checkedChar 는 체크 글머리표(checkbox bullet)의 체크 문자다. 종전 파서는
+@@ -2463,6 +2483,7 @@ mod tests {
+         let (doc_info, _) = parse_hwpx_header(xml).unwrap();
+         assert_eq!(doc_info.bullets.len(), 1);
+         assert_eq!(doc_info.bullets[0].check_bullet_char, '☑');
++        assert_ne!(doc_info.bullets[0].attr & 32, 0);
+     }
+ 
+     #[test]
+diff --git a/src/serializer/doc_info.rs b/src/serializer/doc_info.rs
+index d324501..d1f52eb 100644
+--- a/src/serializer/doc_info.rs
++++ b/src/serializer/doc_info.rs
+@@ -722,7 +722,7 @@ fn serialize_bullet(bullet: &Bullet) -> Vec<u8> {
+     // 이미지 글머리표 여부 (INT32)
+     w.write_i32(bullet.image_bullet).unwrap();
+ 
+-    // 이미지 글머리 데이터 (4바이트)
++    // 이미지 글머리 데이터 (5바이트)
+     for &byte in &bullet.image_data {
+         w.write_u8(byte).unwrap();
+     }
+diff --git a/src/serializer/doc_info/tests.rs b/src/serializer/doc_info/tests.rs
+index 67d63b4..5f03bd1 100644
+--- a/src/serializer/doc_info/tests.rs
++++ b/src/serializer/doc_info/tests.rs
+@@ -794,14 +794,14 @@ fn test_serialize_bullet_layout_and_roundtrip() {
+         char_shape_id: 2,
+         bullet_char: '-',
+         image_bullet: 0,
+-        image_data: [0; 4],
++        image_data: [0; 5],
+         check_bullet_char: '\0',
+         raw_para_head: None,
+     };
+ 
+     // 레이아웃: 문단 머리 정보 12바이트 후 offset 12 에 bullet_char
+     let data = serialize_bullet(&bullet);
+-    assert_eq!(data.len(), 24);
++    assert_eq!(data.len(), 25);
+     let mut r = crate::parser::byte_reader::ByteReader::new(&data);
+     assert_eq!(r.read_u32().unwrap(), 0); // attr
+     assert_eq!(r.read_i16().unwrap(), 0); // width_adjust
+diff --git a/src/serializer/hwpx/header.rs b/src/serializer/hwpx/header.rs
+index d0226f0..eba96e2 100644
+--- a/src/serializer/hwpx/header.rs
++++ b/src/serializer/hwpx/header.rs
+@@ -908,7 +908,7 @@ fn write_bullet<W: Write>(
+     // align/useInstWidth/autoIndent/textOffsetType/checkable 등 Bullet 필드로 표현
+     // 못하는 속성까지 무손실 복원(numbering.raw_para_heads 와 동일 패턴, #2790).
+     // 없으면(HWP5 경로 등) widthAdjust/textOffset/charPrIDRef 만 필드값으로 채운
+-    // 뼈대로 폴백 — checkable 은 checkedChar 유무를 따른다(#3028).
++    // 뼈대로 폴백 — checkable은 네이티브 문단 머리 속성 bit 5를 따른다.
+     if let Some(raw) = &b.raw_para_head {
+         w.get_mut()
+             .write_all(raw.as_bytes())
+@@ -927,7 +927,7 @@ fn write_bullet<W: Write>(
+                 ("textOffset", &b.text_distance.to_string()),
+                 ("numFormat", "DIGIT"),
+                 ("charPrIDRef", &b.char_shape_id.to_string()),
+-                ("checkable", if has_checked_char { "1" } else { "0" }),
++                ("checkable", if b.attr & (1 << 5) != 0 { "1" } else { "0" }),
+             ],
+         )?;
+     }
+@@ -983,7 +983,7 @@ fn write_para_pr<W: Write>(
+             ("fontLineHeight", &font_line_height),
+             ("snapToGrid", &snap_to_grid),
+             ("suppressLineNumbers", "0"),
+-            ("checked", "0"),
++            ("checked", if ps.attr2 & (1 << 7) != 0 { "1" } else { "0" }),
+         ],
+     )?;
+ 

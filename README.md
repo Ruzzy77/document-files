@@ -123,3 +123,61 @@ python3 scripts/provision_rhwp.py
 HWP 보조 경로에만 사용합니다.
 
 실행 경계와 데이터 소유 원칙은 [DESIGN.md](./DESIGN.md)에 있습니다.
+
+## AI-assisted 스키마 추출 (1.7.0 실험적 기능)
+
+`extract-schema`와 `document_extract_schema`는 Document Files 내부에서 모델을 호출하여
+스키마·시맨틱·값과 출처를 추출합니다. 일반 프로그램이 문서만 제출할 수 있으며, 호출자가
+해석 결과를 작성해 다시 제출할 필요는 없습니다. 기존 `extract-structure`의 원본에 명시된
+구조 추출 계약은 그대로 유지합니다.
+
+모델 연결은 실행 환경에서 명시적으로 설정합니다. 현재 HTTP 어댑터는 JSON 응답을 지원하는
+Chat Completions 호환 로컬·클라우드 서버를 사용합니다. 다른 추론 방식은 Python의
+`ModelClient`를 구현해 연결하며, 프롬프트·추가 읽기·재검사·완료 판단은 Document Files에
+남습니다. 특정 제공자나 호스트 에이전트로 자동 연결하지 않습니다.
+
+- `DOCUMENT_FILES_AI_ENDPOINT`: 실제 `/chat/completions` 요청 HTTP(S) URL. 로컬망 서버도 명시적으로 설정할 수 있습니다.
+- `DOCUMENT_FILES_AI_MODEL`: 모델 식별자.
+- `DOCUMENT_FILES_AI_API_KEY`: 필요한 경우 해당 서버의 인증 키. 결과에 저장하지 않습니다.
+
+```sh
+launchers/document-files extract-schema input.docx --request-id document-001
+launchers/document-files get-extraction document-001 --section valueEvidence --limit 100
+```
+
+`--options options.json`으로 `intent`, `targetSchema`, `reconstructionContext`, `maxModelCalls`,
+`contextChars`, `completionSeconds`, `maxInputBytes`를 지정합니다. MCP는 같은 입력 구조를
+제공합니다. `targetSchema`가 없으면 문서에서 스키마를 발견합니다. 현재 검증기는 Draft
+2020-12를 사용하되 외부 참조, 재귀 참조 및 정규식 조건을 지원하지 않습니다. 지원하지 않는
+조건은 조용히 제거하지 않고 거절합니다.
+
+결과는 `document-files.schema-extraction-result.v1`이며 `document`, `documentSchema`,
+`dataSchema`, `semantics`, `data`, 양쪽 evidence, coverage와 validation을 포함합니다.
+시맨틱의 대상·적용 범위는 `space`와 RFC 6901 `path`로 참조합니다. `document` 공간의
+포인터는 `document.nodes`를 기준으로 합니다. 값의 원래 표기와 빈 값·부재·판독 실패·불확실성은
+evidence에 남깁니다. 원본·참조·자료형 검사를 통과하면 별도 AI 대조를 수행하며, 발견된 문제가
+있으면 내부에서 수정합니다. `complete`는 관찰된 범위의 추출·검사 완료이며 모델의 정확성을
+보증하는 표시는 아닙니다. `validation.semanticAccuracy`가 검사 방식을 나타냅니다.
+
+CLI·MCP는 동기 실행합니다. 결과는 기존 Document Files runtime 아래 `schema-extractions`에
+사용자 전용 권한으로 보관되며 자동 만료하지 않습니다. 해당 작업의 SQLite 파일을 삭제하면
+보관 결과도 삭제됩니다. 같은 요청 ID와 입력·옵션·모델 설정·프롬프트 버전은 저장 결과를
+재사용하고, 다르면 거절합니다. 재분석에는 새 ID를 사용합니다. 실행 중에는 결과가 아직
+없을 수 있으며, 별도의 백그라운드 작업자가 있는 것처럼 표시하지 않습니다. 모델이 없으면
+`partial`과 `ai_unavailable`을 반환합니다.
+
+개인용 `reconstructionContext`는 기본 포함합니다. 텍스트의 원래 공백·개행과 Office/HWPX의
+native XML·관계·스타일·이미지 등 패키지 구성요소를 자체 포함 형태로 보관합니다. 프로젝트용
+추출에는 이 옵션을 끌 수 있습니다. PDF/HWP의 완전한 native 구성요소 추출, 시각 정보를 통한
+내부 AI 판독, 긴 문서의 분할 후 통합, 수신 AI의 재현 시험은 아직 완료하지 않았습니다.
+현재 모델 문맥 한도를 넘으면 부분 결과로 처리합니다. 이 버전은 위 실행 경로를 실험적 기능으로 제공합니다. 실제 모델·미지 문서의 품질 평가와
+전체 설계 요구사항의 완성 여부는 플러그인 설치·업데이트와 구분합니다.
+
+
+## 1.7.0 업데이트
+
+AI-assisted 추출·결과 조회와 함께 HWP→HWPX 체크형 글머리표 보존 검사를 포함합니다.
+로컬에 준비된 `rhwp 0.8.6+pat.checkbox.1`을 우선 사용하며, 체크 문자·체크 상태·항목 순서와
+줄 배치 속성을 원본과 대조합니다. 자체 빌드가 없는 환경에서도 검사는 유지하며, 손실을
+확인하면 기본적으로 변환을 중단합니다. 자체 빌드 준비와 공식 버전 복귀 조건은
+[DESIGN.md](DESIGN.md#rhwp-체크형-글머리표-보존과-공식-빌드-복귀)에 있습니다.

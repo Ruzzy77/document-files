@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 RHWP_VERSION = "0.8.6"
+PATCHED_RHWP_VERSION = "0.8.6+pat.checkbox.1"
+SUPPORTED_RHWP_VERSIONS = {RHWP_VERSION, PATCHED_RHWP_VERSION}
 MAX_BACKEND_OUTPUT_BYTES = 32 * 1024 * 1024
 DEFAULT_TIMEOUT_SECONDS = 120
 
@@ -78,7 +80,10 @@ def resolve_rhwp() -> Path | None:
         candidates.append(Path(discovered))
     cached = _cache_executable()
     if cached is not None:
-        candidates.append(cached)
+        patched = (
+            cached.parents[3] / f"v{PATCHED_RHWP_VERSION}" / cached.relative_to(cached.parents[2])
+        )
+        candidates.extend([patched, cached])
 
     for candidate in candidates:
         try:
@@ -308,7 +313,7 @@ def backend_status() -> dict[str, Any]:
         if command.get("name") in relevant_commands
     ]
     return {
-        "available": version == RHWP_VERSION,
+        "available": version in SUPPORTED_RHWP_VERSIONS,
         "expectedVersion": RHWP_VERSION,
         "version": version,
         "executable": str(executable),
@@ -318,5 +323,5 @@ def backend_status() -> dict[str, Any]:
             "commands": commands,
             "exitCodes": raw_capabilities.get("exitCodes"),
         },
-        "reason": None if version == RHWP_VERSION else "version-mismatch",
+        "reason": None if version in SUPPORTED_RHWP_VERSIONS else "version-mismatch",
     }

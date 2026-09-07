@@ -57,8 +57,15 @@ from .analysis import (
 )
 from .extraction_errors import DocumentExtractionError
 from .formats import FORMAT_SPECS
+from .hwp_checkbox_guard import HWPAdapterError, compare_checkboxes
 from .read_projection import analysis_record, project_read_text, project_tables_and_fields
-from .rhwp_backend import RHWP_VERSION, RhwpBackend, RhwpBackendError, backend_status
+from .rhwp_backend import (
+    RHWP_VERSION,
+    SUPPORTED_RHWP_VERSIONS,
+    RhwpBackend,
+    RhwpBackendError,
+    backend_status,
+)
 from .structured_extraction import (
     DEFAULT_PUBLIC_STRUCTURED_UNITS,
     MAX_PUBLIC_STRUCTURED_UNITS,
@@ -76,7 +83,7 @@ HWP_SIGNATURE = b"HWP Document File"
 try:
     PLUGIN_VERSION = version("document-files")
 except PackageNotFoundError:
-    PLUGIN_VERSION = "1.6.0"
+    PLUGIN_VERSION = "1.7.0"
 PYTHON_HWPX_VERSION = "6.3.0"
 PYTHON_HWPX_AUTOMATION_VERSION = "7.0.3"
 
@@ -159,7 +166,7 @@ def _rhwp_backend() -> RhwpBackend:
         actual_version = backend.version()
     except RhwpBackendError as exc:
         raise _translate_backend_error(exc) from exc
-    if actual_version != RHWP_VERSION:
+    if actual_version not in SUPPORTED_RHWP_VERSIONS:
         raise DocumentFilesError(
             "backend-version-mismatch",
             "The resolved rhwp backend does not match the pinned version.",
@@ -301,6 +308,17 @@ def capabilities() -> dict[str, Any]:
         "nativeAppAutomation": False,
         "runtimeNetworkUsed": False,
         "nativeRenderChecked": False,
+        "schemaExtraction": {
+            "schemaVersion": "document-files.schema-extraction-result.v1",
+            "available": True,
+            "modelConfigurationRequired": True,
+            "internalAIOrchestration": True,
+            "entrypoint": "document_extract_schema",
+            "resultLookup": "document_get_extraction",
+            "networkPolicy": "explicitly_configured_model_endpoint_only",
+            "visualInterpretation": False,
+            "reconstructionVerified": False,
+        },
         "backends": {
             "pythonHwpx": python_hwpx,
             "rhwp": rhwp,
@@ -785,6 +803,15 @@ def _convert_to_hwpx(
             )
 
         losses: list[dict[str, Any]] = []
+        try:
+            checkbox_check = compare_checkboxes(source, staged)
+        except (HWPAdapterError, OSError, ValueError, KeyError, IndexError, struct.error) as exc:
+            raise DocumentFilesError(
+                "conversion-preservation-check-failed",
+                "Native checkbox preservation could not be verified.",
+            ) from exc
+        if not checkbox_check["preserved"]:
+            losses.append({"kind": "checkbox-semantics-change", **checkbox_check})
         ir_diff = backend_report["irDiff"]
         if not ir_diff.get("identical", False):
             losses.append(
@@ -830,6 +857,7 @@ def _convert_to_hwpx(
             "packageAndReopen": safety.to_dict(),
             "irIdentical": ir_diff.get("identical"),
             "pageCountPreserved": page_count_preserved,
+            "checkboxPreservation": checkbox_check,
             "sourceInfo": source_info,
             "outputInfo": output_info,
         },

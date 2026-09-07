@@ -42,8 +42,16 @@ DOCUMENT_FILES_HOST_PYTHON="$HOST_PYTHON" sh "${SKILL_DIR}/../../runtime/documen
 - 본문에는 `extract`, 파일 요약·표 편집 위치에는 `inspect`, 원본 위치·값·관계에는 `extract-structure`를 선택한다. 같은 분석 경로를 사용하므로 세 명령을 차례로 반복할 필요는 없다.
 - `completeness`와 차원별 추출 범위, 주요 issue를 확인한다. 차원별 범위는 `inspect`·`extract`의 `coverageProfile`, 구조 추출의 `coverage`에 있다. 출력 길이·페이지 제한으로 잘린 결과와 원본의 부분 추출을 구분한다.
 - 제목, 문단, 표·병합 셀, 셀 좌표, typed value, 수식, 필드와 source locator처럼 원본에 명시된 정보만 반환한다. Markdown은 이 구조를 읽기 좋게 나타낸 것이며 원본 조판의 복원이 아니다.
-- 인접 셀 관계, 계산 결과, 업무 의미를 추정해 원본 시맨틱으로 기록하지 않는다. 업무 스키마 투영은 호출 프로젝트가 맡는다.
+- `extract-structure`는 인접 셀 관계와 의미를 추정해 원본 시맨틱으로 기록하지 않는다. AI 해석이 필요한 스키마·시맨틱·값 추출에는 아래 `extract-schema`를 사용한다.
 - 이미지 중심 문서에서 텍스트가 충분하지 않으면 결과를 `partial`로 유지한다. 대화형 OpenAI 작업에서는 요청 해결에 필요한 페이지만 제한적으로 이미지로 살펴볼 수 있지만 그 관찰을 원본 추출값과 구분한다.
+
+## AI-assisted 스키마·시맨틱·값 추출
+
+- `extract-schema input.docx` 또는 `document_extract_schema`를 호출한다. Document Files 내부에서 AI 해석·추가 읽기·스키마 검사·원문 대조를 수행한다. 호출 에이전트가 별도 해석안을 작성해 제출하는 방식으로 대체하지 않는다.
+- 실행 환경의 `DOCUMENT_FILES_AI_ENDPOINT`, `DOCUMENT_FILES_AI_MODEL`과 필요한 인증 설정을 사용한다. 원문 관찰이 설정된 모델로 전달될 수 있으므로 사용자가 선택한 연결을 사용한다. 연결이 없으면 `ai_unavailable`을 알리며 임의 서버로 보내지 않는다.
+- `dataSchema`, `semantics`, `data`, evidence와 coverage를 함께 사용한다. `partial`, 불확실한 시맨틱과 미완료 항목을 완전 추출로 표시하지 않는다. 형식 검사를 의미 정확성 보증으로 해석하지 않는다.
+- 개인용 재현 맥락은 기본 포함된다. 프로젝트의 스키마·값 연계에는 `reconstructionContext=false`를 지정할 수 있다. 재현 맥락의 보관과 실제 수신 AI의 재현 성공은 별개다.
+- 저장 결과는 `get-extraction` 또는 `document_get_extraction`으로 다시 읽는다. 이 기능은 실험적으로 제공하며, 내부 시각 판독·대형 문서 통합·실제 모델 품질 평가는 아직 완료되지 않았다.
 
 ## HWP와 HWPX
 

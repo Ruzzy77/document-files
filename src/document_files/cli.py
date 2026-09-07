@@ -66,6 +66,16 @@ def _parser() -> argparse.ArgumentParser:
     structure_parser.add_argument("--max-units", type=int, default=500)
     structure_parser.add_argument("--no-text", action="store_true")
 
+    schema_parser = subparsers.add_parser("extract-schema", help="AI-assisted schema extraction")
+    schema_parser.add_argument("path")
+    schema_parser.add_argument("--options", help="Extraction options JSON file")
+    schema_parser.add_argument("--request-id")
+    result_parser = subparsers.add_parser("get-extraction", help="Read retained extraction result")
+    result_parser.add_argument("job_id")
+    result_parser.add_argument("--section")
+    result_parser.add_argument("--offset", type=int, default=0)
+    result_parser.add_argument("--limit", type=int, default=100)
+
     create_parser = subparsers.add_parser("create", help="Create HWPX from a JSON plan")
     create_parser.add_argument("plan")
     create_parser.add_argument("output")
@@ -133,6 +143,20 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             unit_offset=args.unit_offset,
             max_units=args.max_units,
             include_text=not args.no_text,
+        )
+    if args.command == "extract-schema":
+        from .interpretation.workflow import extract_schema
+
+        return extract_schema(
+            args.path,
+            options=_load_json(args.options) if args.options else None,
+            request_id=args.request_id,
+        )
+    if args.command == "get-extraction":
+        from .interpretation.workflow import get_extraction
+
+        return get_extraction(
+            args.job_id, section=args.section, offset=args.offset, limit=args.limit
         )
     if args.command == "create":
         return create_hwpx(
