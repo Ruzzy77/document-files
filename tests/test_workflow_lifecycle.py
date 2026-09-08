@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -45,7 +46,7 @@ def test_checkpoint_read_resume_and_no_long_transaction(setup, monkeypatch):
         checkpoint({"result": body, "stage": "review"})
         assert workflow.get_extraction("one")["data"] == {"value": "123"}
         # A separate writer works while the model phase owns the job lock.
-        with sqlite3.connect(root / "one.sqlite3", timeout=0) as db:
+        with closing(sqlite3.connect(root / "one.sqlite3", timeout=0)) as db, db:
             db.execute("UPDATE execution SET status='running'")
         with pytest.raises(DocumentFilesError, match="already running"):
             workflow.delete_extraction("one")
@@ -88,7 +89,7 @@ def test_exact_resume_and_retention(setup, monkeypatch):
 def test_legacy_result_untouched_and_safe_paths(setup):
     _, root = setup
     root.mkdir()
-    with sqlite3.connect(root / "legacy.sqlite3") as db:
+    with closing(sqlite3.connect(root / "legacy.sqlite3")) as db, db:
         db.execute("CREATE TABLE result(fingerprint TEXT, body TEXT)")
         db.execute("INSERT INTO result VALUES ('old',?)", (json.dumps({"data": [1]}),))
     before = (root / "legacy.sqlite3").read_bytes()
