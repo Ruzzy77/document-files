@@ -86,6 +86,8 @@ def kill_process_tree(process: subprocess.Popen) -> None:
 
 def subprocess_environment() -> dict[str, str]:
     env = {
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import sys
 from pathlib import Path
 
+from document_files.extraction_protocol import AdapterBudgets, _bounded_subprocess
+from document_files.portability import descriptor_input, subprocess_environment
 from document_files.processor import (
     DESCRIPTOR_SCHEMA_VERSION,
     _materialized_input,
@@ -52,7 +54,7 @@ def test_process_jsonl_uses_read_only_descriptor(tmp_path: Path) -> None:
     source.write_text("# 제목\n\n본문", encoding="utf-8")
     route = describe_all()["formats"]["md"]
     descriptor = route["descriptor"]
-    fd = os.open(source, os.O_RDONLY)
+    fd = os.open(source, os.O_RDONLY | getattr(os, "O_BINARY", 0))
     try:
         request = {
             "schema_version": "document-files.extraction-request.v2",
@@ -71,19 +73,19 @@ def test_process_jsonl_uses_read_only_descriptor(tmp_path: Path) -> None:
             "config": route["config"],
             "budgets": {},
         }
-        completed = subprocess.run(
-            [
-                str(Path(__file__).parents[1] / "launchers" / "document-files"),
-                "process",
-            ],
-            input=json.dumps(request, ensure_ascii=False).encode("utf-8") + b"\n",
-            capture_output=True,
-            check=True,
-            pass_fds=(fd,),
-        )
+        with descriptor_input(fd, max_bytes=1024) as transport:
+            request["input"] = {**transport, "format_id": "md"}
+            stdout, _ = _bounded_subprocess(
+                command=(sys.executable, "-m", "document_files.processor"),
+                request=json.dumps(request, ensure_ascii=False).encode("utf-8") + b"\n",
+                budgets=AdapterBudgets(),
+                input_fd=fd,
+                cwd=tmp_path,
+                environment=subprocess_environment(),
+            )
     finally:
         os.close(fd)
-    result = json.loads(completed.stdout)
+    result = json.loads(stdout)
     assert result["schema_version"] == "document-files.extraction-result.v2"
     assert result["completeness"] == "complete"
     assert result["coverage"] == {

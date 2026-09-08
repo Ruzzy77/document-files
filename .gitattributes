@@ -1,0 +1,5 @@
+* text=auto eol=lf
+# These pinned upstream bytes are verified cryptographically and must not change.
+scripts/python-licenses/** -text
+patches/** -text
+*.png -text

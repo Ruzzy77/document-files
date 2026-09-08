@@ -770,6 +770,7 @@ class PackagedAdapterTest(unittest.TestCase):
             "document-files.hwpx.content-router",
         )
 
+    @unittest.skipUnless(os.name == "posix", "POSIX fake executable; budget covered cross-platform")
     def test_rhwp_output_is_stopped_at_the_shared_runtime_budget(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

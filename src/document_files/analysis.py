@@ -592,7 +592,13 @@ def _staged_stream(job: AnalysisJob, source: BinaryIO):
     with tempfile.TemporaryDirectory(prefix="document-files-analysis-") as folder:
         root = Path(folder)
         private_path = root / f"source.{job.input.format_id}"
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_BINARY", 0)
+        )
         destination = os.open(private_path, flags, 0o600)
         digest = hashlib.sha256()
         copied = 0

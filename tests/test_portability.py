@@ -118,3 +118,27 @@ def test_windows_transport_processor_end_to_end(tmp_path, monkeypatch):
     result = extract_file(str(source))
     assert result["ok"] is True
     assert "001.2300" in str(result)
+
+
+def test_bounded_subprocess_utf8_and_output_budget(tmp_path):
+    source = tmp_path / "source"
+    source.write_bytes(b"input")
+    with source.open("rb") as stream:
+        stdout, _ = _bounded_subprocess(
+            command=(sys.executable, "-c", "print('한글\\u2028값')"),
+            request=b"",
+            budgets=AdapterBudgets(),
+            input_fd=stream.fileno(),
+            cwd=tmp_path,
+            environment=subprocess_environment(),
+        )
+        assert stdout.decode("utf-8").strip() == "한글\u2028값"
+        with pytest.raises(BudgetExceededError):
+            _bounded_subprocess(
+                command=(sys.executable, "-c", "print('X' * 100000)"),
+                request=b"",
+                budgets=AdapterBudgets(max_stdout_bytes=128),
+                input_fd=stream.fileno(),
+                cwd=tmp_path,
+                environment=subprocess_environment(),
+            )
