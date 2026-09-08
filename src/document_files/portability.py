@@ -54,10 +54,13 @@ def descriptor_input(fd: int, *, max_bytes: int, windows: bool | None = None):
                 snapshot.chmod(0o600)
 
 
-def process_options(input_fd: int | None = None) -> dict:
+def process_options(input_fd: int | None = None, *, supervised: bool = False) -> dict:
     if os.name == "posix":
         return {"start_new_session": True, "pass_fds": () if input_fd is None else (input_fd,)}
-    return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    # CREATE_SUSPENDED prevents a fast native worker from exiting or spawning
+    # descendants before the kill-on-close Job Object has been attached.
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP | (0x00000004 if supervised else 0)
+    return {"creationflags": flags}
 
 
 def kill_process_tree(process: subprocess.Popen) -> None:
@@ -115,8 +118,9 @@ def subprocess_environment() -> dict[str, str]:
 class WindowsJob:
     """Kill-on-close Job Object contains the worker and its descendants.
 
-    A job is attached immediately after spawn. This is resource cleanup, not an
-    adversarial process sandbox. Fail closed if job assignment is unavailable.
+    Supervised children start suspended, then resume only after job assignment.
+    This is resource cleanup, not an adversarial process sandbox. Fail closed
+    if assignment or primary-thread resume is unavailable.
     """
 
     def __init__(self, process: subprocess.Popen):
@@ -193,6 +197,63 @@ class WindowsJob:
             process.wait()
             raise ctypes.WinError(error)
         self.handle = handle
+        try:
+            self._resume_primary_thread(process.pid)
+        except BaseException:
+            self.close()
+            process.wait()
+            raise
+
+    def _resume_primary_thread(self, pid: int) -> None:
+        # Popen closes the thread handle returned by CreateProcess. A suspended
+        # fresh child has one thread; open exactly that thread by its owner PID.
+        import ctypes
+        from ctypes import wintypes
+
+        class ThreadEntry(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ThreadID", wintypes.DWORD),
+                ("th32OwnerProcessID", wintypes.DWORD),
+                ("tpBasePri", wintypes.LONG),
+                ("tpDeltaPri", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+            ]
+
+        kernel = self.kernel
+        kernel.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        for name in ("Thread32First", "Thread32Next"):
+            method = getattr(kernel, name)
+            method.argtypes = [wintypes.HANDLE, ctypes.POINTER(ThreadEntry)]
+            method.restype = wintypes.BOOL
+        kernel.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenThread.restype = wintypes.HANDLE
+        kernel.ResumeThread.argtypes = [wintypes.HANDLE]
+        kernel.ResumeThread.restype = wintypes.DWORD
+        snapshot = kernel.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+        if snapshot == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            entry = ThreadEntry()
+            entry.dwSize = ctypes.sizeof(entry)
+            found = kernel.Thread32First(snapshot, ctypes.byref(entry))
+            while found:
+                if entry.th32OwnerProcessID == pid:
+                    thread = kernel.OpenThread(0x0002, False, entry.th32ThreadID)
+                    if not thread:
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    try:
+                        if kernel.ResumeThread(thread) == 0xFFFFFFFF:
+                            raise ctypes.WinError(ctypes.get_last_error())
+                    finally:
+                        kernel.CloseHandle(thread)
+                    return
+                found = kernel.Thread32Next(snapshot, ctypes.byref(entry))
+            raise OSError("Cannot locate the supervised child primary thread")
+        finally:
+            kernel.CloseHandle(snapshot)
 
     def close(self) -> None:
         if self.handle is not None:

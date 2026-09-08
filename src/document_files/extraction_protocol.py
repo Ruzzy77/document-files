@@ -1229,7 +1229,7 @@ def _bounded_subprocess(
             cwd=cwd,
             env=dict(environment),
             close_fds=True,
-            **process_options(input_fd),
+            **process_options(input_fd, supervised=True),
         )
     except OSError as exc:
         raise ExtractionError(

@@ -167,3 +167,21 @@ def test_windows_runtime_root_does_not_eagerly_require_home(monkeypatch, tmp_pat
 
     monkeypatch.setattr(analysis.Path, "home", no_home)
     assert analysis.runtime_root() == tmp_path / "Document Files" / "Cache"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native process startup")
+def test_fast_windows_worker_starts_only_after_job_assignment(tmp_path):
+    command = str(Path(os.environ["SYSTEMROOT"]) / "System32/cmd.exe")
+    source = tmp_path / "source"
+    source.write_bytes(b"input")
+    with source.open("rb") as stream:
+        for _ in range(10):
+            stdout, _ = _bounded_subprocess(
+                command=(command, "/d", "/c", "exit 0"),
+                request=b"",
+                budgets=AdapterBudgets(timeout_seconds=5),
+                input_fd=stream.fileno(),
+                cwd=tmp_path,
+                environment=subprocess_environment(),
+            )
+            assert stdout == b""

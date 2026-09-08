@@ -1,7 +1,7 @@
 """Runtime entry point shared by CLI, plugins and MCPB. Never installs anything."""
 
+import importlib
 import os
-import runpy
 import sys
 from pathlib import Path
 
@@ -16,4 +16,4 @@ if backend.is_file():
 mode = sys.argv.pop(1)
 if mode not in {"cli", "mcp_server"}:
     raise SystemExit("Unknown Document Files entry point")
-runpy.run_module(f"document_files.{mode}", run_name="__main__")
+importlib.import_module(f"document_files.{mode}").main()

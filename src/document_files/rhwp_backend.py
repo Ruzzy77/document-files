@@ -126,7 +126,7 @@ class RhwpBackend:
                     stdin=subprocess.DEVNULL,
                     stdout=stdout_stream,
                     stderr=stderr_stream,
-                    **process_options(),
+                    **process_options(supervised=True),
                 )
                 job = WindowsJob(process)
                 try:

@@ -106,3 +106,23 @@ def test_stable_gate_does_not_accept_mock_model_generic_test_record(tmp_path):
     )
     with pytest.raises(ValueError, match="Actual model"):
         gate.check(manifest, tmp_path, commit, "1.8.0")
+
+
+def test_generated_skill_uses_platform_launcher_and_remote_upload_keeps_metadata(
+    monkeypatch, tmp_path
+):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    builder = load_script("build_release")
+    source = (ROOT / "skills/document-files/SKILL.md").read_text(encoding="utf-8")
+    windows = builder.portable_skill(source, windows=True)
+    assert 'sh "${SKILL_DIR}/../../launchers/document-files.cmd"' not in windows
+    assert '"${SKILL_DIR}/../../launchers/document-files.cmd" capabilities' in windows
+    assert 'DOCUMENT_FILES_HOST_PYTHON="$HOST_PYTHON"' not in windows
+    unix = builder.portable_skill(source, windows=False)
+    assert 'sh "${SKILL_DIR}/../../launchers/document-files" capabilities' in unix
+    stage = tmp_path / "skill"
+    builder.skill_bundle(stage)
+    assert (stage / "agents/openai.yaml").is_file()
+    assert "${SKILL_DIR}/scripts/document-files/document-files" in (stage / "SKILL.md").read_text(
+        encoding="utf-8"
+    )

@@ -79,6 +79,23 @@ def host_bundle(stage: Path) -> None:
         shutil.copy2(ROOT / "scripts" / name, stage / "scripts" / name)
 
 
+def portable_skill(body: str, *, windows: bool) -> str:
+    start = body.index("- ChatGPT 또는 원격 Codex에서는")
+    end = body.index("- 파일 작업에 필요한 실행 기능", start)
+    body = (
+        body[:start] + "- 이 배포본에는 로컬 Python 실행 환경이 포함되어 있다. "
+        "ChatGPT 원격 실행에는 별도 `.skill` 배포본을 사용한다.\n" + body[end:]
+    )
+    start = body.index("배포 진입점은 다음처럼 호출한다.")
+    end = body.index("\n```", body.index("```sh", start)) + len("\n```")
+    example = (
+        '```bat\n"${SKILL_DIR}/../../launchers/document-files.cmd" capabilities\n```'
+        if windows
+        else '```sh\nsh "${SKILL_DIR}/../../launchers/document-files" capabilities\n```'
+    )
+    return body[:start] + "포함된 실행기는 다음처럼 호출한다.\n\n" + example + body[end:]
+
+
 def skill_bundle(stage: Path) -> None:
     shutil.copytree(ROOT / "skills/document-files", stage, ignore=IGNORE)
     runtime = stage / "scripts/document-files"
@@ -88,6 +105,16 @@ def skill_bundle(stage: Path) -> None:
     shutil.copy2(ROOT / "assets/icon.png", stage / "assets/icon.png")
     for name in ("LICENSE", "NOTICE"):
         shutil.copy2(ROOT / name, stage / name)
+    (stage / "agents").mkdir(exist_ok=True)
+    (stage / "agents/openai.yaml").write_text(
+        'interface:\n  display_name: "Document Files"\n'
+        '  short_description: "문서·표·발표 자료를 읽고 만들고 편집합니다"\n'
+        '  icon_small: "./assets/icon.png"\n  icon_large: "./assets/icon.png"\n'
+        '  brand_color: "#E86D5B"\n'
+        '  default_prompt: "Use $document-files to read, create, or edit this document."\n'
+        "policy:\n  allow_implicit_invocation: true\n",
+        encoding="utf-8",
+    )
     skill = stage / "SKILL.md"
     body = skill.read_text(encoding="utf-8")
     body = body.replace(
@@ -208,10 +235,7 @@ def main() -> None:
         write_json(stage / ".mcp.json", {"mcpServers": {"document-files": launch}})
         # Skill CLI points to the release launcher, not a Toolkit sibling directory.
         skill = stage / "skills/document-files/SKILL.md"
-        body = skill.read_text(encoding="utf-8").replace(
-            "${SKILL_DIR}/../../runtime/document-files/document-files",
-            "${SKILL_DIR}/../../launchers/document-files" + (".cmd" if os.name == "nt" else ""),
-        )
+        body = portable_skill(skill.read_text(encoding="utf-8"), windows=os.name == "nt")
         skill.write_text(body, encoding="utf-8")
         write_json(
             stage / "BUILD.json",
@@ -273,12 +297,14 @@ def main() -> None:
                 "ai_model": {
                     "type": "string",
                     "title": "Model name",
+                    "description": "Model identifier served by the configured endpoint",
                     "required": False,
                     "default": "",
                 },
                 "ai_key": {
                     "type": "string",
                     "title": "API key",
+                    "description": "Optional secret used only for the configured model endpoint",
                     "sensitive": True,
                     "required": False,
                     "default": "",
