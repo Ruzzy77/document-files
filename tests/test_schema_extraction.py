@@ -572,3 +572,71 @@ def test_malformed_checkpoint_rejected_without_source_content(damage):
         )
     assert "private" not in str(error.value)
     assert model.calls == 1
+
+
+@pytest.mark.parametrize(
+    "durations, expected_status, expected_data",
+    [
+        ([150, 10], "complete", {"label": "12 mm"}),
+        ([181], "partial", None),
+        ([150, 31], "partial", {"label": "12 mm"}),
+    ],
+)
+def test_model_calls_share_total_budget_without_hidden_request_cap(
+    monkeypatch,
+    durations,
+    expected_status,
+    expected_data,
+):
+    now = [1000.0]
+    monkeypatch.setattr("document_files.interpretation.engine.time.monotonic", lambda: now[0])
+
+    class TimedModel(ScriptedModel):
+        def __init__(self):
+            super().__init__()
+            self.timeouts = []
+
+        def complete(self, messages, *, timeout):
+            self.timeouts.append(timeout)
+            answer = super().complete(messages, timeout=timeout)
+            now[0] += durations[self.calls - 1]
+            return answer
+
+    model = TimedModel()
+    result = run(model, completionSeconds=180)
+    assert model.timeouts == [180] + ([30] if len(durations) == 2 else [])
+    assert result["extraction"]["status"] == expected_status
+    assert result["data"] == expected_data
+    if expected_status == "partial":
+        assert {"code": "completion_budget_exceeded"} in result["issues"]
+        assert result["validation"]["semanticAccuracy"] == "unverified"
+        assert result["validation"]["valid"] == (expected_data is not None)
+
+
+@pytest.mark.parametrize("expire_before_call", [1, 2])
+def test_budget_is_rechecked_after_request_preparation(monkeypatch, expire_before_call):
+    now = [1000.0]
+    monkeypatch.setattr("document_files.interpretation.engine.time.monotonic", lambda: now[0])
+    content = b"12 mm"
+    job = AnalysisJob(
+        job_id="preparation-budget", input=AnalysisInput.from_bytes(content, format_id="txt")
+    )
+    model = ScriptedModel()
+
+    def checkpoint(state):
+        # Request preparation/persistence can use the remaining wall-clock budget.
+        if state["result"]["extraction"]["modelCalls"] == expire_before_call:
+            now[0] = 1180.0
+
+    result = extract_schema_from_stream(
+        job,
+        io.BytesIO(content),
+        model_client=model,
+        options=ExtractionOptions(completionSeconds=180),
+        checkpoint=checkpoint,
+    )
+    assert model.calls == expire_before_call - 1
+    assert result["extraction"]["modelCalls"] == model.calls
+    assert result["extraction"]["status"] == "partial"
+    assert {"code": "completion_budget_exceeded"} in result["issues"]
+    assert result["data"] == ({"label": "12 mm"} if expire_before_call == 2 else None)

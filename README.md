@@ -252,6 +252,10 @@ result = extract_schema(
 `document_files.api.extraction_result_schema()`가 공개 결과 JSON Schema를 반환합니다.
 기존 분석 v1과 추출 결과 v1을 유지하며 내부 모델의 해석안을 호출자가 만들 필요가 없습니다.
 
+`completionSeconds`는 현재 실행의 응답 수락과 완료 판정에 적용하는 총 시간 예산입니다.
+모델 호출에는 남은 시간을 전달하며, 늦은 응답을 완전 추출로 채택하지 않습니다.
+느린 소켓이나 외부 모델 프로세스의 강제 종료를 보장하는 설정은 아닙니다.
+
 ```sh
 document-files diagnose
 document-files extract-schema input.docx --request-id example --storage-dir /private/results

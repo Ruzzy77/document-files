@@ -345,10 +345,19 @@ def extract_schema_from_stream(
                 result["extraction"]["modelCalls"] += 1
                 save()
                 message = {"role": "user", "content": encode(payload)}
+                remaining = options.completionSeconds - (time.monotonic() - started)
+                if remaining <= 0:
+                    invocation_calls -= 1
+                    result["extraction"]["modelCalls"] -= 1
+                    issue("completion_budget_exceeded")
+                    break
                 answer = client.complete(
                     [{"role": "system", "content": SYSTEM}, *history, message],
-                    timeout=min(remaining, 120),
+                    timeout=remaining,
                 )
+                if time.monotonic() - started >= options.completionSeconds:
+                    issue("completion_budget_exceeded")
+                    break
                 if len(answer) > options.contextChars:
                     issue("ai_response_budget_exceeded")
                     break
@@ -402,13 +411,22 @@ def extract_schema_from_stream(
             invocation_calls += 1
             result["extraction"]["modelCalls"] += 1
             save()
+            remaining = options.completionSeconds - (time.monotonic() - started)
+            if remaining <= 0:
+                invocation_calls -= 1
+                result["extraction"]["modelCalls"] -= 1
+                issue("completion_budget_exceeded")
+                break
             review_answer = client.complete(
                 [
                     {"role": "system", "content": REVIEW},
                     {"role": "user", "content": review_payload},
                 ],
-                timeout=min(remaining, 120),
+                timeout=remaining,
             )
+            if time.monotonic() - started >= options.completionSeconds:
+                issue("completion_budget_exceeded")
+                break
             if len(review_answer) > options.contextChars:
                 raise ModelError("ai_response_budget_exceeded")
             review = Review.model_validate(decode(review_answer))
@@ -448,6 +466,9 @@ def extract_schema_from_stream(
             and bool(nodes)
             and not unsupported_visual
         )
+        if time.monotonic() - started >= options.completionSeconds:
+            issue("completion_budget_exceeded")
+            complete = False
         result["extraction"]["status"] = "complete" if complete else "partial"
         break
     save()
