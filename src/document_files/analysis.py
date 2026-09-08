@@ -557,7 +557,12 @@ def runtime_root() -> Path:
         return Path(configured).expanduser().resolve()
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Caches" / "Document Files"
-    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "document-files"
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else Path.home() / "AppData" / "Local"
+        return base / "Document Files" / "Cache"
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    return (Path(xdg) if xdg else Path.home() / ".cache") / "document-files"
 
 
 def default_registry() -> AdapterRegistry:

@@ -294,6 +294,15 @@ def main() -> None:
         host = work / "host"
         host.mkdir()
         host_bundle(host)
+        write_json(
+            host / "BUILD.json",
+            {
+                "version": version,
+                "sourceCommit": commit,
+                "dirtySource": dirty,
+                "kind": "host-source",
+            },
+        )
         archive_tree(host, output / f"document-files-{version}-host.zip", prefix="document-files/")
         skill_bundle(work / "skill")
         archive_tree(work / "skill", output / f"document-files-{version}.skill")
@@ -304,7 +313,13 @@ def main() -> None:
     }
     write_json(
         output / f"artifacts-{target}.json",
-        {"version": version, "target": target, "artifacts": artifacts},
+        {
+            "version": version,
+            "target": target,
+            "sourceCommit": commit,
+            "dirtySource": dirty,
+            "artifacts": artifacts,
+        },
     )
     (output / "SHA256SUMS").write_text("".join(f"{v}  {k}\n" for k, v in artifacts.items()))
 

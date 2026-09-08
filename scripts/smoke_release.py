@@ -31,7 +31,18 @@ def main() -> None:
         env = {
             k: v
             for k, v in os.environ.items()
-            if k.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "LOCALAPPDATA"}
+            if k.upper()
+            in {
+                "SYSTEMROOT",
+                "WINDIR",
+                "TEMP",
+                "TMP",
+                "HOME",
+                "LOCALAPPDATA",
+                "USERPROFILE",
+                "HOMEDRIVE",
+                "HOMEPATH",
+            }
         }
         env.update(PATH="", PYTHONNOUSERSITE="1")
         fixture = work / "input with spaces.txt"
@@ -42,6 +53,7 @@ def main() -> None:
                 env=env,
                 cwd=work,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 check=True,
                 timeout=60,

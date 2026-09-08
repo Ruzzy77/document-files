@@ -142,3 +142,28 @@ def test_bounded_subprocess_utf8_and_output_budget(tmp_path):
                 cwd=tmp_path,
                 environment=subprocess_environment(),
             )
+
+
+def test_child_environment_keeps_profile_but_not_model_secrets(monkeypatch):
+    monkeypatch.setenv("USERPROFILE", "C:/Users/operator")
+    monkeypatch.setenv("LOCALAPPDATA", "C:/Users/operator/AppData/Local")
+    monkeypatch.setenv("DOCUMENT_FILES_RHWP", "C:/runtime/rhwp.exe")
+    monkeypatch.setenv("DOCUMENT_FILES_AI_API_KEY", "must-not-reach-parser")
+    environment = subprocess_environment()
+    assert environment["USERPROFILE"] == "C:/Users/operator"
+    assert environment["DOCUMENT_FILES_RHWP"] == "C:/runtime/rhwp.exe"
+    assert "DOCUMENT_FILES_AI_API_KEY" not in environment
+
+
+def test_windows_runtime_root_does_not_eagerly_require_home(monkeypatch, tmp_path):
+    from document_files import analysis
+
+    monkeypatch.delenv("DOCUMENT_FILES_RUNTIME_ROOT", raising=False)
+    monkeypatch.setattr(analysis.sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    def no_home():
+        raise AssertionError("Home lookup should not run with configured local app data")
+
+    monkeypatch.setattr(analysis.Path, "home", no_home)
+    assert analysis.runtime_root() == tmp_path / "Document Files" / "Cache"

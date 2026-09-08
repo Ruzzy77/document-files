@@ -92,7 +92,21 @@ def subprocess_environment() -> dict[str, str]:
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
     }
-    for key in ("SystemRoot", "SYSTEMROOT", "WINDIR", "TEMP", "TMP"):
+    for key in (
+        "SystemRoot",
+        "SYSTEMROOT",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "XDG_CACHE_HOME",
+        "DOCUMENT_FILES_RUNTIME_ROOT",
+        "DOCUMENT_FILES_RHWP",
+    ):
         if key in os.environ:
             env[key] = os.environ[key]
     return env
