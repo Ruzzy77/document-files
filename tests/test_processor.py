@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
-from document_files.extraction_protocol import AdapterBudgets, _bounded_subprocess
-from document_files.portability import descriptor_input, subprocess_environment
+from document_files.portability import descriptor_input, process_options, subprocess_environment
 from document_files.processor import (
     DESCRIPTOR_SCHEMA_VERSION,
     _materialized_input,
@@ -75,14 +75,20 @@ def test_process_jsonl_uses_read_only_descriptor(tmp_path: Path) -> None:
         }
         with descriptor_input(fd, max_bytes=1024) as transport:
             request["input"] = {**transport, "format_id": "md"}
-            stdout, _ = _bounded_subprocess(
-                command=(sys.executable, "-m", "document_files.processor"),
-                request=json.dumps(request, ensure_ascii=False).encode("utf-8") + b"\n",
-                budgets=AdapterBudgets(),
-                input_fd=fd,
+            completed = subprocess.run(
+                [sys.executable, "-m", "document_files.processor"],
+                input=json.dumps(request, ensure_ascii=False).encode("utf-8") + b"\n",
+                capture_output=True,
+                check=False,
+                timeout=15,
                 cwd=tmp_path,
-                environment=subprocess_environment(),
+                env=subprocess_environment(),
+                **process_options(fd),
             )
+            # This fixture contains only public test text; expose child diagnostics
+            # here without weakening the production boundary's private stderr policy.
+            assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
+            stdout = completed.stdout
     finally:
         os.close(fd)
     result = json.loads(stdout)
