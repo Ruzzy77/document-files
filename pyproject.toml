@@ -1,11 +1,15 @@
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "document-files"
-version = "1.7.0"
-description = "Headless document extraction and artifact tools for Codex"
+version = "1.8.0"
+description = "AI-assisted document schema, semantics and value extraction for applications and agents"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{name = "Ruzzy77"}]
 requires-python = ">=3.11"
 dependencies = [
   "defusedxml>=0.7.1,<1",
@@ -22,6 +26,11 @@ dependencies = [
   "reportlab>=4,<5",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Ruzzy77/document-files"
+Repository = "https://github.com/Ruzzy77/document-files"
+Issues = "https://github.com/Ruzzy77/document-files/issues"
+
 [dependency-groups]
 dev = [
   "pytest>=8,<10",
@@ -35,7 +44,7 @@ document-files-mcp = "document_files.mcp_server:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-document_files = ["_vendor/*.md"]
+document_files = ["_vendor/*.md", "schemas/*.json", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

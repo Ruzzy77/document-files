@@ -45,6 +45,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("capabilities", help="Show exact headless capabilities")
+    subparsers.add_parser("diagnose", help="Diagnose local configuration without network calls")
 
     inspect_parser = subparsers.add_parser("inspect", help="Inspect a supported document")
     inspect_parser.add_argument("path")
@@ -70,11 +71,23 @@ def _parser() -> argparse.ArgumentParser:
     schema_parser.add_argument("path")
     schema_parser.add_argument("--options", help="Extraction options JSON file")
     schema_parser.add_argument("--request-id")
+    schema_parser.add_argument("--storage-dir")
+    schema_parser.add_argument("--no-retain", action="store_true")
     result_parser = subparsers.add_parser("get-extraction", help="Read retained extraction result")
     result_parser.add_argument("job_id")
     result_parser.add_argument("--section")
     result_parser.add_argument("--offset", type=int, default=0)
     result_parser.add_argument("--limit", type=int, default=100)
+    result_parser.add_argument("--storage-dir")
+    resume_parser = subparsers.add_parser("resume-extraction", help="Resume a retained extraction")
+    resume_parser.add_argument("job_id")
+    resume_parser.add_argument("--path", help="Optional relocated, byte-identical input")
+    resume_parser.add_argument("--storage-dir")
+    delete_parser = subparsers.add_parser(
+        "delete-extraction", help="Delete retained result and checkpoint"
+    )
+    delete_parser.add_argument("job_id")
+    delete_parser.add_argument("--storage-dir")
 
     create_parser = subparsers.add_parser("create", help="Create HWPX from a JSON plan")
     create_parser.add_argument("plan")
@@ -124,6 +137,18 @@ def _parser() -> argparse.ArgumentParser:
 def _run(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "capabilities":
         return capabilities()
+    if args.command == "diagnose":
+        from .diagnostics import diagnose
+
+        return diagnose()
+    if args.command == "resume-extraction":
+        from .interpretation.workflow import resume_extraction
+
+        return resume_extraction(args.job_id, path=args.path, storage_dir=args.storage_dir)
+    if args.command == "delete-extraction":
+        from .interpretation.workflow import delete_extraction
+
+        return delete_extraction(args.job_id, storage_dir=args.storage_dir)
     if args.command == "inspect":
         return inspect_file(
             args.path,
@@ -151,12 +176,18 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             args.path,
             options=_load_json(args.options) if args.options else None,
             request_id=args.request_id,
+            storage_dir=args.storage_dir,
+            retain=not args.no_retain,
         )
     if args.command == "get-extraction":
         from .interpretation.workflow import get_extraction
 
         return get_extraction(
-            args.job_id, section=args.section, offset=args.offset, limit=args.limit
+            args.job_id,
+            section=args.section,
+            offset=args.offset,
+            limit=args.limit,
+            storage_dir=args.storage_dir,
         )
     if args.command == "create":
         return create_hwpx(
@@ -242,7 +273,7 @@ def main() -> None:
                     "error": {
                         "code": "unexpected-error",
                         "message": "Document Files encountered an unexpected error.",
-                        "details": {"errorType": type(exc).__name__, "message": str(exc)},
+                        "details": {"errorType": type(exc).__name__},
                         "suggestion": None,
                     },
                 },

@@ -69,6 +69,31 @@ def check_schema(schema: dict[str, Any]) -> None:
     Draft202012Validator.check_schema(schema)
 
 
+def schema_definitions(schema: dict) -> set[str]:
+    """Every declared field, including optional/nested/definition fields, needs provenance."""
+    paths = set()
+
+    def walk(value, path=""):
+        if not isinstance(value, dict):
+            return
+        for key, child in value.items():
+            child_path = f"{path}/{escape(key)}"
+            if key in {"properties", "$defs", "dependentSchemas"} and isinstance(child, dict):
+                for name, definition in child.items():
+                    definition_path = f"{child_path}/{escape(name)}"
+                    if key == "properties":
+                        paths.add(definition_path)
+                    walk(definition, definition_path)
+            elif key in {"items", "contains", "additionalProperties", "not", "if", "then", "else"}:
+                walk(child, child_path)
+            elif key in {"allOf", "anyOf", "oneOf", "prefixItems"} and isinstance(child, list):
+                for index, definition in enumerate(child):
+                    walk(definition, f"{child_path}/{index}")
+
+    walk(schema)
+    return paths or {""}
+
+
 def validate(proposal: Proposal, nodes: dict, seen: set[str], target_schema=None) -> list[str]:
     errors: list[str] = []
     roots = {"data": proposal.data, "dataSchema": proposal.dataSchema, "document": nodes}
@@ -117,10 +142,27 @@ def validate(proposal: Proposal, nodes: dict, seen: set[str], target_schema=None
             if not set(evidence.semanticIds) <= semantic_ids:
                 errors.append(f"{category} evidence: unknown semantic IDs")
             if category == "value":
+                if evidence.target.path in covered:
+                    errors.append("duplicate value evidence target")
                 covered.add(evidence.target.path)
+                if evidence.binding is not None:
+                    from .bindings import resolve
+
+                    try:
+                        actual, raw = resolve(evidence.binding, nodes)
+                        if (
+                            evidence.binding.sourceRef not in evidence.sourceRefs
+                            or evidence.binding.sourceRef not in seen
+                            or evidence.raw != raw
+                            or pointer(proposal.data, evidence.target.path) != actual
+                        ):
+                            errors.append("value evidence: binding does not match value or source")
+                    except (ValueError, KeyError, IndexError, TypeError, OverflowError):
+                        errors.append("value evidence: invalid source binding")
                 if (
                     evidence.status == "present"
                     and evidence.raw
+                    and evidence.binding is None
                     and not any(
                         evidence.raw in nodes.get(ref, {}).get("text", "")
                         for ref in evidence.sourceRefs
@@ -131,8 +173,12 @@ def validate(proposal: Proposal, nodes: dict, seen: set[str], target_schema=None
                 schema_covered.add(evidence.target.path)
     if leaves(proposal.data) - covered:
         errors.append("data leaves missing valueEvidence")
-    if not schema_covered:
-        errors.append("missing schemaEvidence")
+    missing_definitions = schema_definitions(proposal.dataSchema) - schema_covered
+    if missing_definitions:
+        errors.append(
+            "schema definitions missing schemaEvidence: "
+            + ", ".join(sorted(missing_definitions)[:20])
+        )
     accounting = [a.sourceRef for a in proposal.accounting]
     if len(accounting) != len(set(accounting)) or set(accounting) != set(nodes):
         errors.append("accounting must cover every source node exactly once")

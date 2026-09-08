@@ -1,0 +1,14 @@
+{
+  "name": "document-files",
+  "version": "1.8.0",
+  "description": "Analyze document bytes and inspect, convert, render, create, edit, and verify local document artifacts.",
+  "author": {
+    "name": "Ruzzy77",
+    "url": "https://github.com/Ruzzy77"
+  },
+  "homepage": "https://github.com/Ruzzy77/document-files",
+  "repository": "https://github.com/Ruzzy77/document-files",
+  "license": "Apache-2.0",
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/"
+}

@@ -73,14 +73,20 @@ def test_xlsx_structure_and_typed_values_are_source_addressed(tmp_path: Path) ->
         for unit in units
         if unit["sourceUnitType"] == "sheet_cell" and unit["semantic"]["sheet"]["name"] == "데이터"
     }
-    assert cells["B2"]["value"] == {"kind": "integer", "value": 3}
-    assert cells["C2"]["value"] == {"kind": "boolean", "value": True}
-    assert cells["D2"]["value"] == {"kind": "date", "value": "2026-09-02"}
+    assert cells["B2"]["value"] == {"kind": "integer", "value": 3, "raw": "3", "rawType": "n"}
+    assert cells["C2"]["value"] == {"kind": "boolean", "value": True, "raw": "1", "rawType": "b"}
+    assert cells["D2"]["value"] == {
+        "kind": "date",
+        "value": "2026-09-02",
+        "raw": "46267",
+        "rawType": "n",
+    }
     assert cells["D2"]["cell"]["numberFormat"] == "yyyy-mm-dd"
     assert cells["D2"]["cell"]["styleId"] > 0
     assert cells["E2"]["value"] == {
         "kind": "formula",
         "formula": "=B2*2",
+        "sourceFormula": {"text": "B2*2", "attributes": {}},
         "evaluation": "stored_cached_value_only",
         "cachedAvailable": False,
         "cachedValue": None,
@@ -191,3 +197,41 @@ def test_hwpx_image_bullet_projects_a_format_neutral_semantic_marker(
             "alpha": "0",
         },
     }
+
+
+def test_xlsx_exact_stored_numeric_and_formula_cache_survive_float_conversion(tmp_path):
+    from xml.etree import ElementTree
+
+    path = tmp_path / "precise.xlsx"
+    rewritten = tmp_path / "rewritten.xlsx"
+    workbook = Workbook()
+    workbook.active["A1"] = 0.5
+    workbook.active["B1"] = "=A1*2"
+    workbook.save(path)
+    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    exact = "0.1234567890123456789012345678900"
+    cached = "0.2469135780246913578024691357800"
+    with zipfile.ZipFile(path) as original, zipfile.ZipFile(rewritten, "w") as output:
+        for member in original.infolist():
+            content = original.read(member)
+            if member.filename == "xl/worksheets/sheet1.xml":
+                root = ElementTree.fromstring(content)
+                for cell in root.iter(namespace + "c"):
+                    cell.find(namespace + "v").text = exact if cell.get("r") == "A1" else cached
+                content = ElementTree.tostring(root)
+            output.writestr(member, content)
+    rewritten.replace(path)
+    before = _digest(path)
+    result = extract_structure(path)
+    values = {
+        node["semantic"]["cell"]["coordinate"]: node["semantic"]["value"]
+        for node in result["units"]
+        if node["sourceUnitType"] == "sheet_cell"
+    }
+    assert values["A1"]["raw"] == exact
+    assert str(values["A1"]["value"]) != exact  # Existing typed projection remains compatible.
+    assert values["B1"]["formula"] == "=A1*2"
+    assert values["B1"]["sourceFormula"] == {"text": "A1*2", "attributes": {}}
+    assert values["B1"]["cachedValue"]["raw"] == cached
+    assert values["B1"]["evaluation"] == "stored_cached_value_only"
+    assert _digest(path) == before

@@ -1,0 +1,49 @@
+name: Build and test release candidates
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  platform:
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: macos-aarch64
+          - os: macos-15-intel
+            target: macos-x86_64
+          - os: ubuntu-24.04
+            target: linux-x86_64
+          - os: windows-2022
+            target: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.10.4'
+      - name: Prepare test environment
+        run: uv sync --frozen --python 3.12
+      - name: Regression tests
+        run: uv run --frozen pytest -q
+      - name: Python wheel and source distribution
+        run: uv build --out-dir dist
+      - name: Build checkbox-preserving backend and portable candidates
+        shell: bash
+        run: |
+          uv run --frozen python scripts/build_patched_rhwp.py --source "${RUNNER_TEMP}/rhwp-source"
+          RHWP=$(uv run --frozen python -c 'import sys;sys.path.insert(0,"scripts");from provision_rhwp import cache_root,platform_key;import os;print(cache_root()/"rhwp/v0.8.6+pat.checkbox.1"/platform_key()/"bin"/("rhwp.exe" if os.name=="nt" else "rhwp"))')
+          uv run --frozen python scripts/build_release.py --rhwp "$RHWP" --rhwp-license "${RUNNER_TEMP}/rhwp-source/LICENSE"
+          uv run --frozen python scripts/smoke_release.py "dist/document-files-1.8.0-${{ matrix.target }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidates-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+  # No automatic GitHub Release is published. Independent model and installed-client
+  # evidence for this exact commit must pass check_release_qualification.py first.

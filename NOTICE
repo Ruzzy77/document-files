@@ -27,3 +27,13 @@ The OpenAI host bundle includes the unmodified pure-Python module from olefile
 
 본 제품의 HWP 처리 기능은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여
 개발하였습니다.
+
+The portable distributions include a separately built rhwp
+0.8.6+pat.checkbox.1, based on upstream commit
+f1f9c6ae58344ee9368996d3543f76b9345cf227. The MIT-licensed upstream source,
+checkbox-preservation.patch, binary and patch hashes, and upstream license are
+identified in the distribution's build metadata and license files.
+
+Portable Python is built from checksum-pinned python-build-standalone release
+inputs. The Python distribution and installed dependency license files accompany
+the runtime. See scripts/python-runtimes.json and uv.lock for the exact build inputs.

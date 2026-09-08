@@ -6,6 +6,7 @@ import io
 import json
 
 import pytest
+
 from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.engine import DocumentFilesError
 from document_files.interpretation.contracts import ExtractionOptions
@@ -253,3 +254,321 @@ def test_context_budget_does_not_silently_truncate_source():
     assert result["extraction"]["status"] == "partial"
     assert result["data"] is None
     assert result["coverage"]["readNodes"] == 0
+
+
+def test_source_binding_materializes_instead_of_copying_model_value():
+    class WrongValue(ScriptedModel):
+        def complete(self, messages, *, timeout):
+            answer = json.loads(super().complete(messages, timeout=timeout))
+            if "proposal" in answer:
+                answer["proposal"]["data"]["label"] = "rewritten by model"
+            return json.dumps(answer)
+
+    result = run(WrongValue())
+    assert result["data"] == {"label": "12 mm"}
+    assert result["valueEvidence"][0]["binding"]["sourceRef"] == "n1"
+    assert result["valueEvidence"][0]["raw"] == "12 mm"
+
+
+def test_optional_schema_fields_require_own_evidence():
+    class MissingFieldEvidence(ScriptedModel):
+        def complete(self, messages, *, timeout):
+            answer = json.loads(super().complete(messages, timeout=timeout))
+            if "proposal" in answer:
+                answer["proposal"]["dataSchema"]["properties"]["optional"] = {"type": "string"}
+            return json.dumps(answer)
+
+    result = run(MissingFieldEvidence(), maxModelCalls=1)
+    assert not result["validation"]["valid"]
+    assert any("/properties/optional" in error for error in result["validation"]["errors"])
+
+
+def test_valid_candidate_survives_budget_and_resumes_at_review():
+    snapshots = []
+    content = b"12 mm"
+    job = AnalysisJob(job_id="resume", input=AnalysisInput.from_bytes(content, format_id="txt"))
+    model = ScriptedModel()
+    options = ExtractionOptions(maxModelCalls=1)
+    first = extract_schema_from_stream(
+        job,
+        io.BytesIO(content),
+        model_client=model,
+        options=options,
+        checkpoint=snapshots.append,
+    )
+    assert first["data"] == {"label": "12 mm"}
+    assert first["validation"]["valid"]
+    assert first["validation"]["semanticAccuracy"] == "unverified"
+    assert first["extraction"]["status"] == "partial"
+    assert snapshots[-1]["reviewPending"]
+    final = extract_schema_from_stream(
+        job,
+        io.BytesIO(content),
+        model_client=model,
+        options=options,
+        restore=snapshots[-1],
+    )
+    assert final["extraction"]["status"] == "complete"
+    assert final["extraction"]["modelCalls"] == 2
+    assert model.calls == 2
+    assert {"code": "review_budget_exceeded"} not in final["issues"]
+    with pytest.raises(ValueError, match="checkpoint"):
+        extract_schema_from_stream(
+            job,
+            io.BytesIO(content),
+            model_client=model,
+            options=ExtractionOptions(maxModelCalls=2),
+            restore=snapshots[-1],
+        )
+
+
+def test_valid_candidate_survives_model_failure():
+    from document_files.interpretation.backends import ModelError
+
+    class BrokenReviewer(ScriptedModel):
+        def complete(self, messages, *, timeout):
+            if "sourceNodes" in json.loads(messages[-1]["content"]):
+                raise ModelError("ai_rate_limited")
+            return super().complete(messages, timeout=timeout)
+
+    result = run(BrokenReviewer())
+    assert result["data"] == {"label": "12 mm"}
+    assert result["validation"]["valid"]
+    assert result["extraction"]["status"] == "partial"
+    assert {"code": "ai_rate_limited"} in result["issues"]
+
+
+def test_bindings_preserve_precision_formula_and_cached_native_values():
+    from document_files.interpretation.bindings import resolve
+    from document_files.interpretation.contracts import SourceBinding
+
+    nodes = {
+        "n1": {
+            "text": "0.12345678901234567890123456789",
+            "semantic": {"value": {"formula": "=SUM(A1:A2)", "cachedValue": {"value": "123.4500"}}},
+        }
+    }
+    exact = nodes["n1"]["text"]
+    assert resolve(SourceBinding(sourceRef="n1"), nodes) == (exact, exact)
+    with pytest.raises(ValueError, match="precision"):
+        resolve(SourceBinding(sourceRef="n1", representation="number"), nodes)
+    assert resolve(SourceBinding(sourceRef="n1", path="/semantic/value/formula"), nodes) == (
+        "=SUM(A1:A2)",
+        "=SUM(A1:A2)",
+    )
+    assert resolve(
+        SourceBinding(
+            sourceRef="n1",
+            path="/semantic/value/cachedValue/value",
+            representation="native",
+        ),
+        nodes,
+    ) == ("123.4500", "123.4500")
+    with pytest.raises(ValueError, match="outside"):
+        resolve(SourceBinding(sourceRef="n1", start=0, end=1000), nodes)
+
+
+@pytest.mark.parametrize("status", ["absent", "blank", "unreadable", "uncertain"])
+def test_nonpresent_values_cannot_smuggle_invented_data(status):
+    class Missing(ScriptedModel):
+        def complete(self, messages, *, timeout):
+            answer = json.loads(super().complete(messages, timeout=timeout))
+            if "proposal" in answer:
+                answer["proposal"]["valueEvidence"][0]["status"] = status
+            return json.dumps(answer)
+
+    result = run(Missing(), maxModelCalls=1)
+    assert not result["validation"]["valid"]
+    assert result["data"] is None
+
+
+@pytest.mark.parametrize(
+    "status,code",
+    [
+        (401, "ai_authentication_failed"),
+        (403, "ai_authorization_failed"),
+        (408, "ai_timeout"),
+        (429, "ai_rate_limited"),
+        (503, "ai_server_error"),
+        (400, "ai_request_rejected"),
+    ],
+)
+def test_model_transport_errors_are_distinct_and_do_not_expose_body(monkeypatch, status, code):
+    import urllib.error
+
+    from document_files.interpretation.backends import ChatCompletionsClient, ModelError
+
+    class Opener:
+        def open(self, request, *, timeout):
+            raise urllib.error.HTTPError(
+                request.full_url,
+                status,
+                "private response",
+                {},
+                io.BytesIO(b"secret document"),
+            )
+
+    monkeypatch.setattr("urllib.request.build_opener", lambda *args: Opener())
+    client = ChatCompletionsClient("http://127.0.0.1/v1/chat/completions", "model", "secret key")
+    with pytest.raises(ModelError) as error:
+        client.complete([], timeout=1)
+    assert str(error.value) == code
+    assert error.value.__suppress_context__
+
+
+def test_model_can_disable_response_format_without_automatic_retry(monkeypatch):
+    from document_files.interpretation.backends import ChatCompletionsClient
+
+    captured = []
+
+    class Opener:
+        def open(self, request, *, timeout):
+            captured.append(json.loads(request.data))
+            return io.BytesIO(
+                json.dumps(
+                    {
+                        "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}],
+                    }
+                ).encode()
+            )
+
+    monkeypatch.setattr("urllib.request.build_opener", lambda *args: Opener())
+    client = ChatCompletionsClient(
+        "http://127.0.0.1/v1/chat/completions",
+        "model",
+        response_format="none",
+        max_output_tokens=99,
+    )
+    assert client.complete([], timeout=1) == "{}"
+    assert captured == [{"model": "model", "messages": [], "max_tokens": 99}]
+
+
+def test_package_images_cannot_be_declared_semantically_read():
+    import zipfile
+
+    from document_files.interpretation.engine import _has_unread_visuals
+
+    content = io.BytesIO()
+    with zipfile.ZipFile(content, "w") as package:
+        package.writestr("word/media/image1.png", b"image")
+    assert _has_unread_visuals(content.getvalue(), "docx", {})
+    assert _has_unread_visuals(b'<p>Text</p><img src="private.png">', "html", {})
+    assert not _has_unread_visuals(b"<p>Text</p>", "html", {})
+
+
+def test_native_numeric_binding_refuses_already_rounded_parser_value():
+    from document_files.interpretation.bindings import resolve
+    from document_files.interpretation.contracts import SourceBinding
+
+    raw = "0.123456789012345678901"
+    nodes = {
+        "n1": {
+            "semantic": {
+                "value": {
+                    "kind": "number",
+                    "value": float(raw),
+                    "raw": raw,
+                    "rawType": "n",
+                }
+            }
+        }
+    }
+    with pytest.raises(ValueError, match="precision"):
+        resolve(SourceBinding(sourceRef="n1", path="/semantic/value/value"), nodes)
+    assert resolve(SourceBinding(sourceRef="n1", path="/semantic/value/raw"), nodes) == (raw, raw)
+
+
+@pytest.mark.parametrize(
+    "status,raw,data",
+    [
+        ("present", "null", None),
+        ("blank", "", None),
+        ("absent", "", None),
+    ],
+)
+def test_explicit_null_blank_and_absent_remain_distinct(status, raw, data):
+    class NullModel(ScriptedModel):
+        def complete(self, messages, *, timeout):
+            answer = json.loads(super().complete(messages, timeout=timeout))
+            if "proposal" in answer:
+                proposal = answer["proposal"]
+                proposal["dataSchema"]["properties"]["label"] = {"type": "null"}
+                proposal["data"]["label"] = data
+                proposal["valueEvidence"][0].update({"status": status, "raw": raw})
+            return json.dumps(answer)
+
+    result = run(NullModel(), content=b"value: null")
+    assert result["extraction"]["status"] == "complete"
+    assert result["data"] == {"label": None}
+    evidence = result["valueEvidence"][0]
+    assert evidence["status"] == status
+    if status == "present":
+        assert evidence["binding"]["representation"] == "null"
+        assert evidence["raw"] == "null"
+    else:
+        assert evidence["binding"] is None
+
+
+def test_native_null_binding_never_confuses_missing_formula_cache_with_null():
+    from document_files.interpretation.bindings import resolve
+    from document_files.interpretation.contracts import SourceBinding
+
+    nodes = {
+        "n1": {"semantic": {"value": {"kind": "null", "value": None}}},
+        "n2": {"semantic": {"value": {"kind": "blank", "value": None}}},
+        "n3": {"semantic": {"value": {"kind": "formula", "cachedValue": None}}},
+        "n4": {"text": "absent"},
+    }
+    assert resolve(
+        SourceBinding(
+            sourceRef="n1",
+            path="/semantic/value/value",
+            representation="native",
+        ),
+        nodes,
+    ) == (None, "null")
+    with pytest.raises(ValueError, match="explicitly null"):
+        resolve(SourceBinding(sourceRef="n2", path="/semantic/value/value"), nodes)
+    with pytest.raises(ValueError, match="explicitly null"):
+        resolve(SourceBinding(sourceRef="n3", path="/semantic/value/cachedValue"), nodes)
+    with pytest.raises(ValueError, match="null binding requires"):
+        resolve(SourceBinding(sourceRef="n4", representation="null"), nodes)
+
+
+@pytest.mark.parametrize("damage", ["seen", "selected", "history", "candidate", "modelCalls"])
+def test_malformed_checkpoint_rejected_without_source_content(damage):
+    import copy
+
+    snapshots = []
+    content = b"12 mm"
+    job = AnalysisJob(job_id="restore", input=AnalysisInput.from_bytes(content, format_id="txt"))
+    options = ExtractionOptions(maxModelCalls=1)
+    model = ScriptedModel()
+    extract_schema_from_stream(
+        job,
+        io.BytesIO(content),
+        model_client=model,
+        options=options,
+        checkpoint=snapshots.append,
+    )
+    damaged = copy.deepcopy(snapshots[-1])
+    if damage == "seen":
+        damaged["seen"] = [{}]
+    elif damage == "selected":
+        damaged["selected"] = ["unknown-source-private-text"]
+    elif damage == "history":
+        damaged["history"] = [{"role": "system", "content": "private source text"}]
+    elif damage == "candidate":
+        damaged["candidate"] = {"private source text": "not a proposal"}
+    else:
+        damaged["result"]["extraction"]["modelCalls"] = "private source text"
+    with pytest.raises(ValueError, match="checkpoint") as error:
+        extract_schema_from_stream(
+            job,
+            io.BytesIO(content),
+            model_client=model,
+            options=options,
+            restore=damaged,
+        )
+    assert "private" not in str(error.value)
+    assert model.calls == 1

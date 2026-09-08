@@ -22,8 +22,8 @@ description: 문서·스프레드시트·발표 자료를 읽고 만들거나 �
 
 ## 실행 경계
 
-- 파일 분석과 지원되는 HWP/HWPX 작업에는 Claude의 로컬 MCP 도구가 있으면 그 도구를 사용한다. 일반 DOCX·XLSX·PPTX·PDF 제작을 분석 도구로 대신하지 않는다.
-- Codex local/worktree와 Sync에서는 설치된 로컬 `document-files` 실행기를 사용한다. 저장소 checkout에서는 제품 루트의 `launchers/document-files`를 사용한다.
+- 파일 분석과 지원되는 HWP/HWPX 작업에는 현재 호스트에 Document Files MCP 도구가 있으면 그 도구를 사용한다. 일반 DOCX·XLSX·PPTX·PDF 제작을 분석 도구로 대신하지 않는다.
+- 로컬 호스트와 Sync에서는 설치된 `document-files` 실행기를 사용한다. 독립 저장소나 실행 환경 포함 배포본에서는 제품 루트의 `launchers/document-files`를, Windows에서는 `launchers/document-files.cmd`를 사용한다.
 - ChatGPT 또는 원격 Codex에서는 이 Skill과 함께 배포된
   `${SKILL_DIR}/../../runtime/document-files/document-files` 셸 진입점을 사용한다. 이 파일을 Python 스크립트로 실행하지 않는다. 진입점이 `host_cli.py`를 호스트 Python으로 실행하며, 별도 Python 경로는 `DOCUMENT_FILES_HOST_PYTHON`으로 지정한다. 호스트가 제공하는 실행 환경은 사용 가능한 의존성 안내 도구에서 확인한다.
 - 파일 작업에 필요한 실행 기능이나 라이브러리가 없으면 `runtime_unavailable`을 알리고 해당 작업을 중단한다. 원문을 다른 서버나 Cloudflare 분석기로 보내지 않는다. Google 문서의 연결·권한 조건은 해당 안내를 따른다.
@@ -51,7 +51,7 @@ DOCUMENT_FILES_HOST_PYTHON="$HOST_PYTHON" sh "${SKILL_DIR}/../../runtime/documen
 - 실행 환경의 `DOCUMENT_FILES_AI_ENDPOINT`, `DOCUMENT_FILES_AI_MODEL`과 필요한 인증 설정을 사용한다. 원문 관찰이 설정된 모델로 전달될 수 있으므로 사용자가 선택한 연결을 사용한다. 연결이 없으면 `ai_unavailable`을 알리며 임의 서버로 보내지 않는다.
 - `dataSchema`, `semantics`, `data`, evidence와 coverage를 함께 사용한다. `partial`, 불확실한 시맨틱과 미완료 항목을 완전 추출로 표시하지 않는다. 형식 검사를 의미 정확성 보증으로 해석하지 않는다.
 - 개인용 재현 맥락은 기본 포함된다. 프로젝트의 스키마·값 연계에는 `reconstructionContext=false`를 지정할 수 있다. 재현 맥락의 보관과 실제 수신 AI의 재현 성공은 별개다.
-- 저장 결과는 `get-extraction` 또는 `document_get_extraction`으로 다시 읽는다. 이 기능은 실험적으로 제공하며, 내부 시각 판독·대형 문서 통합·실제 모델 품질 평가는 아직 완료되지 않았다.
+- 저장 결과는 `get-extraction` 또는 `document_get_extraction`으로 다시 읽는다. 중단된 작업은 `resume-extraction`, 저장 결과 삭제는 `delete-extraction`을 사용한다. 재개는 입력과 모델 설정의 일치를 확인하며 삭제는 원문에 영향을 주지 않는다. 내부 시각 판독·대형 문서 통합·실제 모델 품질 평가의 지원 상태는 해당 배포본에서 확인한다.
 
 ## HWP와 HWPX
 

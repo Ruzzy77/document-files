@@ -20,8 +20,10 @@ from .extraction_protocol import (
     ExtractionIssue,
     _bounded_subprocess,
 )
+from .portability import descriptor_input, subprocess_environment
 
 RHWP_VERSION = "0.8.6"
+SUPPORTED_RHWP_VERSIONS = {RHWP_VERSION, "0.8.6+pat.checkbox.1"}
 _SOURCE = Path(__file__)
 
 
@@ -36,6 +38,8 @@ def _platform_key() -> str | None:
         return "linux-x86_64"
     if system == "linux" and machine in {"arm64", "aarch64"}:
         return "linux-aarch64"
+    if system == "windows" and machine in {"x86_64", "amd64"}:
+        return "windows-x86_64"
     return None
 
 
@@ -43,6 +47,11 @@ def _global_cache_root() -> Path:
     system = platform.system().casefold()
     if system == "darwin":
         return Path.home() / "Library" / "Caches" / "Document Files"
+    if system == "windows":
+        return (
+            Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
+            / "Document Files/Cache"
+        )
     return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "document-files"
 
 
@@ -129,11 +138,7 @@ class RhwpPageTextAdapter:
                     capture_output=True,
                     check=False,
                     timeout=5,
-                    env={
-                        "PATH": "/usr/bin:/bin",
-                        "LANG": "C.UTF-8",
-                        "LC_ALL": "C.UTF-8",
-                    },
+                    env=subprocess_environment(),
                 )
             except (OSError, subprocess.TimeoutExpired):
                 continue
@@ -141,7 +146,7 @@ class RhwpPageTextAdapter:
                 continue
             reported = version.stdout.decode("utf-8", errors="replace").strip()
             normalized = reported.removeprefix("rhwp ").removeprefix("v")
-            if normalized == RHWP_VERSION:
+            if normalized in SUPPORTED_RHWP_VERSIONS:
                 return resolved
         raise ExtractionError(
             "the pinned rhwp backend is unavailable",
@@ -149,25 +154,22 @@ class RhwpPageTextAdapter:
         )
 
     def _run(self, executable: Path, input_fd: int) -> dict:
-        if os.name != "posix":
-            raise ExtractionError("rhwp file-descriptor extraction requires POSIX")
-        with tempfile.TemporaryDirectory(prefix="document-files-rhwp-") as temporary:
+        with (
+            descriptor_input(input_fd, max_bytes=self.budgets.max_input_bytes) as transport,
+            tempfile.TemporaryDirectory(prefix="document-files-rhwp-") as temporary,
+        ):
             stdout, _stderr = _bounded_subprocess(
                 command=(
                     str(executable),
                     "export-text",
-                    f"/dev/fd/{input_fd}",
+                    transport["path"],
                     "--json",
                 ),
                 request=b"",
                 budgets=self.budgets,
                 input_fd=input_fd,
                 cwd=Path(temporary),
-                environment={
-                    "PATH": "/usr/bin:/bin",
-                    "LANG": "C.UTF-8",
-                    "LC_ALL": "C.UTF-8",
-                },
+                environment=subprocess_environment(),
             )
         try:
             payload = json.loads(stdout.decode("utf-8", errors="strict"))
@@ -193,7 +195,9 @@ class RhwpPageTextAdapter:
                 details={"count": input_bytes, "limit": self.budgets.max_input_bytes},
             )
         executable = self._resolve_executable()
-        input_fd = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
+        input_fd = os.open(
+            path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0)
+        )
         try:
             # /dev/fd inputs may duplicate an already inspected open-file offset.
             os.lseek(input_fd, 0, os.SEEK_SET)

@@ -32,8 +32,20 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 class ChatCompletionsClient:
     """Explicit OpenAI-compatible local or cloud endpoint; no credential discovery."""
 
-    def __init__(self, endpoint: str, model: str, api_key: str = ""):
-        url = urllib.parse.urlsplit(endpoint)
+    def __init__(
+        self,
+        endpoint: str,
+        model: str,
+        api_key: str = "",
+        *,
+        response_format: str = "json_object",
+        max_output_tokens: int | None = None,
+    ):
+        try:
+            url = urllib.parse.urlsplit(endpoint)
+            _ = url.port
+        except ValueError:
+            raise ModelError("ai_configuration_invalid") from None
         if (
             url.scheme not in {"http", "https"}
             or not url.hostname
@@ -43,10 +55,24 @@ class ChatCompletionsClient:
             or url.fragment
         ):
             raise ModelError("ai_configuration_invalid")
-        if not model.strip():
+        if (
+            not model.strip()
+            or response_format not in {"json_object", "none"}
+            or (
+                max_output_tokens is not None
+                and (
+                    isinstance(max_output_tokens, bool)
+                    or not isinstance(max_output_tokens, int)
+                    or not 1 <= max_output_tokens <= 1000000
+                )
+            )
+            or any(c in api_key for c in "\r\n")
+        ):
             raise ModelError("ai_configuration_invalid")
         self.endpoint, self.model, self._key = endpoint, model, api_key
         self._actual_model: str | None = None
+        self.response_format = response_format
+        self.max_output_tokens = max_output_tokens
 
     @classmethod
     def from_environment(cls) -> ChatCompletionsClient:
@@ -54,7 +80,18 @@ class ChatCompletionsClient:
         model = os.environ.get("DOCUMENT_FILES_AI_MODEL", "")
         if not endpoint or not model:
             raise ModelError("ai_unavailable")
-        return cls(endpoint, model, os.environ.get("DOCUMENT_FILES_AI_API_KEY", ""))
+        try:
+            limit = os.environ.get("DOCUMENT_FILES_AI_MAX_OUTPUT_TOKENS", "")
+            max_tokens = int(limit) if limit else None
+        except ValueError:
+            raise ModelError("ai_configuration_invalid") from None
+        return cls(
+            endpoint,
+            model,
+            os.environ.get("DOCUMENT_FILES_AI_API_KEY", ""),
+            response_format=os.environ.get("DOCUMENT_FILES_AI_RESPONSE_FORMAT", "json_object"),
+            max_output_tokens=max_tokens,
+        )
 
     @property
     def identity(self) -> dict[str, Any]:
@@ -63,13 +100,25 @@ class ChatCompletionsClient:
             "model": self.model,
             "returnedModel": self._actual_model,
             "configurationId": hashlib.sha256(
-                json.dumps([self.endpoint, self.model]).encode()
+                json.dumps(
+                    [
+                        self.endpoint,
+                        self.model,
+                        self.response_format,
+                        self.max_output_tokens,
+                    ]
+                ).encode()
             ).hexdigest(),
         }
 
     def complete(self, messages: list[dict[str, Any]], *, timeout: float) -> str:
+        payload = {"model": self.model, "messages": messages}
+        if self.response_format != "none":
+            payload["response_format"] = {"type": self.response_format}
+        if self.max_output_tokens is not None:
+            payload["max_tokens"] = self.max_output_tokens
         body = json.dumps(
-            {"model": self.model, "messages": messages, "response_format": {"type": "json_object"}},
+            payload,
             ensure_ascii=False,
             allow_nan=False,
         ).encode()
@@ -85,7 +134,8 @@ class ChatCompletionsClient:
             if len(raw) > 8 * 1024 * 1024:
                 raise ModelError("ai_response_budget_exceeded")
             data = json.loads(raw)
-            self._actual_model = data.get("model")
+            returned_model = data.get("model")
+            self._actual_model = returned_model[:256] if isinstance(returned_model, str) else None
             choice = data["choices"][0]
             if choice.get("finish_reason") != "stop":
                 raise ModelError("ai_response_incomplete")
@@ -93,8 +143,22 @@ class ChatCompletionsClient:
             if not isinstance(content, str):
                 raise ModelError("ai_response_invalid")
             return content
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        except urllib.error.HTTPError as exc:
             # Never expose HTTP response bodies, document content or bearer tokens.
-            raise ModelError("ai_connection_failed") from exc
-        except (ValueError, KeyError, IndexError, TypeError) as exc:
-            raise ModelError("ai_response_invalid") from exc
+            code = {
+                401: "ai_authentication_failed",
+                403: "ai_authorization_failed",
+                408: "ai_timeout",
+                429: "ai_rate_limited",
+            }.get(exc.code, "ai_server_error" if exc.code >= 500 else "ai_request_rejected")
+            exc.close()
+            raise ModelError(code) from None
+        except TimeoutError:
+            raise ModelError("ai_timeout") from None
+        except urllib.error.URLError as exc:
+            code = "ai_timeout" if isinstance(exc.reason, TimeoutError) else "ai_connection_failed"
+            raise ModelError(code) from None
+        except OSError:
+            raise ModelError("ai_connection_failed") from None
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+            raise ModelError("ai_response_invalid") from None

@@ -297,7 +297,7 @@ def _safe_call(
                 "error": {
                     "code": "unexpected-error",
                     "message": "Document Files encountered an unexpected error.",
-                    "details": {"errorType": type(exc).__name__, "message": str(exc)},
+                    "details": {"errorType": type(exc).__name__},
                     "suggestion": None,
                 },
             }
@@ -307,7 +307,50 @@ def _safe_call(
 def create_server() -> MCPServer:
     server = MCPServer("Document Files", instructions=SERVER_INSTRUCTIONS)
 
-    from .interpretation.workflow import extract_schema, get_extraction
+    from .diagnostics import diagnose
+    from .interpretation.workflow import (
+        delete_extraction,
+        extract_schema,
+        get_extraction,
+        resume_extraction,
+    )
+
+    @server.tool(
+        name="document_diagnose",
+        description="Check local runtime and model configuration. "
+        "Does not call the model or disclose credentials.",
+        annotations=READ_ONLY,
+    )
+    def document_diagnose() -> SchemaExtractionResponse:
+        return _safe_call(diagnose, SchemaExtractionResponse, FlexibleResult)
+
+    @server.tool(
+        name="document_resume_extraction",
+        description="Synchronously resume a retained "
+        "extraction with identical input, options, model and prompt.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+        ),
+    )
+    def document_resume_extraction(
+        job_id: str, path: str | None = None
+    ) -> SchemaExtractionResponse:
+        return _safe_call(
+            lambda: resume_extraction(job_id, path=path), SchemaExtractionResponse, FlexibleResult
+        )
+
+    @server.tool(
+        name="document_delete_extraction",
+        description="Delete one retained extraction "
+        "and its private checkpoint. Never deletes the source document.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False
+        ),
+    )
+    def document_delete_extraction(job_id: str) -> SchemaExtractionResponse:
+        return _safe_call(
+            lambda: delete_extraction(job_id), SchemaExtractionResponse, FlexibleResult
+        )
 
     @server.tool(
         name="document_capabilities",
@@ -412,13 +455,17 @@ def create_server() -> MCPServer:
         ),
     )
     def document_extract_schema(
-        path: str, options: ExtractionOptions | None = None, request_id: str | None = None
+        path: str,
+        options: ExtractionOptions | None = None,
+        request_id: str | None = None,
+        retain: bool = True,
     ) -> SchemaExtractionResponse:
         return _safe_call(
             lambda: extract_schema(
                 path,
                 options=(options or ExtractionOptions()).model_dump(),
                 request_id=request_id,
+                retain=retain,
             ),
             SchemaExtractionResponse,
             FlexibleResult,
@@ -426,7 +473,7 @@ def create_server() -> MCPServer:
 
     @server.tool(
         name="document_get_extraction",
-        description="Read a retained final AI extraction, optionally paging nodes or evidence.",
+        description="Read the latest committed AI extraction, optionally paging nodes or evidence.",
         annotations=READ_ONLY,
     )
     def document_get_extraction(

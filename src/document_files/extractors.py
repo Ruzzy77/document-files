@@ -34,7 +34,7 @@ EXTRACTOR_VERSION_OVERRIDES = {
     "docx": "source-units-v7",
     "pptx": "source-units-v8",
     "hwpx": "source-units-v10",
-    "xlsx": "source-units-v8",
+    "xlsx": "source-units-v9",
 }
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_EXPANDED_BYTES = 512 * 1024 * 1024
@@ -710,7 +710,7 @@ def _open_xlsx_workbook(load_workbook, path: Path, *, data_only: bool):
 def _xlsx_sheet_structure(
     archive: zipfile.ZipFile,
     worksheet_path: str,
-) -> tuple[dict, list[dict]]:
+) -> tuple[dict, list[dict], dict[str, dict]]:
     """Read bounded, source-declared sheet structure omitted by read-only OpenPyXL."""
 
     from openpyxl.utils.cell import range_boundaries
@@ -724,31 +724,67 @@ def _xlsx_sheet_structure(
     try:
         member = archive.getinfo(worksheet_path)
     except KeyError:
-        return structure, [
-            {
-                "code": "xlsx_sheet_structure_partial",
-                "severity": "warning",
-                "message": "The worksheet XML part could not be located.",
-                "details": {"worksheet_part": worksheet_path},
-            }
-        ]
+        return (
+            structure,
+            [
+                {
+                    "code": "xlsx_sheet_structure_partial",
+                    "severity": "warning",
+                    "message": "The worksheet XML part could not be located.",
+                    "details": {"worksheet_part": worksheet_path},
+                }
+            ],
+            {},
+        )
     if member.file_size > MAX_XML_MEMBER_BYTES:
-        return structure, [
-            {
-                "code": "xlsx_sheet_structure_partial",
-                "severity": "warning",
-                "message": (
-                    "Merged-cell and hidden-range metadata exceeded the bounded XML "
-                    "inspection limit."
-                ),
-                "details": {
-                    "worksheet_part": worksheet_path,
-                    "member_bytes": member.file_size,
-                    "limit": MAX_XML_MEMBER_BYTES,
-                },
-            }
-        ]
+        return (
+            structure,
+            [
+                {
+                    "code": "xlsx_sheet_structure_partial",
+                    "severity": "warning",
+                    "message": (
+                        "Merged-cell and hidden-range metadata exceeded the bounded XML "
+                        "inspection limit."
+                    ),
+                    "details": {
+                        "worksheet_part": worksheet_path,
+                        "member_bytes": member.file_size,
+                        "limit": MAX_XML_MEMBER_BYTES,
+                    },
+                }
+            ],
+            {},
+        )
     root = _safe_archive_xml_root(archive, worksheet_path)
+
+    # Preserve XML scalar spelling before OpenPyXL converts decimal literals to float.
+    lexical_cells = {}
+    for cell in root.iter(f"{{{_SPREADSHEETML_NAMESPACE}}}c"):
+        coordinate = cell.get("r")
+        if not coordinate:
+            continue
+        value = cell.find(f"{{{_SPREADSHEETML_NAMESPACE}}}v")
+        formula = cell.find(f"{{{_SPREADSHEETML_NAMESPACE}}}f")
+        lexical = {}
+        if value is not None and value.text is not None and cell.get("t", "n") != "s":
+            lexical.update({"raw": value.text, "rawType": cell.get("t", "n")})
+        if formula is not None:
+            lexical["sourceFormula"] = {
+                "text": formula.text or "",
+                "attributes": dict(formula.attrib),
+            }
+        if lexical:
+            lexical_cells[coordinate] = lexical
+        if len(lexical_cells) >= MAX_XLSX_UNITS:
+            issues.append(
+                {
+                    "code": "xlsx_sheet_structure_partial",
+                    "severity": "warning",
+                    "message": "Exact stored scalar observation reached its cell limit.",
+                }
+            )
+            break
 
     item_count = 0
     invalid_ranges = 0
@@ -828,7 +864,7 @@ def _xlsx_sheet_structure(
                 },
             }
         )
-    return structure, issues
+    return structure, issues, lexical_cells
 
 
 def extract_xlsx(path: Path) -> ExtractionResult:
@@ -923,7 +959,7 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                     if sheet.title != cached_sheet.title:
                         raise ExtractionError("XLSX worksheet order is inconsistent")
                     worksheet_path = getattr(sheet, "_worksheet_path", "")
-                    sheet_structure, sheet_issues = _xlsx_sheet_structure(
+                    sheet_structure, sheet_issues, lexical_cells = _xlsx_sheet_structure(
                         structure_archive,
                         worksheet_path,
                     )
@@ -1009,6 +1045,16 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                                 raise ExtractionError(
                                     "XLSX non-empty cell is missing its coordinate"
                                 )
+                            lexical = lexical_cells.get(coordinate, {})
+                            if typed_value["kind"] == "formula":
+                                if "sourceFormula" in lexical:
+                                    typed_value["sourceFormula"] = lexical["sourceFormula"]
+                                if typed_value["cached_value"] is not None and "raw" in lexical:
+                                    typed_value["cached_value"].update(
+                                        {key: lexical[key] for key in ("raw", "rawType")}
+                                    )
+                            elif "raw" in lexical:
+                                typed_value.update(lexical)
                             cell_content = f"{coordinate}={_cell_value(cell)}"
                             if len(units) >= MAX_XLSX_UNITS:
                                 workbook_limit_kind = "units"

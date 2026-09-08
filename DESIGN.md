@@ -2,7 +2,8 @@
 
 ## 목적과 경계
 
-Document Files는 문서·스프레드시트·발표 자료의 읽기·제작·편집을 제공하는 단일 Skill이다.
+Document Files는 문서·스프레드시트·발표 자료의 읽기·제작·편집 안내와 AI-assisted
+스키마·시맨틱·값 추출을 제공하는 독립 제품이다. Skill은 제품의 사용 안내와 호스트 연결을 맡는다.
 호출자가 허용한 문서 바이트에서 구조·본문·coverage를 추출하고, 지원 형식을 변환하며 HWPX
 산출물을 만들고 검증한다. 일반 문서 제작은 호스트 라이브러리, Google 문서는 요청된 연결 도구를
 사용한다. 원본과 사용자 데이터를 소유하거나 Personal Agent Toolkit 서버와 Corpus 원격 저장층에
@@ -10,9 +11,9 @@ Document Files는 문서·스프레드시트·발표 자료의 읽기·제작·�
 
 ## 구성과 실행
 
-plugin 안의 Python package가 형식 판별, parser adapter, 공통 분석 contract와 HWPX artifact 작업을
+독립 저장소의 Python package가 형식 판별, parser adapter, 공통 분석 contract와 HWPX artifact 작업을
 구현하는 단일 정본이다. CLI와 Claude local MCP는 같은 application 함수를 사용하고, Sync는 같은
-package를 자기 환경에 설치한다. OpenAI 통합 plugin과 개인 ChatGPT용 Personal Skills는 이 소스에서
+package를 자기 환경에 설치한다. Toolkit은 지정 릴리스와 체크섬을 소비한다. OpenAI plugin과 개인 ChatGPT용 Personal Skill은 이 소스에서
 만든 host 실행 번들과 `document-files` Skill 하나를 사용한다. `AnalysisJob v1`·`AnalysisResult v1` 계약은 모든
 실행 위치에서 동일하다.
 
@@ -34,9 +35,9 @@ Sync는 immutable capture를 로컬에서 분석하고 projection만 Corpus에 �
 
 Claude의 공개 local MCP는 capability 확인, 검사, 텍스트·구조 추출, 변환, HWPX 생성·편집·검증과
 보조 렌더링을 제공한다. 모든 도구는 구체적인 Pydantic `outputSchema`와 `{ok, result, error}` 응답을
-사용한다. OpenAI에서는 별도 Document Files MCP나 Codex plugin 없이 통합 plugin의 Skill과 host
-runtime을 쓴다. 개인 ChatGPT에서는 같은 정본에서 만든 Personal Skill archive를 쓴다. 정확한 도구
-목록과 version은 루트 [`products.json`](../../products.json)이 정본이다.
+사용한다. 독립 Codex·Claude Code plugin과 Claude Desktop MCPB는 같은 로컬 MCP를 사용한다.
+Toolkit 통합본과 개인 ChatGPT Skill은 같은 릴리스의 Skill과 host runtime을 쓴다. 정확한 도구
+목록과 version은 `pyproject.toml`과 client manifest가 정본이다.
 
 ## 버전과 검증
 
@@ -44,7 +45,7 @@ Claude manifest, Python package와 lockfile은 같은 base version을 사용한�
 package와 Skill에서 생성하며 복사본을 정본으로 편집하지 않는다. parser나 편집 로직을 바꿀 때에는
 형식군별 대표 fixture와 생성물 재열기만 검증하고 의무적 이미지 snapshot이나 별도 보고서를 만들지
 않는다. 화면 렌더링은 보조 확인이며 구조·값 검증을 대신하지 않는다. `rhwp`는 준비 단계에서만
-서명·체크섬을 확인해 설치하고 문서 처리 중 자동 다운로드하지 않는다.
+고정 빌드와 체크섬·라이선스를 확인해 설치하고 문서 처리 중 자동 다운로드하지 않는다.
 
 ## 개선 범위와 순서
 
@@ -66,7 +67,7 @@ package와 Skill에서 생성하며 복사본을 정본으로 편집하지 않�
 
 상세 계약과 구현 순서는 [AI-assisted 문서 스키마 추출 설계](SCHEMA_EXTRACTION_DESIGN.md)에 둔다.
 내부 AI 실행과 검사, CLI/MCP 입력, 모델 연결부와 결과 저장·조회는 개발 소스에 구현했다.
-1.7.0에서는 이 실행 경로를 실험적 기능으로 제공한다. 실제 모델 품질 평가, 시각 판독·큰
+1.7.0에서는 이 실행 경로를 실험적 기능으로 제공했다. 실제 모델 품질 평가, 시각 판독·큰
 문서 통합과 개인용 재현 검증은 미완료이며 아래의 기존 기능 확인 기록과 구분한다.
 
 ### 기존 개선과 확인 기록
@@ -176,3 +177,22 @@ PARA_SHAPE의 체크 비트를 임의의 줄 배치 설정으로 이관하지 �
 체크섬 핀을 갱신하고 자체 빌드 우선 선택과 패치를 제거한다. 실제 사용하는 환경이 공식 빌드를
 선택하는 것까지 확인한 뒤 로컬 클론과 자체 바이너리를 삭제할 수 있다. 독립 보존 검사는 유지한다.
 개인 보고서 원본은 공개 저장소나 패치에 넣지 않고 합성 자료로 회귀 사례를 관리한다.
+
+## 1.8.0 독립 제품과 릴리스 경계
+
+정본은 Ruzzy77/document-files이며 Toolkit과 Sync는 소비자다. 새 기능은 독립 저장소에서만
+수정한다. 기존 Toolkit 소스는 독립 릴리스와 호환성 검증 전까지 전환 기준으로 보존한다.
+호스트별 배포 묶음은 같은 엔진·Skill·버전에서 생성하며 별도 구현을 소유하지 않는다.
+
+Python API·CLI·stdio MCP는 같은 실행 함수를 사용한다. 로컬 배포본은 Python과 고정
+의존성을 포함한다. 일반 문서 제작의 호스트 라이브러리와 Google 연결 도구는 사용 안내의
+조건이며, 모든 제작 기능이 Python/MCP 엔진에 새로 구현됐다는 뜻은 아니다.
+
+모델 어댑터는 추론 전송만 맡는다. 명시적 값의 source binding, 필드 근거 검사, 원문 대조와
+보완, 동기 체크포인트·재개·보관/삭제는 제품 내부에 둔다. 작업 소유 잠금과 짧은 SQLite
+트랜잭션을 분리하며 중단 시 검증된 부분 결과를 잃지 않도록 한다.
+
+HTTP 서버·컨테이너, 긴 문서의 분할 통합과 내부 시각 판독은 후속 구현이다. 개인용
+재현 맥락은 유지하되 수신 AI의 실제 재현 가능성 검증은 프로젝트 공급 요건과 분리한다.
+기능별 지원 여부와 실제 검증 상태는 README에, 정식 출시의 기계적 조건은
+릴리스 qualification 검사에 둔다. 계획만으로 검증 상태를 승격하지 않는다.

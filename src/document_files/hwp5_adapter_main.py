@@ -190,6 +190,26 @@ def _extract(request: dict) -> dict:
     input_value = request.get("input")
     if not isinstance(input_value, dict):
         raise HWPAdapterError("invalid input")
+    if input_value.get("kind") == "read_only_snapshot":
+        if __package__:
+            from .snapshot_input import verified_snapshot
+        else:
+            from snapshot_input import verified_snapshot
+        try:
+            with verified_snapshot(input_value, max_bytes=1024 * 1024 * 1024) as descriptor:
+                return _extract(
+                    {
+                        **request,
+                        "input": {
+                            **input_value,
+                            "kind": "read_only_file_descriptor",
+                            "file_descriptor": descriptor,
+                            "path": f"/dev/fd/{descriptor}",
+                        },
+                    }
+                )
+        except (OSError, ValueError) as exc:
+            raise HWPAdapterError("invalid input snapshot") from exc
     file_descriptor = input_value.get("file_descriptor")
     path_value = input_value.get("path")
     if (

@@ -197,7 +197,13 @@ def _materialized_input(file_descriptor: int, format_id: str):
 
     with tempfile.TemporaryDirectory(prefix="document-files-process-") as folder:
         private_path = Path(folder) / f"source.{format_id}"
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_BINARY", 0)
+        )
         destination = os.open(private_path, flags, 0o600)
         copied = 0
         try:
@@ -244,6 +250,29 @@ def _materialized_input(file_descriptor: int, format_id: str):
 
 def process_request() -> None:
     request = _read_request()
+    source = request.get("input", {})
+    if isinstance(source, dict) and source.get("kind") == "read_only_snapshot":
+        from .snapshot_input import verified_snapshot
+
+        try:
+            with verified_snapshot(source, max_bytes=MAX_PROCESS_INPUT_BYTES) as descriptor:
+                request = {
+                    **request,
+                    "input": {
+                        **source,
+                        "kind": "read_only_file_descriptor",
+                        "file_descriptor": descriptor,
+                        "path": f"/dev/fd/{descriptor}",
+                    },
+                }
+                _process_request(request)
+        except (OSError, ValueError) as exc:
+            raise ExtractionError("processor snapshot identity is invalid") from exc
+        return
+    _process_request(request)
+
+
+def _process_request(request) -> None:
     active_registry = registry()
     file_descriptor, format_id = _request_input(request, active_registry)
     with _materialized_input(file_descriptor, format_id) as path:

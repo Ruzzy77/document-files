@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .portability import WindowsJob, kill_process_tree, process_options
+
 RHWP_VERSION = "0.8.6"
 PATCHED_RHWP_VERSION = "0.8.6+pat.checkbox.1"
 SUPPORTED_RHWP_VERSIONS = {RHWP_VERSION, PATCHED_RHWP_VERSION}
@@ -119,14 +121,20 @@ class RhwpBackend:
         allowed = allowed_exit_codes or {0}
         with tempfile.TemporaryFile() as stdout_stream, tempfile.TemporaryFile() as stderr_stream:
             try:
-                completed = subprocess.run(  # noqa: S603
+                process = subprocess.Popen(  # noqa: S603
                     [str(self.executable), *args],
                     stdin=subprocess.DEVNULL,
                     stdout=stdout_stream,
                     stderr=stderr_stream,
-                    check=False,
-                    timeout=timeout,
+                    **process_options(),
                 )
+                job = WindowsJob(process)
+                try:
+                    process.wait(timeout=timeout)
+                finally:
+                    job.close()
+                    kill_process_tree(process)
+                    process.wait()
             except subprocess.TimeoutExpired as exc:
                 raise RhwpBackendError(
                     "backend-timeout",
@@ -151,17 +159,17 @@ class RhwpBackend:
             stdout = stdout_stream.read().decode("utf-8", errors="replace")
             stderr = stderr_stream.read().decode("utf-8", errors="replace")
 
-        if completed.returncode not in allowed:
+        if process.returncode not in allowed:
             raise RhwpBackendError(
                 "backend-command-failed",
                 "The rhwp backend could not complete the document operation.",
                 details={
                     "command": args[0],
-                    "exitCode": completed.returncode,
+                    "exitCode": process.returncode,
                     "stderr": stderr[-8_000:],
                 },
             )
-        return stdout, stderr, completed.returncode
+        return stdout, stderr, process.returncode
 
     def run_json(
         self,

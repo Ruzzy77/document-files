@@ -1,7 +1,34 @@
 # Document Files
 
-문서 파일의 읽기·작성·편집·변환을 단일 `document-files` Skill로 안내하고, 로컬 분석기와
-HWP/HWPX 실행 기능을 제공하는 플러그인입니다.
+Document Files는 문서의 구조·의미·값을 추출하는 독립 Python 제품입니다. 내부 AI가
+해석·추가 읽기·보완·검사를 수행하고, 프로그램과 에이전트는 같은 Python API·CLI·MCP를
+사용합니다. 기존 문서 읽기·변환·HWPX 제작/편집과 단일 문서 Skill도 함께 제공합니다.
+
+소스 정본은 [Ruzzy77/document-files](https://github.com/Ruzzy77/document-files)입니다.
+Personal Agent Toolkit과 Sync는 이 제품의 지정 릴리스를 소비합니다. 개인 데이터나
+회사별 양식은 제품 저장소에 넣지 않습니다.
+
+## 1.8.0 상태와 설치
+
+현재 1.8.0은 독립 제품 전환의 **릴리스 후보**입니다. 실제 로컬·클라우드 모델 및 각
+클라이언트의 검증이 끝나기 전에는 정식 지원 품질이 확인됐다고 표시하지 않습니다.
+코드의 기능, 설치 가능 여부, 모델별 의미 추출 품질은 각각 확인합니다.
+
+- 개발·Python 연동: `uv sync --frozen` 또는 배포된 wheel을 설치합니다.
+- 일반 사용자: GitHub Releases의 운영체제별 실행 환경 포함 묶음을 사용합니다.
+  Python·uv를 별도로 설치할 필요가 없으며 `launchers/document-files`
+  (Windows는 `document-files.cmd`)로 실행합니다. 모델 서버·모델 가중치는 포함하지 않습니다.
+- 연결 배포: Codex·Claude Code 플러그인, Claude Desktop `.mcpb`, ChatGPT `.skill`을
+  같은 소스 버전에서 생성합니다. ChatGPT는 호스트가 허용하는 실행 환경과 연결을 사용합니다.
+- 준비 대상: macOS arm64/x64, Windows x64, Linux x64. 실제 검증 결과와 제약이 없는
+  플랫폼을 지원 완료로 표시하지 않습니다. OS 보안 설정을 해제하는 설치 방법은 제공하지 않습니다.
+
+첫 정식 AI 추출의 검증 대상은 TXT·Markdown·HTML·DOCX·HWPX·XLSX의 텍스트·명시적
+구조 중심 문서입니다. PDF·HWP·PPTX의 기존 읽기와 변환은 유지하지만, 시각 정보나
+긴 문서 통합이 필요한 AI 추출은 부분 결과로 남습니다. 새로운 양식과 새로운 파일 형식의
+지원을 구분하며, 모든 미지 문서에 대한 무오류 보장을 하지 않습니다.
+
+빌드와 품질 검증은 아래 [릴리스 검증](#릴리스-검증)을 따릅니다.
 
 ## 단일 문서 Skill
 
@@ -44,9 +71,8 @@ descriptor의 adapter ID, 구현 version과 config hash는 결과가 만들어�
 ## 실행 방식
 
 Sync와 로컬 Codex는 로컬 package를 사용하고 원격 Codex는 통합 plugin, 개인 ChatGPT는 같은
-정본에서 만든 단일 `Document Files` Personal Skill의 host runtime을 사용합니다. 기존 네 형식별
-Personal Skill의 제거와 통합 plugin 갱신은 저장소 루트 [갱신 안내](../../README.md#chatgpt와-codex)의
-반영 묶음으로 수행하며, 실행 코드나 호스트 라이브러리를 제거하지 않습니다. 필요한 라이브러리나
+정본에서 만든 단일 `Document Files` Personal Skill의 host runtime을 사용합니다. 기존 설치는 해당 클라이언트의 지원되는 갱신 경로를 사용합니다.
+실행 코드나 호스트 라이브러리를 제거하거나 설치 캐시를 직접 편집하지 않습니다. 필요한 라이브러리나
 호환 `rhwp`가 없으면 지원 가능한 순수 parser 결과와 coverage를 반환하거나 `runtime_unavailable`로 중단하며
 자동 원격 폴백하지 않습니다. 렌더 결과에는
 `nativeRenderChecked: false`가 기록되며 화면 충실도의 주 검증으로 간주하지 않습니다.
@@ -118,13 +144,13 @@ launchers/document-files process --describe
 python3 scripts/provision_rhwp.py
 ```
 
-별도 실행 파일은 `DOCUMENT_FILES_RHWP`로 지정할 수 있습니다. 배포판은 준비 단계에서 플랫폼별
+별도 실행 파일은 `DOCUMENT_FILES_RHWP`로 지정할 수 있습니다. 공식 backend 준비 도구는 플랫폼별
 체크섬과 macOS 서명을 확인하며 문서 처리 중 내려받지 않습니다. 일반 parser를 우선하고 `rhwp`는
 HWP 보조 경로에만 사용합니다.
 
 실행 경계와 데이터 소유 원칙은 [DESIGN.md](./DESIGN.md)에 있습니다.
 
-## AI-assisted 스키마 추출 (1.7.0 실험적 기능)
+## AI-assisted 스키마 추출
 
 `extract-schema`와 `document_extract_schema`는 Document Files 내부에서 모델을 호출하여
 스키마·시맨틱·값과 출처를 추출합니다. 일반 프로그램이 문서만 제출할 수 있으며, 호출자가
@@ -159,18 +185,22 @@ evidence에 남깁니다. 원본·참조·자료형 검사를 통과하면 별�
 있으면 내부에서 수정합니다. `complete`는 관찰된 범위의 추출·검사 완료이며 모델의 정확성을
 보증하는 표시는 아닙니다. `validation.semanticAccuracy`가 검사 방식을 나타냅니다.
 
-CLI·MCP는 동기 실행합니다. 결과는 기존 Document Files runtime 아래 `schema-extractions`에
-사용자 전용 권한으로 보관되며 자동 만료하지 않습니다. 해당 작업의 SQLite 파일을 삭제하면
-보관 결과도 삭제됩니다. 같은 요청 ID와 입력·옵션·모델 설정·프롬프트 버전은 저장 결과를
-재사용하고, 다르면 거절합니다. 재분석에는 새 ID를 사용합니다. 실행 중에는 결과가 아직
-없을 수 있으며, 별도의 백그라운드 작업자가 있는 것처럼 표시하지 않습니다. 모델이 없으면
+CLI·MCP는 동기 실행합니다. 결과와 재개용 체크포인트는 기존 runtime 아래
+`schema-extractions`에 사용자 전용 권한으로 보관되며 자동 만료하지 않습니다.
+`--storage-dir` 또는 `DOCUMENT_FILES_STORAGE_DIR`로 저장 위치를 지정하고,
+`extract-schema --no-retain`으로 보관하지 않을 수 있습니다. `delete-extraction`은
+해당 결과와 체크포인트만 삭제하며 원문은 삭제하지 않습니다. 같은 요청 ID와 입력·옵션·모델 설정·프롬프트 버전은 저장 결과를
+재사용하고, 다르면 거절합니다. 재분석에는 새 ID를 사용합니다. 실행 중에는 마지막으로 커밋된 부분 결과를 조회할 수 있습니다. SQLite 쓰기 트랜잭션은
+모델 호출을 기다리지 않으며, 작업 소유 잠금으로 중복 실행을 방지합니다.
+`resume-extraction`은 같은 입력·옵션·모델·프롬프트 버전인지 확인한 뒤 명시적으로
+재개합니다. 이전 버전 결과는 계속 조회할 수 있으나 재개 정보가 없으면 재개하지 않습니다. 모델이 없으면
 `partial`과 `ai_unavailable`을 반환합니다.
 
 개인용 `reconstructionContext`는 기본 포함합니다. 텍스트의 원래 공백·개행과 Office/HWPX의
 native XML·관계·스타일·이미지 등 패키지 구성요소를 자체 포함 형태로 보관합니다. 프로젝트용
 추출에는 이 옵션을 끌 수 있습니다. PDF/HWP의 완전한 native 구성요소 추출, 시각 정보를 통한
 내부 AI 판독, 긴 문서의 분할 후 통합, 수신 AI의 재현 시험은 아직 완료하지 않았습니다.
-현재 모델 문맥 한도를 넘으면 부분 결과로 처리합니다. 이 버전은 위 실행 경로를 실험적 기능으로 제공합니다. 실제 모델·미지 문서의 품질 평가와
+모델 문맥 한도를 넘으면 부분 결과로 처리합니다. 실제 모델·미지 문서의 품질 평가와
 전체 설계 요구사항의 완성 여부는 플러그인 설치·업데이트와 구분합니다.
 
 
@@ -181,3 +211,57 @@ AI-assisted 추출·결과 조회와 함께 HWP→HWPX 체크형 글머리표 �
 줄 배치 속성을 원본과 대조합니다. 자체 빌드가 없는 환경에서도 검사는 유지하며, 손실을
 확인하면 기본적으로 변환을 중단합니다. 자체 빌드 준비와 공식 버전 복귀 조건은
 [DESIGN.md](DESIGN.md#rhwp-체크형-글머리표-보존과-공식-빌드-복귀)에 있습니다.
+
+## Python API와 작업 관리
+
+```python
+from document_files.api import extract_schema, extraction_result_schema
+
+result = extract_schema(
+    "input.docx",
+    options={"reconstructionContext": False},
+    retain=False,
+)
+# dataSchema, semantics, data, evidence, coverage와 issues를 함께 사용합니다.
+# result["extraction"]["status"]가 partial이면 완전 추출로 취급하지 않습니다.
+```
+
+경로 없이 연동할 때는 `AnalysisJob`과 byte stream을 받는
+`document_files.api.extract_schema_from_stream`을 사용합니다.
+`document_files.api.extraction_result_schema()`가 공개 결과 JSON Schema를 반환합니다.
+기존 분석 v1과 추출 결과 v1을 유지하며 내부 모델의 해석안을 호출자가 만들 필요가 없습니다.
+
+```sh
+document-files diagnose
+document-files extract-schema input.docx --request-id example --storage-dir /private/results
+document-files get-extraction example --storage-dir /private/results
+document-files resume-extraction example --storage-dir /private/results
+document-files delete-extraction example --storage-dir /private/results
+```
+
+`DOCUMENT_FILES_AI_RESPONSE_FORMAT=none`은 JSON 응답 모드를 별도로 지원하지 않는
+호환 서버에 사용합니다. 응답 본문의 JSON·자료형 검사는 계속 수행합니다.
+`DOCUMENT_FILES_AI_MAX_OUTPUT_TOKENS`로 응답 토큰 상한을 설정할 수 있습니다.
+인증 실패·요청 제한·시간 초과와 구성 오류는 구분되며, 응답 원문이나 키를 오류에 넣지 않습니다.
+
+AI는 원문의 어느 부분이 어떤 필드·반복 영역에 해당하는지 해석합니다. 명시적인 값에는
+원문 binding을 적용해 실제 값을 구성하며, 원래 표기와 변환을 evidence에 보존합니다.
+스키마의 필드 정의에도 출처가 필요합니다. `complete`는 선언된 관측 범위에서의 실행·검사
+완료이지, 모든 문서에 대한 의미 정확성 인증이 아닙니다.
+
+## 릴리스 검증
+
+제품 전용 CI는 네 운영체제/아키텍처에서 기존 회귀시험과 실행 환경 포함 배포본을 검사합니다.
+Python runtime·의존성·rhwp는 빌드 시 고정하고 체크섬 및 라이선스를 함께 배포합니다.
+문서 처리 중 provisioning이나 자동 원격 분석 폴백은 없습니다.
+
+[실제 모델 평가](evaluation/README.md)는 개발 예제와 별도로 준비한 공개 holdout을
+사용하며, 평가 결과의 source commit·모델·입력·결과 해시를 기록합니다.
+실제 클라이언트의 문서 실행과 모델 검증 근거가 모두 있어야
+`scripts/check_release_qualification.py`가 정식 릴리스를 허용합니다.
+CI 성공이나 모델 자체 검토만으로 그 근거를 대체하지 않습니다.
+
+이관 전 1.7.0의 제품 이력은 Toolkit의 `plugins/document-files` 경로에서 분리했으며,
+출발 커밋은 `ff7bdf88aa5ea85988bedc86defb872c7487a72c`입니다.
+Toolkit의 기존 Git 이력은 수정하지 않았습니다. Toolkit 소비 전환은 독립 릴리스와
+소비 측 검증 후 활성화하며, 그전의 원본 경로는 수정하지 않는 호환 기준으로만 유지합니다.

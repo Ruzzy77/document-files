@@ -29,6 +29,16 @@ class Assertion(Contract):
     status: Literal["interpreted", "uncertain"]
 
 
+class SourceBinding(Contract):
+    """An exact native scalar or Unicode-code-point text range, never executable code."""
+
+    sourceRef: str
+    path: str = "/text"
+    start: int | None = Field(default=None, ge=0)
+    end: int | None = Field(default=None, ge=0)
+    representation: Literal["text", "native", "integer", "number", "boolean", "null"] = "text"
+
+
 class Evidence(Contract):
     target: Target
     sourceRefs: list[str] = Field(min_length=1)
@@ -36,6 +46,7 @@ class Evidence(Contract):
     raw: str
     status: Literal["present", "blank", "absent", "unreadable", "uncertain"]
     transformation: str
+    binding: SourceBinding | None = None
 
 
 class NodeAccounting(Contract):

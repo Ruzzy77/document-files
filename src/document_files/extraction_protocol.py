@@ -13,7 +13,6 @@ import math
 import os
 import re
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
@@ -32,6 +31,13 @@ from .extractors import (
     extract,
 )
 from .formats import FORMAT_SPECS
+from .portability import (
+    WindowsJob,
+    descriptor_input,
+    kill_process_tree,
+    process_options,
+    subprocess_environment,
+)
 
 REQUEST_SCHEMA_VERSION = "document-files.extraction-request.v2"
 RESULT_SCHEMA_VERSION = "document-files.extraction-result.v2"
@@ -1184,15 +1190,7 @@ class _BoundedCapture:
 
 
 def _kill_process_group(process: subprocess.Popen) -> None:
-    if process.poll() is not None:
-        return
-    try:
-        if os.name == "posix":
-            os.killpg(process.pid, signal.SIGKILL)
-        else:
-            process.kill()
-    except ProcessLookupError:
-        pass
+    kill_process_tree(process)
 
 
 def _capture_stream(
@@ -1231,8 +1229,7 @@ def _bounded_subprocess(
             cwd=cwd,
             env=dict(environment),
             close_fds=True,
-            pass_fds=(input_fd,),
-            start_new_session=True,
+            **process_options(input_fd),
         )
     except OSError as exc:
         raise ExtractionError(
@@ -1243,6 +1240,7 @@ def _bounded_subprocess(
         _kill_process_group(process)
         raise ExtractionError("could not establish extraction adapter pipes")
 
+    job = WindowsJob(process)
     stdout = _BoundedCapture(budgets.max_stdout_bytes)
     stderr = _BoundedCapture(budgets.max_stderr_bytes)
     readers = [
@@ -1278,6 +1276,8 @@ def _bounded_subprocess(
         if process.poll() is None:
             _kill_process_group(process)
             process.wait()
+        job.close()
+        _kill_process_group(process)
         for reader in readers:
             reader.join(timeout=5)
 
@@ -1304,11 +1304,7 @@ def _bounded_subprocess(
 
 
 def _sanitized_environment(extra: Mapping[str, str] | None) -> dict[str, str]:
-    environment = {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "LANG": os.environ.get("LANG", "C.UTF-8"),
-        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
-    }
+    environment = subprocess_environment()
     if extra:
         for key, value in extra.items():
             if (
@@ -1383,43 +1379,44 @@ class ExternalJSONLAdapter:
                 "external adapter input exceeds its byte budget",
                 details={"count": input_bytes, "limit": self.budgets.max_input_bytes},
             )
-        input_fd = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
+        input_fd = os.open(
+            path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0)
+        )
         try:
-            request = {
-                "schema_version": REQUEST_SCHEMA_VERSION,
-                "operation": "extract",
-                "adapter": {
-                    "adapter_id": self.descriptor.adapter_id,
-                    "adapter_version": self.descriptor.adapter_version,
-                    "config_hash": self.descriptor.config_hash,
-                },
-                "input": {
-                    "kind": "read_only_file_descriptor",
-                    "file_descriptor": input_fd,
-                    "path": f"/dev/fd/{input_fd}",
-                    "format_id": format_id,
-                },
-                "config": _thaw_json(self.config),
-                "budgets": self.budgets.to_request_dict(),
-            }
-            request_bytes = _canonical_json(request) + b"\n"
-            if len(request_bytes) > self.budgets.max_request_bytes:
-                raise BudgetExceededError(
-                    "external adapter request exceeds its byte budget",
-                    details={
-                        "count": len(request_bytes),
-                        "limit": self.budgets.max_request_bytes,
+            with descriptor_input(input_fd, max_bytes=self.budgets.max_input_bytes) as transport:
+                request = {
+                    "schema_version": REQUEST_SCHEMA_VERSION,
+                    "operation": "extract",
+                    "adapter": {
+                        "adapter_id": self.descriptor.adapter_id,
+                        "adapter_version": self.descriptor.adapter_version,
+                        "config_hash": self.descriptor.config_hash,
                     },
-                )
-            with tempfile.TemporaryDirectory(prefix="document-files-adapter-") as temporary:
-                stdout, _stderr = _bounded_subprocess(
-                    command=self.command,
-                    request=request_bytes,
-                    budgets=self.budgets,
-                    input_fd=input_fd,
-                    cwd=Path(temporary),
-                    environment=self.environment,
-                )
+                    "input": {
+                        **transport,
+                        "format_id": format_id,
+                    },
+                    "config": _thaw_json(self.config),
+                    "budgets": self.budgets.to_request_dict(),
+                }
+                request_bytes = _canonical_json(request) + b"\n"
+                if len(request_bytes) > self.budgets.max_request_bytes:
+                    raise BudgetExceededError(
+                        "external adapter request exceeds its byte budget",
+                        details={
+                            "count": len(request_bytes),
+                            "limit": self.budgets.max_request_bytes,
+                        },
+                    )
+                with tempfile.TemporaryDirectory(prefix="document-files-adapter-") as temporary:
+                    stdout, _stderr = _bounded_subprocess(
+                        command=self.command,
+                        request=request_bytes,
+                        budgets=self.budgets,
+                        input_fd=input_fd,
+                        cwd=Path(temporary),
+                        environment=self.environment,
+                    )
         finally:
             os.close(input_fd)
         return self._validate_result(_parse_jsonl_result(stdout))
