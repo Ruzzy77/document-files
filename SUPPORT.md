@@ -760,5 +760,17 @@ whole-product or independent quality run.
 
 The f68fe0f Windows regression failed in 49 Linux-stage synthetic tests. The follow-up
 uses consistent reopened-handle metadata for mutation checks and adapts only the
-synthetic POSIX mode/pipe boundary on Windows. All 86 related tests passed locally;
-actual Windows CI is being rerun. Target support and production guards were not relaxed.
+synthetic POSIX mode/pipe boundary on Windows. All 86 related tests passed locally. The actual bb87d11 Windows
+regression step also passed; its portable build was still running at inspection. Target support and production guards were not relaxed.
+
+
+A separate Linux ARM64 development worker then processed the public two-page PDF
+with pinned f68fe0f product source and the assembled recognition runtime. It used
+Heron, TableFormer accurate and Tesseract CLI on CPU, returning both pages in 13.67
+seconds (32.23 seconds including preparation and supervision). Under 4CPU/16GiB,
+whole-cgroup peak was 3,579,691,008 bytes with zero swap/OOM. All runtime files were
+copied into this cgroup before execution, and original/copy/packet hashes and owned
+process/container cleanup passed. Worker `complete` is not quality approval: each
+table still lacked one observed Note cell and returned no column-header flags. The
+core PDF importer/native checks and semantic model were not run. This is not a
+same-candidate full-pipeline resource, independent quality or release qualification.
