@@ -7,7 +7,7 @@ import io
 import json
 import struct
 import tarfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
@@ -219,6 +219,11 @@ def test_simulated_build_receipt_never_claims_pack_or_quality(tmp_path, monkeypa
         lambda argv, **_kw: "" if "status" in argv else "commit\n",
     )
     work = tmp_path / "work"
+    monkeypatch.setattr(
+        native,
+        "collect_runtime_notices",
+        lambda *_a: {"collected": True, "independentRedistributionReview": "pending"},
+    )
 
     def mock_run(argv, **kwargs):
         output = "tool version\n"
@@ -273,3 +278,82 @@ def test_simulated_build_receipt_never_claims_pack_or_quality(tmp_path, monkeypa
     assert result["sourceCommit"] == "commit"
     assert result["files"]
     assert (work / "native-candidate.json").is_file()
+
+
+def test_windows_cmake_cache_paths_are_forward_slashes():
+    # Actual Windows TIFF failure: try_compile parsed D:\a as an invalid escape.
+    prefix = PureWindowsPath(r"D:\a\document-files\native-work\prefix")
+    for component in native.ORDER:
+        flags = native.options(component, prefix, "windows-x86_64")
+        for flag in flags:
+            assert "\\" not in flag
+    assert (
+        "-DJPEG_LIBRARY=D:/a/document-files/native-work/prefix/lib/jpeg-static.lib"
+        in native.options("tiff", prefix, "windows-x86_64")
+    )
+
+
+def test_windows_runtime_notice_and_actual_archives_collected(tmp_path, monkeypatch):
+    notices = tmp_path / "notices"
+    notices.mkdir()
+    installed = tmp_path / "VS"
+    libraries = installed / "lib/x64"
+    libraries.mkdir(parents=True)
+    for name in ("libcmt.lib", "libcpmt.lib", "libvcruntime.lib"):
+        (libraries / name).write_bytes(name.encode())
+    license_file = installed / "License.rtf"
+    original = r"{\rtf1 MICROSOFT VISUAL STUDIO test fixture. Distributable code.}"
+    license_file.write_text(original)
+    monkeypatch.setenv("VCTOOLSINSTALLDIR", str(installed))
+    result = native.collect_runtime_notices("windows-x86_64", notices, None, license_file)
+    assert result["collected"] is True
+    assert result["independentRedistributionReview"] == "pending"
+    assert len(result["staticRuntimes"]) == 3
+    assert (notices / "microsoft-visual-cpp-runtime.rtf").read_text() == original
+    assert result["notices"][0]["sha256"] == native.sha(license_file)
+
+
+@pytest.mark.parametrize("text", [None, "unrelated file", "MICROSOFT VISUAL STUDIO but no terms"])
+def test_windows_missing_or_wrong_license_refused(tmp_path, text):
+    license_file = tmp_path / "License.rtf" if text is not None else None
+    if license_file:
+        license_file.write_text(text)
+    with pytest.raises(native.BuildError, match="license|notice"):
+        native.collect_runtime_notices("windows-x86_64", tmp_path, None, license_file)
+
+
+@pytest.mark.parametrize("has_exception", [True, False])
+def test_linux_gcc_major_notice_and_runtime_hashes(tmp_path, monkeypatch, has_exception):
+    notices = tmp_path / "notices"
+    notices.mkdir()
+    copyright_file = tmp_path / "copyright"
+    copyright_file.write_text(
+        "GNU GENERAL PUBLIC LICENSE\n"
+        + ("GCC RUNTIME LIBRARY EXCEPTION Version 3.1\n" if has_exception else "")
+    )
+    gpl = tmp_path / "GPL-3"
+    gpl.write_text("GNU GENERAL PUBLIC LICENSE Version 3\n")
+    for name in ("libstdc++.a", "libgcc.a", "libgcc_eh.a"):
+        (tmp_path / name).write_bytes(name.encode())
+    mapping = {
+        "/usr/share/doc/gcc-13-base/copyright": copyright_file,
+        "/usr/share/common-licenses/GPL-3": gpl,
+    }
+    monkeypatch.setattr(native, "Path", lambda value: mapping.get(str(value), Path(value)))
+
+    def run(argv, _label):
+        return (
+            "13.3.0\n"
+            if argv[1] == "-dumpfullversion"
+            else str(tmp_path / argv[1].split("=", 1)[1])
+        )
+
+    if not has_exception:
+        with pytest.raises(native.BuildError, match="required terms"):
+            native.collect_runtime_notices("linux-x86_64", notices, run)
+    else:
+        result = native.collect_runtime_notices("linux-x86_64", notices, run)
+        assert result["independentRedistributionReview"] == "pending"
+        assert len(result["notices"]) == 2
+        assert len(result["staticRuntimes"]) == 3
+        assert result["notices"][0]["sha256"] == native.sha(copyright_file)

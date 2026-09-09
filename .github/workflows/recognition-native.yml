@@ -39,14 +39,38 @@ jobs:
         run: >-
           python3 scripts/build_recognition_native.py --target linux-x86_64
           --work native-work --cache native-inputs --download --with-tessdata --jobs 4
-      - name: Windows native build and relocated discovery
+      - name: Windows installed toolchain license, native build and relocated discovery
         if: runner.os == 'Windows'
-        shell: cmd
+        shell: pwsh
         run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-          where cl || exit /b 1
-          where dumpbin || exit /b 1
-          py -3.12 scripts/build_recognition_native.py --target windows-x86_64 --work native-work --cache native-inputs --download --with-tessdata --jobs 4
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) { throw 'Installed vswhere missing' }
+          $installation = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $installation) { throw 'Installed x64 C++ tools missing' }
+          $developer = Join-Path $installation 'Common7\Tools\Launch-VsDevShell.ps1'
+          if (-not (Test-Path -LiteralPath $developer -PathType Leaf)) { throw 'Installed developer shell missing' }
+          # Official installed shell initializes compiler, SDK, dumpbin and x64 environment.
+          # https://learn.microsoft.com/visualstudio/ide/reference/command-prompt-powershell
+          & $developer -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          if (-not $env:VSCMD_VER) { throw 'Developer environment not initialized' }
+          Get-Command cl.exe, dumpbin.exe, cmake.exe | Select-Object Name, Source
+          $licenses = @(Get-ChildItem -LiteralPath $installation -Filter License.rtf -Recurse -File |
+            Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+            Where-Object {
+              $text = Get-Content -LiteralPath $_.FullName -Raw
+              $text = [regex]::Replace($text, '\\[a-zA-Z]+-?\d* ?', ' ') -replace '[{}]', ' '
+              $text -match '(?is)MICROSOFT.{0,250}VISUAL\s+STUDIO' -and
+                $text -match '(?is)distributable.{0,30}code|redistribut'
+            })
+          if (-not $licenses.Count) { throw 'Installed Visual Studio License.rtf with redistribution terms not found; do not fabricate a notice' }
+          $hashes = @($licenses | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } | Sort-Object -Unique)
+          if ($hashes.Count -ne 1) { throw 'Ambiguous installed Visual Studio licenses; resolve exact edition/license on the host' }
+          $license = ($licenses | Sort-Object FullName | Select-Object -First 1).FullName
+          py -3.12 scripts/build_recognition_native.py --target windows-x86_64 `
+            --work native-work --cache native-inputs --download --with-tessdata --jobs 4 `
+            --windows-runtime-license $license
+          if ($LASTEXITCODE -ne 0) { throw 'Recognition native build failed' }
       - name: Preserve native evidence, including failures (not redistributable binaries)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -55,6 +79,7 @@ jobs:
           path: |
             native-work/native-candidate.json
             native-work/commands.json
+            native-work/runtime-notices.json
             native-work/logs/
             native-work/candidate/licenses/
           if-no-files-found: warn

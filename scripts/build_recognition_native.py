@@ -181,8 +181,8 @@ def options(component: str, prefix: Path, target: str) -> list[str]:
 
     def dependency(name, filename, include_name=None):
         return [
-            f"-D{name}_LIBRARY={lib / filename}",
-            f"-D{include_name or name + '_INCLUDE_DIR'}={prefix / 'include'}",
+            f"-D{name}_LIBRARY={(lib / filename).as_posix()}",
+            f"-D{include_name or name + '_INCLUDE_DIR'}={(prefix / 'include').as_posix()}",
         ]
 
     zlib = dependency("ZLIB", "zs.lib" if windows else "libz.a")
@@ -245,7 +245,7 @@ def options(component: str, prefix: Path, target: str) -> list[str]:
             "-DOPENMP_BUILD=OFF",
             "-DENABLE_NATIVE=OFF",
             "-DWIN32_MT_BUILD=ON",
-            f"-DLeptonica_DIR={prefix / 'lib/cmake/leptonica'}",
+            f"-DLeptonica_DIR={(prefix / 'lib/cmake/leptonica').as_posix()}",
         ],
     }
     return choices[component]
@@ -270,6 +270,87 @@ def rewrite_export(prefix: Path, target: str) -> None:
             raise BuildError(f"missing private static dependency: {filename}")
         value = value.replace(name, library.as_posix())
     export.write_text(value, encoding="utf-8")
+
+
+def collect_runtime_notices(target, notices, run, windows_license=None):
+    """Preserve real installed toolchain notices; never substitute a made-up text.
+
+    Windows follows the CPU runtime builder's installed Visual Studio License.rtf
+    route. Linux binds the GCC-major package copyright plus full GPL-3 text and
+    the exact static runtime archives selected by the same compiler. This is a
+    collection/consistency check, not an independent redistribution approval.
+    """
+    records = []
+    runtimes = []
+
+    def copy_notice(original, filename, required):
+        if not original.is_file() or original.is_symlink():
+            raise BuildError(f"installed compiler notice missing: {original}")
+        content = original.read_bytes()
+        encoding = "utf-16" if content.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+        text = content.decode(encoding, errors="replace")
+        plain = " ".join(re.sub(r"\\[a-zA-Z]+-?\d* ?|[{}]", " ", text).split())
+        if any(not re.search(pattern, plain, re.IGNORECASE) for pattern in required):
+            raise BuildError(f"installed compiler notice lacks required terms: {original}")
+        destination = notices / filename
+        shutil.copyfile(original, destination)
+        records.append(
+            {
+                "sourcePath": str(original),
+                "path": destination.name,
+                "sha256": sha(destination),
+                "size": destination.stat().st_size,
+            }
+        )
+
+    if target == "windows-x86_64":
+        if windows_license is None:
+            raise BuildError("actual installed Visual Studio license is required")
+        copy_notice(
+            windows_license,
+            "microsoft-visual-cpp-runtime.rtf",
+            [r"MICROSOFT.{0,250}VISUAL\s+STUDIO", r"distributable.{0,30}code|redistribut"],
+        )
+        root = os.environ.get("VCTOOLSINSTALLDIR")
+        if not root:
+            raise BuildError("installed Visual Studio compiler path is required")
+        for filename in ("libcmt.lib", "libcpmt.lib", "libvcruntime.lib"):
+            library = Path(root) / "lib/x64" / filename
+            if not library.is_file() or library.is_symlink():
+                raise BuildError(f"installed static compiler runtime missing: {filename}")
+            runtimes.append({"path": str(library), "sha256": sha(library)})
+    else:
+        version = run(["c++", "-dumpfullversion"], "gcc-full-version").strip()
+        if not re.fullmatch(r"\d+(?:\.\d+)+", version):
+            raise BuildError("GCC version unavailable for installed notice selection")
+        copyright = Path(f"/usr/share/doc/gcc-{version.split('.')[0]}-base/copyright")
+        copy_notice(
+            copyright,
+            "gcc-runtime-copyright.txt",
+            [r"GCC RUNTIME LIBRARY EXCEPTION", r"Version 3\.1", r"GNU GENERAL PUBLIC LICENSE"],
+        )
+        copy_notice(
+            Path("/usr/share/common-licenses/GPL-3"),
+            "gcc-GPL-3.txt",
+            [r"GNU GENERAL PUBLIC LICENSE", r"Version 3"],
+        )
+        for name in ("libstdc++.a", "libgcc.a", "libgcc_eh.a"):
+            library = Path(run(["c++", f"-print-file-name={name}"], f"gcc-{name}-location").strip())
+            if not library.is_absolute() or not library.is_file():
+                raise BuildError(f"installed static compiler runtime missing: {name}")
+            runtimes.append(
+                {
+                    "path": str(library),
+                    "resolvedPath": str(library.resolve()),
+                    "sha256": sha(library),
+                }
+            )
+    return {
+        "collected": True,
+        "independentRedistributionReview": "pending",
+        "notices": records,
+        "staticRuntimes": runtimes,
+    }
 
 
 def check_binary(path: Path, target: str) -> None:
@@ -328,6 +409,8 @@ def run_build(args) -> dict:
     logs.mkdir()
     env = os.environ.copy()
     for key in (
+        "CC",
+        "CXX",
         "CFLAGS",
         "CXXFLAGS",
         "LDFLAGS",
@@ -383,6 +466,12 @@ def run_build(args) -> dict:
         toolchain["compiler"] = run(["cmd", "/c", "cl 2>&1 & exit /b 0"], "compiler-version")
     notices = work / "candidate/licenses"
     notices.mkdir(parents=True)
+    runtime_notices = collect_runtime_notices(
+        target, notices, run, getattr(args, "windows_runtime_license", None)
+    )
+    (work / "runtime-notices.json").write_text(
+        json.dumps(runtime_notices, indent=2) + "\n", encoding="utf-8"
+    )
     for source in pins["sources"]:
         archive = acquire(source, args.cache.resolve(), args.download)
         source_root = unpack(archive, work / "sources" / source["id"])
@@ -394,8 +483,8 @@ def run_build(args) -> dict:
         directory = work / "build" / source["id"]
         flags = [
             "-DCMAKE_BUILD_TYPE=Release",
-            f"-DCMAKE_INSTALL_PREFIX={prefix}",
-            f"-DCMAKE_PREFIX_PATH={prefix}",
+            f"-DCMAKE_INSTALL_PREFIX={prefix.as_posix()}",
+            f"-DCMAKE_PREFIX_PATH={prefix.as_posix()}",
             "-DCMAKE_INSTALL_LIBDIR=lib",
             "-DBUILD_SHARED_LIBS=OFF",
             "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF",
@@ -497,6 +586,7 @@ def run_build(args) -> dict:
         ],
         "sources": pins["sources"],
         "toolchain": toolchain,
+        "runtimeNotices": runtime_notices,
         "binary": {"path": relocated.relative_to(work).as_posix(), "sha256": sha(relocated)},
         "dependencies": dependencies,
         "nativeExecutionVerified": True,
@@ -506,7 +596,7 @@ def run_build(args) -> dict:
         "fullRecognitionQualified": False,
         "releaseReady": False,
         "remaining": [
-            "Compiler runtime redistribution notices and legal review",
+            "Independent compiler runtime redistribution review of collected notices",
             "Target baseline installation and complete recognition pack audit",
             "Real OCR, Docling and independent quality / memory qualification",
         ],
@@ -529,6 +619,11 @@ def main() -> int:
     )
     parser.add_argument("--pins", type=Path, default=PINS)
     parser.add_argument("--download", action="store_true")
+    parser.add_argument(
+        "--windows-runtime-license",
+        type=Path,
+        help="Actual installed Visual Studio License.rtf with redistribution terms",
+    )
     parser.add_argument(
         "--with-tessdata",
         action="store_true",
