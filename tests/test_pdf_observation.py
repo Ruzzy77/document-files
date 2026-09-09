@@ -1290,6 +1290,64 @@ def test_raw_detection_ledger_conserves_lexemes_without_claiming_ocr_truth():
     assert ledger["rawOCRPasses"][0]["detections"][0]["text"] == "001.20"
 
 
+def test_raw_processing_coverage_does_not_depend_on_other_pages_or_aggregate_issues():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, source, ids = raw_ledger_fixture()
+    preserved = [
+        {"code": "pdf_page_has_no_native_text", "page": 1},
+        {"code": "reading_order_unverified"},
+        {"code": "recognition_content_completeness_unverified"},
+        {"code": "recognition_observed_processing_partial", "recognitionBatch": "page1"},
+        {"code": "recognition_table_cells_unobserved", "tableRef": "page2:table:0", "page": 2},
+        {"code": "recognition_source_cell_invalid", "recognitionBatch": "page2"},
+        {"code": "recognition_text_invalid"},
+    ]
+    doc.issues.extend(deepcopy(preserved))
+    import_source_observations(doc, payload, source, ids, prefix="page1")
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert ledger["version"] == "document-files.observed-processing-ledger.v3"
+    assert ledger["observedProcessingCoverage"] == "complete"
+    assert ledger["processingDependencies"]["issues"] == []
+    assert ledger["processingDependencies"]["pages"] == [1]
+    assert ledger["pageContentCompletenessVerified"] is False
+    assert ledger["ocrTruthVerified"] is False
+    assert doc.issues == preserved
+
+
+def test_raw_processing_coverage_keeps_local_structural_failures():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    for failure in ("missing_cells", "overlap", "source_invalid", "text_invalid", "empty_table"):
+        doc, payload, source, ids = raw_ledger_fixture()
+        if failure in {"missing_cells", "overlap", "empty_table"}:
+            table_ref = "page1:table:0"
+            doc.tables[table_ref] = {
+                "id": table_ref,
+                "cells": [] if failure == "empty_table" else [{"sourceRef": ids[0]}],
+                "declaredRowCount": 1,
+                "declaredColCount": 2,
+            }
+            code = (
+                "recognition_table_cells_overlap"
+                if failure == "overlap"
+                else "recognition_table_cells_unobserved"
+            )
+            doc.issue(code, tableRef=table_ref)
+        elif failure == "source_invalid":
+            payload["cells"] = [{"text": 1}]
+        else:
+            source["texts"] = [{"text": 1}]
+            doc.issue("recognition_text_invalid")
+        before = deepcopy(doc.issues)
+        import_source_observations(doc, payload, source, ids, prefix="page1")
+        ledger = doc.provenance["recognitionProcessingLedgers"][0]
+        assert ledger["allRawOCRDetectionsPreserved"] is True
+        assert ledger["observedProcessingCoverage"] == "partial"
+        assert ledger["processingDependencies"]["issues"]
+        assert doc.issues[: len(before)] == before
+
+
 def test_raw_ledger_loss_tampering_and_missing_pass_are_not_verified():
     from document_files.document_model.recognition_sources import import_source_observations
 
@@ -1646,7 +1704,7 @@ def test_whole_page_capture_hashes_actual_full_render_and_keeps_rotation():
 
     import pypdfium2 as pdfium
 
-    for rotation in (0, 90):
+    for rotation in (0, 90, 180, 270):
         content, record = full_page_render_fixture(rotation=rotation)
         assert record["status"] == "captured"
         assert record["sourceSha256"] == hashlib.sha256(content).hexdigest()
@@ -1676,6 +1734,109 @@ def test_whole_page_capture_hashes_actual_full_render_and_keeps_rotation():
         assert record["visualContentCoverage"] == "not_assessed"
         assert record["coordinateAlignmentToRecognition"] == "not_verified"
         assert record["ocrTruthVerified"] is False
+        coordinates = record["renderCoordinates"]
+        assert coordinates["status"] == "verified"
+        assert coordinates["scope"] == "full_render_to_source_page_only"
+        assert coordinates["recognitionAlignmentVerified"] is False
+        assert coordinates["pageContentCompletenessVerified"] is False
+        assert coordinates["ocrTruthVerified"] is False
+        assert len(coordinates["samples"]) == 9
+        assert all(s["pixel"] == s["returnedPixel"] for s in coordinates["samples"])
+
+
+def test_render_coordinates_use_actual_cropped_page_origin_and_pixel_rounding():
+    import hashlib
+    import io
+
+    import pypdfium2 as pdfium
+
+    from document_files.document_model.recognition_worker import capture_full_page_render
+
+    for rotation in (0, 90, 180, 270):
+        document = pdfium.PdfDocument.new()
+        page = document.new_page(120, 80)
+        page.set_cropbox(10.25, 15.5, 99.75, 70.25)
+        page.set_rotation(rotation)
+        page.close()
+        stream = io.BytesIO()
+        document.save(stream)
+        document.close()
+        content = stream.getvalue()
+        document = pdfium.PdfDocument(content)
+        try:
+            document.init_forms()
+            record = capture_full_page_render(
+                document, 0, hashlib.sha256(content).hexdigest(), scale=1.37
+            )
+        finally:
+            document.close()
+        assert record["status"] == "captured"
+        coordinates = record["renderCoordinates"]
+        assert coordinates["status"] == "verified"
+        assert all(
+            abs(actual - expected) < 0.001
+            for actual, expected in zip(
+                coordinates["mappedPageBounds"], [10.25, 15.5, 99.75, 70.25], strict=True
+            )
+        )
+        a, b, c, d, e, f = coordinates["pageToPixelAffine"]
+        for sample in coordinates["samples"]:
+            x, y = sample["page"]
+            projected = [a * x + c * y + e, b * x + d * y + f]
+            assert all(
+                abs(p - actual) <= coordinates["pixelAffineTolerance"]
+                for p, actual in zip(projected, sample["pixel"], strict=True)
+            )
+
+
+def test_render_coordinate_failure_keeps_pixels_but_does_not_verify_capture(monkeypatch):
+    import pypdfium2 as pdfium
+
+    original = pdfium.PdfBitmap.get_posconv
+
+    class WrongRoundTrip:
+        def __init__(self, converter):
+            self.converter = converter
+            self.pos_args = converter.pos_args
+
+        def to_page(self, x, y):
+            return self.converter.to_page(x, y)
+
+        def to_bitmap(self, x, y):
+            px, py = self.converter.to_bitmap(x, y)
+            return px + 1, py
+
+    monkeypatch.setattr(
+        pdfium.PdfBitmap, "get_posconv", lambda self, page: WrongRoundTrip(original(self, page))
+    )
+    _, record = full_page_render_fixture()
+    assert record["status"] == "failed"
+    assert record["pixelSha256"] and record["processedPixelBounds"]
+    assert record["renderCoordinates"]["status"] == "failed"
+    assert record["issues"] == [{"code": "recognition_render_coordinates_unverified"}]
+    assert record["coordinateAlignmentToRecognition"] == "not_verified"
+
+
+def test_render_coordinate_failure_prevents_completed_page_checkpoint(monkeypatch):
+    from document_files.document_model import recognition_worker
+
+    content, _ = full_page_render_fixture()
+    monkeypatch.setattr(
+        recognition_worker,
+        "_render_coordinate_evidence",
+        lambda page, bitmap: {"status": "failed", "failure": "synthetic_conversion_failure"},
+    )
+    frames = []
+    result = recognition_worker.page_batches(
+        content,
+        RecognitionConfig("/m", "/t", "/d"),
+        lambda page: ({"pages": {"1": {}}, "texts": []}, "complete"),
+        on_page=frames.append,
+    )
+    assert result["status"] == "partial"
+    assert result["completedPages"] == []
+    assert any(i["code"] == "recognition_render_coordinates_unverified" for i in result["issues"])
+    assert frames and frames[0]["status"] == "partial"
 
 
 def test_whole_page_capture_budget_failure_is_preserved_without_allocating_pixels():
@@ -1705,7 +1866,14 @@ def test_page_capture_import_rejects_mismatch_and_keeps_original_evidence():
     from document_files.document_model.recognition_sources import page_render_fingerprint
 
     _, capture = full_page_render_fixture()
-    for variation in ("valid", "wrong_page", "wrong_source", "partial_bounds", "tampered"):
+    for variation in (
+        "valid",
+        "wrong_page",
+        "wrong_source",
+        "partial_bounds",
+        "tampered",
+        "coordinate_tampered",
+    ):
         record = deepcopy(capture)
         if variation == "wrong_page":
             record["page_no"] = 2
@@ -1713,7 +1881,9 @@ def test_page_capture_import_rejects_mismatch_and_keeps_original_evidence():
             record["sourceSha256"] = "0" * 64
         elif variation == "partial_bounds":
             record["processedPixelBounds"][0] = 10
-        if variation != "tampered":
+        if variation == "coordinate_tampered":
+            record["renderCoordinates"]["pixelToPageAffine"][4] += 10
+        elif variation != "tampered":
             record["fingerprint"] = page_render_fingerprint(record)
         else:
             record["pixelSha256"] = "0" * 64

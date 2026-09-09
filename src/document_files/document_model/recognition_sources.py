@@ -56,7 +56,7 @@ def import_source_observations(doc, payload, exported, structural_ids, *, prefix
             or cell.get("sourceKind") != ("ocr" if cell["fromOcr"] else "pdf_text")
             or type(cell.get("page_no")) is not int
         ):
-            doc.issue("recognition_source_cell_invalid")
+            doc.issue("recognition_source_cell_invalid", recognitionBatch=prefix)
             continue
         page = cell["page_no"]
         height = pages.get(str(page), pages.get(page, {})).get("size", {}).get("height")
@@ -578,8 +578,12 @@ def import_raw_ocr_ledger(doc, payload, exported, structural_ids, imported_refs,
         ]
         if gaps:
             unsupported.append({"sourceRef": ref, "unaccountedCharacterCount": len(gaps)})
+    local_refs = set(structural_ids) | set(imported_refs)
     tables = [
-        t for t in doc.tables.values() if any(c["sourceRef"] in structural_ids for c in t["cells"])
+        t
+        for t in doc.tables.values()
+        if t["id"].startswith(f"{prefix}:")
+        or any(c["sourceRef"] in structural_ids for c in t["cells"])
     ]
     unverified_tables = [
         t["id"]
@@ -591,17 +595,45 @@ def import_raw_ocr_ledger(doc, payload, exported, structural_ids, imported_refs,
         )
     ]
     unresolved = sum(e["status"] == "unresolved" for e in ledger)
-    # Structural/recognition issues remain blocking even with a lossless raw inventory.
+    table_ids = {t["id"] for t in tables}
+    # Only this import's processing dependencies belong here. Native-channel,
+    # whole-page completeness and previous derived coverage issues remain on the
+    # document, but cannot be premises of this local proof (or create a cycle).
+    structural_issue_codes = {
+        "recognition_source_cell_invalid",
+        "recognition_unassigned_content",
+        "recognition_table_cells_missing",
+        "recognition_table_cell_invalid",
+        "recognition_rich_cell_unresolved",
+        "recognition_cell_page_unresolved",
+        "recognition_table_dimensions_conflict",
+        "recognition_table_cells_overlap",
+        "recognition_table_cells_unobserved",
+    }
+    local_issues = [
+        deepcopy(issue)
+        for issue in doc.issues
+        if issue.get("code") in structural_issue_codes
+        and (
+            issue.get("recognitionBatch") == prefix
+            or issue.get("sourceRef") in local_refs
+            or issue.get("tableRef") in table_ids
+            or issue.get("page") in expected_pages
+        )
+    ]
+    # Invalid exported text has no sourceRef, so inspect this export rather than
+    # using an unscoped recognition_text_invalid issue from another page.
+    local_issues.extend(
+        {"code": "recognition_text_invalid", "exportedTextIndex": index}
+        for index, item in enumerate(exported.get("texts", []))
+        if not isinstance(item.get("text", ""), str)
+    )
+    local_issues.extend(deepcopy(payload.get("issues", [])))
     complete = (
-        valid
-        and not unresolved
-        and not unsupported
-        and not unverified_tables
-        and not payload.get("issues")
-        and not doc.issues
+        valid and not unresolved and not unsupported and not unverified_tables and not local_issues
     )
     result = {
-        "version": "document-files.observed-processing-ledger.v2",
+        "version": "document-files.observed-processing-ledger.v3",
         "batch": prefix,
         "scope": "returned_word_detections_and_exported_structure_only",
         "allRawOCRDetectionsPreserved": valid,
@@ -609,6 +641,13 @@ def import_raw_ocr_ledger(doc, payload, exported, structural_ids, imported_refs,
         "ocrTruthVerified": False,
         "pageContentCompletenessVerified": False,
         "unverifiedTableExtents": unverified_tables,
+        "processingDependencies": {
+            "pages": sorted(expected_pages),
+            "structuralRefs": list(structural_ids),
+            "sourceRefs": list(imported_refs),
+            "tableRefs": sorted(table_ids),
+            "issues": local_issues,
+        },
         "digitalTextSupport": digital_support,
         "entries": ledger,
         "unsupportedStructuralText": unsupported,

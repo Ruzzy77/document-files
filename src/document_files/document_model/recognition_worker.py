@@ -26,12 +26,112 @@ def _offline_network_guard(event, _args):
         raise PermissionError("recognition network access is disabled")
 
 
+def _render_coordinate_evidence(page, bitmap):
+    """Measure this bitmap's PDFium transform, not a recognition coordinate map."""
+    evidence = {
+        "version": "document-files.render-coordinates.v1",
+        "scope": "full_render_to_source_page_only",
+        "status": "failed",
+        "basis": "pdfium_device_page_conversion",
+        "pixelCoordinateOrigin": "TOPLEFT",
+        "pageCoordinateSpace": "pdfium_original_page_canvas",
+        "recognitionAlignmentVerified": False,
+        "pageContentCompletenessVerified": False,
+        "ocrTruthVerified": False,
+        "samples": [],
+    }
+    try:
+        converter = bitmap.get_posconv(page)
+        width, height = bitmap.width, bitmap.height
+        origin = converter.to_page(0, 0)
+        x_end, y_end = converter.to_page(width, 0), converter.to_page(0, height)
+        a, b = ((x_end[i] - origin[i]) / width for i in (0, 1))
+        c, d = ((y_end[i] - origin[i]) / height for i in (0, 1))
+        e, f = origin
+        matrix = [a, b, c, d, e, f]
+        determinant = a * d - b * c
+        if not all(math.isfinite(v) for v in matrix) or determinant == 0:
+            raise ValueError
+        inverse = [
+            d / determinant,
+            -b / determinant,
+            -c / determinant,
+            a / determinant,
+            (c * f - d * e) / determinant,
+            (b * e - a * f) / determinant,
+        ]
+        if not all(math.isfinite(v) for v in inverse):
+            raise ValueError
+        evidence.update(
+            renderArguments=list(converter.pos_args),
+            pixelToPageAffine=matrix,
+            pageToPixelAffine=inverse,
+            affineConvention="x_out=a*x+c*y+e;y_out=b*x+d*y+f",
+            # The native conversion has finite precision even for exact page
+            # boxes. Bound the measured error in pixels, not guessed PDF units.
+            pixelAffineTolerance=0.001,
+            pixelRoundTripTolerance=0,
+        )
+
+        def pixel_error(actual, expected):
+            dx, dy = actual[0] - expected[0], actual[1] - expected[1]
+            return max(
+                abs(inverse[0] * dx + inverse[2] * dy),
+                abs(inverse[1] * dx + inverse[3] * dy),
+            )
+
+        # Include the full rectangle's boundary and interior integer pixels. The
+        # page-to-device API rounds to integers; it must recover these same pixels.
+        for x, y in dict.fromkeys(
+            (x, y) for x in (0, width // 2, width) for y in (0, height // 2, height)
+        ):
+            point = converter.to_page(x, y)
+            if not all(math.isfinite(v) for v in point):
+                raise ValueError
+            returned = converter.to_bitmap(*point)
+            evidence["samples"].append(
+                {"pixel": [x, y], "page": list(point), "returnedPixel": list(returned)}
+            )
+            if (
+                tuple(returned) != (x, y)
+                or pixel_error(point, (a * x + c * y + e, b * x + d * y + f))
+                > evidence["pixelAffineTolerance"]
+            ):
+                raise ValueError
+        corners = [
+            s["page"]
+            for s in evidence["samples"]
+            if s["pixel"][0] in (0, width) and s["pixel"][1] in (0, height)
+        ]
+        bounds = [
+            min(p[0] for p in corners),
+            min(p[1] for p in corners),
+            max(p[0] for p in corners),
+            max(p[1] for p in corners),
+        ]
+        # This capture uses zero additional crop/rotation. Its converted corners
+        # must span the effective source-page box, including any nonzero origin.
+        effective = page.get_bbox()
+        if any(
+            pixel_error(bounds[start : start + 2], effective[start : start + 2])
+            > evidence["pixelAffineTolerance"]
+            for start in (0, 2)
+        ):
+            raise ValueError
+        evidence.update(status="verified", mappedPageBounds=bounds)
+    except Exception:
+        evidence["failure"] = "render_coordinate_conversion_unverified"
+    return evidence
+
+
 def capture_full_page_render(document, index, source_hash, *, scale=3.0, max_pixels=16000000):
     """Capture the full displayed PDF page, not a claim that its ink was interpreted.
 
     The caller initializes form rendering before acquiring page handles. Pixels are
     transient; their exact RGB digest and rendering recipe remain source-addressed.
     """
+    from pypdfium2 import PDFIUM_INFO
+
     from .recognition_sources import page_render_fingerprint
 
     record = {
@@ -41,6 +141,7 @@ def capture_full_page_render(document, index, source_hash, *, scale=3.0, max_pix
         "status": "failed",
         "engine": "pypdfium2",
         "engineVersion": version("pypdfium2"),
+        "pdfiumVersion": str(PDFIUM_INFO),
         "profile": {
             "scale": scale,
             "maxPixels": max_pixels,
@@ -100,6 +201,10 @@ def capture_full_page_render(document, index, source_hash, *, scale=3.0, max_pix
                 pixelCoordinateOrigin="TOPLEFT",
                 displayCanvasToPixelScale=[pixel_width / width, pixel_height / height],
             )
+            record["renderCoordinates"] = _render_coordinate_evidence(page, bitmap)
+            if record["renderCoordinates"]["status"] != "verified":
+                record["status"] = "failed"
+                record["issues"].append({"code": "recognition_render_coordinates_unverified"})
     except Exception:
         record["issues"].append({"code": "recognition_page_render_failed"})
     finally:
