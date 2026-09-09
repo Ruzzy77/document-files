@@ -773,7 +773,7 @@ def test_batch_configuration_identity_and_invalid_settings():
         config, table_ocr_repair="ruled_cells_v2", repair_batch_size=2, repair_max_images=16
     )
     assert DoclingRecognition(changed).identity != original
-    assert DoclingRecognition(changed).identity["adapterVersion"] == "23"
+    assert DoclingRecognition(changed).identity["adapterVersion"] == "24"
     for key, value in (
         ("repair_batch_size", 3),
         ("repair_max_images", True),

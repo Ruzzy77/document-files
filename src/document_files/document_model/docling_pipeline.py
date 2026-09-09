@@ -26,6 +26,7 @@ from .recognition_coordinates import (
     framework_frame,
     image_identity,
 )
+from .recognition_ruling_pixels import capture_ocr_input, observe_ruling_windows
 from .table_ocr_repair import (
     bounded_tsv,
     bounded_tsv_result,
@@ -85,6 +86,7 @@ def pipeline_class(config, snapshots, restored=None):
         repair_elapsed = 0.0
         cell_observation_pixels = 0
         cell_observation_cells = 0
+        ruling_observation_windows = 0
         orientation = None
 
         def _release_coordinate_image(self):
@@ -146,17 +148,14 @@ def pipeline_class(config, snapshots, restored=None):
             if hasattr(self, "call_psm"):
                 cmd[cmd.index("--psm") + 1] = str(self.call_psm)
             timeout = getattr(self, "call_timeout", config.timeout_seconds)
+            call_deadline = time.monotonic() + timeout
             if not hasattr(self, "raw_passes"):
                 self.raw_passes, self.raw_capture_issues = [], []
             from PIL import Image
 
             with Image.open(ifilename) as source_image:
-                pixels = source_image.tobytes()
-                image_identity = {
-                    "sha256": hashlib.sha256(pixels).hexdigest(),
-                    "size": list(source_image.size),
-                    "mode": source_image.mode,
-                }
+                pixel_input = capture_ocr_input(source_image)
+                image_identity = pixel_input.identity
             repair_transform = getattr(self, "raw_repair_transform", None)
             original_index = sum(p["sourcePass"] == "page_ocr" for p in self.raw_passes)
             capture = {
@@ -254,6 +253,23 @@ def pipeline_class(config, snapshots, restored=None):
                                 detection["mappingBasis"] = "explicit_table_unit_pixel_transform"
                             next_accepted = next(accepted, None)
                 capture["status"] = "complete"
+                if capture["sourcePass"] == "page_ocr":
+                    observation = observe_ruling_windows(
+                        pixel_input,
+                        capture,
+                        max_pixels=min(
+                            16000000,
+                            max(0, config.repair_max_pixels - self.cell_observation_pixels),
+                        ),
+                        max_windows=max(0, 64 - self.ruling_observation_windows),
+                        deadline=call_deadline,
+                    )
+                    capture["rulingPixelObservation"] = observation
+                    usage = observation["usage"]
+                    self.cell_observation_pixels += usage.get(
+                        "reservedBudgetConsumed", usage["examinedPixels"]
+                    )
+                    self.ruling_observation_windows += usage["measuredWindows"]
             except Exception:
                 self.raw_capture_issues.append({"code": "recognition_raw_capture_failed"})
                 raise

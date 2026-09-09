@@ -3547,3 +3547,49 @@ def test_cell_pixel_orphan_links_survive_without_cell_observation_records():
     assert result["observations"] == []
     assert result["ocrLinkEvidence"]["rawLinks"] == links
     assert result["ocrLinkEvidence"]["checks"][0]["referenceConsistency"] == "unmatched"
+
+
+def test_actual_ocr_input_seam_retains_bounded_rgb_without_changing_tsv(tmp_path, monkeypatch):
+    """Synthetic OCR process result; exercise producer, not actual OCR quality."""
+    from types import SimpleNamespace
+
+    pytest.importorskip("docling")
+    from PIL import Image
+
+    from document_files.document_model import docling_pipeline
+    from document_files.document_model.recognition_coordinates import image_identity
+    from document_files.document_model.recognition_ruling_pixels import validate_ruling_windows
+
+    image = Image.new("RGB", (100, 100), "white")
+    for y in range(100):
+        image.putpixel((49, y), (0, 0, 0))
+        image.putpixel((50, y), (0, 0, 0))
+    image.putpixel((48, 45), (254, 254, 254))
+    path = tmp_path / "input.png"
+    image.save(path)
+    identity = image_identity(image)
+    cls = docling_pipeline.pipeline_class(
+        RecognitionConfig("/models", "/ocr", "/data"), {}
+    )._product_ocr_type
+    model = cls.__new__(cls)
+    model.options = SimpleNamespace(lang=["kor", "eng"], psm=3)
+    model._safe_tesseract_cmd, model._safe_tessdata_path = "/ocr", "/data"
+    model.scale, model.orientation = 1, None
+    raw = b"left\ttop\twidth\theight\tconf\ttext\n48\t40\t4\t20\t90\tI\n"
+    monkeypatch.setattr(docling_pipeline, "bounded_tsv", lambda *a, **k: raw)
+    monkeypatch.setattr(docling_pipeline, "bind_ocr_frame", lambda *a: {"inputImage": identity})
+    frame = model._run_tesseract(str(path), None)
+    capture = model.raw_passes[0]
+    assert capture["tsv"].encode() == raw
+    assert frame["text"].tolist() == ["I"]
+    record = capture["rulingPixelObservation"]
+    _, pixels = validate_ruling_windows(record, capture)[0]
+    assert b"\xfe\xfe\xfe" in pixels
+    assert model.cell_observation_pixels == 4 * 52
+    assert model.ruling_observation_windows == 1
+    model.cell_observation_pixels = 16000000
+    model._run_tesseract(str(path), None)
+    limited = model.raw_passes[1]["rulingPixelObservation"]
+    assert limited["usage"]["examinedPixels"] == 0
+    assert model.cell_observation_pixels == 16000000
+    assert model.raw_passes[1]["status"] == "complete"  # Existing raw processing only.

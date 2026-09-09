@@ -383,3 +383,12 @@ schemas, stored observations, source IDs or compiler value access. Custom model
 clients receive the same complete decoder schema through `output_schema`; no new
 shorthand schema dialect is required. Compatible checkpoint checks include the
 new prompt/planner versions; do not bypass a mismatch to reuse an earlier decision.
+
+### OCR ruling evidence
+
+Recognition adapter v24 adds `recognitionNativeRulingObservations` to observation
+provenance. Bounded RGB windows from the actual OCR input retain every pixel and
+link to the frame, raw TSV and detection. A narrow native-line check may report
+matching support; it does not classify or delete the original text, clear issues,
+or approve document completeness. Older recognition checkpoints are incompatible.
+The public result, CLI and MCP contracts are unchanged.

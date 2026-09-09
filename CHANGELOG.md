@@ -26,6 +26,10 @@
   references to the system loader in a new build-tagged wheel, preserve the original
   input and licenses, and regenerate RECORD with a derivation receipt. This is not
   target execution or redistribution approval.
+- Capture bounded, source-linked OCR ruling windows without another render or OCR
+  call (adapter v24, ruling-pixels v1). Preserve faint pixels, validate the exact
+  frame/detection/TSV, and compare a continuous line profile with one native stroke.
+  Record supporting evidence separately; do not remove text, bindings or issues.
 - Add bounded native PDF object/stream inspection and a narrow missing-cell blank
   decision (recognition adapter v23, native-object v3 and cell-decision v2). Verify linked
   embedded font bytes, supported character mappings and glyph paint bounds without

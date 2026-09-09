@@ -1467,3 +1467,134 @@ def _cell_ocr_link_diagnostics(links, records, payload, observations, *, mapping
         except (KeyError, TypeError, ValueError, AttributeError, IndexError):
             check["reason"] = "missing_conflicting_or_failed_execution_reference"
     return result
+
+
+def import_native_ruling_observations(doc, payload, *, source_hash, page, prefix):
+    """Append structure evidence only; never edit nodes, bindings or issues."""
+    from copy import deepcopy
+
+    from .pdf_native_objects import validate_native_inventory
+    from .recognition_coordinates import coordinate_links, fingerprint
+    from .recognition_ruling_pixels import (
+        MAX_COMPARISONS,
+        MAX_PIXELS,
+        MAX_WINDOWS,
+        VERSION,
+        prove_native_ruling,
+        validate_ruling_windows,
+    )
+
+    payload = payload or {}
+    captures = payload.get("rawOCRPasses", [])
+    if not any("rulingPixelObservation" in c for c in captures):
+        return
+    result = {
+        "version": VERSION,
+        "sourceSha256": source_hash,
+        "page": page,
+        "batch": prefix,
+        "status": "observed",
+        "passes": [],
+        "comparisons": 0,
+        "validatedPixels": 0,
+        "validatedWindows": 0,
+        "originalObservationsPreserved": True,
+        "issuesUnchanged": True,
+        "ocrTruthVerified": False,
+        "documentCompletenessVerified": False,
+    }
+    try:
+        if len(captures) > 256:
+            raise ValueError("raw_pass_budget_exceeded")
+        native = validate_native_inventory(
+            doc.provenance.get("pdfNativeObjects", {}), source_sha256=source_hash, page=page
+        )
+        coords = [
+            c
+            for c in doc.provenance.get("recognitionCoordinateEvidence", [])
+            if c.get("sourceSha256") == source_hash
+            and c.get("page") == page
+            and c.get("status") == "verified"
+        ]
+        if len(coords) != 1:
+            raise ValueError("source_coordinate_evidence_unverified")
+        mapping = coords[0]["evidence"]["mapping"]
+        if mapping.get("sourceSha256") != source_hash or mapping.get("originalPageNumber") != page:
+            raise ValueError("source_mapping_identity_mismatch")
+        links = coordinate_links(
+            mapping, captures, payload.get("tableRepairs", []), payload.get("rawOCRRuns", [])
+        )
+        for ci, (capture, link) in enumerate(zip(captures, links, strict=True)):
+            record = capture.get("rulingPixelObservation")
+            if record is None:
+                continue
+            entry = {
+                "passFingerprint": capture.get("fingerprint"),
+                "observation": deepcopy(record),
+                "status": "unverified",
+                "decisions": [],
+            }
+            result["passes"].append(entry)
+            try:
+                _validated_raw_words(capture, payload)
+                measured = validate_ruling_windows(
+                    record,
+                    capture,
+                    max_pixels=0
+                    if result.get("validationBudgetConsumedOnFailure")
+                    else MAX_PIXELS - result["validatedPixels"],
+                    max_windows=0
+                    if result.get("validationBudgetConsumedOnFailure")
+                    else MAX_WINDOWS - result["validatedWindows"],
+                )
+                pixels_count = sum(len(pixels) // 3 for _, pixels in measured)
+                if (
+                    pixels_count > MAX_PIXELS - result["validatedPixels"]
+                    or len(measured) > MAX_WINDOWS - result["validatedWindows"]
+                ):
+                    raise ValueError("page_pixel_support_budget_exceeded")
+                result["validatedPixels"] += pixels_count
+                result["validatedWindows"] += len(measured)
+                if link["status"] != "verified":
+                    raise ValueError("input_frame_mapping_unverified")
+                if native["status"] != "verified":
+                    raise ValueError("native_source_inventory_unverified")
+                entry["status"] = "verified_pixels_and_coordinates"
+                entry["mappingFingerprint"] = mapping["fingerprint"]
+                for window, pixels in measured:
+                    decision = prove_native_ruling(
+                        window,
+                        pixels,
+                        link,
+                        native["pageInventory"],
+                        comparison_budget=MAX_COMPARISONS - result["comparisons"],
+                    )
+                    result["comparisons"] += decision["comparisons"]
+                    di = next(
+                        i
+                        for i, d in enumerate(capture["detections"])
+                        if d["ordinal"] == window["ordinal"]
+                    )
+                    decision["rawRef"] = f"{prefix}:raw:{ci}:{di}"
+                    decision["fingerprint"] = fingerprint(decision)
+                    entry["decisions"].append(decision)
+            except (
+                ValueError,
+                KeyError,
+                TypeError,
+                IndexError,
+                OverflowError,
+                AttributeError,
+            ) as error:
+                entry.update(reason=str(error), errorType=type(error).__name__)
+                result["validationBudgetConsumedOnFailure"] = True
+                result["validationRemainingWorkUnknown"] = True
+    except (ValueError, KeyError, TypeError, IndexError, OverflowError, AttributeError) as error:
+        result.update(status="unverified", reason=str(error), errorType=type(error).__name__)
+        result["unvalidatedObservations"] = [
+            deepcopy(c.get("rulingPixelObservation"))
+            for c in captures
+            if "rulingPixelObservation" in c
+        ]
+    result["fingerprint"] = fingerprint(result)
+    doc.provenance.setdefault("recognitionNativeRulingObservations", []).append(result)

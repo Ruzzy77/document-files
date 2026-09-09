@@ -685,6 +685,15 @@ def observe_pdf(doc: ObservationDocument, content: bytes, *, recognition=None) -
                 page_ids,
                 prefix=prefix,
             )
+            from .recognition_sources import import_native_ruling_observations
+
+            import_native_ruling_observations(
+                doc,
+                page_result.get("sourceObservations"),
+                source_hash=source_hash,
+                page=page,
+                prefix=prefix,
+            )
             recognized_ids.extend([*page_ids, *source_ids])
         if page_results:
             doc.provenance["recognitionPages"] = {
