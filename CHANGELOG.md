@@ -22,6 +22,10 @@
   horizontal line (recognition adapter v16, ordered-ocr-source v2). Preserve ambiguity
   at table boundaries and incomplete duplicate lines; do not rewrite text or promote
   page completeness.
+- Preserve every planned OCR cell before dispatch and record execution state separately
+  (recognition adapter v17). Keep unattempted cells after budget/error/cancellation and
+  distinguish no-ink from blank values. A small actual file-list comparison matched
+  individual crops; product batch OCR and whole-table quality remain pending.
 - Record bounded full-path development meaning failures despite engine completion. Revert
   the failed source-first output-order experiment. Clause-level sampling diagnostics
   are not production-profile qualification.
@@ -44,6 +48,9 @@
 - Prepare a separately checked Linux native delivery artifact containing the exact
   binaries, source archives and build/startup evidence. Windows remains review-only;
   this preparation is not a complete recognition pack or redistribution approval.
+- Include the exact portable core's patched Linux HWP backend and notices in images.
+  Image-build v2 binds core ZIP/source/wheel and actual installed native checks;
+  real Docker/HWP execution and full license approval remain pending.
 
 - Require explicit roles for actual non-fixed table rows and distinguish native
   header declarations from OCR predictions (prompt v19, planner v13, table protocol v5).

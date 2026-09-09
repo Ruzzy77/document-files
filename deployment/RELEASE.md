@@ -53,15 +53,19 @@ candidate, exact source archives/tessdata, notices, compiler/runtime hashes and 
 bookworm startup/cleanup before uploading source-SHA/run/attempt-named inputs. Failed
 checks retain review evidence but do not upload that binary set. Windows stays review-only.
 This artifact is input for a full recognition-stage audit, not a recognition pack or
-release approval. The delivery step passed actual CI at source 1da72ad; independent
-downloaded-byte and internal evidence review remains pending.
+release approval. At source 1da72ad the delivery step passed actual CI, and the
+87,061,149-byte downloaded ZIP matched the API SHA. Its 78 inventory entries,
+candidate files, source archives, notices and recorded ELF/bookworm startup identity
+were checked against that exact source. This is not the final recognition pack,
+complete host-isolation evidence or compiler-runtime redistribution approval.
 
-The current image recipe installs the core wheel but does not yet supply the patched
-Linux `rhwp` binary. A fresh empty state therefore does not establish HWP readiness.
-Final image preparation must either bind the exact same core candidate's verified
-`rhwp` read-only at an explicit path, or extend the image builder to include those
-verified bytes and notices. Record that dependency in the inventory/execution chain
-and exercise HWP processing; an unrelated cache or runtime download is not a substitute.
+The image builder now requires the matching Linux portable core ZIP and includes its
+verified patched `rhwp`, build metadata and LICENSE at `/opt/document-files-native/rhwp`.
+It checks the actual product resolver, executable target/version and installed hashes
+inside the image. Image-build v2 and the release gate bind those bytes to the source,
+wheel and core receipt. This path has regression coverage; a real image build and HWP
+document processing with fresh state remain pending. An unrelated cache or runtime
+download is not a substitute, and preserving notices is not full license approval.
 
 ## One evidence root and artifact inventory
 
@@ -99,13 +103,14 @@ pipeline artifact. Kinds are `core`, `runtime`, `recognition`, `model`, `image` 
 archive's manifest and clean product build identity are checked. Model target is
 `any`. Core receipts must be stable `document-files.build-inventory.v2` receipts
 whose target and filename/hash match. Image entries require the actual Docker
-`imageId` and a `document-files.image-build.v1` build receipt containing the clean
+`imageId` and a `document-files.image-build.v2` build receipt containing the clean
 product identity, `archiveSha256` and matching `imageId`. `imageId` is Docker's
 content-addressed configuration ID, not a registry manifest digest. Optional
 `imageDigest` must agree with the build receipt when an independently established
 manifest digest exists; do not invent it for a locally built image with no registry
 RepoDigest. The image build/export wrapper is implemented; no final image has yet
-been built and qualified through this path.
+been built and qualified through this path. The receipt must also bind the same core
+ZIP and its exact installed patched HWP backend; v1 receipts cannot qualify an image.
 
 Every execution/installed report lists the **used** inventory IDs in `artifacts` and
 repeats the exact aggregate `artifactInventory` reference. Bind core + runtime +
@@ -116,13 +121,14 @@ and recognition targets must match its native or Linux-container route.
 ## Build and export the selected image
 
 On the prepared Linux Docker host, use a clean matching source checkout, the exact
-Linux core receipt/wheel/sdist, a separately hash-locked wheelhouse and requirements
+Linux core receipt/portable ZIP/wheel/sdist, a separately hash-locked wheelhouse and requirements
 file, and a locally available base image pinned by both RepoDigest and actual image ID:
 
 ```sh
 python scripts/build_release_image.py \
   --core-receipt /verified/core/build-inventory.json \
   --core-receipt-sha256 TRUSTED_CORE_RECEIPT_SHA256 \
+  --core-archive /verified/core/document-files-1.8.0-linux-x86_64.zip \
   --wheel /verified/core/document_files-1.8.0-py3-none-any.whl \
   --source /verified/core/document_files-1.8.0.tar.gz \
   --wheelhouse /verified/wheelhouse \
@@ -137,7 +143,7 @@ python scripts/build_release_image.py \
 The wheelhouse inventory is an exact filename-to-SHA256 map; the requirements file
 uses exact versions and hashes. The wrapper copies only verified bytes into a new
 context, checks source/helper/Dockerfile identity, disables build-step networking and
-cache reuse, and verifies installed core files before export. The image receipt keeps
+cache reuse, and verifies installed core and patched HWP files before export. The image receipt keeps
 the actual image ID separate from the archive SHA. Failure outputs are retained, not
 reused. The Dockerfile uses the installed frontend rather than fetching a syntax image.
 

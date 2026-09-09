@@ -167,6 +167,19 @@ the render confirmed that three of those cells contain text missed after the eig
 repair calls were spent earlier in the table. Repair scheduling, blank-value evidence,
 reading order and issue-specific completion remain unfinished.
 
+Adapter v17 saves every planned cell before the first repair call, with immutable
+indices/fingerprints and separate execution states. Budget stops, errors and
+cancellation no longer remove later cells from that plan; no-ink observations are
+not blank-value proof. This preserves snapshots, not a new guarantee that a forcibly
+killed worker can write a final disk checkpoint.
+
+A predeclared four-process comparison processed six images in 0.39 seconds
+(124,716 input pixels). Two original Korean/English cell crops gave identical text,
+geometry and confidence individually and in forward/reverse Tesseract file lists,
+apart from the recorded input page number. Raw TSV and image-to-cell mapping were
+preserved. Product batching is not implemented; partial output, input ordering,
+separate process/image budgets and the full table still need product-path checks.
+
 Windows build preparation now takes pinned official product terms and records the
 actual installed toolchain instead of searching recursively for a similarly named
 license file. An installed-HTTP operational review links separate expected results,
@@ -187,13 +200,15 @@ hash mismatch. Raw ZIP header tests and source acquisition diagnostics were corr
 without relaxing path or hash checks. Rust toolchain identity is now read in its pinned
 source directory. At c02b7a6, core and CPU CI passed on all four targets; Linux and
 Windows native preparation passed. Candidate attestation was skipped. At 1da72ad,
-native preparation and the Linux-only delivery step also passed; independent review
-of the downloaded delivery bytes remains pending, and core CI was still running at
-the latest check. Results from different commits are not combined into one candidate.
+native preparation and the Linux-only delivery step also passed. The downloaded ZIP
+matched the API SHA, and its files, sources, notices and recorded startup image were
+checked against that exact source. Full recognition-stage and redistribution review
+remain pending. Core CI passed Linux, Windows and Apple Silicon; Intel Mac was still
+running at the latest check. Different commits are not combined into one candidate.
 
-After adapter v16, managed reasoning and Linux delivery integration, core regression
-passed **1,032 tests, with 65 skipped and 12 subtests**; full Ruff and formatting checks
-passed. The separate recognition-runtime overlay passed 122 PDF/OCR tests. Core skips include optional recognition dependencies and actual
+After table protocol v8, adapter v17 and image-build v2 integration, core regression
+passed **1,073 tests, with 70 skipped and 12 subtests**; full Ruff and formatting checks
+passed. The separate recognition-runtime overlay passed 127 PDF/OCR tests. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
 
