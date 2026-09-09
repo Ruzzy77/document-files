@@ -6,11 +6,15 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
+import stat
 import struct
 import sys
 import tarfile
+import time
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -191,8 +195,42 @@ def fake_pip(command, env, log, budget):
     return {"exitCode": 0, "attempts": 1}
 
 
+def windows_posix_modes(monkeypatch):
+    """Only simulated Linux assembly uses POSIX modes on a Windows filesystem.
+
+    Production still requires Linux and checks real modes. Windows chmod cannot
+    represent execute bits, so record chmod requests rather than weakening that check.
+    """
+    if os.name != "nt":
+        return
+    original_stat, original_chmod = Path.stat, Path.chmod
+    requested = {}
+
+    class ModeStat:
+        def __init__(self, original, mode):
+            self.original = original
+            self.st_mode = stat.S_IFMT(original.st_mode) | mode
+
+        def __getattr__(self, name):
+            return getattr(self.original, name)
+
+    def chmod(path, mode, *args, **kwargs):
+        result = original_chmod(path, mode, *args, **kwargs)
+        requested[str(path.absolute())] = stat.S_IMODE(mode)
+        return result
+
+    def metadata(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        mode = requested.get(str(path.absolute()))
+        return ModeStat(result, mode) if mode is not None else result
+
+    monkeypatch.setattr(Path, "chmod", chmod)
+    monkeypatch.setattr(Path, "stat", metadata)
+
+
 @pytest.fixture
 def mocked(tool, monkeypatch):
+    windows_posix_modes(monkeypatch)
     monkeypatch.setattr(tool.platform, "system", lambda: "Linux")
     monkeypatch.setattr(tool.platform, "machine", lambda: "aarch64")
     monkeypatch.setattr(tool, "run_pip", fake_pip)
@@ -400,6 +438,77 @@ def test_wheel_provided_script_preserved_without_temporary_shebang(mocked, setup
     assert len(result["generatedBinsOmitted"]) == 1
 
 
+def windows_single_child_posix_boundary(tool, monkeypatch):
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    peek = ctypes.WinDLL("kernel32", use_last_error=True).PeekNamedPipe
+    peek.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    peek.restype = wintypes.BOOL
+
+    class PipeSelector:
+        def __init__(self):
+            self.keys = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.keys.clear()
+
+        def register(self, stream, events):
+            self.keys[stream] = SimpleNamespace(fd=stream.fileno(), fileobj=stream)
+
+        def unregister(self, stream):
+            self.keys.pop(stream)
+
+        def get_map(self):
+            return self.keys
+
+        def select(self, timeout):
+            ready = []
+            for key in self.keys.values():
+                count = wintypes.DWORD()
+                ok = peek(msvcrt.get_osfhandle(key.fd), None, 0, None, ctypes.byref(count), None)
+                if not ok:
+                    error = ctypes.get_last_error()
+                    if error != 109:  # ERROR_BROKEN_PIPE: EOF is readable.
+                        raise OSError(error, "PeekNamedPipe failed")
+                if not ok or count.value:
+                    ready.append((key, tool.selectors.EVENT_READ))
+            if not ready:
+                time.sleep(timeout)
+            return ready
+
+    processes = {}
+    original_popen = tool.subprocess.Popen
+
+    def popen(*args, **kwargs):
+        process = original_popen(*args, **kwargs)
+        processes[process.pid] = process
+        return process
+
+    def signal_single_child(pid, sig):
+        process = processes[pid]
+        if process.poll() is not None:
+            raise ProcessLookupError(pid)
+        if sig:
+            process.kill()
+
+    monkeypatch.setattr(tool.subprocess, "Popen", popen)
+    monkeypatch.setattr(tool.selectors, "DefaultSelector", PipeSelector)
+    monkeypatch.setattr(tool.os, "killpg", signal_single_child, raising=False)
+    monkeypatch.setattr(tool.signal, "SIGKILL", 9, raising=False)
+
+
 @pytest.mark.parametrize(
     "behavior,error",
     [
@@ -408,7 +517,12 @@ def test_wheel_provided_script_preserved_without_temporary_shebang(mocked, setup
         ("raise SystemExit(7)", "pip_failed:7"),
     ],
 )
-def test_supervisor_real_synthetic_child(tool, tmp_path, behavior, error):
+def test_supervisor_real_synthetic_child(tool, tmp_path, behavior, error, monkeypatch):
+    # Keep real Python-child deadline/output/exit checks on every OS. On Windows
+    # only the POSIX pipe-select and signal boundary is adapted for this single
+    # child; this is not a claim of Windows process-group support in the product.
+    if os.name == "nt":
+        windows_single_child_posix_boundary(tool, monkeypatch)
     limits = dict(zip(tool.LIMITS, [1000000, 1000, 1000000, 1000, 1000000, 1, 100], strict=True))
     (tmp_path / "tmp").mkdir()
     with pytest.raises(tool.AssemblyError, match=error):
@@ -902,3 +1016,77 @@ def test_modified_entrypoint_metadata_not_a_shared_ownership_proof(tool, tmp_pat
     )
     with pytest.raises(tool.AssemblyError, match="installed_wheel_bytes_changed"):
         tool.installed_files(target, expected, distributions, budget, "/fixed/python")
+
+
+def test_digest_uses_same_handle_metadata_api(tool, tmp_path, monkeypatch):
+    path = tmp_path / "source"
+    path.write_bytes(b"original")
+    original = Path.stat
+
+    def different_path_metadata(p, *args, **kwargs):
+        result = original(p, *args, **kwargs)
+        return SimpleNamespace(
+            st_dev=result.st_dev,
+            st_ino=result.st_ino,
+            st_size=result.st_size,
+            st_mtime_ns=result.st_mtime_ns + 1,
+            st_ctime_ns=result.st_ctime_ns,
+        )
+
+    monkeypatch.setattr(Path, "stat", different_path_metadata)
+    assert tool.digest_file(path) == sha(b"original")
+
+
+@pytest.mark.parametrize("field", ["st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns"])
+def test_digest_handle_mutation_still_rejected(tool, tmp_path, monkeypatch, field):
+    path = tmp_path / "source"
+    path.write_bytes(b"original")
+    original = tool.os.fstat
+    calls = 0
+
+    def changed(fd):
+        nonlocal calls
+        calls += 1
+        result = original(fd)
+        values = {
+            name: getattr(result, name)
+            for name in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+        }
+        if calls >= 2:
+            values[field] += 1
+        return SimpleNamespace(**values)
+
+    monkeypatch.setattr(tool.os, "fstat", changed)
+    with pytest.raises(tool.AssemblyError, match="input_changed_while_hashing"):
+        tool.digest_file(path)
+
+
+def test_digest_reopened_path_replacement_rejected(tool, tmp_path, monkeypatch):
+    path, replacement = tmp_path / "source", tmp_path / "replacement"
+    path.write_bytes(b"original")
+    replacement.write_bytes(b"original")
+    original = Path.open
+    calls = 0
+
+    def replaced(p, *args, **kwargs):
+        nonlocal calls
+        if p == path:
+            calls += 1
+            if calls == 2:
+                return original(replacement, *args, **kwargs)
+        return original(p, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", replaced)
+    with pytest.raises(tool.AssemblyError, match="input_changed_while_hashing"):
+        tool.digest_file(path)
+
+
+def test_installer_cannot_change_pbs_mode(mocked, setup, monkeypatch):
+    def mutate(command, env, log, budget):
+        result = fake_pip(command, env, log, budget)
+        Path(command[0]).chmod(0o644)
+        return result
+
+    monkeypatch.setattr(mocked, "run_pip", mutate)
+    with pytest.raises(mocked.AssemblyError, match="final_stage_changed"):
+        execute(mocked, setup)

@@ -10,7 +10,7 @@ A ZIP contains `manifest.json` and regular inventoried files, without a wrapper
 folder. `document-files.pack.v1` requires:
 
 - `id`, `version`, `kind` (`core`, `recognition`, `llama-cpp-runtime`, `model`),
-  `platform` (four native target names; `any` only for models).
+  `platform` (five native target names; `any` only for models).
 - `minimumOS: {name, version}`: actual macOS version, Windows NT version, or Linux
   kernel version. Linux libc-dependent builds additionally set `minimumGlibc`.
   Declare actual CPU requirements and qualify them on the target; the importer

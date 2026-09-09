@@ -87,7 +87,11 @@ def digest_file(path, budget=None, *, staged=False):
                     )
             digest.update(chunk)
         after = os.fstat(stream.fileno())
-        current = path.stat()
+        # Reopen the path to detect replacement, but compare handle metadata with
+        # handle metadata. Windows stat(path) and fstat(fd) need not expose identical
+        # timestamp/identity representations. No field of the mutation guard is dropped.
+        with path.open("rb") as current_stream:
+            current = os.fstat(current_stream.fileno())
 
         def signature(st):
             return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)

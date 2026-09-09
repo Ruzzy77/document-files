@@ -2,6 +2,9 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Compare reopened file handles consistently when checking Linux-stage input
+  mutation. Preserve all identity/time checks; adapt only synthetic Windows tests
+  for POSIX modes and a single-child pipe boundary. Actual target CI remains required.
 - Add Linux ARM64 as a fifth target without replacing Linux x64. Pin the ARM PBS
   runtime and connect native core/CPU/recognition CI with ELF/loader/host checks.
   The next CPU runtime candidate is `b10853-cpu.4`; existing installed packs stay unchanged.
