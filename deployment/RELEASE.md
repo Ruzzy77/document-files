@@ -53,7 +53,8 @@ candidate, exact source archives/tessdata, notices, compiler/runtime hashes and 
 bookworm startup/cleanup before uploading source-SHA/run/attempt-named inputs. Failed
 checks retain review evidence but do not upload that binary set. Windows stays review-only.
 This artifact is input for a full recognition-stage audit, not a recognition pack or
-release approval. The new delivery step still needs its actual CI execution verified.
+release approval. The delivery step passed actual CI at source 1da72ad; independent
+downloaded-byte and internal evidence review remains pending.
 
 The current image recipe installs the core wheel but does not yet supply the patched
 Linux `rhwp` binary. A fresh empty state therefore does not establish HWP readiness.

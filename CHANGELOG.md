@@ -28,6 +28,9 @@
 - Add an optional finite per-block reasoning limit for managed inference, consistently
   applied to template checks, inference and checkpoint identity. Keep the non-thinking
   default and total output ceiling; incomplete final answers remain failures.
+  A bounded full-path development run now preserves the correct unit/condition scopes
+  and precise source quotes, but remains partial because the caption title was not
+  reviewed. This is not independent or release quality approval.
 - Build Linux candidates with GCC 12, check actual ELF ABI requirements and exercise
   relocated startup in a digest-identified bookworm image. Actual CPU/native startup
   passed; final-image, full-model and 16 GiB qualification remain pending.

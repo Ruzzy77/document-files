@@ -107,8 +107,21 @@ selection, a full product run or approval to change the production default.
 
 The managed client now accepts an explicit administrator reasoning limit, records it
 in execution/checkpoint identity and uses the same mode for template checks and
-inference. Omission retains the non-thinking default. A fresh full-path development
-run with a 1,024-token reasoning limit is prepared, not yet executed.
+inference. Omission retains the non-thinking default. At clean source 1da72ad, a fresh
+full-path development run with a 1,024-token reasoning limit used 3 calls / 588.8 seconds.
+The final result preserved the two rows, identifiers, decimal spellings and exact value
+and header provenance. The unit was mm on Length and Width only; the re-inspection
+condition applied to Length only. Both direct quotes selected the correct clauses.
+
+The first meaning response had invalid quote-occurrence indices and was rejected.
+The corrected response left the caption's title range unreviewed, so the existing
+stage limit ended the run partial. The title text itself was preserved as the repeat
+label, but that does not establish semantic review of its source range. No additional
+call or budget increase followed. This is a material development improvement, not
+complete extraction or independent/final-candidate qualification. Repeat-level data
+cell references were reviewed as relevant evidence of the same table's rows/structure;
+their presence alone is not an unrelated-source failure. Column-name and value
+provenance were checked separately.
 
 Recognition adapter v12 added measured framework render/crop/rotation and cell-input
 links to the serialized single-page PDF and original page. A fresh two-page OCR run
@@ -164,9 +177,10 @@ The same CI exposed a Windows ZIP test-fixture problem and a native source-downl
 hash mismatch. Raw ZIP header tests and source acquisition diagnostics were corrected
 without relaxing path or hash checks. Rust toolchain identity is now read in its pinned
 source directory. At c02b7a6, core and CPU CI passed on all four targets; Linux and
-Windows native preparation passed. Candidate attestation was skipped. A later
-Linux-only native delivery step and the current source changes still need their own
-CI evidence; results from different commits are not combined into one candidate.
+Windows native preparation passed. Candidate attestation was skipped. At 1da72ad,
+native preparation and the Linux-only delivery step also passed; independent review
+of the downloaded delivery bytes remains pending, and core CI was still running at
+the latest check. Results from different commits are not combined into one candidate.
 
 After adapter v16, managed reasoning and Linux delivery integration, core regression
 passed **1,032 tests, with 65 skipped and 12 subtests**; full Ruff and formatting checks
