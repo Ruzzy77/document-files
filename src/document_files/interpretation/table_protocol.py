@@ -30,7 +30,7 @@ from .table_meaning import meaning_from_wire, meaning_to_wire, meaning_wire_sche
 from .table_revisions import MeaningRevisionError, meaning_revision, validate_revision
 from .table_sources import SourceReviewError, resolve_quotes
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v8"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v9"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -408,9 +408,56 @@ def structure_payload(payload):
     return result
 
 
+def _meaning_context_node(node):
+    """Remove only byte-equal text copies, preserving basis and all other metadata."""
+    result = copy.deepcopy(node)
+    semantic = result.get("semantic")
+    value = semantic.get("value") if isinstance(semantic, dict) else None
+    if isinstance(value, dict) and value.get("kind") == "text":
+        for key in ("raw", "value"):
+            if isinstance(result.get("text"), str) and value.get(key) == result["text"]:
+                value.pop(key, None)
+    return result
+
+
+def _meaning_structure(payload, frozen, compiled):
+    """A model view, not a replacement for the stored structure or its provenance."""
+    definitions = {
+        item["id"].removeprefix(frozen.regionId + ":"): item
+        for item in compiled.semantics
+        if item["kind"] == "field_definition"
+    }
+    repeats = []
+    for repeat in frozen.repeats:
+        item = repeat.model_dump()
+        cells = payload.get("tables", {}).get(repeat.tableRef, {}).get("cells", [])
+        if isinstance(cells, dict):
+            cells = [dict(zip(cells["columns"], row, strict=True)) for row in cells["rows"]]
+        rows = observed_rows(cells)
+        # The compiler may add observed headers above the column. Keep those
+        # references next to the name/type rather than in a second projection.
+        for column in item["columns"]:
+            definition = definitions.get(column["id"])
+            if definition is not None:
+                column["definitionRefs"] = list(definition["sourceRefs"])
+        for row in item["rowRoles"]:
+            refs = {cell["sourceRef"] for cell in rows.get(row["row"], [])}
+            if refs == set(row["sourceRefs"]):
+                row.pop("sourceRefs")
+        # All-cell record provenance is reproduced by the table geometry. A
+        # selective record definition remains explicit; it can convey context.
+        if set(item["definitionRefs"]) == {cell["sourceRef"] for cell in cells}:
+            item.pop("definitionRefs")
+        repeats.append(item)
+    return {"repeats": repeats}
+
+
 def meaning_payload(payload, frozen, compiled, inventory):
     result = _stage_payload(payload)
     nodes = result.pop("nodes", {})
+    # Cross-region mapping guides structural names/types. Meaning cannot change
+    # that frozen structure; repeating the guide is redundant and resume-sensitive.
+    result.pop("sameTableMapping", None)
     return result | {
         "tableStage": "meaning",
         "sourceInventorySHA256": inventory["sha256"],
@@ -418,7 +465,7 @@ def meaning_payload(payload, frozen, compiled, inventory):
             {"sourceRef": s["sourceRef"], "text": s["text"]} for s in inventory["sources"]
         ],
         "referenceContext": {
-            ref: nodes[ref]
+            ref: _meaning_context_node(nodes[ref])
             for ref in payload.get("contextNodeIds", [])
             if ref in nodes and ref not in payload["nodeIds"]
         },
@@ -444,17 +491,5 @@ def meaning_payload(payload, frozen, compiled, inventory):
             for bid, binding in payload.get("bindings", {}).items()
             if bid not in compiled.consumed_bindings
         },
-        "frozenStructure": {
-            "repeats": [r.model_dump() for r in frozen.repeats],
-            "compiledDefinitions": [
-                {
-                    "id": item["id"].removeprefix(frozen.regionId + ":"),
-                    "label": item["description"],
-                    "definitionRefs": item["sourceRefs"],
-                    "schemaTargets": item["targets"],
-                }
-                for item in compiled.semantics
-                if item["kind"] == "field_definition"
-            ],
-        },
+        "frozenStructure": _meaning_structure(payload, frozen, compiled),
     }

@@ -2,6 +2,18 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Compact the model-only table meaning request (table protocol v9). Keep compiled
+  header references beside each column, remove only geometry-reproduced provenance
+  and byte-equal context text copies, and retain full evidence in canonical results.
+- Use reversible, role-specific source/table handles only when the complete input
+  including its dictionary is smaller. Preserve literal quotes, values and semantic
+  IDs; restore references before the existing quote, revision and compiler checks.
+  Bind dictionary version/hash and activation to checkpoints, including completed
+  stages. Reject older protocols instead of silently migrating them.
+- Record exact initial/repair character preflight, preserve compiled structure on
+  overflow, and stop deterministic preparation failures without retrying. Do not
+  reattach a table's own mapping on resume; frozen meaning stages need no mapping guide.
+
 - Preserve an installer's original error if process-group cleanup is denied.
   Record each cleanup step, try only a still-live owned child as fallback, and
   refuse successful assembly when cleanup or its receipt is unconfirmed.

@@ -356,9 +356,12 @@ def test_meaning_targets_include_compiled_header_provenance_without_expanded_val
     compiled = compile_region(frozen, doc, region)
     request = meaning_payload(payload, frozen, compiled, source_inventory(doc, region))
     definition = next(
-        d for d in request["frozenStructure"]["compiledDefinitions"] if d["id"] == "size"
+        d for d in request["frozenStructure"]["repeats"][0]["columns"] if d["id"] == "size"
     )
-    assert definition["definitionRefs"]
+    assert definition["definitionRefs"] == next(
+        d["sourceRefs"] for d in compiled.semantics if d["id"] == region["id"] + ":size"
+    )
+    assert "compiledDefinitions" not in request["frozenStructure"]
     assert "0007" not in json.dumps(request["frozenStructure"])
     merged = meaning_ir(
         {
@@ -863,3 +866,200 @@ def test_source_review_does_not_hide_an_explicit_unsupported_disposition():
     fragment = compile_region(candidate, doc, region)
     assert {"code": "node_semantics_unsupported", "sourceRef": ref} in fragment.issues
     assert not fragment.meaning_review["unreviewed"]
+
+
+def test_meaning_model_view_keeps_sources_roles_and_canonical_provenance_unchanged():
+    doc, region, payload, value = fixture()
+    _, frozen = structural_ir(value, doc, region)
+    compiled = compile_region(frozen, doc, region)
+    before = copy.deepcopy((payload, frozen.model_dump(), compiled.semantics))
+    inventory = source_inventory(doc, region)
+    view = meaning_payload(payload, frozen, compiled, inventory)
+    record = view["frozenStructure"]["repeats"][0]
+    assert view["meaningSources"] == [
+        {"sourceRef": item["sourceRef"], "text": item["text"]} for item in inventory["sources"]
+    ]
+    assert view["sourceInventorySHA256"] == inventory["sha256"]
+    assert record["rowRoles"] == [
+        {"row": r.row, "role": r.role} for r in frozen.repeats[0].rowRoles
+    ]
+    # This header-only subset is not redundant all-cell record provenance.
+    assert record["definitionRefs"] == frozen.repeats[0].definitionRefs
+    assert (payload, frozen.model_dump(), compiled.semantics) == before
+
+
+@pytest.mark.parametrize(
+    "kind,raw,value",
+    [
+        ("text", "same", "same"),
+        ("text", "different", "same"),
+        ("decimal", "same", "same"),
+        ("text", None, "same"),
+    ],
+)
+def test_context_compaction_only_removes_exact_text_copies(kind, raw, value):
+    from document_files.interpretation.table_protocol import _meaning_context_node
+
+    node = {
+        "text": "same",
+        "sourceStructure": {"page": 1, "bbox": [1, 2, 3, 4]},
+        "semantic": {
+            "value": {
+                "kind": kind,
+                "raw": raw,
+                "value": value,
+                "basis": "observed",
+                "uncertain": True,
+            }
+        },
+        "semanticInput": {"role": "context_only", "conflicts": ["retained"]},
+    }
+    before = copy.deepcopy(node)
+    result = _meaning_context_node(node)
+    expected = copy.deepcopy(node)
+    if kind == "text":
+        for key in ("raw", "value"):
+            if expected["semantic"]["value"][key] == "same":
+                expected["semantic"]["value"].pop(key)
+    assert result == expected
+    assert node == before
+
+
+def test_meaning_preflight_stops_before_dispatch_and_preserves_structure():
+    class Limited(TableModel):
+        def infer(self, request):
+            response = super().infer(request)
+            if len(self.requests) == 1:
+                self.input_budget_chars = 1
+            return response
+
+    model, states = Limited(), []
+    result = execute(model, states=states)
+    assert len(model.requests) == 1
+    assert result["data"]["records"][0] == {"code": "0007", "size": "1.2300"}
+    meaning = next(iter(states[-1]["tableStages"].values()))["meaning"]
+    assert meaning["attempts"] == meaning["usage"]["modelCalls"] == 0
+    assert meaning["inputPreflight"]["stage"] == "meaning"
+    assert meaning["inputPreflight"]["phase"] == "initial"
+    assert meaning["inputPreflight"]["withinBudget"] is False
+    assert meaning["inputPreflight"]["limitCharacters"] == 1
+    assert "referenceWire" in meaning
+
+
+def test_resume_never_adds_the_regions_own_table_mapping():
+    model, states = TableModel(meaning_error="ai_request_failed"), []
+    execute(model, states=states)
+    first = json.loads(model.requests[-1].messages[-1]["content"])
+    assert "sameTableMapping" not in first
+    model.meaning_error = None
+    execute(model, restore=states[-1])
+    resumed = json.loads(model.requests[-1].messages[-1]["content"])
+    assert "sameTableMapping" not in resumed
+    assert first == resumed
+
+
+@pytest.mark.parametrize("mutation", ["missing", "dictionary", "version"])
+def test_completed_meaning_checkpoint_rejects_wire_identity_tampering(mutation):
+    model, states = TableModel(), []
+    execute(model, states=states)
+    checkpoint = copy.deepcopy(states[-1])
+    meaning = next(iter(checkpoint["tableStages"].values()))["meaning"]
+    if mutation == "missing":
+        meaning.pop("referenceWire")
+    elif meaning["referenceWire"] is None:
+        meaning["referenceWire"] = {"version": "invalid", "dictionary": {}}
+    elif mutation == "dictionary":
+        meaning["referenceWire"]["dictionary"]["sources"]["@s0"] = "wrong"
+    else:
+        meaning["referenceWire"]["version"] = "old"
+    with pytest.raises(ValueError, match="incompatible"):
+        execute(model, restore=checkpoint)
+    assert len(model.requests) == 2
+
+
+def test_wire_preparation_failure_does_not_loop_or_discard_structure(monkeypatch):
+    from document_files.interpretation import engine
+
+    calls = []
+
+    def broken(*args, **kwargs):
+        calls.append(1)
+        raise ValueError("do not repeat preparation or expose this detail")
+
+    monkeypatch.setattr(engine, "prepare_meaning_wire", broken)
+    model, states = TableModel(), []
+    result = execute(model, states=states)
+    assert calls == [1]
+    assert len(model.requests) == 1
+    assert result["data"]["records"][0] == {"code": "0007", "size": "1.2300"}
+    assert result["extraction"]["stage"] == "paused"
+    assert any(i["code"] == "table_reference_wire_preparation_failed" for i in result["issues"])
+    assert next(iter(states[-1]["tableStages"].values()))["meaning"]["attempts"] == 0
+
+
+def test_model_view_removes_only_geometry_reproduced_provenance():
+    doc, region, payload, value = fixture()
+    _, frozen = structural_ir(value, doc, region)
+    repeat = frozen.repeats[0]
+    repeat.definitionRefs = [c["sourceRef"] for c in doc.tables[repeat.tableRef]["cells"]]
+    compiled = compile_region(frozen, doc, region)
+    # Exercise the view's defensive branch in isolation. The compiler rejects
+    # this selective row provenance; it is not an accepted engine structure.
+    repeat.rowRoles[1].sourceRefs = repeat.rowRoles[1].sourceRefs[:1]
+    payload["sameTableMapping"] = {"instruction": "Structure-only reuse guide"}
+    view = meaning_payload(payload, frozen, compiled, source_inventory(doc, region))
+    assert "definitionRefs" not in view["frozenStructure"]["repeats"][0]
+    assert (
+        view["frozenStructure"]["repeats"][0]["rowRoles"][1]["sourceRefs"]
+        == repeat.rowRoles[1].sourceRefs
+    )
+    assert "sameTableMapping" not in view
+    assert payload["sameTableMapping"]
+    assert repeat.definitionRefs
+
+
+def test_active_completed_checkpoint_rejects_disabled_wire_and_preserves_canonical_refs(
+    monkeypatch,
+):
+    from dataclasses import asdict
+
+    from document_files.document_model.model import ObservationDocument
+    from document_files.interpretation import engine
+
+    observe = engine.observe_document
+    prefix = "source-bound-recognition-node-with-a-long-document-page-and-table-identifier/"
+
+    def long_refs(*args, **kwargs):
+        doc = observe(*args, **kwargs)
+        mapping = {ref: prefix + ref for ref in doc.nodes}
+
+        def rewrite(value):
+            if isinstance(value, dict):
+                return {mapping.get(k, k): rewrite(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [rewrite(v) for v in value]
+            return mapping.get(value, value) if isinstance(value, str) else value
+
+        return ObservationDocument(**rewrite(asdict(doc)))
+
+    monkeypatch.setattr(engine, "observe_document", long_refs)
+    model, states = TableModel(), []
+    result = execute(model, states=states, contextChars=100000)
+    checkpoint = copy.deepcopy(states[-1])
+    meaning = next(iter(checkpoint["tableStages"].values()))["meaning"]
+    assert meaning["status"] == "complete" and meaning["referenceWire"] is not None
+    meaning_payload_wire = json.loads(model.requests[-1].messages[-1]["content"])
+    assert meaning_payload_wire["meaningSources"][0]["sourceRef"].startswith("@s")
+    ir = next(iter(checkpoint["accepted"].values()))
+    assert all(
+        ref.startswith(prefix)
+        for review in ir["tableMeaningState"]["sourceReviews"]
+        for ref in review["sourceRefs"]
+    )
+    assert result["data"]["records"][0] == {"code": "0007", "size": "1.2300"}
+    # An intact completed checkpoint must resume without another inference.
+    execute(model, restore=states[-1], contextChars=100000)
+    meaning["referenceWire"] = None
+    with pytest.raises(ValueError, match="incompatible with table reference wire"):
+        execute(model, restore=checkpoint, contextChars=100000)
+    assert len(model.requests) == 2

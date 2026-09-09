@@ -111,7 +111,15 @@ incompatible checkpoints must not be force-resumed. A stage completing is not a
 semantic quality approval. Non-record subtotal/note values now use a separate scalar
 region, with no overlapping value bindings and the same total budget. Its unfinished
 work remains partial and resumes without another record-structure call.
-The current table protocol is v8. Every observed non-fixed row needs an explicit
+Meaning input uses a compact model-only view and reversible reference-wire v1.
+Canonical source text and provenance are retained. Its dictionary and activation are
+rechecked on resume, including completed stages; prior protocol checkpoints cannot
+be resumed as current ones. Do not edit checkpoint versions to bypass this boundary.
+`inputPreflight` shows the exact initial/repair character total and limit. Overflow
+pauses without another model call or loss of the compiled structure. Preparation
+errors stop rather than entering a model-repair loop; call/time limits do not increase.
+
+The current table protocol is v9. Every observed non-fixed row needs an explicit
 role; only native-declared header rows are fixed automatically, not OCR predictions.
 Missing cells and invalid decimal readings stay uncertain with original evidence.
 Row source provenance is program-derived; meaning applicability uses exclusive

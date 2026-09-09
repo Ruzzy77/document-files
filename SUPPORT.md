@@ -33,6 +33,21 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
+### Compact table meaning input
+
+Table protocol v9 changes only the model-facing view. Original source text, context,
+compiled names/types, header references and canonical provenance are retained.
+Reference-wire v1 uses separate source/table handles only when the dictionary and
+contract together reduce the request. The engine restores original references before
+checking exact quotes, revisions and compiled results. Checkpoints bind the dictionary
+and its activation, and old protocol checkpoints are rejected rather than migrated.
+
+An offline reconstruction of the saved PDF development case fell from 19,014 to
+14,694 message-content characters against the unchanged 16,000-character limit.
+This is not a token measurement, successful meaning extraction or repair-fit claim.
+Every initial and repair request is checked at its actual size; overflow retains the
+accepted structure and does not dispatch a model call or enlarge the document budget.
+
 ### Optional source-bound PDF page review
 
 The managed client now has a separate, explicit vision-projector path. It preserves
@@ -167,7 +182,7 @@ dynamic-library closure and actual stage assembly/qualification remain unresolve
 
 ### Current source follow-up: table meaning, visual observations and Linux compatibility
 
-Prompt v23 / planner v14 / table protocol v8 / compiler v15 require an explicit
+Prompt v23 / planner v14 / table protocol v9 / compiler v15 require an explicit
 role for every observed row not fixed by a native header declaration. OCR header
 flags remain predictions; omitted roles never become data records. Scope v7 uses
 the compiled header classification when constructing header-group candidates.

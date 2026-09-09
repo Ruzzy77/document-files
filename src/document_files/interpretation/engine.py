@@ -77,6 +77,10 @@ from .table_protocol import (
     structure_payload,
     structure_schema,
 )
+from .table_reference_wire import (
+    VERSION as TABLE_REFERENCE_WIRE_VERSION,
+)
+from .table_reference_wire import prepare_meaning_wire, validate_meaning_wire_identity
 from .table_revisions import (
     MeaningRevisionError,
     meaning_snapshot,
@@ -364,6 +368,7 @@ def extract_schema_from_stream(
         "compilerVersion": COMPILER_VERSION,
         "scopeVersion": SCOPE_VERSION,
         "tableProtocolVersion": TABLE_PROTOCOL_VERSION,
+        "tableReferenceWireVersion": TABLE_REFERENCE_WIRE_VERSION,
         "regionPlanVersion": REGION_PLAN_VERSION,
         "model": model_identity,
     }
@@ -479,6 +484,16 @@ def extract_schema_from_stream(
                         raise ValueError
                 if state.get("kind") == "record_table" and rid not in accepted:
                     raise ValueError
+                meaning = state.get("meaning", {})
+                if (
+                    meaning.get("attempts") or "inputPreflight" in meaning
+                ) and "referenceWire" not in meaning:
+                    raise ValueError
+                if "referenceWire" in meaning:
+                    region = next(r for r in regions if r["id"] == rid)
+                    validate_meaning_wire_identity(
+                        region_payload(observation, region), meaning["referenceWire"]
+                    )
             failures = dict(restore["failures"])
             repair_diagnostics = copy.deepcopy(restore.get("repairDiagnostics", {}))
             if not isinstance(repair_diagnostics, dict) or any(
@@ -735,6 +750,27 @@ def extract_schema_from_stream(
     except CompileError as exc:
         issues.append({"code": str(exc)})
         catalog = None
+    if restore is not None and catalog is not None:
+        for region in regions:
+            rid = region["id"]
+            progress = table_states.get(rid, {}).get("meaning", {})
+            if "referenceWire" not in progress:
+                continue
+            try:
+                payload = region_payload(observation, region) | {
+                    "intent": selected.intent,
+                    "targetHandles": catalog,
+                }
+                expected = prepare_meaning_wire(
+                    meaning_payload(
+                        payload, accepted[rid], compiled[rid], source_inventory(observation, region)
+                    ),
+                    meaning_schema(observation, region, accepted[rid], catalog),
+                ).identity
+                if expected != progress["referenceWire"]:
+                    raise ValueError
+            except (ValueError, TypeError, KeyError):
+                raise ValueError("checkpoint is incompatible with table reference wire") from None
 
     def issue(code, **details):
         item = {"code": code, **details}
@@ -837,6 +873,7 @@ def extract_schema_from_stream(
         result["provenance"]["model"] = client.identity if client else None
         result["provenance"]["scopeIntegrationVersion"] = SCOPE_VERSION
         result["provenance"]["tableProtocolVersion"] = TABLE_PROTOCOL_VERSION
+        result["provenance"]["tableReferenceWireVersion"] = TABLE_REFERENCE_WIRE_VERSION
         complete = (
             any(c.has_data for c in compiled.values())
             and bool(compiled)
@@ -880,7 +917,7 @@ def extract_schema_from_stream(
     def remaining():
         return max_seconds - prior_elapsed - (time.monotonic() - started)
 
-    def invoke(system, payload, contract, feedback=None, *, table_stage=None):
+    def invoke(system, payload, contract, feedback=None, *, table_stage=None, meaning_wire=None):
         if cancelled and cancelled():
             raise ModelError("ai_cancelled")
         if usage["modelCalls"] >= max_calls:
@@ -897,9 +934,23 @@ def extract_schema_from_stream(
             {"role": "system", "content": system},
             {"role": "user", "content": encode(content)},
         ]
-        if sum(len(m["content"]) for m in messages) > min(
+        total_chars = sum(len(m["content"]) for m in messages)
+        input_limit = min(
             selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
-        ):
+        )
+        if table_stage is not None:
+            table_stage["inputPreflight"] = {
+                "stage": payload["tableStage"],
+                "phase": "repair" if feedback is not None else "initial",
+                "systemCharacters": len(system),
+                "payloadCharacters": len(encode(payload)),
+                "outputContractCharacters": len(encode(contract)),
+                "feedbackCharacters": len(encode(feedback)) if feedback is not None else 0,
+                "totalMessageContentCharacters": total_chars,
+                "limitCharacters": input_limit,
+                "withinBudget": total_chars <= input_limit,
+            }
+        if total_chars > input_limit:
             raise ModelError("region_context_budget_exceeded")
         stage_started = time.monotonic()
         stage_before = dict(usage)
@@ -952,8 +1003,10 @@ def extract_schema_from_stream(
                         usage[dest] += count
                 if response.finish_reason != "stop":
                     raise ModelError("ai_response_incomplete")
-                return decode(response.text)
-            return decode(client.complete(messages, timeout=timeout))
+                value = decode(response.text)
+            else:
+                value = decode(client.complete(messages, timeout=timeout))
+            return meaning_wire.decode(value) if meaning_wire is not None else value
         finally:
             if table_stage is not None:
                 stage_usage = table_stage.setdefault("usage", {})
@@ -1034,8 +1087,30 @@ def extract_schema_from_stream(
             )
             while _table_call_available(stage, progress):
                 try:
+                    try:
+                        wire = (
+                            prepare_meaning_wire(request, contract, progress.get("feedback"))
+                            if stage == "meaning"
+                            else None
+                        )
+                    except (ValueError, TypeError, KeyError):
+                        # Preparation is not a model response. Repeating it cannot
+                        # spend a model attempt or repair a deterministic failure.
+                        raise ModelError("table_reference_wire_preparation_failed") from None
+                    if wire is not None:
+                        if (
+                            "referenceWire" in progress
+                            and progress["referenceWire"] != wire.identity
+                        ):
+                            raise ModelError("table_reference_wire_checkpoint_mismatch")
+                        progress["referenceWire"] = copy.deepcopy(wire.identity)
                     value = invoke(
-                        system, request, contract, progress.get("feedback"), table_stage=progress
+                        system,
+                        wire.payload if wire is not None else request,
+                        wire.contract if wire is not None else contract,
+                        wire.feedback if wire is not None else progress.get("feedback"),
+                        table_stage=progress,
+                        meaning_wire=wire,
                     )
                     if stage == "structure":
                         decision, candidate = structural_ir(value, observation, region)
@@ -1178,6 +1253,8 @@ def extract_schema_from_stream(
             table = observation.tables[region["tableRef"]]
             original_table = table.get("sourceTableRef", region["tableRef"])
             for prior_ir in accepted.values():
+                if prior_ir.regionId == rid:
+                    continue
                 prior = next(
                     (
                         r
