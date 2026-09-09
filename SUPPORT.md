@@ -307,7 +307,7 @@ including Windows. Build completion is separate. These development runs are not 
 final candidate.
 
 After adapter v24 and the offline-stage assembler, core regression passed
-**1,554 tests, with 212 skipped and 12 subtests**; Ruff and formatting checks passed.
+**1,560 tests, with 212 skipped and 12 subtests**; Ruff and formatting checks passed.
 The separate recognition-runtime overlay passed **399 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
@@ -386,6 +386,23 @@ interpreter metadata unchanged; required mappings and the unique system loader m
 observed hashes. Both probes exited cleanly and removed their owned containers. These
 checks do not approve full OpenCV execution, portable-stage placement, corresponding
 sources or redistribution terms.
+
+The first full ARM stage attempt installed all 103 pinned distributions offline but
+stopped at two legitimate shared console-script owners; inspection also found that
+isolated Python had ignored the environment-only no-bytecode setting. Its failed
+receipt and partial files remain preserved. After explicit `-B` and source/RECORD-bound
+shared-owner validation, a fresh-source, fresh-output attempt completed in 56.19 seconds
+(38.96 seconds assembly, 11.08 seconds relocated probe). The relocated stage contains
+32,023 files and 2,201,045,715 bytes, unchanged before and after 17 headless imports,
+one CPU PNG operation and Tesseract version/language checks. All 103 distributions,
+178 actual mapped files, the unique system loader and the loaded selected OS files
+were checked. Six original auxiliary scripts and the manpage remain preserved;
+auxiliary CLI execution is not claimed.
+The enforced container had four CPUs, 16 GiB memory, no extra swap, no network or GPU;
+its cgroup peak was 5,098,418,176 bytes, with zero swap/OOM events. Exit 0 and owned
+container cleanup were confirmed. Model weights were not loaded and no document/OCR
+job was run. Native inputs still came from the earlier pinned development build:
+this is not same-candidate full-pipeline, redistribution or release qualification.
 
 ### Earlier release-preparation history
 
