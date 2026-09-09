@@ -364,3 +364,79 @@ def test_linux_gcc_major_notice_and_runtime_hashes(tmp_path, monkeypatch, has_ex
         assert len(result["notices"]) == 2
         assert len(result["staticRuntimes"]) == 3
         assert result["notices"][0]["sha256"] == native.sha(copyright_file)
+
+
+def test_hash_mismatch_records_exact_source_and_observed_hash_without_secrets(
+    tmp_path, monkeypatch
+):
+    payload = b"not the approved source"
+    item = {"id": "zlib", "sha256": "a" * 64, "url": "https://example.org/source.tar.gz"}
+    response = io.BytesIO(payload)
+    response.url = "https://cdn.example.org/source.tar.gz?signature=SECRET#token"
+    response.status = 200
+    response.headers = {
+        "Content-Type": "text/html",
+        "Set-Cookie": "SECRET",
+        "Content-Length": str(len(payload)),
+        "Authorization": "SECRET",
+    }
+    monkeypatch.setattr(native.urllib.request, "urlopen", lambda *_a, **_k: response)
+    evidence = tmp_path / "evidence.json"
+    with pytest.raises(native.BuildError, match="download hash mismatch: zlib expected="):
+        native.acquire(item, tmp_path / "cache", True, evidence)
+    record = json.loads(evidence.read_text())
+    assert record["status"] == "failed"
+    assert record["observedSha256"] == native.hashlib.sha256(payload).hexdigest()
+    assert record["observedBytes"] == len(payload)
+    assert record["httpStatus"] == 200
+    assert record["responseHeaders"] == {
+        "Content-Type": "text/html",
+        "Content-Length": str(len(payload)),
+    }
+    assert record["responseUrl"] == "https://cdn.example.org/source.tar.gz"
+    assert "SECRET" not in evidence.read_text() and "Set-Cookie" not in evidence.read_text()
+    assert not any((tmp_path / "cache").iterdir())
+
+
+def test_verified_cached_input_has_acquisition_receipt_without_network(tmp_path, monkeypatch):
+    source = tmp_path / "cache"
+    source.mkdir()
+    payload = b"approved input"
+    digest = native.hashlib.sha256(payload).hexdigest()
+    (source / digest).write_bytes(payload)
+    monkeypatch.setattr(native.urllib.request, "urlopen", lambda *_a, **_k: pytest.fail("network"))
+    evidence = tmp_path / "evidence.json"
+    assert (
+        native.acquire(
+            {"id": "zlib", "sha256": digest, "url": "https://example.org/source"},
+            source,
+            False,
+            evidence,
+        )
+        == source / digest
+    )
+    record = json.loads(evidence.read_text())
+    assert record["status"] == "verified" and record["downloaded"] is False
+    assert record["observedSha256"] == digest
+
+
+def test_interrupted_source_read_preserves_partial_hash_and_removes_partial(tmp_path, monkeypatch):
+    class Interrupted(io.BytesIO):
+        def read(self, *args):
+            if self.tell():
+                raise OSError("transport failure with sensitive details")
+            return super().read(3)
+
+    response = Interrupted(b"abc123")
+    response.url = "https://example.org/source"
+    monkeypatch.setattr(native.urllib.request, "urlopen", lambda *_a, **_k: response)
+    evidence = tmp_path / "evidence.json"
+    with pytest.raises(OSError):
+        native.acquire(
+            {"sha256": "a" * 64, "url": response.url}, tmp_path / "cache", True, evidence
+        )
+    record = json.loads(evidence.read_text())
+    assert record["observedSha256"] == native.hashlib.sha256(b"abc").hexdigest()
+    assert record["observedBytes"] == 3 and record["errorType"] == "OSError"
+    assert "sensitive" not in evidence.read_text()
+    assert not any((tmp_path / "cache").iterdir())

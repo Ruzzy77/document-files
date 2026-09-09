@@ -119,14 +119,19 @@ def unpack(archive, output):
             raise ValueError("ZIP inspection resource limit")
         seen = set()
         for entry in entries:
-            name = PurePosixPath(entry.filename)
+            # ZipInfo normalizes backslashes on Windows and truncates NULs.
+            # Inspect the original central-directory name before using its view.
+            original = entry.orig_filename
+            name = PurePosixPath(original)
             mode = entry.external_attr >> 16
             if (
-                not entry.filename
-                or "\\" in entry.filename
+                not original
+                or original != entry.filename
+                or "\\" in original
+                or "\x00" in original
                 or name.is_absolute()
                 or ".." in name.parts
-                or ":" in entry.filename
+                or ":" in original
                 or str(name) in seen
                 or (mode & 0o170000) not in (0, 0o100000, 0o040000)
                 or entry.file_size > 5 * 1024**3

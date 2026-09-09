@@ -23,6 +23,18 @@ def run(*args, cwd=None, env=None):
     subprocess.run(args, cwd=cwd, env=env, check=True)
 
 
+def rustc_version(source, env):
+    # rustup resolves the source's pinned toolchain relative to its working
+    # directory, just as in the preceding Cargo invocation. Respect Cargo's
+    # explicit RUSTC override when one is present instead of reporting a proxy.
+    return subprocess.check_output(
+        [env.get("RUSTC") or "rustc", "--version", "--verbose"],
+        cwd=source,
+        env=env,
+        text=True,
+    ).strip()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -89,9 +101,7 @@ def main():
         "binarySha256": hashlib.sha256(built.read_bytes()).hexdigest(),
         "linuxAbi": linux_abi,
         "linuxToolchain": linux_toolchain,
-        "rustcVersion": subprocess.check_output(
-            ["rustc", "--version", "--verbose"], text=True
-        ).strip(),
+        "rustcVersion": rustc_version(source, build_env),
     }
     if linux_abi:
         shutil.copy2(source / "rhwp-abi.txt", destination.parent / "rhwp-abi.txt")

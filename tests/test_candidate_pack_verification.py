@@ -162,6 +162,8 @@ def test_cpu_runtime_workflow_has_narrow_triggers_matching_hosts_and_real_window
         "scripts/windows_runtime_notice.py",
         "tests/test_windows_runtime_notice.py",
         "scripts/build_cpu_runtime.py",
+        "scripts/linux_abi.py",
+        "tests/test_linux_abi.py",
         ".github/workflows/cpu-runtime.yml",
     }
     assert "workflow_dispatch:" in body and "pull_request:" not in body

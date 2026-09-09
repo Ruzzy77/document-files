@@ -65,11 +65,17 @@ def test_audit_binds_exact_bytes_and_evidence(tmp_path, monkeypatch):
     assert result["rawEvidence"]["sha256"] == abi.sha(evidence)
 
 
-@pytest.mark.parametrize("name", ["../escape", "/absolute", "a\\b", "C:/drive"])
+@pytest.mark.parametrize("name", ["../escape", "/absolute", "a\\b", "C:/drive", "a\x00b"])
 def test_zip_rejects_unsafe_paths(tmp_path, name):
     archive = tmp_path / "input.zip"
+    placeholder = "x" * len(name)
     with zipfile.ZipFile(archive, "w") as bundle:
-        bundle.writestr(name, b"x")
+        bundle.writestr(placeholder, b"payload")
+    # The ZIP writer also normalizes names on Windows. Patch equal-length local
+    # and central names to exercise an actually unsafe incoming archive there.
+    raw = archive.read_bytes()
+    assert raw.count(placeholder.encode()) == 2
+    archive.write_bytes(raw.replace(placeholder.encode(), name.encode()))
     with pytest.raises(ValueError):
         abi.unpack(archive, tmp_path / "unpacked")
 
@@ -157,6 +163,26 @@ def test_rhwp_existing_output_rejected_before_commands(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "run", lambda *a, **k: pytest.fail("unexpected command"))
     with pytest.raises(SystemExit):
         module.main()
+
+
+@pytest.mark.parametrize("override", [None, "/explicit/rustc"])
+def test_rhwp_rustc_version_uses_source_toolchain_and_build_environment(
+    tmp_path, monkeypatch, override
+):
+    spec = importlib.util.spec_from_file_location("patched", SCRIPTS / "build_patched_rhwp.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    env = {"PATH": "/toolchain/bin"}
+    if override:
+        env["RUSTC"] = override
+
+    def check(command, **kwargs):
+        assert command == [override or "rustc", "--version", "--verbose"]
+        assert kwargs == {"cwd": tmp_path, "env": env, "text": True}
+        return "rustc 1.93.1 (source-pinned fixture)\n"
+
+    monkeypatch.setattr(module.subprocess, "check_output", check)
+    assert module.rustc_version(tmp_path, env) == "rustc 1.93.1 (source-pinned fixture)"
 
 
 def test_binary_mutation_during_inspection_is_rejected(tmp_path, monkeypatch):

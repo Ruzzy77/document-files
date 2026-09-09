@@ -16,6 +16,7 @@ by this helper. Linux glibc floor is measured, not asserted as an older baseline
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -104,23 +105,47 @@ def load_pins(path: Path) -> dict:
     return pins
 
 
-def acquire(source: dict, cache: Path, download: bool) -> Path:
+def acquisition_url(value):
+    """Never retain redirect credentials, query signatures, or fragments."""
+    parsed = urllib.parse.urlsplit(value)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
+
+
+def acquire(source: dict, cache: Path, download: bool, evidence: Path | None = None) -> Path:
     destination = cache / source["sha256"]
-    if destination.is_symlink():
-        raise BuildError("symlink in source cache")
-    if not destination.exists():
-        if not download:
-            raise BuildError(f"missing pinned input: {source['sha256']}")
-        cache.mkdir(parents=True, exist_ok=True)
-        partial = destination.with_suffix(".partial")
-        request = urllib.request.Request(
-            source["url"], headers={"User-Agent": "Document-Files-native-builder"}
-        )
-        created = False
-        try:
+    partial = destination.with_suffix(".partial")
+    created = False
+    record = {
+        "schemaVersion": "document-files.native-source-acquisition.v1",
+        "sourceId": source.get("id", source.get("path", source["sha256"])),
+        "sourceUrl": acquisition_url(source["url"]),
+        "expectedSha256": source["sha256"],
+        "startedAt": datetime.datetime.now(datetime.UTC).isoformat(),
+        "status": "pending",
+        "downloaded": False,
+    }
+    try:
+        if destination.is_symlink():
+            raise BuildError("symlink in source cache")
+        if not destination.exists():
+            if not download:
+                raise BuildError(f"missing pinned input: {source['sha256']}")
+            cache.mkdir(parents=True, exist_ok=True)
+            request = urllib.request.Request(
+                source["url"], headers={"User-Agent": "Document-Files-native-builder"}
+            )
             with partial.open("xb") as out:
                 created = True
+                record["downloaded"] = True
                 with urllib.request.urlopen(request, timeout=60) as response:
+                    record["responseUrl"] = acquisition_url(response.url)
+                    record["httpStatus"] = getattr(response, "status", None)
+                    headers = getattr(response, "headers", {})
+                    record["responseHeaders"] = {
+                        name: str(headers[name])[:1024]
+                        for name in ("Content-Type", "Content-Length", "Content-Encoding")
+                        if name in headers
+                    }
                     if not response.url.startswith("https://"):
                         raise BuildError("non-HTTPS redirect")
                     count = 0
@@ -129,15 +154,35 @@ def acquire(source: dict, cache: Path, download: bool) -> Path:
                         if count > 64 * 1024 * 1024:
                             raise BuildError("source download size limit")
                         out.write(chunk)
-            if sha(partial) != source["sha256"]:
-                raise BuildError("download hash mismatch")
+            observed = sha(partial)
+            record.update(observedSha256=observed, observedBytes=partial.stat().st_size)
+            if observed != source["sha256"]:
+                raise BuildError(
+                    f"download hash mismatch: {record['sourceId']} "
+                    f"expected={source['sha256']} observed={observed} "
+                    f"bytes={record['observedBytes']}"
+                )
             partial.rename(destination)
-        finally:
-            if created:
-                partial.unlink(missing_ok=True)
-    if not destination.is_file() or sha(destination) != source["sha256"]:
-        raise BuildError("source hash mismatch")
-    return destination
+        if not destination.is_file():
+            raise BuildError("source cache entry is not a regular file")
+        record.update(observedSha256=sha(destination), observedBytes=destination.stat().st_size)
+        if record["observedSha256"] != source["sha256"]:
+            raise BuildError("source hash mismatch")
+        record["status"] = "verified"
+        return destination
+    except (BuildError, OSError) as exc:
+        record["status"] = "failed"
+        # Error class only: transport exception strings may contain signed URLs.
+        record["errorType"] = type(exc).__name__
+        raise
+    finally:
+        if created and partial.is_file():
+            record.update(observedSha256=sha(partial), observedBytes=partial.stat().st_size)
+            partial.unlink()
+        record["endedAt"] = datetime.datetime.now(datetime.UTC).isoformat()
+        if evidence is not None:
+            with evidence.open("x", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, indent=2) + "\n")
 
 
 def unpack(archive: Path, destination: Path) -> Path:
@@ -510,7 +555,9 @@ def run_build(args) -> dict:
         json.dumps(runtime_notices, indent=2) + "\n", encoding="utf-8"
     )
     for source in pins["sources"]:
-        archive = acquire(source, args.cache.resolve(), args.download)
+        archive = acquire(
+            source, args.cache.resolve(), args.download, logs / f"acquire-{source['id']}.json"
+        )
         source_root = unpack(archive, work / "sources" / source["id"])
         for notice in source["notices"]:
             original = source_root / notice["path"]
@@ -597,7 +644,10 @@ def run_build(args) -> dict:
     if args.with_tessdata:
         for item in pins["tessdata"]:
             shutil.copyfile(
-                acquire(item, args.cache.resolve(), args.download), tessdata / item["path"]
+                acquire(
+                    item, args.cache.resolve(), args.download, logs / f"acquire-{item['path']}.json"
+                ),
+                tessdata / item["path"],
             )
             if item["path"].endswith(".traineddata"):
                 expected_languages.append(item["path"].removesuffix(".traineddata"))
