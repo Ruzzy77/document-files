@@ -618,6 +618,7 @@ def prepared_model(prepared_v2, tmp_path):
 def test_v2_models_same_basename_acquired_into_unique_ids_without_network(prepared_model):
     args, _, _, models = prepared_model
     args.acquire = args.download = True
+    args.max_download_bytes = 1
     result = helper.prepare(args)
     assert result["status"] == "inputs-acquired-not-stage-approved"
     assert result["selectedInputsReady"] is True
@@ -679,10 +680,13 @@ def test_v2_missing_model_never_falls_back_to_download(prepared_model, monkeypat
     args, _, _, models = prepared_model
     (args.reuse_root / models[0]["assemblyPath"]).unlink()
     args.acquire = args.download = True
+    args.max_download_bytes = 1
     monkeypatch.setattr(
         helper, "supervise", lambda *a: pytest.fail("missing model triggered transfer")
     )
-    assert helper.prepare(args)["status"] == "not-ready"
+    receipt = helper.prepare(args)
+    assert receipt["status"] == "not-ready"
+    assert receipt["preflight"]["downloadBytes"] == 0
 
 
 def test_v2_model_worker_rejects_download_even_if_job_is_wrong(tmp_path, monkeypatch):

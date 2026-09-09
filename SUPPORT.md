@@ -66,8 +66,9 @@ access require separate flags. It neither installs inputs nor approves a stage. 
 legacy ARM inventory fails readiness checks. The normalized v2 inventory instead
 selects explicit input components and preserves unresolved full-stage requirements
 separately. Its 117 files and 873,482,385 bytes pass metadata and local-original checks;
-models remain local-copy-only. Native inputs, dynamic-library closure and actual stage
-assembly/qualification remain unresolved.
+models remain local-copy-only. One bounded acquisition then verified all 117 files
+(873,482,385 bytes) in 540.16 seconds; none were installed or executed. Native inputs,
+dynamic-library closure and actual stage assembly/qualification remain unresolved.
 
 ### Current source follow-up: table meaning, visual observations and Linux compatibility
 

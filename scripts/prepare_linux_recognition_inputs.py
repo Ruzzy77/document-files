@@ -517,8 +517,14 @@ def inventory_plan(args, deadline):
                 if path.stat().st_size != row["size"]:
                     raise ValueError("local original size mismatch")
                 row["localPath"] = str(path)
-        row["method"] = "copy" if row.get("localPath") else "download"
-        if row["method"] == "download" and (not args.download or row.get("localCopyOnly")):
+        row["method"] = (
+            "copy"
+            if row.get("localPath")
+            else "unavailable"
+            if row.get("localCopyOnly")
+            else "download"
+        )
+        if row["method"] == "unavailable" or (row["method"] == "download" and not args.download):
             missing.append(
                 {
                     "component": row["name"],

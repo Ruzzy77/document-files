@@ -101,8 +101,11 @@ from `selectedInputsReady`. Preparing inputs is not readiness to install or run 
 Model originals require an explicit absolute `--reuse-root` and use local copies only.
 Their pinned publisher URLs are provenance, not network-acquisition permission; a
 missing local model never becomes a download. Use the verified inventory's reuse root,
-not a guessed downloads subdirectory. The current normalized ARM input set passes
-offline preflight and local-byte checking; full stage assembly remains unqualified.
+not a guessed downloads subdirectory. The normalized ARM input set passed offline
+preflight and local-byte checking, then one bounded acquisition verified all 117 files
+in 540.16 seconds. Its receipt still states `stageApproved: false` and
+`releaseQualified: false`; this is not an installed recognition stage or an approval
+to execute its contents.
 
 `acquisition.json` records the inventory, preparer hash, limits, verified bytes,
 remaining inputs and failure/cleanup results. Redirects are bounded and validated
