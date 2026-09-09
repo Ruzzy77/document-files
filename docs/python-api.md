@@ -70,7 +70,8 @@ from document_files.profiles import profile_clients
 with profile_clients("/absolute/path/server.json", "cpu") as (model, observation):
     result = extract_schema(
         "/absolute/path/document.pdf",
-        model_client=model, observation_backend=observation,
+        model_client=model,
+        observation_backend=observation,
         options={"reconstructionContext": False},
     )
 ```
@@ -116,7 +117,8 @@ to compact region interpretation.
 from document_files.api import resume_extraction, get_extraction, delete_extraction
 
 result = resume_extraction(
-    "stable", model_client=client,
+    "stable",
+    model_client=client,
     additional_budget={"maxModelCalls": 4, "completionSeconds": 300},
 )
 page = get_extraction("stable", section="valueEvidence", offset=0, limit=100)
@@ -201,7 +203,7 @@ They are optional measurements, not an accuracy certificate or timeout usage rec
 
 ### Internal table stages
 
-Prompt v16 / planner v10 / table protocol v2 use a structural classification first.
+Prompt v18 / planner v12 / table protocol v4 use a structural classification first.
 Record tables compile one record definition before interpreting meanings over fixed
 IDs; scalar forms retain their binding-based path. `coverage.tableInterpretation`
 records each stage's attempts, status and usage. `structure_compiled` means retained
@@ -209,6 +211,15 @@ partial work, not complete extraction. Compiler v13 rejects broad unbounded
 parent/child scope unions while preserving explicit bounded row intersections.
 Public AnalysisJob v1, AnalysisResult v1 and extraction result contracts remain;
 private checkpoint v2 checks the changed protocol identities.
+
+Stage-one row decisions use `{row, role}`; actual row sources and wholly declared
+header roles are attached by the program. Missing source cells are never shifted or
+created. Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
+`rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
+The internal wire is converted to the unchanged source-linked Meaning IR. Accounting
+repair may add source-bound statements or resolve uncertain scopes, but cannot remove
+accepted statements or change compiled structure/values to reduce issues. An accepted
+response or interpreted scope denotes mechanical validity, not verified meaning quality.
 
 ### Internal input compaction
 

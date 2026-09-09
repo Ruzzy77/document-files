@@ -89,7 +89,7 @@ def test_notices_preserve_component_specific_licenses_and_embedded_notices(tmp_p
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"Entire upstream notice: {original}\nEmbedded third-party notice\n")
     microsoft = tmp_path / "runtime-license.txt"
-    microsoft.write_text("Microsoft runtime redistribution license")
+    microsoft.write_text("MICROSOFT VISUAL STUDIO 2022 test fixture. Distributable code.")
     licenses, components, files = builder.stage_notices(source, stage, microsoft)
     by_name = {component["name"]: component for component in components}
     assert by_name["xxHash"]["licenses"] == [{"expression": "BSD-2-Clause"}]

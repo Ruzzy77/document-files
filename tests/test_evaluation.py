@@ -362,9 +362,11 @@ def add_inventory(inference):
 def test_exact_artifact_inventory_is_linked(inference, monkeypatch):
     add_inventory(inference)
     # This unit covers report linkage only; byte verification has independent tests.
-    monkeypatch.setattr(run, "verify_executed_source", lambda *args: (
-        {"verification": "synthetic-linkage-fixture-not-qualification"}, "a" * 40
-    ))
+    monkeypatch.setattr(
+        run,
+        "verify_executed_source",
+        lambda *args: ({"verification": "synthetic-linkage-fixture-not-qualification"}, "a" * 40),
+    )
     path, report, _ = execute(inference)
     args, _, _ = inference
     assert report["artifacts"] == ["core-wheel"]

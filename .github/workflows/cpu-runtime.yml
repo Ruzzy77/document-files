@@ -1,7 +1,7 @@
 name: Build pinned native CPU runtime candidates
 on:
   push:
-    paths: ['scripts/build_cpu_runtime.py', '.github/workflows/cpu-runtime.yml']
+    paths: ['scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', 'scripts/build_cpu_runtime.py', '.github/workflows/cpu-runtime.yml']
   workflow_dispatch:
     inputs:
       pack_version:
@@ -72,10 +72,11 @@ jobs:
             Where-Object {
               $text = Get-Content -LiteralPath $_.FullName -Raw
               $text = [regex]::Replace($text, '\\[a-zA-Z]+-?\d* ?', ' ') -replace '[{}]', ' '
-              $text -match '(?is)MICROSOFT.{0,250}VISUAL\s+STUDIO' -and
+              $text -match '(?is)^.{0,700}MICROSOFT.{0,120}VISUAL\s+STUDIO.{0,100}2022' -and
+                $text -notmatch '(?is)^.{0,700}(PRE[- ]?RELEASE\s+SOFTWARE|VS2015_CTP_EVAL)' -and
                 $text -match '(?is)distributable.{0,30}code|redistribut'
             })
-          if (-not $licenses.Count) { throw 'Installed Visual Studio License.rtf with redistribution terms not found; do not fabricate a notice' }
+          if (-not $licenses.Count) { throw 'Matching Visual Studio 2022 license not found; an extension preview EULA cannot substitute for installed-product terms' }
           $hashes = @($licenses | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } | Sort-Object -Unique)
           if ($hashes.Count -ne 1) { throw 'Ambiguous installed Visual Studio licenses; resolve exact edition/license on the host' }
           $license = ($licenses | Sort-Object FullName | Select-Object -First 1).FullName

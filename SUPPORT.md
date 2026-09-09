@@ -55,12 +55,18 @@ none oversized, instead of 18 regions with 15 oversized inputs. The actual rerun
 still failed after 2 calls / 373 seconds because the model emitted repeated copies
 of the same records until the output limit. Source observations were not truncated.
 
-Prompt v16 / planner v10 / table protocol v2 now separate one record-structure
+Prompt v18 / planner v12 / table protocol v4 now separate one record-structure
 decision from meaning over its frozen compiled values. Label/value forms use the
 existing scalar path. Stage attempts and usage are checkpointed; each stage permits
 at most two calls within the unchanged total budget. Cancellation, invalid meaning
 or budget exhaustion preserves a compiled structure, not a complete extraction.
-Header-only rows and shifted data-row references are rejected before freezing.
+Row-role decisions contain only row and role; provenance is attached from actual
+observed geometry, with missing cells left missing. Rows whose observed cells are
+all explicitly declared headers are fixed by the program; mixed or unknown header
+flags still require interpretation. Meaning scopes exclusively select columns, the
+record, bounded row/column intersections, or unresolved applicability. Bounded
+accounting repair preserves prior statements and frozen values; accepting a wire
+response is not independent semantic approval.
 Compiler v13 leaves unbounded parent/child meaning scopes unresolved instead of
 silently broadening column assertions; explicitly bounded row intersections remain.
 
@@ -69,7 +75,19 @@ an extra header record. After structural checks, a bounded 5-call / 258-second r
 preserved exactly two source records and precision. It still failed semantic review:
 the unit scope was unresolved after an invalid broad selection, and caption accounting
 was incomplete. The previous single-stage development pass does not qualify this new
-protocol. Do not increase a failed run's budget automatically or call it a quality pass.
+protocol. With the latest protocol, a fresh 3-call / 277-second run compiled exactly
+two rows on the first attempt, but merged caption unit/condition statements into a
+record-wide condition and incorrectly called data-row summaries units. The repair
+repeated that response; the result remains partial and fails content review. A saved-
+recognition whole-scan attempt on protocol v2 used its 12-call cap / 761 seconds and
+failed sparse-row mapping. Do not increase failed budgets or treat syntax/structure
+acceptance as quality approval. A latest-protocol first-scan-table probe (one exact
+paragraph replay, two real calls / 222 seconds, planned stop after that table) kept
+sparse data cells in their actual positions and the missing note uncertain, but included
+the header as an extra record and produced a false unit/data summary. Its two stages
+were mechanically complete; content review still failed. Neither whole-document nor
+fresh-recognition qualification was attempted. Subtotal/note scalar preservation still
+needs work.
 
 Recognition adapter v10 retains original raw OCR detections and a bidirectional
 processing ledger, separate native-text support, and a source-bound full-visible-page
@@ -80,7 +98,7 @@ issue has been removed. Full visual-content and reading-order accounting is unfi
 The current blanket recognition-completeness issue still blocks every recognition-backed
 PDF from the complete-only release gate. This remains a release blocker.
 
-Current core regression: **685 passed, 10 skipped, 12 subtests passed**; full Ruff passes.
+Current core regression: **744 passed, 10 skipped, 12 subtests passed**; full Ruff passes.
 The separate recognition-runtime test overlay passed 60 PDF/OCR tests; exact final
 recognition bundles remain unqualified. Eleven input/specification cases covering nine
 formats are prepared but have not undergone final model evaluation.
@@ -95,11 +113,19 @@ These tools do not supply missing platform, client or model-quality evidence.
 
 Actual CI passed the Linux 16 GiB / four-CPU, swap-free, network-isolated preflight
 and all four pinned CPU runtime builds. The preflight ran only a small synthetic
-allocation, not OCR or inference. Linux, Windows and Apple Silicon portable core builds and
-Python-free CLI/MCP smoke passed on an intermediate commit; this is not final-candidate
-or installed-client qualification. Linux native recognition dependencies built and
-passed relocated startup/language discovery; Windows build correction awaits rerun.
-Compiler runtime notices are collected but redistribution review remains pending.
+allocation, not OCR or inference. All four platforms, including Intel Mac, passed
+portable core builds and Python-free CLI/MCP smoke on intermediate commit 526f25d;
+this is not final-candidate or installed-client qualification. Linux native recognition
+dependencies built and passed relocated startup/language discovery. Windows native
+recognition then failed an optional SW package-manager dependency; the builder now
+disables it explicitly, with target rerun still required.
+
+Notice review found that the earlier Windows CPU candidate and recognition build
+selected an extension's VS2015 preview EULA, not the installed VS2022 product terms.
+Those candidates are ineligible for release. Both builders now reject that mismatch;
+a matching identity screen still does not approve redistribution. Exact installed-edition
+terms, static-runtime rights and final bundled notices remain independently reviewable
+release blockers. Linux notices now include explicit IJG and Berkeley acknowledgments.
 The built Linux CPU runtime requires glibc 2.38: the earlier bookworm preflight image
 is not a compatible full-inference image. Final image/pack compatibility must be checked. The existing
 Apple Silicon development pack remains selected for development runs; new runtime

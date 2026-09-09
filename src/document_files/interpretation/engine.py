@@ -60,6 +60,7 @@ from .semantic_types import (
     _compact_contract,
     region_output_schema,
 )
+from .table_meaning import meaning_to_wire
 from .table_protocol import (
     MEANING_SYSTEM,
     STAGE_MAX_CALLS,
@@ -83,6 +84,76 @@ def _feedback_code(issue):
         if issue.get(key):
             return f"{issue['code']}:{issue[key]}"
     return issue["code"]
+
+
+def _table_meaning_issues(fragment):
+    # These can be fixed by a meaning/disposition response, unlike OCR values,
+    # record geometry, or applicability handled by the separate scope protocol.
+    return [
+        i
+        for i in fragment.issues
+        if i.get("code")
+        in {
+            "node_semantics_unaccounted",
+            "note_scope_unresolved",
+        }
+    ]
+
+
+def _meaning_feedback(ir, fragment, extra=()):
+    return {
+        "issues": [*extra, *[_feedback_code(i) for i in _table_meaning_issues(fragment)]],
+        "acceptedMeanings": [meaning_to_wire(m, ir) for m in ir.meanings],
+        "instruction": (
+            "Repair only the reported meaning/accounting issues. Preserve every accepted "
+            "statement's id, kind, description and sourceRefs exactly; do not remove, merge "
+            "or rewrite its text. Preserve already interpreted scopes/status. You may resolve "
+            "uncertain scopes and add source-bound statements. Return the full meaning response, "
+            "not a patch. Do not change the frozen record structure or values."
+        ),
+    }
+
+
+def _meaning_repair_improves(before_ir, before, after_ir, after):
+    def signatures(items):
+        return {encode(item) for item in items}
+
+    if not signatures(_table_meaning_issues(after)) < signatures(_table_meaning_issues(before)):
+        return False
+    # A caption fix cannot trade away other established coverage. Fresh ambiguous
+    # statements may legitimately introduce a separate scope-integration task.
+    ignored = {
+        "node_semantics_unaccounted",
+        "note_scope_unresolved",
+        "semantic_scope_unresolved",
+        "semantic_scope_uncertain",
+    }
+    if not signatures(i for i in after.issues if i.get("code") not in ignored) <= signatures(
+        i for i in before.issues if i.get("code") not in ignored
+    ):
+        return False
+    meanings = {m.id: m for m in after_ir.meanings}
+    details = {m["id"]: m for m in before.semantic_details}
+    for old in before_ir.meanings:
+        new = meanings.get(old.id)
+        if new is None or (old.kind, old.description, set(old.sourceRefs)) != (
+            new.kind,
+            new.description,
+            set(new.sourceRefs),
+        ):
+            return False
+        if (
+            details.get(before_ir.regionId + ":" + old.id, {}).get("interpretationStatus")
+            == "interpreted"
+        ):
+            if new.status != old.status or (new.rowStart, new.rowEnd) != (old.rowStart, old.rowEnd):
+                return False
+            if any(
+                set(getattr(old, key)) != set(getattr(new, key))
+                for key in ("fieldIds", "groupIds", "repeatIds")
+            ):
+                return False
+    return True
 
 
 def _node_read_coverage(regions, accepted):
@@ -344,6 +415,8 @@ def extract_schema_from_stream(
                         "complete",
                         "failed",
                     }:
+                        raise ValueError
+                    if type(record.get("acceptedResponse", False)) is not bool:
                         raise ValueError
                     _restored_usage(record["usage"])
                     attempts = record.get("attempts", 0)
@@ -827,10 +900,24 @@ def extract_schema_from_stream(
                     # Meaning can add assertions/accounting, never change committed cells.
                     if stage == "meaning" and (
                         fragment.data != compiled[rid].data
+                        or fragment.schema != compiled[rid].schema
+                        or candidate.repeats != accepted[rid].repeats
+                        or candidate.fields != accepted[rid].fields
+                        or candidate.groups != accepted[rid].groups
                         or fragment.consumed_bindings != compiled[rid].consumed_bindings
                     ):
                         raise CompileError("table_meaning_changed_structure")
+                    if (
+                        stage == "meaning"
+                        and progress.get("acceptedResponse")
+                        and not _meaning_repair_improves(
+                            accepted[rid], compiled[rid], candidate, fragment
+                        )
+                    ):
+                        raise CompileError("table_meaning_repair_no_progress")
                     accepted[rid], compiled[rid] = candidate, fragment
+                    if stage == "meaning":
+                        progress["acceptedResponse"] = True
                     if stage == "structure":
                         state["kind"] = "record_table"
                     progress["status"] = "complete"
@@ -844,7 +931,13 @@ def extract_schema_from_stream(
                             and i.get("tableStage") == stage
                         )
                     ]
+                    if stage == "meaning" and _table_meaning_issues(fragment):
+                        progress.update(
+                            status="pending", feedback=_meaning_feedback(candidate, fragment)
+                        )
                     save("interpreting")
+                    if progress["status"] == "pending":
+                        continue
                     break
                 except ModelError:
                     progress["status"] = "failed"
@@ -854,7 +947,12 @@ def extract_schema_from_stream(
                     feedback = (
                         str(exc) if isinstance(exc, CompileError) else "invalid_table_contract"
                     )
-                    progress.update(status="failed", feedback=[feedback])
+                    repair = (
+                        _meaning_feedback(accepted[rid], compiled[rid], [feedback])
+                        if stage == "meaning" and progress.get("acceptedResponse")
+                        else [feedback]
+                    )
+                    progress.update(status="failed", feedback=repair)
                     issue("table_stage_invalid", regionId=rid, tableStage=stage, errors=[feedback])
                     save("interpreting")
             if progress["status"] != "complete":

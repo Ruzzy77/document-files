@@ -24,6 +24,7 @@ from document_files.interpretation.table_protocol import (
     meaning_payload,
     meaning_schema,
     structural_ir,
+    structure_payload,
     structure_schema,
 )
 
@@ -51,7 +52,7 @@ def record_response(payload):
             "rowStart": 0,
             "rowEnd": 2,
             "definitionRefs": list(headers.values()),
-            "rowRoles": [{"row": 0, "role": "header", "sourceRefs": list(headers.values())}],
+            "rowRoles": [],
             "columns": [
                 {
                     "id": "code",
@@ -186,16 +187,16 @@ def test_two_stages_preserve_exact_values_and_account_usage_without_duplicate_ou
     assert len(model.requests) == 2
 
 
-@pytest.mark.parametrize("mutation", ["header_as_data", "omitted_header", "wrong_data_refs"])
+@pytest.mark.parametrize("mutation", ["header_as_data", "submitted_header", "wrong_data_refs"])
 def test_structure_rejects_header_records_and_shifted_data_row_evidence(mutation):
     doc, region, _, value = fixture()
     roles = value["record"]["rowRoles"]
     if mutation == "header_as_data":
-        roles[0]["role"] = "data"
-    elif mutation == "omitted_header":
-        roles.clear()
+        roles.append({"row": 0, "role": "data"})
+    elif mutation == "submitted_header":
+        roles.append({"row": 0, "role": "header"})
     else:
-        roles.append({"row": 1, "role": "data", "sourceRefs": roles[0]["sourceRefs"]})
+        roles.append({"row": 1, "role": "data", "sourceRefs": value["record"]["definitionRefs"]})
     with pytest.raises(CompileError, match="table_structure_"):
         structural_ir(value, doc, region)
 
@@ -212,7 +213,11 @@ def test_unbounded_parent_and_column_scope_is_unresolved_not_silently_broadened(
         "fieldIds": ["size"],
         "repeatIds": ["records"],
     }
-    ir = meaning_ir({"regionId": region["id"], "meanings": [meaning]}, frozen)
+    # Public/internal IR retains its defensive legacy overlap validation.
+    from document_files.interpretation.semantic_types import Meaning
+
+    ir = frozen.model_copy(deep=True)
+    ir.meanings = [Meaning.model_validate(meaning)]
     fragment = compile_region(ir, doc, region)
     detail = next(d for d in fragment.semantic_details if d["id"].endswith(":unit"))
     assert detail["scope"] == []
@@ -221,9 +226,8 @@ def test_unbounded_parent_and_column_scope_is_unresolved_not_silently_broadened(
     assert fragment.data["records"][0]["size"] == "1.2300"
     # Explicit row bounds deliberately intersect the selected repeat and columns.
     meaning.update(rowStart=1, rowEnd=1)
-    bounded = compile_region(
-        meaning_ir({"regionId": region["id"], "meanings": [meaning]}, frozen), doc, region
-    )
+    ir.meanings = [Meaning.model_validate(meaning)]
+    bounded = compile_region(ir, doc, region)
     detail = next(d for d in bounded.semantic_details if d["id"].endswith(":unit"))
     assert detail["scope"] == [{"space": "data", "path": "/records/0/size"}]
     assert "scopeErrors" not in detail
@@ -235,7 +239,7 @@ def test_invalid_structure_is_repaired_before_it_can_be_frozen():
             response = super().infer(request)
             if len(self.requests) == 1:
                 value = json.loads(response.text)
-                value["record"]["rowRoles"] = []
+                value["record"]["rowRoles"] = [{"row": 0, "role": "data"}]
                 return InferenceResponse(json.dumps(value), response.usage)
             return response
 
@@ -416,3 +420,212 @@ def test_scalar_forms_keep_binding_path_and_ambiguous_tables_do_not_expand(kind)
     assert model.calls == before
     assert restored["data"] == result["data"]
     assert restored["extraction"]["status"] == result["extraction"]["status"]
+
+
+def sparse_fixture():
+    content = (
+        b"<table><tr><th>Code</th><th>Qty</th><th>Price</th><th>Note</th></tr>"
+        b"<tr><td>0007</td><td>2</td><td>1.2300</td></tr>"
+        b"<tr><td>0008</td><td>3</td><td>0.00</td><td>Checked</td></tr></table>"
+    )
+    doc = observe_document(content, "html", {})
+    region = prepare_regions(doc, context_chars=20000)[0]
+    table = doc.tables[region["tableRef"]]
+    # Simulate sequential OCR cell IDs: the absent row-1 Note has no ID at all.
+    for index, cell in enumerate(table["cells"]):
+        old_ref, new_ref = cell["sourceRef"], f"scan:table/cell/{index}"
+        doc.nodes[new_ref] = doc.nodes.pop(old_ref)
+        region["nodeIds"] = [new_ref if ref == old_ref else ref for ref in region["nodeIds"]]
+        for binding in doc.bindings.values():
+            if binding["sourceRef"] == old_ref:
+                binding["sourceRef"] = new_ref
+        cell["sourceRef"] = new_ref
+    payload = region_payload(doc, region)
+    value = record_response(payload)
+    value["record"]["columns"] = [
+        {
+            "id": key,
+            "key": key,
+            "label": key.title(),
+            "column": index,
+            "valueType": kind,
+            "definitionRefs": [f"scan:table/cell/{index}"],
+        }
+        for index, (key, kind) in enumerate(
+            [("code", "string"), ("qty", "integer"), ("price", "decimal"), ("note", "string")]
+        )
+    ]
+    value["record"]["rowRoles"] += [{"row": 1, "role": "data"}, {"row": 2, "role": "data"}]
+    return doc, region, payload, value
+
+
+def test_row_candidates_keep_sparse_geometry_and_program_attaches_only_actual_cells():
+    doc, region, payload, value = sparse_fixture()
+    original = copy.deepcopy((doc.tables, doc.nodes, payload, value))
+    wire = structure_schema(doc, region)
+    Draft202012Validator(wire).validate(value)
+    assert set(wire["$defs"]["RowDecision"]["properties"]) == {"row", "role"}
+    candidates = structure_payload(payload)["tables"][region["tableRef"]]["rowCandidates"]
+    assert candidates["cellColumns"] == ["column", "columnSpan", "sourceRef", "text"]
+    row1, row2 = candidates["rows"][1:]
+    assert row1["row"] == 1
+    assert row1["cells"] == [
+        [0, 1, "scan:table/cell/4", "0007"],
+        [1, 1, "scan:table/cell/5", "2"],
+        [2, 1, "scan:table/cell/6", "1.2300"],
+    ]
+    assert row2["cells"][0] == [0, 1, "scan:table/cell/7", "0008"]
+    _, frozen = structural_ir(value, doc, region)
+    assert frozen.repeats[0].rowRoles[1].sourceRefs == [f"scan:table/cell/{i}" for i in (4, 5, 6)]
+    assert frozen.repeats[0].rowRoles[2].sourceRefs == [
+        f"scan:table/cell/{i}" for i in (7, 8, 9, 10)
+    ]
+    compiled = compile_region(frozen, doc, region)
+    assert compiled.data["records"] == [
+        {"code": "0007", "qty": 2, "price": "1.2300", "note": None},
+        {"code": "0008", "qty": 3, "price": "0.00", "note": "Checked"},
+    ]
+    # Null here retains the existing compiler's explicit missing-value contract;
+    # stage one did not create a cell, a binding, or a synthetic blank string.
+    assert len(doc.tables[region["tableRef"]]["cells"]) == 11
+    assert (doc.tables, doc.nodes, payload, value) == original
+    assert (
+        "rowCandidates"
+        not in meaning_payload(payload, frozen, compiled)["tables"][region["tableRef"]]
+    )
+
+
+@pytest.mark.parametrize("role", ["header", "data", "subtotal", "note", "blank", "unresolved"])
+def test_stage_one_rejects_supplied_row_sources_even_when_the_refs_would_be_valid(role):
+    doc, region, _, value = fixture()
+    value["record"]["rowRoles"] = [
+        {"row": 0, "role": role, "sourceRefs": value["record"]["definitionRefs"]}
+    ]
+    assert not Draft202012Validator(structure_schema(doc, region)).is_valid(value)
+    with pytest.raises(CompileError, match="sources_are_program_derived"):
+        structural_ir(value, doc, region)
+
+
+def test_row_spanning_cells_attach_to_each_intersected_row_without_shifting_column():
+    doc, region, payload, value = sparse_fixture()
+    cells = doc.tables[region["tableRef"]]["cells"]
+    cells[4]["rowSpan"] = 2
+    del cells[7]  # Original row-2 code now covered by the observed row span.
+    payload = region_payload(doc, region)
+    request = structure_payload(payload)
+    candidates = request["tables"][region["tableRef"]]["rowCandidates"]["rows"]
+    assert candidates[2]["row"] == 2
+    assert candidates[2]["cells"][0] == [0, 1, "scan:table/cell/4", "0007"]
+    _, frozen = structural_ir(value, doc, region)
+    assert frozen.repeats[0].rowRoles[2].sourceRefs == [
+        "scan:table/cell/4",
+        "scan:table/cell/8",
+        "scan:table/cell/9",
+        "scan:table/cell/10",
+    ]
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "outside", "unobserved"])
+def test_row_decisions_cannot_invent_or_repeat_observation_geometry(mutation):
+    doc, region, _, value = fixture()
+    if mutation == "duplicate":
+        value["record"]["rowRoles"] = [{"row": 1, "role": "note"}] * 2
+    elif mutation == "outside":
+        value["record"]["rowRoles"].append({"row": 99, "role": "blank"})
+    else:
+        doc.tables[region["tableRef"]]["cells"] = [
+            cell for cell in doc.tables[region["tableRef"]]["cells"] if cell["row"] != 1
+        ]
+        value["record"]["rowRoles"].append({"row": 1, "role": "blank"})
+    with pytest.raises(CompileError, match="row_roles|no_observed_cells"):
+        structural_ir(value, doc, region)
+
+
+def test_v2_protocol_checkpoint_rejected_without_model_call():
+    model, states = TableModel(), []
+    execute(model, states=states)
+    checkpoint = copy.deepcopy(states[-1])
+    checkpoint["identity"]["tableProtocolVersion"] = "document-files.table-protocol.v2"
+    with pytest.raises(ValueError, match="incompatible"):
+        execute(model, restore=checkpoint)
+    assert len(model.requests) == 2
+
+
+def test_declared_header_rows_are_program_roles_not_model_choices():
+    doc, region, payload, value = fixture()
+    assert value["record"]["rowRoles"] == []
+    request = structure_payload(payload)
+    candidates = request["tables"][region["tableRef"]]["rowCandidates"]["rows"]
+    assert candidates[0]["fixedRole"] == "header"
+    assert all("fixedRole" not in item for item in candidates[1:])
+    schema = structure_schema(doc, region)
+    assert schema["$defs"]["RowDecision"]["properties"]["row"]["enum"] == [1, 2]
+    _, frozen = structural_ir(value, doc, region)
+    assert [(r.row, r.role) for r in frozen.repeats[0].rowRoles] == [(0, "header")]
+    assert frozen.repeats[0].rowRoles[0].sourceRefs == value["record"]["definitionRefs"]
+    assert (frozen.repeats[0].rowStart, frozen.repeats[0].rowEnd) == (0, 2)
+    model = TableModel()
+    result = execute(model)
+    assert len(model.requests) == 2  # No structural correction to rediscover headers.
+    assert len(result["data"]["records"]) == 2
+
+
+@pytest.mark.parametrize("state", [False, None, "mixed"])
+def test_unknown_ocr_and_mixed_rows_are_not_automatically_headers(state):
+    doc, region, _, value = fixture()
+    cells = doc.tables[region["tableRef"]]["cells"]
+    headers = [cell for cell in cells if cell["row"] == 0]
+    for index, cell in enumerate(headers):
+        if state == "mixed" and index == 0:
+            continue
+        if state is None:
+            cell.pop("isHeader", None)
+        else:
+            cell["isHeader"] = False
+    payload = region_payload(doc, region)
+    candidate = structure_payload(payload)["tables"][region["tableRef"]]["rowCandidates"]["rows"][0]
+    assert "fixedRole" not in candidate
+    schema = structure_schema(doc, region)
+    assert 0 in schema["$defs"]["RowDecision"]["properties"]["row"]["enum"]
+    # Even mapping only the header-marked column cannot promote a mixed row.
+    if state == "mixed":
+        value["record"]["columns"] = value["record"]["columns"][:1]
+    _, frozen = structural_ir(value, doc, region)
+    assert frozen.repeats[0].rowRoles == []
+    value["record"]["rowRoles"] = [{"row": 0, "role": "header"}]
+    _, frozen = structural_ir(value, doc, region)
+    assert frozen.repeats[0].rowRoles[0].role == "header"  # Explicit AI decision remains allowed.
+
+
+def test_declared_multilevel_rowspan_headers_keep_actual_sources_and_full_range():
+    content = (
+        b'<table><tr><th rowspan="2">Code</th><th>Measurement</th></tr>'
+        b"<tr><th>Size</th></tr><tr><td>0007</td><td>1.2300</td></tr></table>"
+    )
+    doc = observe_document(content, "html", {})
+    before = copy.deepcopy(doc.tables)
+    region = prepare_regions(doc, context_chars=20000)[0]
+    payload = region_payload(doc, region)
+    value = record_response(payload)
+    assert value["record"]["rowRoles"] == []
+    _, frozen = structural_ir(value, doc, region)
+    roles = frozen.repeats[0].rowRoles
+    assert [(role.row, role.role) for role in roles] == [(0, "header"), (1, "header")]
+    cells = doc.tables[region["tableRef"]]["cells"]
+    spanning = next(cell["sourceRef"] for cell in cells if cell.get("rowSpan") == 2)
+    assert spanning in roles[0].sourceRefs and spanning in roles[1].sourceRefs
+    assert (frozen.repeats[0].rowStart, frozen.repeats[0].rowEnd) == (0, 2)
+    assert compile_region(frozen, doc, region).data["records"] == [
+        {"code": "0007", "size": "1.2300"}
+    ]
+    assert doc.tables == before
+
+
+def test_v3_row_decision_checkpoint_is_rejected_before_dispatch():
+    model, states = TableModel(), []
+    execute(model, states=states)
+    checkpoint = copy.deepcopy(states[-1])
+    checkpoint["identity"]["tableProtocolVersion"] = "document-files.table-protocol.v3"
+    with pytest.raises(ValueError, match="incompatible"):
+        execute(model, restore=checkpoint)
+    assert len(model.requests) == 2

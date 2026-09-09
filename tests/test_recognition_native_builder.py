@@ -173,7 +173,7 @@ def test_export_fix_only_local_generated_export(tmp_path):
         (tmp_path / "lib" / name).write_bytes(b"lib")
     native.rewrite_export(tmp_path, "linux-x86_64")
     assert "::" not in export.read_text()
-    assert str(tmp_path / "lib/libz.a") in export.read_text()
+    assert (tmp_path / "lib/libz.a").as_posix() in export.read_text()
 
 
 def test_existing_partial_download_is_preserved(tmp_path):
@@ -246,7 +246,7 @@ def test_simulated_build_receipt_never_claims_pack_or_quality(tmp_path, monkeypa
                 binary.write_bytes(data)
         if "-d" in argv:
             output = "0x (NEEDED) Shared library: [libc.so.6]\n"
-        if argv[0].endswith("/candidate/bin/tesseract"):
+        if Path(argv[0]).parts[-3:] == ("candidate", "bin", "tesseract"):
             assert not (work / "prefix").exists()
             assert kwargs["env"]["PATH"] == "/usr/bin:/bin"
             output = (
@@ -302,7 +302,7 @@ def test_windows_runtime_notice_and_actual_archives_collected(tmp_path, monkeypa
     for name in ("libcmt.lib", "libcpmt.lib", "libvcruntime.lib"):
         (libraries / name).write_bytes(name.encode())
     license_file = installed / "License.rtf"
-    original = r"{\rtf1 MICROSOFT VISUAL STUDIO test fixture. Distributable code.}"
+    original = r"{\rtf1 MICROSOFT VISUAL STUDIO 2022 test fixture. Distributable code.}"
     license_file.write_text(original)
     monkeypatch.setenv("VCTOOLSINSTALLDIR", str(installed))
     result = native.collect_runtime_notices("windows-x86_64", notices, None, license_file)

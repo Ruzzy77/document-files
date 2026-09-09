@@ -238,8 +238,12 @@ Toolkit/Sync pinned release. Keep rollback and existing stored results available
 It runs only for an explicit dispatch or changes to that builder/workflow, leaves
 outputs under runner-temporary storage and does not activate packs. Windows uses
 the installed Visual Studio developer shell and discovers the actual installation's
-`License.rtf`; absent or ambiguous redistribution notices fail the build rather
-than substituting generated license text. Matching compiler/SDK, `dumpbin`, CMake,
+`License.rtf`; absent, ambiguous or product-mismatched notices fail the build rather
+than substituting generated license text. Earlier Windows candidates accidentally
+selected an extension's VS2015 preview license and must not be promoted. The VS2022
+identity screen is only an obvious-mismatch guard: independently verify the installed
+edition, applicable product redistribution terms, static CRT files and final notices.
+A generic runtime-use license is not a substitute for those checks. Matching compiler/SDK, `dumpbin`, CMake,
 CPU instructions, runtime source access and enough disk must actually exist on the
 runner. An x64 build/`--version` smoke does not qualify inference or minimum-OS support.
 

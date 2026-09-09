@@ -659,12 +659,16 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         # Unbounded entity IDs form a union, not a record/column qualifier pair.
         # Keep invalid applicability unresolved for the existing scope-only repair;
         # never silently broaden a column assertion to its parent record/group.
-        if meaning.rowStart is None and meaning.rowEnd is None and any(
-            left.space == right.space
-            and left.path != right.path
-            and left.path.startswith(right.path.rstrip("/") + "/")
-            for left in targets
-            for right in targets
+        if (
+            meaning.rowStart is None
+            and meaning.rowEnd is None
+            and any(
+                left.space == right.space
+                and left.path != right.path
+                and left.path.startswith(right.path.rstrip("/") + "/")
+                for left in targets
+                for right in targets
+            )
         ):
             scope_errors.append("meaning_has_overlapping_scope")
         if (meaning.rowStart is None) != (meaning.rowEnd is None):

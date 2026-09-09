@@ -846,7 +846,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
                         "rowStart": 0,
                         "rowEnd": 1,
                         "definitionRefs": [header],
-                        "rowRoles": [{"row": 0, "role": "header", "sourceRefs": [header]}],
+                        "rowRoles": [],
                         "columns": [
                             {
                                 "id": "length",

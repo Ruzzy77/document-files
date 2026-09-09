@@ -61,6 +61,10 @@ most two attempts sharing the total call/time budget; exhausted stages require a
 explicit additional grant. Checkpoint v2 includes table-protocol identity; old
 incompatible checkpoints must not be force-resumed. A stage completing is not a
 semantic quality approval, and unresolved subtotal/note content remains partial.
+The current table protocol is v4. Row source provenance is program-derived; meaning
+applicability uses exclusive column/record/row/unresolved choices. Accounting repair
+preserves accepted statement text and valid scopes, which may still be semantically
+wrong: independent content review is mandatory, not replaced by repair acceptance.
 Resume checks the input and exact installed configuration. A budget grant is explicit;
 it never resets existing usage. No automatic replay occurs after service interruption.
 For a deliberately longer run, select the CPU profile and pass the supplied

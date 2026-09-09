@@ -4,7 +4,13 @@
 
 - Split record-table structure and meaning into finite checkpointed stages; preserve
   compiled values on meaning failure and reject incompatible old checkpoints
-  (prompt v16, planner v10, table protocol v2, checkpoint v2).
+  (prompt v18, planner v12, table protocol v4, checkpoint v2).
+- Attach row-role provenance from observed geometry instead of model-written sources;
+  fix fully declared header rows while leaving sparse cells and unknown headers unresolved.
+- Use exclusive table meaning scopes and bounded accounting repair with accepted-statement
+  preservation; actual development meaning quality is still failing.
+- Reject mismatched Windows compiler notices, explicitly disable Leptonica SW builds,
+  and include IJG/Berkeley attributions. Exact redistribution review remains pending.
 - Reject declared-header records and displaced data-row references before freezing;
   keep conflicting unbounded parent/child meaning scopes unresolved (compiler v13).
 - Capture original raw OCR detections, separate exact native-text support, and record

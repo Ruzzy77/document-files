@@ -165,14 +165,14 @@ successful because this preparation interface exists.
 ```python
 from document_files.runtime_packs import PackStore, managed_llama_endpoint
 
-store = PackStore('/private/state/packs')
-pack = store.install('/offline/runtime.pack.zip', expected_sha256='trusted digest')
-store.activate(pack.manifest['id'], pack.manifest['version'])
+store = PackStore("/private/state/packs")
+pack = store.install("/offline/runtime.pack.zip", expected_sha256="trusted digest")
+store.activate(pack.manifest["id"], pack.manifest["version"])
 # Install/activate the compatible model separately, then:
-with managed_llama_endpoint(store, 'llama-cpp-cpu', 'qwen3.5-9b-q4-k-m') as endpoint:
+with managed_llama_endpoint(store, "llama-cpp-cpu", "qwen3.5-9b-q4-k-m") as endpoint:
     # endpoint.base_url includes /v1; api_key is secret and excluded from repr.
     pass  # The owning engine creates its Chat Completions client here.
-store.rollback('llama-cpp-cpu')
+store.rollback("llama-cpp-cpu")
 ```
 
 Use the exact 64-hex trusted digest, not the illustrative text above. Foreign

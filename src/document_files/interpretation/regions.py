@@ -9,7 +9,7 @@ from .compiler import preferred_binding
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v10"
+REGION_PLAN_VERSION = "document-files.region-plan.v12"
 
 
 def _encoded(value):

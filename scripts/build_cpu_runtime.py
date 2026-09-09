@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path
 
 from build_runtime_pack import build_pack, sha256_file
+from windows_runtime_notice import validate_notice
 
 from document_files.runtime_packs import PackError, current_target
 
@@ -247,6 +248,10 @@ def stage_notices(source, stage, windows_license=None):
             }
         )
     if windows_license:
+        try:
+            validate_notice(windows_license)
+        except ValueError as exc:
+            raise PackError(str(exc)) from None
         destination = "licenses/microsoft-visual-cpp-runtime.txt"
         shutil.copyfile(windows_license, stage / destination)
         name, spdx = "microsoft-runtime", "LicenseRef-Microsoft-Visual-Cpp-Runtime"

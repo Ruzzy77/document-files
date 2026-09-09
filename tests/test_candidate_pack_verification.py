@@ -152,7 +152,10 @@ def test_cpu_and_candidate_cli_help_does_not_build_or_download(monkeypatch):
 
 def test_cpu_runtime_workflow_has_narrow_triggers_matching_hosts_and_real_windows_notice():
     body = (ROOT / ".github/workflows/cpu-runtime.yml").read_text()
-    assert "paths: ['scripts/build_cpu_runtime.py', '.github/workflows/cpu-runtime.yml']" in body
+    assert (
+        "paths: ['scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', "
+        "'scripts/build_cpu_runtime.py', '.github/workflows/cpu-runtime.yml']"
+    ) in body
     assert "workflow_dispatch:" in body and "pull_request:" not in body
     for target in ("macos-aarch64", "macos-x86_64", "linux-x86_64", "windows-x86_64"):
         assert f"target: {target}" in body

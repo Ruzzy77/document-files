@@ -221,6 +221,7 @@ def options(component: str, prefix: Path, target: str) -> list[str]:
             *jpeg,
         ],
         "leptonica": [
+            "-DSW_BUILD=OFF",
             "-DBUILD_PROG=OFF",
             "-DSTRICT_CONF=ON",
             "-DENABLE_ZLIB=ON",
@@ -306,6 +307,12 @@ def collect_runtime_notices(target, notices, run, windows_license=None):
     if target == "windows-x86_64":
         if windows_license is None:
             raise BuildError("actual installed Visual Studio license is required")
+        from windows_runtime_notice import validate_notice
+
+        try:
+            validate_notice(windows_license)
+        except ValueError as exc:
+            raise BuildError(str(exc)) from None
         copy_notice(
             windows_license,
             "microsoft-visual-cpp-runtime.rtf",
@@ -351,6 +358,26 @@ def collect_runtime_notices(target, notices, run, windows_license=None):
         "notices": records,
         "staticRuntimes": runtimes,
     }
+
+
+def write_attributions(pins, candidate):
+    """Ship explicit acknowledgments alongside the unmodified license texts."""
+    lines = [
+        "Document Files native recognition dependencies",
+        "",
+        "This software is based in part on the work of the Independent JPEG Group.",
+        "This product includes software developed by the University of California, "
+        "Berkeley and its contributors.",
+        "",
+        "Full upstream license and compiler runtime notices are retained in licenses/.",
+        "This notice is not an independent redistribution approval.",
+    ]
+    for source in pins["sources"]:
+        lines += ["", f"{source['id']} {source['version']}: {source['license']}"]
+        lines += [
+            f"  licenses/{source['id']}-{Path(item['path']).name}" for item in source["notices"]
+        ]
+    (candidate / "THIRD_PARTY_NOTICES.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def check_binary(path: Path, target: str) -> None:
@@ -523,6 +550,7 @@ def run_build(args) -> dict:
         run(["cmake", "--install", directory, "--config", "Release"], f"{source['id']}-install")
         if source["id"] == "leptonica":
             rewrite_export(prefix, target)
+    write_attributions(pins, work / "candidate")
     binary_name = "tesseract.exe" if target.startswith("windows") else "tesseract"
     relocated = work / "candidate/bin" / binary_name
     relocated.parent.mkdir()
