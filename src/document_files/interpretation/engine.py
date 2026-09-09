@@ -69,13 +69,19 @@ from .table_protocol import (
     STAGE_MAX_OUTPUT_TOKENS,
     STRUCTURE_SYSTEM,
     TABLE_PROTOCOL_VERSION,
-    meaning_ir,
     meaning_payload,
-    meaning_response,
-    meaning_schema,
     structural_ir,
     structure_payload,
     structure_schema,
+)
+from .table_protocol import (
+    meaning_decision_ir as meaning_ir,
+)
+from .table_protocol import (
+    meaning_decision_response as meaning_response,
+)
+from .table_protocol import (
+    meaning_decision_schema as meaning_schema,
 )
 from .table_reference_wire import (
     VERSION as TABLE_REFERENCE_WIRE_VERSION,

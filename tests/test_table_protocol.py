@@ -28,6 +28,7 @@ from document_files.interpretation.table_protocol import (
     structure_payload,
     structure_schema,
 )
+from document_files.interpretation.table_source_decisions import source_decisions_from_flat
 from document_files.interpretation.table_sources import source_inventory
 
 HTML = (
@@ -121,6 +122,8 @@ class TableModel:
             }
             if self.invalid_meaning:
                 value["fields"] = [{"id": "illegal-rewrite"}]
+        if payload["tableStage"] == "meaning":
+            value = source_decisions_from_flat(value, {"sources": payload["meaningSources"]})
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
 

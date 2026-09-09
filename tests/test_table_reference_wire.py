@@ -186,7 +186,7 @@ def test_payload_schema_and_response_round_trip_preserves_literals():
     forward = _Translator(wire.identity["dictionary"])
     inverse = _Translator(wire.identity["dictionary"], decoding=True)
     restored_payload = wire.payload
-    restored_payload.pop("referenceDictionary")
+    restored_payload.pop("referenceWire")
     assert inverse.payload(restored_payload) == payload
     encoded = forward.response(response)
     assert wire.decode(encoded) == response
@@ -249,7 +249,7 @@ def test_dict_cells_header_refs_and_source_structure():
     }
     wire = prepare_meaning_wire(payload, contract)
     restored = wire.payload
-    restored.pop("referenceDictionary")
+    restored.pop("referenceWire")
     assert _Translator(wire.identity["dictionary"], decoding=True).payload(restored) == payload
 
 
@@ -471,7 +471,7 @@ def test_relation_target_refs_translate_only_at_relation_positions():
     assert wire.payload["boundaryContext"][0]["sourceRef"] != refs[0]
     assert wire.payload["boundaryContext"][0]["text"] == refs[1]
     restored = wire.payload
-    restored.pop("referenceDictionary")
+    restored.pop("referenceWire")
     assert _Translator(wire.identity["dictionary"], decoding=True).payload(restored) == payload
 
 
@@ -499,10 +499,187 @@ def test_alias_dictionary_overhead_is_part_of_activation_size():
     contract = {"type": "object", "properties": {}}
     wire = prepare_meaning_wire(payload, contract)
     assert wire.identity is None
-    assert "referenceDictionary" not in wire.payload
+    assert "referenceWire" not in wire.payload
 
 
 def test_large_literal_only_feedback_cannot_switch_alias_activation():
     payload, contract, _, refs, _ = fixture(short=True)
     feedback = {"issues": [refs[0]] * 3000, "remainingSourceRanges": []}
     assert prepare_meaning_wire(payload, contract, feedback).identity is None
+
+
+def source_first_fixture(*, short=False):
+    payload, contract, _, refs, _ = fixture(short=short)
+    quote = {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "occurrence": {"type": "integer"},
+        },
+    }
+    contract["$defs"]["SourceQuote"] = {
+        **deepcopy(quote),
+        "properties": {
+            **deepcopy(quote["properties"]),
+            "sourceRef": {"$ref": "#/$defs/SourceChoice"},
+        },
+    }
+    decision = {
+        "type": "object",
+        "properties": {
+            "decision": {"enum": ["has_meaning", "unreviewed"]},
+            "explanation": {"type": "string"},
+            "meanings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "description": {"type": "string"},
+                        "quotes": {"type": "array", "items": quote},
+                        "additionalQuotes": {
+                            "type": "array",
+                            "items": {"$ref": "#/$defs/SourceQuote"},
+                        },
+                    },
+                },
+            },
+        },
+    }
+    contract["$defs"]["Decision"] = decision
+    contract["properties"]["sourceDecisions"] = {
+        "type": "object",
+        "properties": {ref: {"$ref": "#/$defs/Decision"} for ref in refs[:6]},
+        "required": refs[:6],
+        "additionalProperties": False,
+    }
+    response = {
+        "sourceDecisions": {
+            ref: {"decision": "unreviewed", "explanation": ref} for ref in refs[:6]
+        },
+        "baseRevision": None,
+        "changes": [{"reviewSourceRefs": refs[:2]}],
+        "metadata": {"sourceDecisions": {refs[0]: "@s0"}},
+    }
+    response["sourceDecisions"][refs[0]] = {
+        "decision": "has_meaning",
+        "meanings": [
+            {
+                "id": "@s0",
+                "kind": "condition",
+                "description": refs[1],
+                "status": "uncertain",
+                "scope": {"kind": "columns", "columnIds": ["@s0"]},
+                "quotes": [{"text": "@s0", "occurrence": 1}, {"text": refs[0]}],
+                "additionalQuotes": [{"sourceRef": refs[1], "text": "한국어 @s0 1.020"}],
+            }
+        ],
+        "remainderReview": {"role": "unreviewed", "explanation": refs[1]},
+    }
+    return payload, contract, response, refs
+
+
+def test_source_first_round_trip_literals_feedback_and_identity():
+    payload, contract, response, refs = source_first_fixture()
+    feedback = {"acceptedResponse": response, "baseRevision": "r", "issues": ["@s0"]}
+    before = deepcopy((payload, contract, response, feedback))
+    wire = prepare_meaning_wire(payload, contract, feedback)
+    assert wire.identity["version"] == "document-files.table-reference-wire.v2"
+    assert set(wire.payload["referenceWire"]) == {"version", "instruction"}
+    assert "referenceDictionary" not in wire.payload
+    assert refs[0] in wire.identity["dictionary"]["sources"].values()
+    translated = wire.feedback["acceptedResponse"]
+    assert wire.decode(translated) == response
+    Draft202012Validator(contract).validate(response)
+    Draft202012Validator(wire.contract).validate(translated)
+    assert list(translated["sourceDecisions"]) == [f"@s{i}" for i in range(6)]
+    meaning = translated["sourceDecisions"]["@s0"]["meanings"][0]
+    assert meaning["quotes"] == response["sourceDecisions"][refs[0]]["meanings"][0]["quotes"]
+    assert meaning["additionalQuotes"] == [{"sourceRef": "@s1", "text": "한국어 @s0 1.020"}]
+    assert meaning["id"] == "@s0"
+    assert meaning["description"] == refs[1]
+    assert meaning["scope"]["columnIds"] == ["@s0"]
+    assert translated["metadata"] == response["metadata"]
+    assert wire.contract["properties"]["sourceDecisions"]["required"] == [
+        f"@s{i}" for i in range(6)
+    ]
+    assert (payload, contract, response, feedback) == before
+    # Mutating snapshots returned to a caller cannot mutate the saved mapping.
+    translated["sourceDecisions"].clear()
+    assert wire.decode(wire.feedback["acceptedResponse"]) == response
+
+
+def test_source_decision_schema_role_does_not_rewrite_shared_literal_properties():
+    payload, contract, _, refs = source_first_fixture()
+    decisions = contract["properties"]["sourceDecisions"]
+    contract["$defs"]["KeyedObject"] = decisions
+    contract["properties"]["sourceDecisions"] = {"$ref": "#/$defs/KeyedObject"}
+    contract["properties"]["metadata"] = {
+        "type": "object",
+        "properties": {"sourceDecisions": {"$ref": "#/$defs/KeyedObject"}},
+    }
+    wire = prepare_meaning_wire(payload, contract)
+    assert wire.contract["$defs"]["KeyedObject"]["required"] == refs[:6]
+    assert wire.contract["properties"]["metadata"] == contract["properties"]["metadata"]
+    special = wire.contract["properties"]["sourceDecisions"]["$ref"].split("/")[-1]
+    assert special != "KeyedObject"
+    assert wire.contract["$defs"][special]["required"] == [f"@s{i}" for i in range(6)]
+
+
+@pytest.mark.parametrize("location", ["key", "additionalQuote"])
+@pytest.mark.parametrize("unknown", ["@unknown", "@t0", "original"])
+def test_source_first_decode_rejects_unknown_or_wrong_role(location, unknown):
+    payload, contract, response, refs = source_first_fixture()
+    wire = prepare_meaning_wire(payload, contract, {"acceptedResponse": response})
+    encoded = wire.feedback["acceptedResponse"]
+    bad = refs[0] if unknown == "original" else unknown
+    if location == "key":
+        encoded["sourceDecisions"][bad] = encoded["sourceDecisions"].pop("@s0")
+    else:
+        encoded["sourceDecisions"]["@s0"]["meanings"][0]["additionalQuotes"][0]["sourceRef"] = bad
+    with pytest.raises(TableReferenceWireError, match="unknown_or_conflicting"):
+        wire.decode(encoded)
+
+
+def test_source_decision_schema_alias_collision_and_duplicate_required_rejected():
+    payload, contract, _, refs = source_first_fixture()
+    contract["properties"]["sourceDecisions"]["properties"]["@s0"] = {"type": "object"}
+    with pytest.raises(TableReferenceWireError, match="unknown_or_conflicting"):
+        prepare_meaning_wire(payload, contract)
+    del contract["properties"]["sourceDecisions"]["properties"]["@s0"]
+    contract["properties"]["sourceDecisions"]["required"].append(refs[0])
+    with pytest.raises(TableReferenceWireError, match="schema_key_collision"):
+        prepare_meaning_wire(payload, contract)
+
+
+def test_source_first_short_baseline_stays_unencoded_even_with_large_feedback():
+    payload, contract, response, _ = source_first_fixture(short=True)
+    feedback = {"acceptedResponse": response, "issues": ["large" * 1000]}
+    wire = prepare_meaning_wire(payload, contract, feedback)
+    assert wire.identity is None
+    assert wire.payload == payload
+    assert wire.contract == contract
+    assert wire.feedback == feedback
+    assert wire.decode(response) == response
+
+
+def test_reference_wire_instruction_cost_controls_activation_without_dictionary_payload():
+    payload, contract, _, _ = source_first_fixture()
+    wire = prepare_meaning_wire(payload, contract)
+    baseline = len(
+        json.dumps(
+            payload | {"outputContract": contract}, ensure_ascii=False, separators=(",", ":")
+        )
+    )
+    proposed = len(
+        json.dumps(
+            wire.payload | {"outputContract": wire.contract},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    )
+    assert proposed < baseline
+    assert set(wire.payload["referenceWire"]) == {"version", "instruction"}
+    assert set(wire.identity) == {"version", "dictionary", "dictionarySha256"}
+    with pytest.raises(TableReferenceWireError, match="already_encoded"):
+        prepare_meaning_wire(wire.payload, wire.contract)

@@ -11,6 +11,11 @@ from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.interpretation import engine
 from document_files.interpretation.backends import InferenceResponse, ModelError
 from document_files.interpretation.contracts import ExtractionOptions
+from document_files.interpretation.table_source_decisions import (
+    source_decisions_from_flat,
+    source_decisions_to_flat,
+)
+from document_files.interpretation.table_sources import source_inventory
 
 HTML = (
     b"<table><caption>Measurements; Size uses mm.</caption>"
@@ -114,17 +119,49 @@ class CaptionModel:
 
 
 def run(model, *, states=None, restore=None, additional_budget=None, content=HTML, **options):
-    return engine.extract_schema_from_stream(
-        AnalysisJob(
-            job_id="meaning-repair", input=AnalysisInput.from_bytes(content, format_id="html")
-        ),
-        io.BytesIO(content),
-        model_client=model,
-        options=ExtractionOptions(reconstructionContext=False, **options),
-        checkpoint=states.append if states is not None else None,
-        restore=restore,
-        additional_budget=additional_budget,
+    infer = model.infer
+
+    def current_wire(request):
+        response = infer(request)
+        payload = json.loads(request.messages[-1]["content"])
+        if payload.get("tableStage") == "meaning":
+            value = source_decisions_from_flat(
+                json.loads(response.text), {"sources": payload["meaningSources"]}
+            )
+            return InferenceResponse(
+                json.dumps(value), response.usage, response.finish_reason, response.timings
+            )
+        return response
+
+    model.infer = current_wire
+    try:
+        return engine.extract_schema_from_stream(
+            AnalysisJob(
+                job_id="meaning-repair", input=AnalysisInput.from_bytes(content, format_id="html")
+            ),
+            io.BytesIO(content),
+            model_client=model,
+            options=ExtractionOptions(reconstructionContext=False, **options),
+            checkpoint=states.append if states is not None else None,
+            restore=restore,
+            additional_budget=additional_budget,
+        )
+    finally:
+        model.infer = infer
+
+
+def flat_accepted_feedback(payload):
+    """Read current-wire feedback in semantic fixture assertions, not production."""
+    refs = [item["sourceRef"] for item in payload["meaningSources"]]
+    inventory = source_inventory(
+        {
+            "nodes": {
+                item["sourceRef"]: {"text": item["text"]} for item in payload["meaningSources"]
+            }
+        },
+        {"nodeIds": refs},
     )
+    return source_decisions_to_flat(payload["repairFeedback"]["acceptedResponse"], inventory)
 
 
 def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_context():
@@ -135,11 +172,16 @@ def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_cont
     assert result["data"] == {"rows": [{"size": "001.2300"}]}
     feedback = model.requests[-1]["repairFeedback"]
     assert any(i.startswith("table_meaning_source_unreviewed:") for i in feedback["issues"])
-    assert feedback["acceptedResponse"]["meanings"][0]["description"] == "Size uses millimeters"
-    assert feedback["acceptedResponse"]["meanings"][0]["scope"]["columnIds"] == ["size"]
+    assert (
+        flat_accepted_feedback(model.requests[-1])["meanings"][0]["description"]
+        == "Size uses millimeters"
+    )
+    assert flat_accepted_feedback(model.requests[-1])["meanings"][0]["scope"]["columnIds"] == [
+        "size"
+    ]
     assert "Correct mistaken" in feedback["instruction"]
     assert feedback["baseRevision"]
-    assert "sourceQuotes" in feedback["acceptedResponse"]["meanings"][0]
+    assert "sourceQuotes" in flat_accepted_feedback(model.requests[-1])["meanings"][0]
     remaining = feedback["remainingSourceRanges"]
     assert len(remaining) == 1
     assert remaining[0]["text"] == "Measurements; "
@@ -302,7 +344,7 @@ def test_global_budget_pause_resumes_only_accounting_repair_with_accepted_statem
     fixed = run(model, restore=states[-1], maxModelCalls=2, additional_budget={"maxModelCalls": 1})
     assert fixed["extraction"]["status"] == "complete", fixed["issues"]
     assert len(model.requests) == 3
-    assert model.requests[-1]["repairFeedback"]["acceptedResponse"]["meanings"]
+    assert flat_accepted_feedback(model.requests[-1])["meanings"]
 
 
 @pytest.mark.parametrize("mode,code", [("timeout", "ai_timeout"), ("cancel", "ai_cancelled")])
@@ -380,9 +422,9 @@ def test_partial_accounting_improvement_is_saved_without_claiming_completion():
     assert len(model.requests) == 3
     assert result["extraction"]["status"] == "partial"
     assert len([i for i in result["issues"] if i["code"] == "table_meaning_source_unreviewed"]) == 1
-    assert (
-        len(next(iter(states[-1]["accepted"].values()))["tableMeaningState"]["sourceReviews"]) == 3
-    )
+    reviews = next(iter(states[-1]["accepted"].values()))["tableMeaningState"]["sourceReviews"]
+    assert len(reviews) == 4
+    assert sum(review["role"] == "unreviewed" for review in reviews) == 1
     assert next(iter(states[-1]["tableStages"].values()))["meaning"]["status"] == "pending"
     run(model, restore=states[-1], content=content)
     assert len(model.requests) == 3

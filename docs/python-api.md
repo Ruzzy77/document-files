@@ -228,12 +228,12 @@ They are optional measurements, not an accuracy certificate or timeout usage rec
 
 ### Internal table stages
 
-Prompt v23 / planner v14 / table protocol v9 use a structural classification first.
+Prompt v23 / planner v14 / table protocol v10 use a structural classification first.
 Record tables compile one record definition before interpreting meanings over fixed
 IDs; scalar forms retain their binding-based path. `coverage.tableInterpretation`
 records each stage's attempts, status and usage. `structure_compiled` means retained
-partial work, not complete extraction. Compiler v15 rejects broad unbounded
-parent/child scope unions while preserving explicit bounded row intersections.
+partial work, not complete extraction. Compiler v16 retains the rejection of broad
+unbounded parent/child scope unions and preserves explicit bounded row intersections.
 Public AnalysisJob v1, AnalysisResult v1 and extraction result contracts remain;
 private checkpoint v2 checks the changed protocol identities.
 
@@ -243,11 +243,12 @@ all-cell/row provenance only where table geometry reproduces it and removes only
 exact text copies from context; basis, conflicts and uncertainty remain. Canonical
 result and checkpoint provenance are unchanged.
 
-Reference-wire v1 can replace source/table references with separate short handles;
+Reference-wire v2 can replace source/table references with separate short handles;
 it never rewrites literal text, values, semantic IDs or JSON Schema references as
-source identifiers. Activation includes dictionary overhead and is independent of
-repair feedback. The engine restores response references before normal validation.
-`referenceWire` records the version/dictionary/hash (or `null` when disabled); restore
+source identifiers. Activation compares actual request sizes independently of
+repair feedback. Source-decision keys and additional quote references are restored
+before normal validation. The complete dictionary is not repeated in model input.
+Checkpoint `referenceWire` records version/dictionary/hash (or `null` when disabled); restore
 recomputes the selection even for completed stages. `inputPreflight` records stage,
 initial/repair phase, component character sizes, actual total and limit. These are
 character diagnostics, not tokenizer counts. Preparation failure or overflow preserves
@@ -259,7 +260,8 @@ These are stage ceilings, not extra document budget. `attempts` counts all stage
 dispatches and `reviewAttempts` counts post-acceptance dispatches; usage remains
 cumulative across explicit grants. Exhausted stages do not restart automatically.
 Repair feedback includes `remainingSourceRanges` with exact source text, offsets
-and hashes. Source reviews apply only outside direct meaning quotes in that source.
+and hashes. Source reviews describe text outside direct meaning quotes in that source;
+explicit `unreviewed` also keeps fully quoted or empty sources pending.
 Changing stage policy invalidates earlier protocol checkpoints, not public v1 APIs.
 
 Stage-one row decisions use `{row, role}` for every observed non-fixed row; omissions,
@@ -279,17 +281,24 @@ and representation, not merely the same cell reference.
 
 Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
-The model supplies `sourceQuotes` (`sourceRef`, exact `text`, optional zero-based
-`occurrence` for repeated text), never source offsets. The program records original
-Unicode ranges and hashes. `sourceReviews` explicitly classify the remaining source
-text as `no_additional_meaning` or `unresolved`; successful value/header reads do not
-replace this review. `meaningSources` and `referenceContext` have separate roles.
+The model supplies `sourceDecisions`, keyed by every owned `meaningSources` reference.
+Each decision is `no_additional_meaning`, `unresolved`, `unreviewed`, or `has_meaning`.
+The first three require an explanation and forbid meanings. `has_meaning` requires
+`meanings` plus `remainderReview` (role and explanation). A meaning has `quotes`
+(exact local text, optional zero-based `occurrence`) and optional `additionalQuotes`
+with other owned `sourceRef` values. No model-generated offsets are accepted.
+Joint evidence is anchored once at the earliest quoted source in inventory order;
+multiple meanings per source and noncontiguous quotes remain valid. The program
+records original Unicode ranges/hashes and canonical `sourceReviews` (review v2).
+Successful value/header reads do not replace review, and reference context is not
+direct evidence. Duplicate meaning IDs or identical meaning copies are rejected.
 
-The full response requires `meanings`, `sourceReviews`, `baseRevision` and `changes`.
+The full response requires `regionId`, `sourceDecisions`, `baseRevision` and `changes`.
 The first response uses a null base and empty changes. Repairs cite the accepted
 revision and account for every changed or withdrawn meaning with replacements and/or
 source reviews. Kind, description, scope and status may change; prior source coverage
-and compiled structure/values may not disappear. Revision hashes include transition
+and compiled structure/values may not disappear. Reviewed sources cannot become
+explicitly unreviewed, even when fully quoted or empty. Revision hashes include transition
 reasons, and checkpoint resume validates the history. Repeated decisions, including
 reason-only changes, are not progress. Exposing uncertainty can be a valid correction.
 

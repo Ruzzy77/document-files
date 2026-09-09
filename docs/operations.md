@@ -111,20 +111,26 @@ incompatible checkpoints must not be force-resumed. A stage completing is not a
 semantic quality approval. Non-record subtotal/note values now use a separate scalar
 region, with no overlapping value bindings and the same total budget. Its unfinished
 work remains partial and resumes without another record-structure call.
-Meaning input uses a compact model-only view and reversible reference-wire v1.
-Canonical source text and provenance are retained. Its dictionary and activation are
+Meaning input uses a compact model-only view and reversible reference-wire v2.
+Canonical source text and provenance are retained. The full dictionary stays in
+checkpoint identity, not repeated model input. Its dictionary and activation are
 rechecked on resume, including completed stages; prior protocol checkpoints cannot
 be resumed as current ones. Do not edit checkpoint versions to bypass this boundary.
 `inputPreflight` shows the exact initial/repair character total and limit. Overflow
 pauses without another model call or loss of the compiled structure. Preparation
 errors stop rather than entering a model-repair loop; call/time limits do not increase.
 
-The current table protocol is v9. Every observed non-fixed row needs an explicit
+The current table protocol is v10. Every observed non-fixed row needs an explicit
 role; only native-declared header rows are fixed automatically, not OCR predictions.
 Missing cells and invalid decimal readings stay uncertain with original evidence.
 Row source provenance is program-derived; meaning applicability uses exclusive
 column/record/row/unresolved choices. Exact quotes and explicit remaining-text reviews
-have a separate source inventory. Repairs can correct or withdraw a mistaken meaning
+have a separate source inventory. Meaning responses decide each owned source first;
+only `has_meaning` permits meanings. A joint meaning is anchored once but may quote
+multiple owned sources. Context alone cannot supply direct evidence. Explicit
+`unreviewed` keeps a source pending, including fully quoted or empty sources.
+Repairs cannot return previously reviewed sources to unreviewed work.
+Repairs can correct or withdraw a mistaken meaning
 but must retain original text coverage and a hash-bound revision/change history.
 Scope uncertainty is separate from unreviewed source text. Independent content review
 is mandatory: structural acceptance and fewer issues do not establish correctness.

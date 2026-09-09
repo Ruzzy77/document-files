@@ -7,7 +7,7 @@ import json
 from copy import deepcopy
 from dataclasses import dataclass, field
 
-VERSION = "document-files.table-reference-wire.v1"
+VERSION = "document-files.table-reference-wire.v2"
 _SOURCE_ONE = {"sourceRef"}
 _SOURCE_MANY = {"sourceRefs", "definitionRefs", "headerRefs", "reviewSourceRefs"}
 _TABLE_ONE = {"tableRef", "sourceTableRef"}
@@ -141,9 +141,36 @@ class _Translator:
         _require(isinstance(value, list), "table_reference_wire_reference_shape")
         return [function(item) for item in value]
 
+    def source_decisions(self, value):
+        _require(isinstance(value, dict), "table_reference_wire_response_shape")
+        result = {}
+        for ref, decision in value.items():
+            alias = self.ref(ref, schema=True)
+            _require(alias not in result, "table_reference_wire_reference_collision")
+            _require(isinstance(decision, dict), "table_reference_wire_response_shape")
+            out = deepcopy(decision)
+            if "meanings" in out:
+
+                def meaning(item):
+                    _require(isinstance(item, dict), "table_reference_wire_response_shape")
+                    item = deepcopy(item)
+                    if "additionalQuotes" in item:
+                        item["additionalQuotes"] = self.items(
+                            item["additionalQuotes"],
+                            lambda q: self.direct(q, source_many=set(), table_one=set()),
+                        )
+                    # Own quotes have no reference slots. Their text is never rewritten.
+                    return item
+
+                out["meanings"] = self.items(out["meanings"], meaning)
+            result[alias] = out
+        return result
+
     def response(self, value):
         _require(isinstance(value, dict), "table_reference_wire_response_shape")
         result = deepcopy(value)
+        if "sourceDecisions" in result:
+            result["sourceDecisions"] = self.source_decisions(result["sourceDecisions"])
         if "meanings" in result:
 
             def meaning(item):
@@ -313,10 +340,17 @@ def _schema(contract, translator):
             return "tables"
         return None
 
-    def children(node, role, visit):
+    def children(node, role, visit, *, top_level=False):
         if isinstance(node.get("properties"), dict):
             for name, child in node["properties"].items():
-                visit(child, role_for(name))
+                child_role = (
+                    "sourceKeys"
+                    if top_level and name == "sourceDecisions"
+                    else None
+                    if role == "sourceKeys"
+                    else role_for(name)
+                )
+                visit(child, child_role)
         for name in _SCHEMA_CHILDREN:
             if isinstance(node.get(name), dict):
                 visit(node[name], role)
@@ -325,7 +359,7 @@ def _schema(contract, translator):
                 for child in node[name]:
                     visit(child, role)
 
-    def collect(node, role=None):
+    def collect(node, role=None, *, top_level=False):
         if not isinstance(node, dict):
             return
         if "$ref" in node:
@@ -337,9 +371,9 @@ def _schema(contract, translator):
                     collect(definitions[name], role)
             elif role is not None:
                 raise TableReferenceWireError("table_reference_wire_external_reference_schema")
-        children(node, role, collect)
+        children(node, role, collect, top_level=top_level)
 
-    collect(contract)
+    collect(contract, top_level=True)
     chosen, extra = {}, {}
     for name, roles in usages.items():
         primary = None if None in roles else sorted(roles)[0]
@@ -347,7 +381,8 @@ def _schema(contract, translator):
             if role == primary:
                 chosen[name, role] = name
             else:
-                new = "Wire" + ("Source" if role == "sources" else "Table") + name
+                label = {"sources": "Source", "tables": "Table", "sourceKeys": "SourceKeys"}[role]
+                new = "Wire" + label + name
                 _require(
                     new not in definitions and new not in extra,
                     "table_reference_wire_schema_name_collision",
@@ -355,7 +390,7 @@ def _schema(contract, translator):
                 chosen[name, role] = new
                 extra[new] = (name, role)
 
-    def rewrite(node, role=None):
+    def rewrite(node, role=None, *, top_level=False):
         if not isinstance(node, dict):
             return deepcopy(node)
         out = deepcopy(node)
@@ -364,7 +399,7 @@ def _schema(contract, translator):
             if name is not None:
                 target = chosen.get((name, role), name)
                 out["$ref"] = "#/$defs/" + target.replace("~", "~0").replace("/", "~1")
-        if role is not None:
+        if role in {"sources", "tables"}:
             for key in ("enum", "const", "default"):
                 if key not in node:
                     continue
@@ -377,9 +412,25 @@ def _schema(contract, translator):
                 elif isinstance(node[key], str):
                     out[key] = translator.ref(node[key], role, schema=True)
         if isinstance(node.get("properties"), dict):
-            out["properties"] = {
-                name: rewrite(child, role_for(name)) for name, child in node["properties"].items()
-            }
+            properties = {}
+            for name, child in node["properties"].items():
+                key = translator.ref(name, schema=True) if role == "sourceKeys" else name
+                _require(key not in properties, "table_reference_wire_schema_key_collision")
+                child_role = (
+                    "sourceKeys"
+                    if top_level and name == "sourceDecisions"
+                    else None
+                    if role == "sourceKeys"
+                    else role_for(name)
+                )
+                properties[key] = rewrite(child, child_role)
+            out["properties"] = properties
+        if role == "sourceKeys" and "required" in node:
+            required = _refs(node["required"])
+            _require(
+                len(required) == len(set(required)), "table_reference_wire_schema_key_collision"
+            )
+            out["required"] = [translator.ref(name, schema=True) for name in required]
         for name in _SCHEMA_CHILDREN:
             if isinstance(node.get(name), dict):
                 out[name] = rewrite(node[name], role)
@@ -388,7 +439,7 @@ def _schema(contract, translator):
                 out[name] = [rewrite(child, role) for child in node[name]]
         return out
 
-    out = rewrite(contract)
+    out = rewrite(contract, top_level=True)
     if "$defs" in contract:
         out["$defs"] = {}
         for name, definition in definitions.items():
@@ -431,7 +482,7 @@ class MeaningWire:
 
 
 def prepare_meaning_wire(payload, contract, feedback=None):
-    """Use aliases only when baseline payload+schema including dictionary shrinks.
+    """Use aliases only when baseline payload+schema including wire instructions shrinks.
 
     Feedback never controls activation or dictionary generation. Unknown response
     references fail before compiler validation; callers retain all existing schema,
@@ -440,17 +491,20 @@ def prepare_meaning_wire(payload, contract, feedback=None):
     """
     payload, contract, feedback = _copy(payload), _copy(contract), _copy(feedback)
     _require(isinstance(payload, dict) and isinstance(contract, dict))
-    _require("referenceDictionary" not in payload, "table_reference_wire_already_encoded")
+    _require(
+        "referenceDictionary" not in payload and "referenceWire" not in payload,
+        "table_reference_wire_already_encoded",
+    )
     dictionary = _dictionary(payload)
     translator = _Translator(dictionary)
     encoded_payload = translator.payload(payload)
     encoded_contract = _schema(contract, translator)
-    encoded_payload["referenceDictionary"] = {
+    encoded_payload["referenceWire"] = {
         "version": VERSION,
-        **dictionary,
         "instruction": (
-            "Use source handles only in source-reference fields, table handles only in "
-            "table-reference fields. Column/meaning IDs and literal quotations remain unchanged."
+            "Use source handles in sourceDecisions keys and source-reference fields; "
+            "table handles only in table-reference fields. "
+            "Column/meaning IDs and literal quotations remain unchanged."
         ),
     }
     baseline = len(_encoded(payload | {"outputContract": contract}))

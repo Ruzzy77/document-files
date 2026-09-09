@@ -2,6 +2,18 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Require a source-first table meaning response (table protocol v10). Each owned
+  source has an explicit decision before optional meanings, with exact local quotes
+  and additional owned-source evidence. Preserve independent meanings and joint
+  evidence while rejecting duplicate IDs and identical meaning copies.
+- Preserve explicit unreviewed decisions, including fully quoted and empty sources
+  (meaning review v2, compiler v16). Reject repairs and saved histories that turn
+  reviewed sources back into unreviewed work.
+- Extend reference-wire v2 to source-decision keys and additional quotes. Keep the
+  full reversible dictionary in checkpoint identity, not repeated in model input.
+  Public v1 APIs and document budgets are unchanged; older internal checkpoints
+  are rejected. Actual v10 meaning quality remains unverified.
+
 - Compact the model-only table meaning request (table protocol v9). Keep compiled
   header references beside each column, remove only geometry-reproduced provenance
   and byte-equal context text copies, and retain full evidence in canonical results.

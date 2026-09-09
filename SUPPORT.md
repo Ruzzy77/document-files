@@ -33,21 +33,32 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Compact table meaning input
+### Source-first table meaning review
 
-Table protocol v9 changes only the model-facing view. Original source text, context,
-compiled names/types, header references and canonical provenance are retained.
-Reference-wire v1 uses separate source/table handles only when the dictionary and
-contract together reduce the request. The engine restores original references before
+Table protocol v10 asks for one decision per owned source before any meanings.
+Only `has_meaning` permits meanings; exact quotes can span multiple owned sources,
+and a source can express multiple independent meanings. A joint meaning appears
+once under its earliest quoted source. Reference context cannot substitute for
+direct evidence. The compiler rejects duplicate IDs and identical meaning copies.
+Explicit `unreviewed` stays pending even for fully quoted or empty sources, and
+repairs/checkpoint histories cannot return reviewed sources to that state.
+
+The compact model-facing view retains original source text, context,
+compiled names/types, header references and canonical provenance.
+Reference-wire v2 uses separate source/table handles only when they reduce the
+actual request. The full dictionary stays in checkpoint identity rather than being
+repeated in model input. The engine restores original references before
 checking exact quotes, revisions and compiled results. Checkpoints bind the dictionary
 and its activation, and old protocol checkpoints are rejected rather than migrated.
 
-An offline reconstruction of the saved PDF development case fell from 19,014 to
-14,694 message-content characters against the unchanged 16,000-character limit.
+The v10 offline reconstruction of the saved PDF development case is 14,957
+message-content characters against the unchanged 16,000-character limit. A synthetic
+all-unreviewed repair is 19,976 characters and would not fit; this is a size stress
+diagnostic, not a model response or a promise that every repair can run.
 Every initial and repair request is checked at its actual size; overflow retains the
 accepted structure and does not dispatch a model call or enlarge the document budget.
 
-The subsequent development continuation made one actual meaning call from the saved
+The preceding v9 development continuation made one actual meaning call from the saved
 source-bound structure, with no recognition or page-review rerun. Input fit at 4,469
 prompt tokens, but the response repeated the same quantity-unit interpretation and
 header quotations until the 3,072-output-token ceiling (330.54 seconds, finish reason
@@ -55,8 +66,9 @@ header quotations until the 3,072-output-token ceiling (330.54 seconds, finish r
 accepted value, source and structure. The cumulative budget was 6 calls / 853.49 seconds
 of the unchanged 12 / 900 limit. This remains partial, not meaning-quality success or
 independent qualification. The owned server exited; installed packs stayed unchanged.
-Next work is a finite, source-centered meaning response design and an explicit check
-of owned text versus reference context, not a larger output budget or unchanged retry.
+The source-first v10 implementation has regression coverage, but no actual model
+quality result yet. Only 46.51 seconds remain in this case's recorded budget; no
+new inference, recognition or page review was run for the v10 implementation.
 
 ### Optional source-bound PDF page review
 

@@ -10,7 +10,7 @@ from pydantic import Field
 from ..result_types import Contract
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v15"
+COMPILER_VERSION = "document-files.result-compiler.v16"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -75,7 +75,7 @@ class MeaningSourceRange(Contract):
 
 class MeaningSourceReview(Contract):
     sourceRefs: list[str] = Field(min_length=1, max_length=1000)
-    role: Literal["no_additional_meaning", "unresolved"]
+    role: Literal["no_additional_meaning", "unresolved", "unreviewed"]
     explanation: str = Field(min_length=1, max_length=500)
 
 
@@ -87,8 +87,8 @@ class MeaningChange(Contract):
 
 
 class TableMeaningState(Contract):
-    version: Literal["document-files.table-meaning-review.v1"] = (
-        "document-files.table-meaning-review.v1"
+    version: Literal["document-files.table-meaning-review.v2"] = (
+        "document-files.table-meaning-review.v2"
     )
     inventorySHA256: str = Field(pattern="^[0-9a-f]{64}$")
     revisionSHA256: str = Field(pattern="^[0-9a-f]{64}$")

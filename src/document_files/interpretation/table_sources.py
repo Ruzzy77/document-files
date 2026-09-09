@@ -209,7 +209,7 @@ def review_ranges(meanings, reviews, inventory):
         _require(isinstance(refs, list) and bool(refs), "source_review_refs_required")
         _require(
             isinstance(role, str)
-            and role in {"no_additional_meaning", "unresolved"}
+            and role in {"no_additional_meaning", "unresolved", "unreviewed"}
             and isinstance(explanation, str)
             and bool(explanation.strip()),
             "invalid_source_review_role_or_explanation",
@@ -224,7 +224,10 @@ def review_ranges(meanings, reviews, inventory):
         boundaries = sorted(
             {source["start"], source["end"], *(v for q in intervals for v in q[:2])}
         )
-        missing, unclear = False, ref in uncertain
+        # An explicit deferred review remains pending even when another anchor
+        # quotes the whole source or the source is empty. Never erase that state.
+        missing = decisions.get(ref, (None,))[0] == "unreviewed"
+        unclear = ref in uncertain
         for low, high in zip(boundaries, boundaries[1:], strict=False):
             text = source["text"][low - source["start"] : high - source["start"]]
             meaning_ids = list(

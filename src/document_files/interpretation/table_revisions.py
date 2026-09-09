@@ -123,6 +123,10 @@ def preserve_reviewed_ranges(before, after):
     """A correction may become uncertain, but must not silently become unreviewed."""
     if before["inventorySHA256"] != after["inventorySHA256"]:
         raise MeaningRevisionError("table_meaning_source_inventory_changed")
+    # Explicit deferral also applies to fully quoted and empty sources, which
+    # have no uncovered character range. Preserve their reviewed state too.
+    if set(after["unreviewed"]) - set(before["unreviewed"]):
+        raise MeaningRevisionError("table_meaning_review_coverage_regressed")
     gaps = [r for r in after["ranges"] if r["role"] == "unreviewed"]
     for old in before["ranges"]:
         if old["role"] == "unreviewed":
