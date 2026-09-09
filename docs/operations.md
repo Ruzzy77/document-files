@@ -63,13 +63,15 @@ incompatible checkpoints must not be force-resumed. A stage completing is not a
 semantic quality approval. Non-record subtotal/note values now use a separate scalar
 region, with no overlapping value bindings and the same total budget. Its unfinished
 work remains partial and resumes without another record-structure call.
-The current table protocol is v5. Every observed non-fixed row needs an explicit
+The current table protocol is v6. Every observed non-fixed row needs an explicit
 role; only native-declared header rows are fixed automatically, not OCR predictions.
 Missing cells and invalid decimal readings stay uncertain with original evidence.
-Row source provenance is program-derived; meaning
-applicability uses exclusive column/record/row/unresolved choices. Accounting repair
-preserves accepted statement text and valid scopes, which may still be semantically
-wrong: independent content review is mandatory, not replaced by repair acceptance.
+Row source provenance is program-derived; meaning applicability uses exclusive
+column/record/row/unresolved choices. Exact quotes and explicit remaining-text reviews
+have a separate source inventory. Repairs can correct or withdraw a mistaken meaning
+but must retain original text coverage and a hash-bound revision/change history.
+Scope uncertainty is separate from unreviewed source text. Independent content review
+is mandatory: structural acceptance and fewer issues do not establish correctness.
 Resume checks the input and exact installed configuration. A budget grant is explicit;
 it never resets existing usage. No automatic replay occurs after service interruption.
 For a deliberately longer run, select the CPU profile and pass the supplied

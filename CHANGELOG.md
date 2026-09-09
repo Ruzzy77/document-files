@@ -2,6 +2,17 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Separate literal source ranges from revisable table meanings (prompt v21, planner v14,
+  table protocol v6, compiler v15, scope v7). Require explicit source review beyond
+  value/header reads and preserve source coverage through corrections and withdrawals.
+- Bind meaning revisions to prior content and change history; reject stale bases,
+  unrecorded changes, lost reviews and incompatible checkpoints without losing values.
+- Link captured framework/cell OCR input pixels, serialized single-page PDF and original
+  page coordinates with import-time checks (recognition adapter v12). Unknown transforms
+  remain unverified; fresh OCR quality, visual coverage and reading order remain pending.
+- Record two bounded full-path development meaning failures despite engine completion;
+  independent holdout, same-candidate qualification and consumer migration remain pending.
+
 - Require explicit roles for actual non-fixed table rows and distinguish native
   header declarations from OCR predictions (prompt v19, planner v13, table protocol v5).
 - Preserve non-record subtotal/note values in budgeted, resumable scalar regions;
@@ -21,8 +32,9 @@
   (prompt v18, planner v12, table protocol v4, checkpoint v2).
 - Attach row-role provenance from observed geometry instead of model-written sources;
   fix fully declared header rows while leaving sparse cells and unknown headers unresolved.
-- Use exclusive table meaning scopes and bounded accounting repair with accepted-statement
-  preservation; actual development meaning quality is still failing.
+- Initially use exclusive table meaning scopes and accepted-statement preservation;
+  protocol v6 replaces immutable meaning with auditable correction. Development meaning
+  quality is still failing.
 - Reject mismatched Windows compiler notices, explicitly disable Leptonica SW builds,
   and include IJG/Berkeley attributions. Exact redistribution review remains pending.
 - Reject declared-header records and displaced data-row references before freezing;

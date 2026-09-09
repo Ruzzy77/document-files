@@ -203,11 +203,11 @@ They are optional measurements, not an accuracy certificate or timeout usage rec
 
 ### Internal table stages
 
-Prompt v19 / planner v13 / table protocol v5 use a structural classification first.
+Prompt v21 / planner v14 / table protocol v6 use a structural classification first.
 Record tables compile one record definition before interpreting meanings over fixed
 IDs; scalar forms retain their binding-based path. `coverage.tableInterpretation`
 records each stage's attempts, status and usage. `structure_compiled` means retained
-partial work, not complete extraction. Compiler v14 rejects broad unbounded
+partial work, not complete extraction. Compiler v15 rejects broad unbounded
 parent/child scope unions while preserving explicit bounded row intersections.
 Public AnalysisJob v1, AnalysisResult v1 and extraction result contracts remain;
 private checkpoint v2 checks the changed protocol identities.
@@ -215,7 +215,7 @@ private checkpoint v2 checks the changed protocol identities.
 Stage-one row decisions use `{row, role}` for every observed non-fixed row; omissions,
 duplicates and unknown rows are rejected. Only wholly native-declared header rows
 are fixed automatically. OCR flags remain predictions, and row sources come from
-actual geometry. Missing source cells are never shifted or created. Scope v6 uses
+actual geometry. Missing source cells are never shifted or created. Scope v7 uses
 compiled header roles for group candidates, including AI-classified OCR headers.
 
 Non-record subtotal/note and unmapped cells are routed to a separate scalar region
@@ -229,10 +229,31 @@ and representation, not merely the same cell reference.
 
 Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
-The internal wire is converted to the unchanged source-linked Meaning IR. Accounting
-repair may add source-bound statements or resolve uncertain scopes, but cannot remove
-accepted statements or change compiled structure/values to reduce issues. An accepted
-response or interpreted scope denotes mechanical validity, not verified meaning quality.
+The model supplies `sourceQuotes` (`sourceRef`, exact `text`, optional zero-based
+`occurrence` for repeated text), never source offsets. The program records original
+Unicode ranges and hashes. `sourceReviews` explicitly classify the remaining source
+text as `no_additional_meaning` or `unresolved`; successful value/header reads do not
+replace this review. `meaningSources` and `referenceContext` have separate roles.
+
+The full response requires `meanings`, `sourceReviews`, `baseRevision` and `changes`.
+The first response uses a null base and empty changes. Repairs cite the accepted
+revision and account for every changed or withdrawn meaning with replacements and/or
+source reviews. Kind, description, scope and status may change; prior source coverage
+and compiled structure/values may not disappear. Revision hashes include transition
+reasons, and checkpoint resume validates the history. Repeated decisions, including
+reason-only changes, are not progress. Exposing uncertainty can be a valid correction.
+
+`coverage.semanticSourceReviews` contains versioned program-checked source ranges;
+`semanticDetails` contains direct quote ranges separately from surrounding context.
+Source review, applicability validity and independent semantic approval are distinct.
+Public v1 contracts remain unchanged; these are private protocol/versioned metadata.
+
+Recognition adapter v12 records `document-files.recognition-coordinates.v1` evidence
+for captured OCR input pixels through the actual framework crop/rotation and the
+serialized single-page PDF to the original page. It rechecks raw-pass/source/page
+fingerprints on import. Synthetic padding has no source support; unsupported mapping
+remains unverified. The record does not validate OCR text, framework-reported structure
+boxes, complete visual coverage or reading order.
 
 ### Internal input compaction
 

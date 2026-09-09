@@ -105,6 +105,27 @@ with a new explicit model-call budget grant; a valid unchanged unresolved decisi
 is not automatically repeated. This repair stage never asks for the full schema or
 values again. Scope integration v5 includes observed header-group membership and current statement context in checkpoint identity.
 
+### Source review and revisable table meaning
+
+Table protocol v6 separates immutable source ranges from model conclusions. Literal
+quotes are matched against the owning region's actual text view; context-only text
+cannot be quoted as owned evidence. Text outside quotes requires explicit review,
+including text already compiled as values or headers. Numeric data is not automatically
+classified as free of embedded annotations.
+
+A full repair may revise kind, description, applicability or status, split/merge
+meanings or withdraw a mistake. Each changed previous ID has an explicit replacement
+or source review and reason. Content, source inventory and the transition chain are
+hashed and validated on resume. Structure and values remain frozen. Exact coverage
+checks are not semantic approval; an uncertain correction may be safer than a confident
+but mistaken answer. Existing scalar-form interpretation remains separate.
+
+Captured PDF/OCR input pixels have a measured coordinate chain through the framework
+render/crop, optional rotation or padded cell crop, serialized one-page PDF and original
+page. This does not verify reported recognition boxes or the meaning of missing cells.
+Unverified transforms and original issues survive; visual coverage and reading-order
+completion still need their own checks.
+
 ### Bounded non-table source views
 
 An oversized text region is partitioned into disjoint source views. Original nodes

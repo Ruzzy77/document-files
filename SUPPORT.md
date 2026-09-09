@@ -32,11 +32,11 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Current source follow-up: structure checks and release tooling
+### Current source follow-up: revisable meaning and coordinate evidence
 
-Prompt v19 / planner v13 / table protocol v5 / compiler v14 require an explicit
+Prompt v21 / planner v14 / table protocol v6 / compiler v15 require an explicit
 role for every observed row not fixed by a native header declaration. OCR header
-flags remain predictions; omitted roles never become data records. Scope v6 uses
+flags remain predictions; omitted roles never become data records. Scope v7 uses
 the compiled header classification when constructing header-group candidates.
 Missing source cells remain missing, and invalid decimal text remains uncertain
 with its original spelling and source range instead of being read as a number.
@@ -58,15 +58,36 @@ Two bounded development probes stopped after structure, deliberately before mean
 Saved structure responses were also recompiled after the final defensive changes,
 with identical values and value-source evidence. Both whole results remain partial
 because the probes stopped before meaning. They are not fresh OCR, full-document,
-independent-holdout, final-candidate or 16 GiB qualification. The meaning repair still
-protects a mechanically accepted interpretation even when its content is wrong;
-source-range processing and revisable meaning decisions are the next product work.
+independent-holdout, final-candidate or 16 GiB qualification.
 
-Recognition adapter v11 records page-local processing dependencies without making
-one page's completion depend on unrelated document issues. It also records the
-actual full-render-to-original-PDF-page coordinate transform and checked inverse.
-This does not validate recognition/crop alignment, visual-content coverage, reading
-order or OCR truth. Original issues remain; recognition-backed PDF completion is
+Table meaning now selects literal source quotes. The program validates exact Unicode
+ranges and hashes; context-only text cannot become direct evidence. Explicit source
+reviews cover text outside the quotes, including text already read as values or
+headers. Missing review is not inferred from successful value extraction.
+
+A repair may change kind, description, scope or status, split or merge meanings, or
+withdraw a mistaken interpretation. It must identify the previous revision, explain
+changed IDs and retain review of their original text. Revision hashes bind content,
+source inventory and transition history. Structure and source values cannot change;
+issue-count reduction is not a quality test. Invalid repairs and exhausted budgets
+preserve the prior accepted result. Scalar-form contracts remain unchanged.
+
+Two full-path development runs used 2 calls each (148.2 and 146.5 seconds) within a
+preselected 5-call / 900-second limit. Both reported complete but failed separate
+content review: the unit was classified as a note and applied to the entire record,
+and both meanings quoted the whole caption. The second run correctly limited the
+condition to Length. Both preserved exact rows, precision and column/value sources.
+Record-definition provenance also included data cells too broadly. No independent
+holdout or final-candidate quality claim follows from these runs. The first run used
+the pre-hardening source snapshot; exact execution source hashes are retained.
+
+Recognition adapter v12 adds measured framework render/crop/rotation and cell-input
+links to the serialized single-page PDF and original page. Imported fingerprints,
+page mapping and transform bounds are checked. White padding is not source content;
+unsupported media origins and the old ruled-tables path remain unverified. Actual
+render/transform fixtures exercise the path, not a fresh OCR qualification run.
+Recognition bounding boxes, visual-content coverage, reading order and OCR truth
+are still unverified. Original issues remain; recognition-backed PDF completion is
 still blocked until those missing checks have a source-bound resolution path.
 
 Windows build preparation now takes pinned official product terms and records the
@@ -116,8 +137,8 @@ Row-role decisions contain only row and role; provenance is attached from actual
 observed geometry, with missing cells left missing. Rows whose observed cells are
 all explicitly declared headers are fixed by the program; mixed or unknown header
 flags still require interpretation. Meaning scopes exclusively select columns, the
-record, bounded row/column intersections, or unresolved applicability. Bounded
-accounting repair preserves prior statements and frozen values; accepting a wire
+record, bounded row/column intersections, or unresolved applicability. That earlier repair preserved even mistaken meanings. Table protocol v6 instead
+allows source-reviewed corrections while preserving frozen values; accepting a wire
 response is not independent semantic approval.
 Compiler v13 leaves unbounded parent/child meaning scopes unresolved instead of
 silently broadening column assertions; explicitly bounded row intersections remain.
@@ -127,13 +148,13 @@ an extra header record. After structural checks, a bounded 5-call / 258-second r
 preserved exactly two source records and precision. It still failed semantic review:
 the unit scope was unresolved after an invalid broad selection, and caption accounting
 was incomplete. The previous single-stage development pass does not qualify this new
-protocol. With the latest protocol, a fresh 3-call / 277-second run compiled exactly
+protocol. With the then-current protocol, a fresh 3-call / 277-second run compiled exactly
 two rows on the first attempt, but merged caption unit/condition statements into a
 record-wide condition and incorrectly called data-row summaries units. The repair
 repeated that response; the result remains partial and fails content review. A saved-
 recognition whole-scan attempt on protocol v2 used its 12-call cap / 761 seconds and
 failed sparse-row mapping. Do not increase failed budgets or treat syntax/structure
-acceptance as quality approval. A latest-protocol first-scan-table probe (one exact
+acceptance as quality approval. An earlier-protocol first-scan-table probe (one exact
 paragraph replay, two real calls / 222 seconds, planned stop after that table) kept
 sparse data cells in their actual positions and the missing note uncertain, but included
 the header as an extra record and produced a false unit/data summary. Its two stages
