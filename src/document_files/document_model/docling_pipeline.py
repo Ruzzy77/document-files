@@ -8,6 +8,7 @@ import io
 import json
 import math
 import subprocess
+import sys
 import tempfile
 import time
 from copy import deepcopy
@@ -428,6 +429,7 @@ def pipeline_class(config, snapshots, restored=None):
                     break
                 self.repair_tables += 1
                 start = time.monotonic()
+                execution = None
                 try:
                     scale = (
                         max(self.scale, 300 / 72)
@@ -561,7 +563,27 @@ def pipeline_class(config, snapshots, restored=None):
                                 },
                             )
                         ]
-                    info["units"] = []
+                    # Persist the full immutable unit plan before the first OCR
+                    # attempt. Execution never changes indices or fingerprints.
+                    info["units"] = [deepcopy(unit) for _, unit in units]
+                    execution = info["unitExecution"] = {
+                        "version": "document-files.table-unit-execution.v1",
+                        "order": list(range(len(units))),
+                        "states": [
+                            {
+                                "unitIndex": index,
+                                "unitFingerprint": unit["fingerprint"],
+                                "status": "not_attempted"
+                                if image is not None
+                                else "no_ink_observed"
+                                if unit["status"] == "no_ink_observed"
+                                else "boundary_unresolved",
+                                "ocrAttempted": False,
+                                "blankValueProven": False,
+                            }
+                            for index, (image, unit) in enumerate(units)
+                        ],
+                    }
                     prior_pair = next(
                         (
                             (i, p)
@@ -576,13 +598,23 @@ def pipeline_class(config, snapshots, restored=None):
                     )
                     incomplete = False
                     for unit_index, (unit_image, unit) in enumerate(units):
-                        info["units"].append(unit)
+                        state = execution["states"][unit_index]
                         prior_index, prior = prior_pair if prior_pair else (None, {})
+                        finished_fingerprints = {
+                            item.get("unitFingerprint")
+                            for item in prior.get("unitExecution", {}).get("states", [])
+                            if item.get("status")
+                            in {"observed", "observed_no_tokens", "reused", "no_ink_observed"}
+                        }
                         saved_unit = next(
                             (
                                 u
                                 for u in prior.get("units", [])
-                                if u.get("fingerprint") == unit["fingerprint"] and u.get("complete")
+                                if u.get("fingerprint") == unit["fingerprint"]
+                                and (
+                                    u.get("fingerprint") in finished_fingerprints
+                                    or u.get("complete")
+                                )
                             ),
                             None,
                         )
@@ -590,7 +622,7 @@ def pipeline_class(config, snapshots, restored=None):
                             snapshot["issues"].append(
                                 {"code": "recognition_raw_reused_repair_unverified"}
                             )
-                            unit.update(complete=True, reusedFromCheckpoint=True)
+                            state.update(status="reused", reusedFromCheckpoint=True)
                             for saved in restored.get("cells", []):
                                 if (
                                     saved.get("repairIndex") != prior_index
@@ -626,7 +658,6 @@ def pipeline_class(config, snapshots, restored=None):
                                     )
                             continue
                         if unit_image is None:
-                            unit["complete"] = True
                             if unit["status"] != "no_ink_observed":
                                 snapshot["issues"].append(
                                     {"code": "table_ocr_cell_boundary_unresolved"}
@@ -639,8 +670,12 @@ def pipeline_class(config, snapshots, restored=None):
                         )
                         if remaining <= 0 or self.repair_calls >= config.repair_max_calls:
                             snapshot["issues"].append({"code": "table_ocr_repair_budget_exceeded"})
+                            execution["stopReason"] = (
+                                "time_budget_exceeded" if remaining <= 0 else "call_budget_exceeded"
+                            )
                             incomplete = True
                             break
+                        state.update(status="running", ocrAttempted=True)
                         self.repair_calls += 1
                         self.call_timeout, self.call_psm = remaining, unit["psm"]
                         self.raw_repair_frame = None
@@ -779,10 +814,11 @@ def pipeline_class(config, snapshots, restored=None):
                                         "clusterId": cluster.id,
                                     }
                                 )
-                        unit["complete"] = True
-                        unit["tokenCount"] = len(result)
+                        state.update(
+                            status="observed" if len(result) else "observed_no_tokens",
+                            tokenCount=len(result),
+                        )
                         if len(result) == 0:
-                            unit["status"] = "ink_present_no_tokens"
                             snapshot["issues"].append({"code": "table_ocr_ink_without_tokens"})
                     if incomplete:
                         page.parsed_page.textline_cells = cells
@@ -791,6 +827,24 @@ def pipeline_class(config, snapshots, restored=None):
                     info["assessmentComplete"] = True
                     page.parsed_page.textline_cells = cells
                 finally:
+                    if execution is not None:
+                        error = sys.exc_info()[1]
+                        if error is not None:
+                            status = (
+                                "timed_out"
+                                if isinstance(error, subprocess.TimeoutExpired)
+                                else "failed"
+                                if isinstance(error, Exception)
+                                else "cancelled"
+                            )
+                            execution["stopReason"] = status
+                            execution["errorType"] = type(error).__name__
+                            for state in execution["states"]:
+                                if state["status"] == "running":
+                                    state.update(status=status, errorType=type(error).__name__)
+                        for state in execution["states"]:
+                            if state["status"] == "not_attempted":
+                                state["reason"] = execution.get("stopReason", "not_reached")
                     self.repair_elapsed += time.monotonic() - start
 
     class SourcePreservingPdfPipeline(StandardPdfPipeline):

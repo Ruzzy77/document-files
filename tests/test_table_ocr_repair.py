@@ -125,7 +125,16 @@ def test_cell_budget_resume_reuses_finished_cells_without_ocr_or_silent_replacem
     assert transform["scaleX"] == image.width / 100
     assert transform["scaleY"] == image.height / 60
     assert transform["scaleX"] != transform["scaleY"]
-    assert first["repairs"][0]["units"][0]["complete"]
+    assert first["repairs"][0]["unitExecution"]["states"][0]["status"] == "observed"
+    assert len(first["repairs"][0]["units"]) == 4
+    assert first["repairs"][0]["unitExecution"]["states"][2]["status"] == "not_attempted"
+    assert first["repairs"][0]["unitExecution"]["states"][2]["reason"] == "call_budget_exceeded"
+    assert first["repairs"][0]["unitExecution"]["states"][3]["status"] == "no_ink_observed"
+    from document_files.document_model.table_ocr_repair import cell_ocr_units
+
+    assert first["repairs"][0]["units"] == [
+        u for _, u in cell_ocr_units(image, first["repairs"][0])[0]
+    ]
     assert any(i["code"] == "table_ocr_repair_budget_exceeded" for i in first["issues"])
     restored.update(
         originalOCRFingerprint="stable-original",
@@ -144,8 +153,8 @@ def test_cell_budget_resume_reuses_finished_cells_without_ocr_or_silent_replacem
     page.parsed_page.textline_cells = []
     b.repair(page, [], second)
     assert calls == [1, 1]
-    assert second["repairs"][0]["units"][0]["reusedFromCheckpoint"]
-    assert second["repairs"][0]["units"][1]["complete"]
+    assert second["repairs"][0]["unitExecution"]["states"][0]["reusedFromCheckpoint"]
+    assert second["repairs"][0]["unitExecution"]["states"][1]["status"] == "observed"
     assert len(second["supplemental"]) == 2
     assert all(c.orig == "00012345678901234567" for c in page.parsed_page.textline_cells)
 
@@ -240,3 +249,96 @@ def test_structure_view_reindexes_clones_without_changing_source_identity():
         {k: v for k, v in c.items() if k != "structureView"} for c in snapshot["original"]
     ] == before
     assert [c["structureView"]["structureInputIndex"] for c in snapshot["original"]] == [1, 0]
+
+
+@pytest.mark.parametrize("outcome", ["timeout", "cancel", "failure", "time_budget", "empty"])
+def test_complete_unit_plan_survives_stops_with_separate_execution_state(monkeypatch, outcome):
+    pytest.importorskip("docling")
+    import subprocess
+
+    import pandas as pd
+    from docling_core.types.doc import BoundingBox, CoordOrigin, DocItemLabel
+
+    from document_files.document_model import docling_pipeline
+    from document_files.document_model.docling_adapter import RecognitionConfig
+    from document_files.document_model.table_ocr_repair import cell_ocr_units
+
+    image = grid_image()
+    config = RecognitionConfig(
+        "/models", "/tesseract", "/tessdata", table_ocr_repair="ruled_cells_v2"
+    )
+    cls = docling_pipeline.pipeline_class(config, {})._product_ocr_type
+    model = cls.__new__(cls)
+    model.scale, model.orientation = 3, 0
+    bbox = BoundingBox(l=0, t=0, r=100, b=60, coord_origin=CoordOrigin.TOPLEFT)
+    page = SimpleNamespace(
+        size=SimpleNamespace(width=100, height=60),
+        page_no=1,
+        predictions=SimpleNamespace(
+            layout=SimpleNamespace(
+                clusters=[SimpleNamespace(label=DocItemLabel.TABLE, bbox=bbox, id=1)]
+            )
+        ),
+        parsed_page=SimpleNamespace(textline_cells=[]),
+        get_image=lambda **_: image,
+    )
+    snapshot = {"original": [], "supplemental": [], "repairs": [], "issues": []}
+    initial_units = []
+
+    def prepare(*args, **kwargs):
+        units, geometry = cell_ocr_units(*args, **kwargs)
+        initial_units.extend(deepcopy(u) for _, u in units)
+        if outcome == "time_budget":
+            model.repair_elapsed = config.repair_max_seconds
+        return units, geometry
+
+    monkeypatch.setattr(docling_pipeline, "cell_ocr_units", prepare)
+    calls = []
+
+    def ocr(*_):
+        # The entire plan must already be in the snapshot before any external call.
+        assert snapshot["repairs"][0]["units"] == initial_units
+        calls.append(1)
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired("test", 1)
+        if outcome == "cancel":
+            raise KeyboardInterrupt
+        if outcome == "failure":
+            raise RuntimeError("test")
+        return pd.DataFrame(columns=["text", "left", "top", "width", "height", "conf"])
+
+    model._run_tesseract = ocr
+    errors = {
+        "timeout": subprocess.TimeoutExpired,
+        "cancel": KeyboardInterrupt,
+        "failure": RuntimeError,
+    }
+    if outcome in errors:
+        with pytest.raises(errors[outcome]):
+            model.repair(page, [], snapshot)
+    else:
+        model.repair(page, [], snapshot)
+    repair = snapshot["repairs"][0]
+    assert len(repair["units"]) == 4 and repair["units"] == initial_units
+    execution = repair["unitExecution"]
+    assert execution["order"] == [0, 1, 2, 3]
+    states = execution["states"]
+    assert [s["unitIndex"] for s in states] == [0, 1, 2, 3]
+    assert [s["unitFingerprint"] for s in states] == [u["fingerprint"] for u in initial_units]
+    assert states[3]["status"] == "no_ink_observed" and states[3]["ocrAttempted"] is False
+    assert all(s["blankValueProven"] is False for s in states)
+    if outcome == "empty":
+        assert len(calls) == 3
+        assert all(s["status"] == "observed_no_tokens" for s in states[:3])
+        assert all(u["status"] == "ready" for u in repair["units"][:3])
+    else:
+        expected = {
+            "timeout": "timed_out",
+            "cancel": "cancelled",
+            "failure": "failed",
+            "time_budget": "time_budget_exceeded",
+        }[outcome]
+        assert execution["stopReason"] == expected
+        assert states[0]["status"] == ("not_attempted" if outcome == "time_budget" else expected)
+        assert states[2]["status"] == "not_attempted" and states[2]["reason"] == expected
+        assert len(calls) == (0 if outcome == "time_budget" else 1)
