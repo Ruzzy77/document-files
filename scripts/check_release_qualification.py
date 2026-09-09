@@ -21,12 +21,19 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLATFORMS = {"macos-aarch64", "macos-x86_64", "windows-x86_64", "linux-x86_64"}
+PLATFORMS = {"macos-aarch64", "macos-x86_64", "windows-x86_64", "linux-x86_64", "linux-aarch64"}
+LINUX_ARCHITECTURES = {"linux-x86_64": "amd64", "linux-aarch64": "arm64"}
+LINUX_CHECKS = {
+    "local_model": ("local_model", "linux-x86_64"),
+    "http_service": ("http_service", "linux-x86_64"),
+    "container_internal": ("container_internal", "linux-x86_64"),
+    "local_arm64_model": ("local_model", "linux-aarch64"),
+    "http_service_arm64": ("http_service", "linux-aarch64"),
+    "container_internal_arm64": ("container_internal", "linux-aarch64"),
+}
 CLIENTS = {"codex", "claude_code", "claude_desktop", "chatgpt"}
 REQUIRED = frozenset(
-    {"local_model", "http_service", "container_internal"}
-    | {f"packaged_{p}" for p in PLATFORMS}
-    | {f"client_{c}" for c in CLIENTS}
+    set(LINUX_CHECKS) | {f"packaged_{p}" for p in PLATFORMS} | {f"client_{c}" for c in CLIENTS}
 )
 FORMATS = {"txt", "md", "html", "docx", "hwp", "hwpx", "xlsx", "pptx", "pdf"}
 CRITERIA = {
@@ -298,7 +305,7 @@ def _http_execution(report, item, root, path, digest, assets):
     import tarfile
 
     _identity(report, report["sourceCommit"], report["version"])
-    _bindings(report, "http_service", assets)
+    _bindings(report, "container_pipeline", assets)
     if report.get("observationProfile") != "in-container-loopback.v1" or report.get(
         "notCovered"
     ) != ["host-published-port-access", "independent-document-quality-suite"]:
@@ -517,6 +524,12 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
             _identity(build, commit, version)
             if (
                 build.get("schemaVersion") != "document-files.image-build.v2"
+                or asset.get("target") not in LINUX_ARCHITECTURES
+                or build.get("target") != asset.get("target")
+                or build.get("imageInspect", {}).get("os") != "linux"
+                or build.get("imageInspect", {}).get("architecture")
+                != LINUX_ARCHITECTURES.get(asset.get("target"))
+                or build.get("imageInspect", {}).get("imageId") != asset.get("imageId")
                 or build.get("status") != "built-unqualified"
                 or build.get("stage") != "complete"
                 or build.get("installedNativeVerification") != "selected-core-rhwp-exact"
@@ -550,7 +563,7 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
                 a
                 for a in assets.values()
                 if a["kind"] == "core"
-                and a.get("target") == "linux-x86_64"
+                and a.get("target") == image["target"]
                 and a["sha256"] == inputs.get("coreArchiveSha256")
                 and a["verifiedPath"].suffix == ".zip"
             ]
@@ -582,7 +595,12 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
             if patch_sha is None:
                 raise ValueError("Image source must include the selected rhwp patch")
             _, native = image_builder.portable_rhwp(
-                cores[0]["verifiedPath"], commit, version, inputs["wheelSha256"], patch_sha
+                cores[0]["verifiedPath"],
+                commit,
+                version,
+                inputs["wheelSha256"],
+                patch_sha,
+                target=image["target"],
             )
             if build.get("rhwp") != native:
                 raise ValueError("Image rhwp does not match its portable core")
@@ -601,6 +619,8 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
 
 
 def _bindings(report: dict, name: str, assets: dict) -> None:
+    role, required_target = LINUX_CHECKS.get(name, (name, None))
+    name = role
     ids = report.get("artifacts", [])
     if not ids or len(set(ids)) != len(ids) or any(key not in assets for key in ids):
         raise ValueError(f"Exact artifact bindings required: {name}")
@@ -616,7 +636,7 @@ def _bindings(report: dict, name: str, assets: dict) -> None:
         else {"core", "runtime", "model", "recognition"}
     )
     container = (
-        name in {"local_model", "http_service", "container_internal"}
+        name in {"local_model", "http_service", "container_internal", "container_pipeline"}
         or report.get("fullExtractionRoute") == "linux-cpu-container"
         or report.get("runtimeRoute") == "linux-cpu-container"
     )
@@ -624,6 +644,28 @@ def _bindings(report: dict, name: str, assets: dict) -> None:
         required.add("image")
     if not kinds >= required:
         raise ValueError(f"Incomplete pipeline artifact bindings: {name}")
+    pipeline_target = None
+    if container:
+        images = [a for a in chosen if a["kind"] == "image"]
+        if len(images) != 1 or images[0].get("target") not in LINUX_ARCHITECTURES:
+            raise ValueError("One exact Linux image target required per execution")
+        pipeline_target = images[0]["target"]
+        if required_target is not None and pipeline_target != required_target:
+            raise ValueError("Linux qualification cannot substitute another architecture")
+        if required_target is not None:
+            portable = [
+                a
+                for a in chosen
+                if a["kind"] == "core" and str(a.get("verifiedPath", "")).endswith(".zip")
+            ]
+            if not portable or any(a.get("target") != required_target for a in portable):
+                raise ValueError("Linux execution requires matching portable core target")
+        for kind in ("runtime", "recognition"):
+            selected = [a for a in chosen if a["kind"] == kind]
+            if not unsupported and (
+                len(selected) != 1 or selected[0].get("target") != pipeline_target
+            ):
+                raise ValueError("Container image and selected pack architectures differ")
     if name.startswith("packaged_"):
         target = name.removeprefix("packaged_")
         if not any(
@@ -633,7 +675,9 @@ def _bindings(report: dict, name: str, assets: dict) -> None:
             for a in chosen
         ):
             raise ValueError("Installed artifact differs from release asset")
-        runtime_target = "linux-x86_64" if container else target
+        runtime_target = "linux-x86_64" if target == "macos-x86_64" else target
+        if container and pipeline_target != runtime_target:
+            raise ValueError("Installed platform and container architecture differ")
         for kind in ("runtime", "recognition"):
             if not any(a["kind"] == kind and a.get("target") == runtime_target for a in chosen):
                 raise ValueError("Installed pack target differs from runtime route")
@@ -778,7 +822,53 @@ def _execution(
     _, measured = _linked(root, measurement["path"], measurement["sha256"])
     if measured.get("execution") != receipt.get("execution"):
         raise ValueError("Execution receipt differs from measured resource result")
+    before, after = measured.get("limitsBefore", {}), measured.get("limitsAfter", {})
+    cpu = before.get("cpuQuota")
+    if (
+        type(cpu) not in (int, float)
+        or not 0 < cpu <= 4
+        or after.get("cpuQuota") != cpu
+        or receipt["execution"].get("cpuQuota") != cpu
+    ):
+        raise ValueError("Measured unchanged CPU quota of at most four required")
     return {**report, "execution": receipt["execution"]}
+
+
+def _measured_cpu(execution):
+    ceiling, peak = execution.get("memoryCeilingBytes"), execution.get("cgroupMemoryPeakBytes")
+    if (
+        type(ceiling) is not int
+        or not 0 < ceiling <= 16 * 1024**3
+        or type(peak) is not int
+        or not 0 < peak <= ceiling
+        or execution.get("device") != "cpu"
+        or execution.get("gpuUsed") is not False
+        or execution.get("networkMode") != "none"
+        or any(
+            execution.get(k) is not True
+            for k in (
+                "offline",
+                "networkBlocked",
+                "memoryCeilingVerified",
+                "measurementComplete",
+                "limitsUnchanged",
+            )
+        )
+        or any(
+            type(execution.get(k)) is not int or execution[k] != 0
+            for k in (
+                "memorySwapMaxBytes",
+                "memorySwapPeakBytes",
+                "oomEventsDelta",
+                "oomKillEventsDelta",
+                "gpuDeviceCount",
+                "exitCode",
+            )
+        )
+        or execution.get("timedOut") is not False
+        or execution.get("recorderErrors") != []
+    ):
+        raise ValueError("Measured CPU 16GB offline execution required")
 
 
 def _container_identity(report: dict, item: dict, root: Path, assets: dict) -> None:
@@ -790,7 +880,7 @@ def _container_identity(report: dict, item: dict, root: Path, assets: dict) -> N
     image = assets.get(host.get("imageArtifactId"), {})
     actual = host.get("dockerInspect", {})
     if (
-        host.get("schemaVersion") != "document-files.container-identity.v1"
+        host.get("schemaVersion") != "document-files.container-identity.v2"
         or host.get("collectorSha256")
         != hashlib.sha256((ROOT / "scripts/capture_container_identity.py").read_bytes()).hexdigest()
         or host.get("artifacts") != report["artifacts"]
@@ -804,11 +894,29 @@ def _container_identity(report: dict, item: dict, root: Path, assets: dict) -> N
         or host.get("imageId") != image.get("imageId")
         or actual.get("imageId") != image.get("imageId")
         or host.get("imageInspect", {}).get("imageId") != image.get("imageId")
+        or image.get("target") not in LINUX_ARCHITECTURES
+        or host.get("imageInspect", {}).get("os") != "linux"
+        or host.get("imageInspect", {}).get("architecture")
+        != LINUX_ARCHITECTURES.get(image.get("target"))
         or not re.fullmatch(r"[a-f0-9]{64}", host.get("containerId", ""))
         or actual.get("containerId") != host["containerId"]
     ):
         raise ValueError("Host receipt does not bind this actual container/image/run")
     execution = report["execution"]
+    _measured_cpu(execution)
+    nano, quota, period = (actual.get(k) for k in ("nanoCpus", "cpuQuota", "cpuPeriod"))
+    if any(type(v) is not int or v < 0 for v in (nano, quota, period)):
+        raise ValueError("Actual Docker CPU quota required")
+    if nano:
+        host_cpu = nano / 1_000_000_000
+        if quota or period:
+            raise ValueError("Ambiguous Docker CPU quota")
+    elif quota and period:
+        host_cpu = quota / period
+    else:
+        raise ValueError("Actual Docker CPU quota required")
+    if not 0 < host_cpu <= 4 or host_cpu != execution.get("cpuQuota"):
+        raise ValueError("Actual Docker CPU quota differs from measured run")
     if (
         actual.get("status") not in {"running", "exited"}
         or not actual.get("startedAt")
@@ -836,7 +944,7 @@ def _container_identity(report: dict, item: dict, root: Path, assets: dict) -> N
 def check(manifest: Path, evidence_root: Path, source_commit: str, version: str) -> None:
     document = json.loads(manifest.read_text(encoding="utf-8"))
     if (
-        document.get("schemaVersion") != "document-files.qualification.v2"
+        document.get("schemaVersion") != "document-files.qualification.v3"
         or document.get("version") != version
         or document.get("sourceCommit") != source_commit
     ):
@@ -852,7 +960,10 @@ def check(manifest: Path, evidence_root: Path, source_commit: str, version: str)
     if cloud == "qualified" or "cloud_model" in by_id:
         names.add("cloud_model")
     # Model evidence first so generic mocked test reports can never qualify a model.
-    for name in sorted(names, key=lambda n: (not n.endswith("_model"), n)):
+    for name in sorted(
+        names, key=lambda n: (not LINUX_CHECKS.get(n, (n, None))[0].endswith("_model"), n)
+    ):
+        role = LINUX_CHECKS.get(name, (name, None))[0]
         item = by_id.get(name, {})
         if item.get("passed") is not True:
             raise ValueError(f"Missing successful qualification: {name}")
@@ -863,10 +974,10 @@ def check(manifest: Path, evidence_root: Path, source_commit: str, version: str)
         if report.get("artifactInventory") != document["artifactInventory"]:
             raise ValueError(f"Report artifact inventory identity mismatch: {name}")
         _bindings(report, name, assets)
-        if name.endswith("_model"):
+        if role.endswith("_model"):
             _core_execution(report, assets)
             report = _reviewed(report, item, evidence_root, path)
-            if name == "local_model":
+            if role == "local_model":
                 report = _execution(
                     report,
                     evidence_root,
@@ -877,11 +988,23 @@ def check(manifest: Path, evidence_root: Path, source_commit: str, version: str)
                     item["executionReceipt"],
                 )
                 _container_identity(report, item, evidence_root, assets)
-            _actual_model(report, name, path, evidence_root)
+            _actual_model(report, role, path, evidence_root)
         else:
-            if name == "http_service":
+            if role == "http_service":
                 report = _reviewed_operational(report, item, evidence_root, path, assets)
-            _operational(report, name, evidence_root, assets)
+            if role == "container_internal":
+                _core_execution(report, assets)
+                report = _execution(
+                    report,
+                    evidence_root,
+                    source_commit,
+                    version,
+                    path,
+                    item["evidence"]["sha256"],
+                    item["executionReceipt"],
+                )
+                _container_identity(report, item, evidence_root, assets)
+            _operational(report, role, evidence_root, assets)
     if cloud not in {"qualified", "not-qualified"}:
         raise ValueError("Cloud support must be explicitly qualified or not-qualified")
     if document.get("scope") != "printed-ko-en-cpu16gb-full-document.v1":

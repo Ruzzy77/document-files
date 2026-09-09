@@ -128,6 +128,7 @@ file, and a locally available base image pinned by both RepoDigest and actual im
 python scripts/build_release_image.py \
   --core-receipt /verified/core/build-inventory.json \
   --core-receipt-sha256 TRUSTED_CORE_RECEIPT_SHA256 \
+  --target linux-x86_64 \
   --core-archive /verified/core/document-files-1.8.0-linux-x86_64.zip \
   --wheel /verified/core/document_files-1.8.0-py3-none-any.whl \
   --source /verified/core/document_files-1.8.0.tar.gz \
@@ -160,7 +161,7 @@ unverified daemon-side build termination. Actual Docker execution remains unveri
 
 ## Immutable raw results, independent review and resource evidence
 
-The qualification document is `document-files.qualification.v2`, contains the clean
+The qualification document is `document-files.qualification.v3`, contains the clean
 product identity, scope `printed-ko-en-cpu16gb-full-document.v1`, explicit
 `support.cloud_model` (`qualified` or `not-qualified`), `artifactInventory`, `checks`
 and `releaseAssets` (the inventory IDs intended for public delivery). Set
@@ -169,8 +170,36 @@ verified aggregate inventory JSON, without listing it inside itself or creating 
 circular hash. Keep that public inventory limited to public relative paths and
 provenance, never secrets or private document metadata.
 
+Five native installation checks are mandatory: macOS ARM64/Intel, Windows x64,
+Linux x64 and Linux ARM64. Linux execution checks are paired explicitly:
+
+| Role | Linux x64 check | Linux ARM64 check |
+|---|---|---|
+| Full model quality and CPU 16 GiB | `local_model` | `local_arm64_model` |
+| HTTP lifecycle and installed inference | `http_service` | `http_service_arm64` |
+| Internal container execution | `container_internal` | `container_internal_arm64` |
+
+Each pair uses the same validation logic and a different required target. Keep all
+six results; do not count a Spark/ARM run as x64. Each run selects one matching image,
+portable core, runtime and recognition pack; common wheel/source/model bytes may be
+shared. Native Intel Mac recognition still routes to the x64 Linux container.
+
+The image builder's `--target` accepts `linux-x86_64` (default) or `linux-aarch64`.
+Select target-specific portable input and pinned base image before building; do not
+rename an archive or relabel a receipt. The builder checks the actual base/final
+Docker architecture, rhwp ELF machine and exported config. Image-build v2 records
+`target` and `imageInspect` along with the existing exact input/native hashes.
+
+Host `document-files.container-identity.v2` evidence includes Docker `Os` and
+`Architecture`, actual CPU limits and the original container/image/run identity.
+Older evidence without these fields must be collected again, not backfilled with
+assumptions. Both architectures require at most four CPUs, 16 GiB and zero swap/OOM,
+without GPU or external networking. Keep Spark's host GPU/swap settings unchanged;
+limits belong to the qualification container. Internal-container checks also need
+source-bound execution and actual host identity receipts, not only checklist flags.
+
 Each check has `id`, `passed` and `evidence: {path, sha256}`. A model check additionally
-has separate `review` and, for `local_model`, `executionReceipt` references. Keep the
+has separate `review` and, for either local-model check, `executionReceipt` references. Keep the
 raw `document-files.model-qualification.v2` report unchanged with `passed: false`.
 The independent `document-files.semantic-review.v1` receipt binds its source-report
 hash and every input/result/frozen-specification hash. The gate merges reviewed
@@ -339,7 +368,7 @@ Toolkit/Sync pinned release. Keep rollback and existing stored results available
 
 ## Candidate CI is not delivery qualification
 
-`cpu-runtime.yml` builds the four native runtime candidates from the pinned source.
+`cpu-runtime.yml` builds the five native runtime candidates from the pinned source.
 It runs only for an explicit dispatch or changes to that builder/workflow, leaves
 outputs under runner-temporary storage and does not activate packs. Windows uses
 `prepare_windows_build.ps1` to identify the installed VS2022 Enterprise instance,

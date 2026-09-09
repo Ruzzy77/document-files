@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add Linux ARM64 as a fifth target without replacing Linux x64. Pin the ARM PBS
+  runtime and connect native core/CPU/recognition CI with ELF/loader/host checks.
+  The next CPU runtime candidate is `b10853-cpu.4`; existing installed packs stay unchanged.
+- Bind Linux image inputs, patched HWP, Docker architecture and exported config to
+  one target. Qualification v3 requires separate x64/ARM64 model, HTTP and container
+  evidence; container-identity v2 records actual architecture and CPU quota.
+  Actual ARM installation, full recognition and CPU 16 GiB qualification remain pending.
+
 - Separate literal source ranges from revisable table meanings (prompt v23, planner v14,
   table protocol v8, compiler v15, scope v7). Require explicit source review beyond
   value/header reads and preserve source coverage through corrections and withdrawals.
@@ -25,7 +33,11 @@
 - Preserve every planned OCR cell before dispatch and record execution state separately
   (recognition adapter v17). Keep unattempted cells after budget/error/cancellation and
   distinguish no-ink from blank values. A small actual file-list comparison matched
-  individual crops; product batch OCR and whole-table quality remain pending.
+  individual crops. Adapter v18 adds explicit maximum-two-image batches within separate
+  process/image/input-pixel/time limits; default single-image behavior is unchanged.
+  Raw OCR v2 retains the common original TSV and exact input/row/unit/frame membership.
+  Incomplete runs cannot complete or reuse either input. Actual whole-table quality
+  and conservative recognition-completeness checks remain pending.
 - Record bounded full-path development meaning failures despite engine completion. Revert
   the failed source-first output-order experiment. Clause-level sampling diagnostics
   are not production-profile qualification.

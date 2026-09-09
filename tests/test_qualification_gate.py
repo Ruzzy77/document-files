@@ -1,5 +1,6 @@
 """Synthetic contract fixtures only; these are not release qualification evidence."""
 
+import copy
 import hashlib
 import importlib.util
 import io
@@ -347,6 +348,8 @@ def evidence(tmp_path):
     image_build = json.loads((tmp_path / "image-build.json").read_bytes())
     image_build.update(
         schemaVersion="document-files.image-build.v2",
+        target="linux-x86_64",
+        imageInspect={"imageId": "sha256:" + "6" * 64, "os": "linux", "architecture": "amd64"},
         status="built-unqualified",
         stage="complete",
         installedCoreVerification="selected-wheel-exact",
@@ -363,6 +366,70 @@ def evidence(tmp_path):
     )
     next(a for a in assets if a["id"] == "image")["buildReceipt"] = write(
         "image-build.json", image_build
+    )
+    # Independent synthetic ARM bytes/receipts; never relabel the x64 executable.
+    arm_core = next(a for a in assets if a["id"] == "core-linux-aarch64")
+    arm_binary = binary[:18] + (183).to_bytes(2, "little") + binary[20:]
+    arm_native = {**native, "binarySha256": hashlib.sha256(arm_binary).hexdigest()}
+    arm_files = {**native_files, "rhwp": arm_binary, "build.json": json.dumps(arm_native).encode()}
+    arm_portable = {**portable, "target": "linux-aarch64", "rhwp": arm_native}
+    with zipfile.ZipFile(tmp_path / arm_core["path"], "w") as out:
+        out.writestr("document-files/BUILD.json", json.dumps(arm_portable))
+        for name, raw in arm_files.items():
+            info = zipfile.ZipInfo("document-files/rhwp/" + name)
+            info.external_attr = (0o100755 if name == "rhwp" else 0o100644) << 16
+            out.writestr(info, raw)
+    arm_core["sha256"] = hashlib.sha256((tmp_path / arm_core["path"]).read_bytes()).hexdigest()
+    arm_build = {
+        **linux_build,
+        "target": "linux-aarch64",
+        "artifacts": {
+            arm_core["path"]: arm_core["sha256"],
+            wheel_asset["path"]: wheel_asset["sha256"],
+            source_asset["path"]: source_asset["sha256"],
+        },
+    }
+    arm_core["buildReceipt"] = write(arm_core["buildReceipt"]["path"], arm_build)
+    arm_identity = {
+        **native_identity,
+        "files": {n: hashlib.sha256(raw).hexdigest() for n, raw in arm_files.items()},
+    }
+    arm_installed = write(
+        "installed-core-arm64.json",
+        {
+            "core": identity_helper().wheel_package(tmp_path / wheel_asset["path"]),
+            "rhwp": {k: arm_identity[k] for k in ("path", "version", "files")},
+        },
+    )
+    arm_image = tmp_path / "image-arm64.tar"
+    arm_image.write_bytes(b"synthetic ARM image fixture")
+    arm_image_sha = hashlib.sha256(arm_image.read_bytes()).hexdigest()
+    arm_image_build = {
+        **image_build,
+        "target": "linux-aarch64",
+        "imageId": "sha256:" + "7" * 64,
+        "imageDigest": "sha256:" + "8" * 64,
+        "archiveSha256": arm_image_sha,
+        "imageInspect": {"imageId": "sha256:" + "7" * 64, "os": "linux", "architecture": "arm64"},
+        "installedNativeEvidence": arm_installed,
+        "rhwp": arm_identity,
+        "inputs": {
+            **image_build["inputs"],
+            "coreArchiveSha256": arm_core["sha256"],
+            "coreReceiptSha256": arm_core["buildReceipt"]["sha256"],
+        },
+    }
+    assets.append(
+        {
+            "id": "image-arm64",
+            "kind": "image",
+            "target": "linux-aarch64",
+            "path": arm_image.name,
+            "sha256": arm_image_sha,
+            "imageId": arm_image_build["imageId"],
+            "imageDigest": arm_image_build["imageDigest"],
+            "buildReceipt": write("image-build-arm64.json", arm_image_build),
+        }
     )
     inventory_ref = write("artifacts.json", inventory)
     model["runtimeManifestSha256"] = next(
@@ -444,6 +511,7 @@ def evidence(tmp_path):
             "cases": cases,
             "execution": {
                 "device": "cpu",
+                "cpuQuota": 4,
                 "gpuUsed": False,
                 "offline": True,
                 "networkBlocked": True,
@@ -464,12 +532,13 @@ def evidence(tmp_path):
             },
         }
     }
-    for name in gate.REQUIRED - {"local_model"}:
+    for name in gate.REQUIRED - {"local_model", "local_arm64_model"}:
+        role, linux_target = gate.LINUX_CHECKS.get(name, (name, None))
         required = (
             gate.HTTP_TESTS
-            if name == "http_service"
+            if role == "http_service"
             else gate.CONTAINER_TESTS
-            if name == "container_internal"
+            if role == "container_internal"
             else gate.PLATFORM_TESTS
             if name.startswith("packaged_")
             else gate.CLIENT_TESTS
@@ -496,16 +565,23 @@ def evidence(tmp_path):
         runtime_target = (
             "linux-x86_64"
             if report.get("target") == "macos-x86_64"
-            else report.get("target", "linux-x86_64")
+            else report.get("target", linux_target or "linux-x86_64")
         )
-        core_target = report.get("target", "linux-x86_64")
+        core_target = report.get("target", linux_target or "linux-x86_64")
         report["artifacts"] = [
             f"core-{core_target}",
             f"runtime-{runtime_target}",
             f"recognition-{runtime_target}",
             "model",
-            "image",
+            "image-arm64" if runtime_target == "linux-aarch64" else "image",
         ]
+        if role == "container_internal":
+            report.update(
+                coreExecution=core_execution,
+                executionRunId="container-" + name,
+                execution=dict(reports["local_model"]["execution"]),
+            )
+            report["artifacts"].extend(["executed-wheel", "evaluator-source"])
         if name.startswith("packaged_"):
             report["artifactSha256"] = next(
                 a["sha256"] for a in assets if a["id"] == f"core-{core_target}"
@@ -531,9 +607,48 @@ def evidence(tmp_path):
         reports[name] = report
     http_fixture(reports["http_service"], assets, core_execution, write, tmp_path)
     reports["http_service"]["execution"] = dict(reports["local_model"]["execution"])
+    # Build each ARM report from its own result files and architecture-specific manifests.
+    arm_model = copy.deepcopy(reports["local_model"])
+    arm_model["artifactInventory"] = inventory_ref
+    arm_model["executionRunId"] = "synthetic-arm64-run"
+    arm_model["artifacts"] = [
+        a.replace("linux-x86_64", "linux-aarch64") if a != "image" else "image-arm64"
+        for a in arm_model["artifacts"]
+    ]
+    arm_model["model"]["runtimeManifestSha256"] = next(
+        a["manifestSha256"] for a in assets if a["id"] == "runtime-linux-aarch64"
+    )
+    arm_model["observation"]["packManifestSha256"] = next(
+        a["manifestSha256"] for a in assets if a["id"] == "recognition-linux-aarch64"
+    )
+    for case in arm_model["cases"]:
+        raw = json.loads((tmp_path / case["resultPath"]).read_bytes())
+        raw["provenance"]["model"] = arm_model["model"]
+        ref = write("arm64-" + case["resultPath"], raw)
+        case.update(resultPath=ref["path"], resultSha256=ref["sha256"])
+    reports["local_arm64_model"] = arm_model
+    arm_http = copy.deepcopy(reports["http_service"])
+    arm_http["artifactInventory"] = inventory_ref
+    arm_http["artifacts"] = [
+        a.replace("linux-x86_64", "linux-aarch64") if a != "image" else "image-arm64"
+        for a in arm_http["artifacts"]
+    ]
+    arm_http["coreExecution"]["selectedImageArtifactId"] = "image-arm64"
+    arm_http["coreExecution"]["packManifestSha256"].update(
+        runtimeId=arm_model["model"]["runtimeManifestSha256"],
+        recognitionPackId=arm_model["observation"]["packManifestSha256"],
+    )
+    raw = json.loads((tmp_path / arm_http["aiResult"]["path"]).read_bytes())
+    raw["provenance"]["model"] = arm_model["model"]
+    arm_http["aiResult"] = write("arm64-http-result.json", raw)
+    lifecycle = json.loads((tmp_path / arm_http["lifecycleEvidence"]["path"]).read_bytes())
+    for key in ("resume_checkpoint", "actual_ai_complete"):
+        lifecycle["observations"][key]["result"] = arm_http["aiResult"]
+    arm_http["lifecycleEvidence"] = write("arm64-http-lifecycle.json", lifecycle)
+    reports["http_service_arm64"] = arm_http
     document = {
         **identity,
-        "schemaVersion": "document-files.qualification.v2",
+        "schemaVersion": "document-files.qualification.v3",
         "artifactInventory": inventory_ref,
         "releaseAssets": [a["id"] for a in assets],
         "publishArtifactInventory": True,
@@ -542,7 +657,7 @@ def evidence(tmp_path):
     }
 
     # Snapshot input hashes in the stored source-linked results before any test mutations.
-    for case in cases:
+    for case in [*cases, *arm_model["cases"]]:
         case["inputSha256"] = hashlib.sha256(
             (tmp_path / case["inputPath"]).read_bytes()
         ).hexdigest()
@@ -555,12 +670,16 @@ def evidence(tmp_path):
     def run():
         checks = []
         for name, report in reports.items():
+            role = gate.LINUX_CHECKS.get(name, (name, None))[0]
+            image_asset = next(
+                (a for a in assets if a["kind"] == "image" and a["id"] in report["artifacts"]), None
+            )
             path = tmp_path / f"{name}.json"
             path.write_text(json.dumps(report))
             review_ref = None
             execution_ref = None
             container_ref = None
-            if name.endswith("_model"):
+            if role.endswith("_model"):
                 review_ref = write(
                     f"review-{name}.json",
                     {
@@ -587,7 +706,7 @@ def evidence(tmp_path):
                     broken = json.loads((tmp_path / review_ref["path"]).read_text())
                     broken["independent"] = False
                     review_ref = write(review_ref["path"], broken)
-            if name.endswith("_model") or name == "http_service":
+            if role.endswith("_model") or role in {"http_service", "container_internal"}:
                 measurements = write(
                     f"measurements-{name}.json",
                     {
@@ -618,7 +737,7 @@ def evidence(tmp_path):
                     f"container-{name}.json",
                     {
                         **identity,
-                        "schemaVersion": "document-files.container-identity.v1",
+                        "schemaVersion": "document-files.container-identity.v2",
                         "collectorSha256": hashlib.sha256(
                             (ROOT / "scripts/capture_container_identity.py").read_bytes()
                         ).hexdigest(),
@@ -627,23 +746,28 @@ def evidence(tmp_path):
                         "executionRunId": report["executionRunId"],
                         "executionReceipt": execution_ref,
                         "containerReceiptSha256": execution_ref["sha256"],
-                        "imageArtifactId": "image",
-                        "imageArtifactSha256": image_sha,
-                        "imageId": "sha256:" + "6" * 64,
+                        "imageArtifactId": image_asset["id"],
+                        "imageArtifactSha256": image_asset["sha256"],
+                        "imageId": image_asset["imageId"],
                         "containerId": "c" * 64,
                         "imageInspect": {
-                            "imageId": "sha256:" + "6" * 64,
-                            "repoDigests": ["registry/image@sha256:" + "5" * 64],
+                            "imageId": image_asset["imageId"],
+                            "repoDigests": ["registry/image@" + image_asset["imageDigest"]],
+                            "os": "linux",
+                            "architecture": gate.LINUX_ARCHITECTURES[image_asset["target"]],
                         },
                         "dockerInspect": {
                             "containerId": "c" * 64,
-                            "imageId": "sha256:" + "6" * 64,
+                            "imageId": image_asset["imageId"],
                             "running": False,
                             "status": "exited",
                             "startedAt": "2026-09-09T00:00:00Z",
                             "finishedAt": "2026-09-09T00:01:00Z",
                             "user": "10001:10001",
                             "memory": 16 * 1024**3,
+                            "nanoCpus": 4_000_000_000,
+                            "cpuQuota": 0,
+                            "cpuPeriod": 0,
                             "memorySwap": 16 * 1024**3,
                             "networkMode": "none",
                             "readOnlyRoot": True,
@@ -654,7 +778,7 @@ def evidence(tmp_path):
                         },
                     },
                 )
-            if name == "http_service":
+            if role == "http_service":
                 helper = operational_helper()
                 decisions = {
                     "schemaVersion": "document-files.operational-review-decisions.v1",
@@ -673,7 +797,10 @@ def evidence(tmp_path):
                         "findings": ["Synthetic result only"],
                     },
                 }
-                decisions_ref = write("http-review-decisions.json", decisions)
+                decisions_ref = write(
+                    ("http" if name == "http_service" else name) + "-review-decisions.json",
+                    decisions,
+                )
                 assessed = helper.assess(
                     tmp_path,
                     report,
@@ -682,7 +809,7 @@ def evidence(tmp_path):
                     gate,
                 )
                 review_ref = write(
-                    "http-review.json",
+                    ("http" if name == "http_service" else name) + "-review.json",
                     {
                         "schemaVersion": "document-files.operational-review.v1",
                         "reviewDecisions": decisions_ref,
@@ -1169,3 +1296,74 @@ def test_image_requires_exact_portable_native_and_installed_proof(evidence, muta
     ).hexdigest()
     with pytest.raises((ValueError, KeyError)):
         gate_module().artifact_inventory(document, root, "a" * 40, "1.8.0")
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "packaged_linux-aarch64",
+        "local_arm64_model",
+        "http_service_arm64",
+        "container_internal_arm64",
+        "local_model",
+    ],
+)
+def test_each_linux_architecture_keeps_its_required_checks(evidence, missing):
+    reports, _, run, _ = evidence
+    del reports[missing]
+    with pytest.raises(ValueError, match="Missing successful qualification"):
+        run()
+
+
+@pytest.mark.parametrize("kind", ["core", "runtime", "recognition", "image"])
+def test_arm_qualification_rejects_x64_and_mixed_bindings(evidence, kind):
+    reports, document, _, root = evidence
+    gate = gate_module()
+    assets = gate.artifact_inventory(document, root, document["sourceCommit"], document["version"])
+    report = reports["local_arm64_model"]
+    report["artifacts"].append("image" if kind == "image" else kind + "-linux-x86_64")
+    with pytest.raises(ValueError):
+        gate._bindings(report, "local_arm64_model", assets)
+    report["artifacts"] = reports["local_model"]["artifacts"]
+    with pytest.raises(ValueError, match="cannot substitute"):
+        gate._bindings(report, "local_arm64_model", assets)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["local_arm64_model", "http_service_arm64", "container_internal", "container_internal_arm64"],
+)
+def test_each_linux_route_requires_actual_architecture_and_cpu_quota(evidence, name):
+    _, document, run, root = evidence
+    run()
+    item = next(c for c in document["checks"] if c["id"] == name)
+    ref = item["containerIdentityReceipt"]
+    path = root / ref["path"]
+    original = json.loads(path.read_bytes())
+    gate = gate_module()
+    assets = gate.artifact_inventory(document, root, document["sourceCommit"], document["version"])
+    report = json.loads((root / item["evidence"]["path"]).read_bytes())
+    for field, value in [
+        ("architecture", "amd64" if "arm64" in name else "arm64"),
+        ("os", "darwin"),
+    ]:
+        broken = copy.deepcopy(original)
+        broken["imageInspect"][field] = value
+        path.write_text(json.dumps(broken))
+        ref["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        with pytest.raises(ValueError, match="actual container/image/run"):
+            gate._container_identity(report, item, root, assets)
+    for quota in [0, 5_000_000_000]:
+        broken = copy.deepcopy(original)
+        broken["dockerInspect"]["nanoCpus"] = quota
+        path.write_text(json.dumps(broken))
+        ref["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        with pytest.raises(ValueError, match="CPU quota"):
+            gate._container_identity(report, item, root, assets)
+
+
+def test_old_qualification_schema_cannot_omit_new_platform_requirements(evidence):
+    _, document, run, _ = evidence
+    document["schemaVersion"] = "document-files.qualification.v2"
+    with pytest.raises(ValueError, match="Qualification identity"):
+        run()

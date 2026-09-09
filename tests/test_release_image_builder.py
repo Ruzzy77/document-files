@@ -23,7 +23,7 @@ spec.loader.exec_module(builder)
 COMMIT = "a" * 40
 BASE = "python@sha256:" + "b" * 64
 BASE_ID = "sha256:" + "c" * 64
-CONFIG = b'{"rootfs":{"type":"layers","diff_ids":[]}}'
+CONFIG = b'{"os":"linux","architecture":"amd64","rootfs":{"type":"layers","diff_ids":[]}}'
 IMAGE = "sha256:" + hashlib.sha256(CONFIG).hexdigest()
 
 
@@ -165,7 +165,7 @@ def fake_docker(inputs, calls, *, fail=None, wrong_core=False):
                 {
                     "imageId": BASE_ID if base else IMAGE,
                     "os": "linux",
-                    "architecture": "amd64",
+                    "architecture": getattr(inputs, "docker_architecture", "amd64"),
                     "repoDigests": [BASE] if base else [],
                     "user": "" if base else "10001:10001",
                     "entrypoint": [] if base else ["python", "/opt/document-files-entrypoint.py"],
@@ -187,7 +187,11 @@ def fake_docker(inputs, calls, *, fail=None, wrong_core=False):
             return probe["id"]
         if command[1] == "start":
             _, native = builder.portable_rhwp(
-                inputs.core_archive, COMMIT, "1.8.0", builder.sha(inputs.wheel)
+                inputs.core_archive,
+                COMMIT,
+                "1.8.0",
+                builder.sha(inputs.wheel),
+                target=getattr(inputs, "target", "linux-x86_64"),
             )
             raw = json.dumps(
                 {
@@ -765,3 +769,69 @@ def test_duplicate_portable_member_is_rejected_before_docker(inputs, monkeypatch
     monkeypatch.setattr(builder, "execute", lambda *a, **k: pytest.fail("Docker must not run"))
     with pytest.raises(ValueError, match="Unsafe ZIP"):
         builder.build(inputs)
+
+
+def select_arm_inputs(inputs):
+    inputs.target = "linux-aarch64"
+    inputs.docker_architecture = "arm64"
+    with zipfile.ZipFile(inputs.core_archive) as source:
+        members = [(item, source.read(item)) for item in source.infolist()]
+    raw = dict((i.filename, b) for i, b in members)
+    binary = raw["document-files/rhwp/rhwp"]
+    binary = binary[:18] + (183).to_bytes(2, "little") + binary[20:]
+    native = json.loads(raw["document-files/rhwp/build.json"])
+    native["binarySha256"] = hashlib.sha256(binary).hexdigest()
+    core = json.loads(raw["document-files/BUILD.json"])
+    core.update(target=inputs.target, rhwp=native)
+    raw.update(
+        {
+            "document-files/rhwp/rhwp": binary,
+            "document-files/rhwp/build.json": json.dumps(native).encode(),
+            "document-files/BUILD.json": json.dumps(core).encode(),
+        }
+    )
+    with zipfile.ZipFile(inputs.core_archive, "w") as out:
+        for item, _ in members:
+            out.writestr(item, raw[item.filename])
+    receipt = json.loads(inputs.core_receipt.read_bytes())
+    receipt["target"] = inputs.target
+    receipt["artifacts"][inputs.core_archive.name] = builder.sha(inputs.core_archive)
+    inputs.core_receipt.write_text(json.dumps(receipt))
+    inputs.core_receipt_sha256 = builder.sha(inputs.core_receipt)
+
+
+def test_arm_image_keeps_target_through_core_docker_probe_and_export(inputs, monkeypatch):
+    select_arm_inputs(inputs)
+    config = CONFIG.replace(b"amd64", b"arm64")
+    monkeypatch.setitem(globals(), "CONFIG", config)
+    monkeypatch.setitem(globals(), "IMAGE", "sha256:" + hashlib.sha256(config).hexdigest())
+    calls = []
+    monkeypatch.setattr(builder, "execute", fake_docker(inputs, calls))
+    result = builder.build(inputs)
+    assert result["target"] == "linux-aarch64"
+    assert result["imageInspect"]["architecture"] == "arm64"
+    assert result["archive"] == "document-files-1.8.0-linux-aarch64-image.tar"
+    assert "--platform=linux/arm64" in next(c for c in calls if c[1] == "build")
+    assert (
+        "int.from_bytes(raw[18:20],'little')==183" in next(c for c in calls if c[1] == "create")[-1]
+    )
+    assert result["status"] == "built-unqualified"
+
+
+@pytest.mark.parametrize("fault", ["core-target", "elf", "docker", "export"])
+def test_arm_rejects_x64_inputs_or_observations(inputs, monkeypatch, fault):
+    select_arm_inputs(inputs)
+    if fault == "core-target":
+        inputs.target = "linux-x86_64"
+    elif fault == "elf":
+        with pytest.raises(ValueError, match="identity mismatch"):
+            builder.portable_rhwp(inputs.core_archive, COMMIT, "1.8.0", builder.sha(inputs.wheel))
+        return
+    elif fault == "docker":
+        inputs.docker_architecture = "amd64"
+    # The fake export remains amd64 even when the Docker projection says arm64.
+    monkeypatch.setattr(builder, "execute", fake_docker(inputs, []))
+    with pytest.raises(ValueError):
+        builder.build(inputs)
+    receipt = json.loads((inputs.output / "image-build.json").read_bytes())
+    assert receipt["status"] == "failed" and receipt["imageId"] is None

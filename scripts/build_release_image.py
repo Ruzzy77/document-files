@@ -33,6 +33,15 @@ from email.parser import BytesParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LINUX_TARGETS = {"linux-x86_64": ("amd64", 62), "linux-aarch64": ("arm64", 183)}
+
+
+def linux_target(target):
+    if target not in LINUX_TARGETS:
+        raise ValueError("Explicit supported Linux target required")
+    return LINUX_TARGETS[target]
+
+
 RHWP_PATH = "/opt/document-files-native/rhwp/rhwp"
 RHWP_VERSION = "rhwp v0.8.6+pat.checkbox.1"
 RHWP_UPSTREAM = "f1f9c6ae58344ee9368996d3543f76b9345cf227"
@@ -162,8 +171,9 @@ def lock_requirements(path):
     return requirements
 
 
-def portable_rhwp(archive, commit, version, wheel_sha, patch_sha=None):
+def portable_rhwp(archive, commit, version, wheel_sha, patch_sha=None, *, target="linux-x86_64"):
     """Reuse bounded ZIP inspection; return only the selected three native files."""
+    _, machine = linux_target(target)
     spec = importlib.util.spec_from_file_location("image_linux_zip", ROOT / "scripts/linux_abi.py")
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
@@ -183,7 +193,7 @@ def portable_rhwp(archive, commit, version, wheel_sha, patch_sha=None):
             build.get("sourceCommit") != commit
             or build.get("dirtySource") is not False
             or build.get("version") != version
-            or build.get("target") != "linux-x86_64"
+            or build.get("target") != target
             or build.get("wheelSha256") != wheel_sha
             or build.get("rhwp") != native
             or native.get("version") != RHWP_VERSION.removeprefix("rhwp v")
@@ -199,7 +209,7 @@ def portable_rhwp(archive, commit, version, wheel_sha, patch_sha=None):
         if (
             len(raw) < 20
             or raw[:6] != b"\x7fELF\x02\x01"
-            or int.from_bytes(raw[18:20], "little") != 62
+            or int.from_bytes(raw[18:20], "little") != machine
             or not executable_mode & 0o111
             or hashlib.sha256(raw).hexdigest() != native.get("binarySha256")
             or not files["LICENSE"].strip()
@@ -217,6 +227,8 @@ def portable_rhwp(archive, commit, version, wheel_sha, patch_sha=None):
 
 
 def prepare_inputs(args, commit, version, context):
+    target = getattr(args, "target", "linux-x86_64")
+    linux_target(target)
     originals = {}
 
     def accept(path, expected=None):
@@ -232,7 +244,7 @@ def prepare_inputs(args, commit, version, context):
         or core.get("version") != version
         or core.get("dirtySource") is not False
         or core.get("candidateMode") != "stable"
-        or core.get("target") != "linux-x86_64"
+        or core.get("target") != target
     ):
         raise ValueError("Matching stable Linux core receipt required")
     for path, suffix in (
@@ -269,7 +281,7 @@ def prepare_inputs(args, commit, version, context):
         raise ValueError("Selected source lacks rhwp patch")
     accept(ROOT / "patches/rhwp/checkbox-preservation.patch", patch_sha)
     native_files, native_identity = portable_rhwp(
-        args.core_archive, commit, version, originals[args.wheel], patch_sha
+        args.core_archive, commit, version, originals[args.wheel], patch_sha, target=target
     )
     context.mkdir()
     (context / "rhwp").mkdir()
@@ -479,14 +491,15 @@ def cleanup_probe(probe, output, events):
     return result
 
 
-def inspect_image(reference, output, run=execute):
+def inspect_image(reference, output, run=execute, *, target="linux-x86_64"):
+    architecture, _ = linux_target(target)
     data = json.loads(run(["docker", "image", "inspect", reference, "--format", INSPECT], output))
     if (
         not re.fullmatch(IMAGE_ID, data.get("imageId", ""))
         or data.get("os") != "linux"
-        or data.get("architecture") != "amd64"
+        or data.get("architecture") != architecture
     ):
-        raise ValueError("Actual Linux amd64 image identity required")
+        raise ValueError(f"Actual Linux {architecture} image identity required")
     return data
 
 
@@ -510,7 +523,7 @@ class BoundedTarReads:
         return getattr(self.stream, name)
 
 
-def export_identity(path, image_id):
+def export_identity(path, image_id, *, target=None):
     """Bind ordered uncompressed layer tar bytes to rootfs.diff_ids, without extraction."""
     if path.stat().st_size > MAX_EXPORT_BYTES:
         raise ValueError("Image export exceeds size bound")
@@ -549,7 +562,12 @@ def export_identity(path, image_id):
             raw = stream.read()
         if "sha256:" + hashlib.sha256(raw).hexdigest() != image_id:
             raise ValueError("Export differs from actual built image ID")
-        rootfs = json.loads(raw).get("rootfs", {})
+        config = json.loads(raw)
+        if target is not None and (
+            config.get("os") != "linux" or config.get("architecture") != linux_target(target)[0]
+        ):
+            raise ValueError("Exported image architecture differs from selected target")
+        rootfs = config.get("rootfs", {})
         diff_ids = rootfs.get("diff_ids")
         layers = manifest[0].get("Layers")
         if (
@@ -587,6 +605,8 @@ def export_identity(path, image_id):
 
 
 def build(args):
+    target = getattr(args, "target", "linux-x86_64")
+    architecture, machine = linux_target(target)
     output = args.output.absolute()
     if any(p.is_symlink() for p in (output, *output.parents)):
         raise ValueError("Output symlink forbidden")
@@ -626,9 +646,7 @@ def build(args):
     save()
     try:
         commit, version = source_identity()
-        receipt.update(
-            sourceCommit=commit, version=version, dirtySource=False, target="linux-x86_64"
-        )
+        receipt.update(sourceCommit=commit, version=version, dirtySource=False, target=target)
         if not re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9./:_-]*@sha256:[a-f0-9]{64}", args.base_image
         ) or not re.fullmatch(IMAGE_ID, args.base_image_id):
@@ -646,7 +664,7 @@ def build(args):
         receipt["rhwp"] = native_identity
         receipt["stage"] = "base-inspection"
         save()
-        base = inspect_image(args.base_image, output / "base-inspect.json", run)
+        base = inspect_image(args.base_image, output / "base-inspect.json", run, target=target)
         if base["imageId"] != args.base_image_id or args.base_image not in (
             base.get("repoDigests") or []
         ):
@@ -671,7 +689,7 @@ def build(args):
             "--pull=false",
             "--network=none",
             "--no-cache",
-            "--platform=linux/amd64",
+            "--platform=linux/" + architecture,
             "--iidfile",
             str(iid),
             "--build-arg",
@@ -682,21 +700,25 @@ def build(args):
         image_id = iid.read_text().strip()
         if not re.fullmatch(IMAGE_ID, image_id):
             raise ValueError("Build did not produce an actual image ID")
-        actual = inspect_image(image_id, output / "image-inspect.json", run)
+        actual = inspect_image(image_id, output / "image-inspect.json", run, target=target)
         if (
             actual["imageId"] != image_id
             or actual.get("user") != "10001:10001"
             or actual.get("entrypoint") != ["python", "/opt/document-files-entrypoint.py"]
         ):
             raise ValueError("Final image configuration mismatch")
+        receipt["imageInspect"] = actual
         receipt["stage"] = "installed-bytes"
         save()
         # Fixed read-only check, no document, model, token, caller code or processing endpoint.
+        probe_machines = ("aarch64", "arm64") if machine == 183 else ("x86_64", "amd64")
         probe = (
-            "import document_files,pathlib,hashlib,json,sys,os,subprocess; "
+            "import document_files,pathlib,hashlib,json,sys,os,subprocess,platform; "
             "from document_files.rhwp_backend import resolve_rhwp; "
             "p=pathlib.Path(document_files.__file__).parent; "
             "assert sys.version_info[:2]==(3,12); "
+            "assert platform.system()=='Linux'; "
+            f"assert platform.machine().lower() in {probe_machines!r}; "
             "assert not any(f.is_symlink() for f in p.rglob('*')); "
             "core={str(f.relative_to(p)):hashlib.sha256(f.read_bytes()).hexdigest() "
             "for f in p.rglob('*') if f.is_file() and '__pycache__' not in f.parts "
@@ -705,7 +727,7 @@ def build(args):
             "assert os.environ.get('DOCUMENT_FILES_RHWP')==str(n); "
             "assert resolve_rhwp()==n and not any(f.is_symlink() for f in (n,*n.parents)); "
             "raw=n.read_bytes(); assert raw[:6]==b'\\x7fELF\\x02\\x01'; "
-            "assert int.from_bytes(raw[18:20],'little')==62; "
+            f"assert int.from_bytes(raw[18:20],'little')=={machine}; "
             "assert not os.access(n,os.W_OK); "
             "assert not any((n.parent/name).is_symlink() "
             "for name in ('rhwp','LICENSE','build.json')); "
@@ -793,9 +815,9 @@ def build(args):
         }
         receipt["stage"] = "export"
         save()
-        archive = output / f"document-files-{version}-linux-x86_64-image.tar"
+        archive = output / f"document-files-{version}-{target}-image.tar"
         run(["docker", "image", "save", "--output", str(archive), image_id], output / "export.log")
-        export_identity(archive, image_id)
+        export_identity(archive, image_id, target=target)
         if source_identity() != (commit, version) or any(
             checked(p) != h for p, h in originals.items()
         ):
@@ -834,6 +856,7 @@ def build(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", choices=sorted(LINUX_TARGETS), default="linux-x86_64")
     for name in (
         "output",
         "core-receipt",

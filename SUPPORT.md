@@ -10,6 +10,7 @@ recognition, llama.cpp runtime and model versions can be inspected independently
 | macOS Intel | Targeted, not pinned to old Torch/ORT | Local Linux x64 CPU container |
 | Windows x64 | Targeted | Native isolated Docling CPU pack |
 | Linux x64 | Targeted | Isolated Docling CPU pack / container |
+| Linux ARM64 | Targeted | Isolated Docling CPU pack / container |
 
 **Targeted is not a claim of completed end-to-end qualification.** Each pack must
 state its actual minimum OS, libc/CPU requirements and compatible runtime digest.
@@ -31,6 +32,27 @@ coverage. Apple Silicon core bundles and separate CPU runtime/model/recognition
 pack candidates have been assembled locally. Core CLI/MCP processing was exercised
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
+
+### Linux ARM64 addition
+
+Linux ARM64 (`linux-aarch64`) is now a fifth release target; the four existing targets
+remain required. Core/PBS, CPU runtime and native recognition builders have native
+ARM CI jobs and target checks. Linux ELF machine, loader and actual startup host must
+agree. Both Linux architectures retain the Bookworm ABI baseline. The new CPU runtime
+candidate defaults to `b10853-cpu.4`; installed packs and model bindings are unchanged.
+
+Images select `linux-x86_64` or `linux-aarch64` explicitly. The portable core, patched
+HWP binary, Docker base/final image and exported config must share that target.
+Qualification v3 requires separate x64 and ARM64 model, HTTP and container checks;
+ARM observations cannot replace x64 evidence. Actual Docker OS/architecture, image
+and container IDs, CPU quota and cgroup evidence are bound to each run. Container
+identity v2 rejects older receipts that lack these observations.
+
+Two designated DGX Spark hosts were reachable over SSH and reported ARM64, Ubuntu
+24.04 and cgroup v2. Docker execution currently requires user authentication. No
+container permission, GPU, swap, network or security settings were changed. Native
+ARM builds, complete recognition stages, CPU-only four-core/16 GiB execution,
+installation/rollback and client use remain unqualified.
 
 ### Current source follow-up: table meaning, visual observations and Linux compatibility
 
@@ -187,8 +209,19 @@ A predeclared four-process comparison processed six images in 0.39 seconds
 (124,716 input pixels). Two original Korean/English cell crops gave identical text,
 geometry and confidence individually and in forward/reverse Tesseract file lists,
 apart from the recorded input page number. Raw TSV and image-to-cell mapping were
-preserved. Product batching is not implemented; partial output, input ordering,
-separate process/image budgets and the full table still need product-path checks.
+preserved. Adapter v18 now implements an explicit list of at most two independent
+cell images from one table/page/language/PSM. The default remains eight single-image
+calls. Only an explicit batch profile selects 16 images within eight processes and
+60 seconds; crop and total OCR-input pixel budgets are checked separately.
+
+Raw OCR v2 stores the original full TSV once in `rawOCRRuns`; each capture retains
+its input number, original row ordinal and cell/frame binding. Input number two is
+not PDF page two. Partial output, timeout and a failed input cannot complete or
+reuse the batch. The full unit plan and no-ink versus unobserved distinction remain.
+Verified reuse still carries the existing conservative coverage warning. An error
+later in the same table may leave earlier observations in raw evidence without
+applying them to that attempt's structure input. Fresh whole-table OCR and subsequent
+content/reading-order completion remain unqualified.
 
 Windows build preparation now takes pinned official product terms and records the
 actual installed toolchain instead of searching recursively for a similarly named
@@ -218,11 +251,13 @@ CI passed pack contracts and three OS regression suites, but Windows regression
 failed because Linux ZIP execute bits were checked through Windows-extracted file
 permissions. The builder now checks the safe archive's recorded mode; actual image
 execution checks remain unchanged. Direct regressions pass without adding skips,
-but Windows CI must rerun. These are development runs, not one final candidate.
+and the follow-up 52c4d12 CI regression steps passed on all four existing platforms,
+including Windows. Build completion is separate. These development runs are not one
+final candidate.
 
-After table protocol v8, adapter v17 and image-build v2 integration, core regression
-passed **1,075 tests, with 70 skipped and 12 subtests**; full Ruff and formatting checks
-passed. The separate recognition-runtime overlay passed 127 PDF/OCR tests. Core skips include optional recognition dependencies and actual
+After Linux ARM64, adapter v18 and qualification v3 integration, core regression
+passed **1,215 tests, with 92 skipped and 12 subtests**; full Ruff and formatting checks
+passed. The separate recognition-runtime overlay passed 158 PDF/OCR tests. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
 
@@ -299,7 +334,7 @@ formats are prepared but have not undergone final model evaluation.
 
 Evaluation v2 retains independently prepared per-case review specifications outside
 model input. A separate review receipt binds the immutable inference report and
-results. Release qualification v2 binds clean source, actual assets and installed
+results. Release qualification v3 binds clean source, actual assets and installed
 results, and uses linked cgroup measurements rather than summed process RSS.
 Fresh-output builds and exact-byte promotion are implemented. Large packs use
 explicit split/join transport without changing their reconstructed ZIP identity.

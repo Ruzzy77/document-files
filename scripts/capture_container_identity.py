@@ -23,6 +23,8 @@ CONTAINER_FORMAT = (
     '"running":{{json .State.Running}},"status":{{json .State.Status}},'
     '"startedAt":{{json .State.StartedAt}},"finishedAt":{{json .State.FinishedAt}},'
     '"user":{{json .Config.User}},"memory":{{.HostConfig.Memory}},'
+    '"nanoCpus":{{.HostConfig.NanoCpus}},"cpuQuota":{{.HostConfig.CpuQuota}},'
+    '"cpuPeriod":{{.HostConfig.CpuPeriod}},'
     '"memorySwap":{{.HostConfig.MemorySwap}},"networkMode":{{json .HostConfig.NetworkMode}},'
     '"readOnlyRoot":{{json .HostConfig.ReadonlyRootfs}},'
     '"privileged":{{json .HostConfig.Privileged}},'
@@ -31,7 +33,10 @@ CONTAINER_FORMAT = (
     '"mounts":[{{range $i,$m := .Mounts}}{{if $i}},{{end}}'
     '{"destination":{{json $m.Destination}},"readOnly":{{not $m.RW}}}{{end}}]}'
 )
-IMAGE_FORMAT = '{"imageId":{{json .Id}},"repoDigests":{{json .RepoDigests}}}'
+IMAGE_FORMAT = (
+    '{"imageId":{{json .Id}},"repoDigests":{{json .RepoDigests}},'
+    '"os":{{json .Os}},"architecture":{{json .Architecture}}}'
+)
 
 
 def sha256(path: Path) -> str:
@@ -122,6 +127,9 @@ def capture(
         before["containerId"] != container_id
         or before["imageId"] != asset["imageId"]
         or image["imageId"] != asset["imageId"]
+        or asset.get("target") not in gate.LINUX_ARCHITECTURES
+        or image.get("os") != "linux"
+        or image.get("architecture") != gate.LINUX_ARCHITECTURES.get(asset.get("target"))
         or before["status"] not in {"running", "exited"}
         or not before["startedAt"]
         or before["startedAt"].startswith("0001-")
@@ -130,7 +138,7 @@ def capture(
     if hashlib.sha256(copied).hexdigest() != execution_ref["sha256"]:
         raise ValueError("This container does not contain the original run receipt bytes")
     result = {
-        "schemaVersion": "document-files.container-identity.v1",
+        "schemaVersion": "document-files.container-identity.v2",
         "collectorSha256": sha256(Path(__file__)),
         **{key: execution[key] for key in ("version", "sourceCommit", "dirtySource", "artifacts")},
         "executionRunId": execution["executionRunId"],

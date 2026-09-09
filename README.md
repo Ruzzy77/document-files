@@ -20,7 +20,7 @@ Personal Agent Toolkit과 Sync는 정식 출시와 소비 측 확인 후 지정 
   (Windows는 `document-files.cmd`)로 실행합니다. 모델 서버·모델 가중치는 포함하지 않습니다.
 - 연결 배포: Codex·Claude Code 플러그인, Claude Desktop `.mcpb`, ChatGPT `.skill`을
   같은 소스 버전에서 생성합니다. ChatGPT는 호스트가 허용하는 실행 환경과 연결을 사용합니다.
-- 준비 대상: macOS arm64/x64, Windows x64, Linux x64. 실제 검증 결과와 제약이 없는
+- 준비 대상: macOS arm64/x64, Windows x64, Linux x64/ARM64. 실제 검증 결과와 제약이 없는
   플랫폼을 지원 완료로 표시하지 않습니다. OS 보안 설정을 해제하는 설치 방법은 제공하지 않습니다.
 
 **소스 설치와 실행 환경 포함 설치를 구분합니다.** Git 저장소 루트의 플러그인은 개발용이며,
