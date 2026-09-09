@@ -20,7 +20,7 @@ from copy import deepcopy
 
 from .recognition_coordinates import fingerprint
 
-VERSION = "document-files.pdf-native-objects.v2"
+VERSION = "document-files.pdf-native-objects.v3"
 DEFAULT_LIMITS = {
     "maxInputBytes": 16_000_000,
     "maxPages": 16,
@@ -463,6 +463,119 @@ def _text_source_bytes(operation):
     )
 
 
+def _text_membership(raw, obj, textpage, item, source_text, usage, limits, deadline):
+    """Keep PDFium's projection separate from literal source membership."""
+    item["sourceText"] = source_text
+    address = ctypes.cast(obj.raw, ctypes.c_void_p).value
+    count = raw.FPDFText_CountChars(textpage)
+    if count < 0:
+        raise ValueError("text_character_count_unavailable")
+    # Three native observations per character, all in the existing total budget.
+    _bound(usage, limits, "maxOperators", 3 * count)
+    observed = []
+    for index in range(count):
+        if time.monotonic() > deadline:
+            raise ValueError("time_budget_exceeded")
+        candidate = raw.FPDFText_GetTextObject(textpage, index)
+        owner = ctypes.cast(candidate, ctypes.c_void_p).value if candidate else None
+        observed.append(
+            {
+                "textPageIndex": index,
+                "unicode": raw.FPDFText_GetUnicode(textpage, index),
+                "apiGenerated": raw.FPDFText_IsGenerated(textpage, index),
+                "objectMembership": "same_object"
+                if owner == address
+                else "no_object"
+                if owner is None
+                else "other_object",
+            }
+        )
+    members = [c for c in observed if c["objectMembership"] == "same_object"]
+    item["nativeCharacters"] = members
+    item["membershipScan"] = {"pageCharacterCount": count, "scannedCharacters": len(observed)}
+    if not members or any(c["apiGenerated"] not in (0, 1) for c in members):
+        raise ValueError("text_character_membership_unverified")
+    literal = [c for c in members if c["apiGenerated"] == 0]
+    if "".join(chr(c["unicode"]) for c in literal) != source_text:
+        raise ValueError("text_source_native_mismatch")
+    if not literal:
+        raise ValueError("text_literal_membership_empty")
+    first, last = members[0]["textPageIndex"], members[-1]["textPageIndex"]
+    projection = observed[first : last + 1]
+    # GetTextByObject can append one neighboring generated space. Only append
+    # recorded API-generated characters needed by the exact native projection;
+    # never strip a character or infer generated status from Unicode alone.
+    end = last + 1
+    projected = "".join(chr(c["unicode"]) for c in projection)
+    while projected != item["text"] and end < count:
+        candidate = observed[end]
+        if candidate["apiGenerated"] != 1 or candidate["objectMembership"] != "no_object":
+            break
+        projection.append(candidate)
+        projected += chr(candidate["unicode"])
+        end += 1
+    item["projectionCharacters"] = projection
+    item["projectionRange"] = [first, end]
+    if projected != item["text"] or not _membership_valid(item):
+        raise ValueError("text_projection_not_explained_by_generated_characters")
+    return [c["textPageIndex"] for c in literal]
+
+
+def _membership_valid(item):
+    scan = item["membershipScan"]
+    count = scan["pageCharacterCount"]
+    members, projection = item["nativeCharacters"], item["projectionCharacters"]
+    if (
+        type(count) is not int
+        or count < 1
+        or type(scan["scannedCharacters"]) is not int
+        or scan["scannedCharacters"] != count
+        or not members
+        or not projection
+    ):
+        return False
+    for collection in (members, projection):
+        indices = []
+        for char in collection:
+            index, unicode, generated = char["textPageIndex"], char["unicode"], char["apiGenerated"]
+            if (
+                type(index) is not int
+                or not 0 <= index < count
+                or type(unicode) is not int
+                or not 0 < unicode <= 0xFFFF
+                or type(generated) is not int
+                or generated not in (0, 1)
+            ):
+                return False
+            indices.append(index)
+        if indices != sorted(set(indices)):
+            return False
+    if any(c["objectMembership"] != "same_object" for c in members):
+        return False
+    if [c for c in projection if c["objectMembership"] == "same_object"] != members:
+        return False
+    if any(
+        c["objectMembership"] not in ("same_object", "no_object")
+        or (c["objectMembership"] == "no_object" and c["apiGenerated"] != 1)
+        for c in projection
+    ):
+        return False
+    if (
+        item["projectionRange"]
+        != [projection[0]["textPageIndex"], projection[-1]["textPageIndex"] + 1]
+        or projection[0]["textPageIndex"] != members[0]["textPageIndex"]
+    ):
+        return False
+    if [c["textPageIndex"] for c in projection] != list(range(*item["projectionRange"])):
+        return False
+    literal = [c for c in members if c["apiGenerated"] == 0]
+    return (
+        bool(literal)
+        and item["sourceText"] == "".join(chr(c["unicode"]) for c in literal)
+        and item["text"] == "".join(chr(c["unicode"]) for c in projection)
+    )
+
+
 def _paint_text(raw, obj, textpage, item, source_op, fonts, usage, limits, deadline, height):
     """Bound actual native outlines by their control hull; never replace text."""
     ref = source_op.get("fontResourceRef")
@@ -495,15 +608,9 @@ def _paint_text(raw, obj, textpage, item, source_op, fonts, usage, limits, deadl
     unicodes = [mapping[c] for c in codes]
     if any(u == 0 or list(mapping.values()).count(u) != 1 for u in unicodes):
         raise ValueError("text_unicode_inverse_ambiguous")
-    if "".join(chr(u) for u in unicodes) != item["text"]:
-        raise ValueError("text_source_native_mismatch")
-    address = ctypes.cast(obj.raw, ctypes.c_void_p).value
-    chars = []
-    for index in range(raw.FPDFText_CountChars(textpage)):
-        _bound(usage, limits, "maxOperators")
-        candidate = raw.FPDFText_GetTextObject(textpage, index)
-        if candidate and ctypes.cast(candidate, ctypes.c_void_p).value == address:
-            chars.append(index)
+    chars = _text_membership(
+        raw, obj, textpage, item, "".join(chr(u) for u in unicodes), usage, limits, deadline
+    )
     if len(chars) != len(codes):
         raise ValueError("text_character_membership_mismatch")
     font_size = ctypes.c_float()
@@ -1046,7 +1153,13 @@ def _font_and_paint_valid(page):
         mapping = font["codeToUnicode"]
         codes = [f"{c:02x}" for c in _text_source_bytes(op)]
         glyphs = obj["paintGlyphs"]
-        if len(glyphs) != len(codes) or obj["text"] != "".join(chr(mapping[c]) for c in codes):
+        if (
+            not _membership_valid(obj)
+            or len(glyphs) != len(codes)
+            or obj["sourceText"] != "".join(chr(mapping[c]) for c in codes)
+            or [g["textPageIndex"] for g in glyphs]
+            != [c["textPageIndex"] for c in obj["nativeCharacters"] if c["apiGenerated"] == 0]
+        ):
             return False
         hull = list(obj["bounds"])
         indices = []

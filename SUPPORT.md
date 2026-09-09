@@ -66,8 +66,12 @@ An explicit ARM torchvision derivative was prepared from the pinned CPU wheel in
 new output location. It restores five codec loader references and omits the now
 unreferenced bundled loader; 190 other members, package metadata and the original
 license remain byte-identical. The new build tag is `1dfarmloader1`. Static RECORD
-and byte checks passed; actual ARM imports/codecs and component redistribution
-conditions remain pending. The original wheel and installed environments are unchanged.
+and byte checks passed. A subsequent isolated Spark-A run using the selected PBS
+passed native PNG/JPEG/WebP checks and linked all five codec guard references to the
+single system loader. The component cgroup peaked at 1,281,576,960 bytes with no
+swap/OOM; exit 0 and owned-container removal were confirmed. This is not full OCR/model
+16 GiB qualification or redistribution approval. Original inputs and installed
+environments remain unchanged.
 
 The Linux input preparation helper checks an approved inventory and requires explicit
 byte, disk and time limits. Its default is offline inspection; acquisition and network
@@ -302,9 +306,9 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After adapter v22 and local-copy rechecking, core regression passed
-**1,404 tests, with 211 skipped and 12 subtests**; Ruff and formatting checks passed.
-The separate recognition-runtime overlay passed **346 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
+After adapter v23 and local-copy rechecking, core regression passed
+**1,418 tests, with 211 skipped and 12 subtests**; Ruff and formatting checks passed.
+The separate recognition-runtime overlay passed **360 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
 
@@ -329,8 +333,12 @@ A clean-source adapter v21 development run completed one whole-path observation 
 process cleanup. Values, bindings, tables and all seven issues matched v20. The native
 Note cell was not proved blank because embedded font programs and character mappings
 were outside inventory v1. The scan retained its faint pixels. Adapter v22 adds narrow
-source/native font-byte and glyph-outline checks before native blank decisions;
-unsupported fonts and mapping/geometry uncertainty remain unresolved. This is not
+source/native font-byte and glyph-outline checks before native blank decisions. Its
+fresh run completed in 6.85 seconds but retained all seven issues: font bytes matched,
+while eight PDFium text projections included trailing spaces absent from source Tj.
+Adapter v23 separates literal source characters from explicitly verified generated
+spacing without trimming real text. Actual document blank decisions still require a
+fresh whole-path check; unsupported fonts and mapping/geometry remain unresolved. This is not
 whole-page completeness or independent quality approval.
 
 The 117 acquired ARM inputs were independently rehashed and inspected without installation.

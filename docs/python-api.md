@@ -285,7 +285,7 @@ change the source PDF page. Incomplete or failed output remains evidence, not a
 completed or reusable observation. Prior policy identities cannot resume as this
 contract. These are internal observation records; the public result v1 is unchanged.
 
-Adapter v22 records `document-files.pdf-native-objects.v2` and
+Adapter v23 records `document-files.pdf-native-objects.v3` and
 `document-files.native-cell-decision.v2`. The first is a bounded, original-byte
 inventory of supported PDF content streams and native objects, not whole-document
 completeness. Missing unmerged cells can be added as exact empty-string observations
@@ -295,7 +295,11 @@ interior. Only that table's missing-cell count is reduced; the original issue an
 per-cell evidence remain in provenance. An empty source cell does not mean absent,
 zero or not applicable. Existing OCR text and global completeness warnings remain.
 Embedded TrueType support requires original font bytes to match the native loaded
-font, an unambiguous supported character mapping and verified glyph outlines. Text
+font, an unambiguous supported character mapping and verified glyph outlines. PDFium
+text projection remains unchanged; `sourceText` separately preserves mapped source
+bytes. Actual non-generated characters must match their native object and literal
+source exactly. Additional projection characters require verified generated status,
+character order and object membership; real trailing spaces are never stripped. Text
 paint bounds include both the original logical bounds and transformed outline control
 points, including overhangs. A null outline is not proof of an empty glyph; the matching
 font glyph interval must also be empty, and logical space bounds remain protected.

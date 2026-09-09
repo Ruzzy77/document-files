@@ -19,9 +19,10 @@
   input and licenses, and regenerate RECORD with a derivation receipt. This is not
   target execution or redistribution approval.
 - Add bounded native PDF object/stream inspection and a narrow missing-cell blank
-  decision (recognition adapter v22, native-object and cell-decision v2). Verify linked
+  decision (recognition adapter v23, native-object v3 and cell-decision v2). Verify linked
   embedded font bytes, supported character mappings and glyph paint bounds without
-  discarding logical text bounds. Require a complete supported source inventory,
+  discarding logical text bounds. Preserve literal source text separately from PDFium
+  projections and explain extra spacing only through verified generated characters. Require a complete supported source inventory,
   four unique closed native borders and a fully observed opaque-white interior.
   Preserve original values and resolved issue evidence; scans, ambiguous content and
   global completeness remain unverified.

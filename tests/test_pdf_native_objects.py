@@ -585,3 +585,110 @@ def test_receiver_does_not_accept_empty_glyph_by_unicode_name(monkeypatch):
     assert result["status"] == "partial"
     assert "outline_unavailable" in result["pages"][0]["objects"][0]["paintBoundsReason"]
     assert verify(source, result)["status"] == "unverified"
+
+
+def adjacent_text_document():
+    embedded_document()  # Register the package-owned synthetic font.
+
+    def draw(c):
+        c.setFont("NativeInventoryFixtureVera", 12)
+        c.drawString(20, 140, "Qty")
+        c.drawString(120, 140, "0 ")
+
+    return document(draw)
+
+
+def test_generated_projection_space_and_literal_space_remain_distinct():
+    source = adjacent_text_document()
+    result = inventory_pdf_native_objects(source)
+    assert result["status"] == "complete", result
+    first, second = result["pages"][0]["objects"]
+    assert first["text"] == "Qty " and first["sourceText"] == "Qty"
+    assert second["text"] == second["sourceText"] == "0 "
+    generated = first["projectionCharacters"][-1]
+    assert generated == {
+        "textPageIndex": 3,
+        "unicode": 32,
+        "apiGenerated": 1,
+        "objectMembership": "no_object",
+    }
+    assert len(first["nativeCharacters"]) == len(first["paintGlyphs"]) == 3
+    literal = second["nativeCharacters"][-1]
+    assert literal["unicode"] == 32 and literal["apiGenerated"] == 0
+    assert literal["objectMembership"] == "same_object"
+    assert second["paintGlyphs"][-1]["basis"] == "source_loca_zero_length"
+    assert second["paintSupportBounds"][2] >= second["bounds"][2]
+    assert verify(source, result)["status"] == "verified"
+
+
+@pytest.mark.parametrize(
+    "feature",
+    ["unknown_generated", "not_generated", "foreign_owner", "additional_actual", "unicode_changed"],
+)
+def test_generated_projection_requires_exact_native_status_and_membership(feature, monkeypatch):
+    import pypdfium2.raw as raw
+
+    generated = raw.FPDFText_IsGenerated
+    owner = raw.FPDFText_GetTextObject
+    unicode = raw.FPDFText_GetUnicode
+    if feature in {"unknown_generated", "not_generated", "additional_actual"}:
+        value = -1 if feature == "unknown_generated" else 0
+        monkeypatch.setattr(
+            raw, "FPDFText_IsGenerated", lambda tp, i: value if i == 3 else generated(tp, i)
+        )
+    if feature in {"foreign_owner", "additional_actual"}:
+        other_index = 4 if feature == "foreign_owner" else 0
+        monkeypatch.setattr(
+            raw,
+            "FPDFText_GetTextObject",
+            lambda tp, i: owner(tp, other_index) if i == 3 else owner(tp, i),
+        )
+    if feature == "unicode_changed":
+        monkeypatch.setattr(
+            raw, "FPDFText_GetUnicode", lambda tp, i: ord("X") if i == 3 else unicode(tp, i)
+        )
+    source = adjacent_text_document()
+    result = inventory_pdf_native_objects(source)
+    assert result["status"] == "partial"
+    assert result["pages"][0]["objects"][0]["paintBoundsStatus"] == "unverified"
+    assert verify(source, result)["status"] == "unverified"
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "generated",
+        "owner",
+        "order",
+        "sourceText",
+        "range",
+        "scan",
+        "glyph_membership",
+        "old_version",
+    ],
+)
+def test_v3_receiver_rechecks_projection_source_and_glyph_membership(field):
+    source = adjacent_text_document()
+    result = inventory_pdf_native_objects(source)
+    page = result["pages"][0]
+    obj = page["objects"][0]
+    if field == "generated":
+        obj["projectionCharacters"][-1]["apiGenerated"] = 0
+    elif field == "owner":
+        obj["projectionCharacters"][-1]["objectMembership"] = "other_object"
+    elif field == "order":
+        obj["projectionCharacters"] = obj["projectionCharacters"][::-1]
+    elif field == "sourceText":
+        obj["sourceText"] += " "
+    elif field == "range":
+        obj["projectionRange"] = [0, 3]
+    elif field == "scan":
+        obj["membershipScan"]["scannedCharacters"] -= 1
+    elif field == "glyph_membership":
+        obj["paintGlyphs"][-1]["textPageIndex"] = 3
+    else:
+        result["version"] = "document-files.pdf-native-objects.v2"
+    obj["fingerprint"] = fingerprint(obj)
+    page["fingerprint"] = fingerprint(page)
+    result["fingerprint"] = fingerprint(result)
+    assert verify(source, result)["status"] == "unverified"
