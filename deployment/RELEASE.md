@@ -67,6 +67,36 @@ wheel and core receipt. This path has regression coverage; a real image build an
 document processing with fresh state remain pending. An unrelated cache or runtime
 download is not a substitute, and preserving notices is not full license approval.
 
+### Check Linux recognition inputs before acquisition
+
+`prepare_linux_recognition_inputs.py` checks a hash-approved preparation inventory.
+It does not install Python/wheels, run native files or approve redistribution, stage
+assembly or model quality. Use a new output directory and explicit resource limits:
+
+```sh
+python scripts/prepare_linux_recognition_inputs.py \
+  --inventory /verified/inventory.json --inventory-sha256 INVENTORY_SHA256 \
+  --target linux-aarch64 --output /new/input-check \
+  --max-total-bytes 2147483648 --max-download-bytes 536870912 \
+  --max-file-bytes 268435456 --min-free-bytes 12884901888 \
+  --timeout-seconds 600 --file-timeout-seconds 300
+```
+
+These are explicit example ceilings, not permission to enlarge a failed run's budget.
+The default performs no network transfer. Add `--acquire` to copy approved local
+originals; add `--download` as well to allow missing inputs from the exact approved
+official URLs. Target/Python/wheel identity, byte counts and hashes must match. Missing
+metadata and unresolved inventory requirements return `not-ready`; they are not waived.
+Local file hashes are checked only after the complete inventory passes preflight.
+The current ARM inventory is not ready and no input acquisition has passed.
+
+`acquisition.json` records the inventory, preparer hash, limits, verified bytes,
+remaining inputs and failure/cleanup results. Redirects are bounded and validated
+before following; transfers do not automatically retry. Failed or partial outputs
+are retained and must not be reused as a new output directory. Worker cleanup covers
+handled cancellation and errors, not a guarantee after SIGKILL or host loss. Actual
+stage assembly, ELF dependencies, notices and installed execution remain separate.
+
 ## One evidence root and artifact inventory
 
 Keep private reports and the exact candidate files beneath a dedicated evidence root.
@@ -111,6 +141,9 @@ manifest digest exists; do not invent it for a locally built image with no regis
 RepoDigest. The image build/export wrapper is implemented; no final image has yet
 been built and qualified through this path. The receipt must also bind the same core
 ZIP and its exact installed patched HWP backend; v1 receipts cannot qualify an image.
+The gate opens the actual exported archive, checks its configuration SHA against the
+Docker image ID, verifies Linux architecture and hashes the ordered layer contents.
+A matching receipt and archive SHA alone cannot substitute for these content checks.
 
 Every execution/installed report lists the **used** inventory IDs in `artifacts` and
 repeats the exact aggregate `artifactInventory` reference. Bind core + runtime +

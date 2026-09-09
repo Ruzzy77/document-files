@@ -8,8 +8,8 @@ import json
 from pathlib import Path
 
 import pytest
+from test_qualification_gate import X64_IMAGE, gate_module
 from test_qualification_gate import evidence as evidence
-from test_qualification_gate import gate_module
 
 ROOT = Path(__file__).parents[1]
 
@@ -50,7 +50,7 @@ def test_actual_container_receipt_and_image_id_are_bound(evidence, monkeypatch):
         "/evidence/run/receipt.json",
         output,
     )
-    assert observed["imageId"] == "sha256:" + "6" * 64
+    assert observed["imageId"] == X64_IMAGE
     assert observed["imageInspect"]["repoDigests"] == ["registry/image@sha256:" + "5" * 64]
     assert observed["containerReceiptSha256"] == check["executionReceipt"]["sha256"]
     with pytest.raises(ValueError, match="never overwritten"):
@@ -150,7 +150,7 @@ def test_local_image_needs_actual_image_id_but_not_invented_registry_digest(evid
     verified = gate_module().artifact_inventory(
         document, root, document["sourceCommit"], document["version"]
     )
-    assert verified["image"]["imageId"] == "sha256:" + "6" * 64
+    assert verified["image"]["imageId"] == X64_IMAGE
 
 
 def test_collector_rejects_container_names_before_docker(monkeypatch, tmp_path):

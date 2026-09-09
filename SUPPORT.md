@@ -47,12 +47,24 @@ Qualification v3 requires separate x64 and ARM64 model, HTTP and container check
 ARM observations cannot replace x64 evidence. Actual Docker OS/architecture, image
 and container IDs, CPU quota and cgroup evidence are bound to each run. Container
 identity v2 rejects older receipts that lack these observations.
+The release gate also parses the delivered image export and verifies its actual
+configuration ID, architecture and ordered layer hashes, rather than trusting the
+build receipt alone.
 
 Two designated DGX Spark hosts were reachable over SSH and reported ARM64, Ubuntu
 24.04 and cgroup v2. Docker execution currently requires user authentication. No
-container permission, GPU, swap, network or security settings were changed. Native
-ARM builds, complete recognition stages, CPU-only four-core/16 GiB execution,
+container permission, GPU, swap, network or security settings were changed. At source
+25e6cd8, ARM core, CPU runtime and native recognition CI builds passed. A single
+600-second ARM native artifact download timed out and remains an unverified partial
+file; a successful CI upload is not a verified local input. Complete recognition
+stages, CPU-only four-core/16 GiB execution,
 installation/rollback and client use remain unqualified.
+
+The Linux input preparation helper checks an approved inventory and requires explicit
+byte, disk and time limits. Its default is offline inspection; acquisition and network
+access require separate flags. It neither installs inputs nor approves a stage. The
+current ARM inventory fails readiness checks: build-tool metadata, normalized model
+inputs, native inputs and dynamic-library closure remain unresolved.
 
 ### Current source follow-up: table meaning, visual observations and Linux compatibility
 
@@ -220,8 +232,19 @@ not PDF page two. Partial output, timeout and a failed input cannot complete or
 reuse the batch. The full unit plan and no-ink versus unobserved distinction remain.
 Verified reuse still carries the existing conservative coverage warning. An error
 later in the same table may leave earlier observations in raw evidence without
-applying them to that attempt's structure input. Fresh whole-table OCR and subsequent
-content/reading-order completion remain unqualified.
+applying them to that attempt's structure input.
+
+At clean source 25e6cd8, one fresh offline development recognition run processed the
+same two-page PDF in 31.59 seconds (32.63 seconds including preparation), using six
+repair processes and 11 images. The final `3 / 7.25 / OK`, Korean headers and item text
+were returned, with the original TSV/input coordinates preserved. The result remains
+partial: both empty Note locations are unobserved, a vertical line was additionally
+read as `|`, and Korean spacing differs from the source. A subsequent pixel-only
+inspection found a white cell interior but also faint edge pixels omitted by the
+current OCR crop. This does not establish blank values or complete content. The outer
+status wrapper failed after the recognition output was saved; its failure, uncaptured
+Python exit code and successful OCR child exits are recorded separately. No retry,
+semantic model, independent holdout or resource qualification was performed.
 
 Windows build preparation now takes pinned official product terms and records the
 actual installed toolchain instead of searching recursively for a similarly named
@@ -255,8 +278,8 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After Linux ARM64, adapter v18 and qualification v3 integration, core regression
-passed **1,215 tests, with 92 skipped and 12 subtests**; full Ruff and formatting checks
+After Linux ARM64, adapter v18, image-export checks and input preparation integration,
+core regression passed **1,264 tests, with 92 skipped and 12 subtests**; Ruff and formatting checks
 passed. The separate recognition-runtime overlay passed 158 PDF/OCR tests. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.

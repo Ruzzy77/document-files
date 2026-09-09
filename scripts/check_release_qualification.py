@@ -558,6 +558,9 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
         image_builder = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(image_builder)
         for image, build in images:
+            image_builder.export_identity(
+                assets[image["id"]]["verifiedPath"], image["imageId"], target=image["target"]
+            )
             inputs = build.get("inputs", {})
             cores = [
                 a

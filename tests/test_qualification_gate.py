@@ -13,6 +13,19 @@ import pytest
 from test_evaluation_execution_identity import identity_helper, make_execution_artifacts
 
 ROOT = Path(__file__).parents[1]
+X64_CONFIG = b'{"os":"linux","architecture":"amd64","rootfs":{"type":"layers","diff_ids":[]}}'
+ARM_CONFIG = X64_CONFIG.replace(b"amd64", b"arm64")
+X64_IMAGE = "sha256:" + hashlib.sha256(X64_CONFIG).hexdigest()
+ARM_IMAGE = "sha256:" + hashlib.sha256(ARM_CONFIG).hexdigest()
+
+
+def synthetic_image(path, config):
+    with tarfile.open(path, "w") as out:
+        files = {"config.json": config, "manifest.json": b'[{"Config":"config.json","Layers":[]}]'}
+        for name, raw in files.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(raw)
+            out.addfile(member, io.BytesIO(raw))
 
 
 def gate_module():
@@ -238,7 +251,7 @@ def evidence(tmp_path):
         }
     )
     image = tmp_path / "image.tar"
-    image.write_bytes(b"synthetic image fixture")
+    synthetic_image(image, X64_CONFIG)
     image_sha = hashlib.sha256(image.read_bytes()).hexdigest()
     image_receipt = write(
         "image-build.json",
@@ -246,7 +259,7 @@ def evidence(tmp_path):
             **identity,
             "schemaVersion": "document-files.image-build.v1",
             "imageDigest": "sha256:" + "5" * 64,
-            "imageId": "sha256:" + "6" * 64,
+            "imageId": X64_IMAGE,
             "archiveSha256": image_sha,
         },
     )
@@ -258,7 +271,7 @@ def evidence(tmp_path):
             "path": image.name,
             "sha256": image_sha,
             "imageDigest": "sha256:" + "5" * 64,
-            "imageId": "sha256:" + "6" * 64,
+            "imageId": X64_IMAGE,
             "buildReceipt": image_receipt,
         }
     )
@@ -349,7 +362,7 @@ def evidence(tmp_path):
     image_build.update(
         schemaVersion="document-files.image-build.v2",
         target="linux-x86_64",
-        imageInspect={"imageId": "sha256:" + "6" * 64, "os": "linux", "architecture": "amd64"},
+        imageInspect={"imageId": X64_IMAGE, "os": "linux", "architecture": "amd64"},
         status="built-unqualified",
         stage="complete",
         installedCoreVerification="selected-wheel-exact",
@@ -402,15 +415,15 @@ def evidence(tmp_path):
         },
     )
     arm_image = tmp_path / "image-arm64.tar"
-    arm_image.write_bytes(b"synthetic ARM image fixture")
+    synthetic_image(arm_image, ARM_CONFIG)
     arm_image_sha = hashlib.sha256(arm_image.read_bytes()).hexdigest()
     arm_image_build = {
         **image_build,
         "target": "linux-aarch64",
-        "imageId": "sha256:" + "7" * 64,
+        "imageId": ARM_IMAGE,
         "imageDigest": "sha256:" + "8" * 64,
         "archiveSha256": arm_image_sha,
-        "imageInspect": {"imageId": "sha256:" + "7" * 64, "os": "linux", "architecture": "arm64"},
+        "imageInspect": {"imageId": ARM_IMAGE, "os": "linux", "architecture": "arm64"},
         "installedNativeEvidence": arm_installed,
         "rhwp": arm_identity,
         "inputs": {
@@ -1367,3 +1380,28 @@ def test_old_qualification_schema_cannot_omit_new_platform_requirements(evidence
     document["schemaVersion"] = "document-files.qualification.v2"
     with pytest.raises(ValueError, match="Qualification identity"):
         run()
+
+
+@pytest.mark.parametrize("target", ["linux-x86_64", "linux-aarch64"])
+def test_image_export_cannot_be_swapped_even_with_updated_archive_hash(evidence, target):
+    _, document, _, root = evidence
+    inventory_path = root / document["artifactInventory"]["path"]
+    inventory = json.loads(inventory_path.read_bytes())
+    asset = next(
+        a for a in inventory["artifacts"] if a["kind"] == "image" and a["target"] == target
+    )
+    synthetic_image(root / asset["path"], ARM_CONFIG if target == "linux-x86_64" else X64_CONFIG)
+    asset["sha256"] = hashlib.sha256((root / asset["path"]).read_bytes()).hexdigest()
+    receipt_path = root / asset["buildReceipt"]["path"]
+    receipt = json.loads(receipt_path.read_bytes())
+    receipt["archiveSha256"] = asset["sha256"]
+    receipt_path.write_text(json.dumps(receipt))
+    asset["buildReceipt"]["sha256"] = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    inventory_path.write_text(json.dumps(inventory))
+    document["artifactInventory"]["sha256"] = hashlib.sha256(
+        inventory_path.read_bytes()
+    ).hexdigest()
+    with pytest.raises(ValueError, match="Export differs"):
+        gate_module().artifact_inventory(
+            document, root, document["sourceCommit"], document["version"]
+        )

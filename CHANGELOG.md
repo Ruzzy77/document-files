@@ -9,6 +9,11 @@
   one target. Qualification v3 requires separate x64/ARM64 model, HTTP and container
   evidence; container-identity v2 records actual architecture and CPU quota.
   Actual ARM installation, full recognition and CPU 16 GiB qualification remain pending.
+- Verify the delivered image export's actual config, target and ordered layer hashes
+  again at the release gate, independently of its build receipt.
+- Add bounded Linux recognition-input checking/acquisition with explicit inventory
+  hashes, official origins, local-byte verification and owned-worker cleanup. Default
+  inspection is offline; this does not assemble or approve a recognition stage.
 
 - Separate literal source ranges from revisable table meanings (prompt v23, planner v14,
   table protocol v8, compiler v15, scope v7). Require explicit source review beyond
