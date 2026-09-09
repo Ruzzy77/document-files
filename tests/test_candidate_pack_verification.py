@@ -152,19 +152,41 @@ def test_cpu_and_candidate_cli_help_does_not_build_or_download(monkeypatch):
 
 def test_cpu_runtime_workflow_has_narrow_triggers_matching_hosts_and_real_windows_notice():
     body = (ROOT / ".github/workflows/cpu-runtime.yml").read_text()
-    assert (
-        "paths: ['scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', "
-        "'scripts/build_cpu_runtime.py', '.github/workflows/cpu-runtime.yml']"
-    ) in body
+    trigger = re.search(r"paths: (\[[^\n]+\])", body).group(1)
+    import ast
+
+    assert set(ast.literal_eval(trigger)) == {
+        "scripts/prepare_windows_build.ps1",
+        "scripts/windows_build_evidence.py",
+        "tests/test_windows_build_evidence.py",
+        "scripts/windows_runtime_notice.py",
+        "tests/test_windows_runtime_notice.py",
+        "scripts/build_cpu_runtime.py",
+        ".github/workflows/cpu-runtime.yml",
+    }
     assert "workflow_dispatch:" in body and "pull_request:" not in body
     for target in ("macos-aarch64", "macos-x86_64", "linux-x86_64", "windows-x86_64"):
         assert f"target: {target}" in body
     assert '--work "$RUNNER_TEMP/cpu-runtime-build"' in body
-    assert "Launch-VsDevShell.ps1" in body and "-SkipAutomaticLocation" in body
-    assert "Get-Command cl.exe, dumpbin.exe, cmake.exe" in body
-    assert "Get-ChildItem -LiteralPath $installation -Filter License.rtf" in body
-    assert "--windows-runtime-license $license" in body and "$hashes.Count -ne 1" in body
-    assert "Set-ExecutionPolicy" not in body and "gh release create" not in body
+    helper = (ROOT / "scripts/prepare_windows_build.ps1").read_text()
+    assert "prepare_windows_build.ps1 -Kind cpu" in body
+    assert "Launch-VsDevShell.ps1" in helper and "-SkipAutomaticLocation" in helper
+    assert "Get-Command cl.exe, link.exe, dumpbin.exe, cmake.exe" in helper
+    assert "windows_build_evidence.py --host" in helper
+    assert "'--license', $license" in helper
+    assert "'scripts/windows_build_evidence.py', 'build'" in helper
+    supervisor = (ROOT / "scripts/windows_build_evidence.py").read_text(encoding="utf-8")
+    assert '"--windows-runtime-license"' in supervisor
+    assert "TermsUrl $termsUrl -TermsSha256 $termsSha" in body
+    assert "Get-ChildItem" not in helper and "License.rtf" not in helper
+    assert "Set-ExecutionPolicy" not in body + helper and "gh release create" not in body + helper
+    unix_upload, windows_upload = body.split(
+        "- name: Preserve Windows review evidence without redistributing the unreviewed pack"
+    )
+    assert "if: always() && runner.os != 'Windows'" in unix_upload
+    assert "if: always() && runner.os == 'Windows'" in windows_upload
+    assert "windows-cpu-evidence/" in windows_upload
+    assert "cpu-runtime-artifacts/" not in windows_upload and ".pack.zip" not in windows_upload
 
 
 def test_pack_attestation_requires_trusted_inventory_and_only_uploaded_subjects():

@@ -3,7 +3,7 @@ include uv.lock .mcp.json .gitattributes .gitignore
 recursive-include src *.py *.md *.json py.typed
 recursive-include docs *.md
 recursive-include deployment *.md *.json *.yaml *.py Dockerfile
-recursive-include scripts *.py *.json *.txt *.rst LICENSE
+recursive-include scripts *.py *.ps1 *.json *.txt *.rst LICENSE
 recursive-include patches *.patch *.md *.json
 recursive-include evaluation *.py *.md *.json
 recursive-include tests *.py

@@ -139,6 +139,11 @@ def identity(args, config):
             "verification": "installed-wheel-and-runner-source-exact.v1",
             "coreArtifactId": core["id"],
             "coreArtifactSha256": core["sha256"],
+            "sourceArtifactId": source["id"],
+            "sourceArtifactSha256": source["sha256"],
+            "recorderSha256": source_member(
+                paths[source["id"]], "scripts/measure_cpu_execution.py"
+            ),
             "packageTreeSha256": tree_digest(files),
             "runnerSha256": sha256(Path(__file__)),
             "selectedImageArtifactId": image["id"],
@@ -243,6 +248,19 @@ def run_sequence(args, out, report):
         "path": input_path.relative_to(args.evidence_root).as_posix(),
         "sha256": digest,
     }
+    if args.review_specification is not None:
+        # Frozen before the service/model starts; never passed to its request.
+        specification = json.loads(args.review_specification.read_bytes())
+        need(
+            specification.get("schemaVersion") == "document-files.review-specification.v1",
+            "review_specification_version",
+        )
+        specification_path = out / "review-specification.json"
+        write_json(specification_path, specification)
+        report["reviewSpecification"] = {
+            "path": specification_path.relative_to(args.evidence_root).as_posix(),
+            "sha256": sha256(specification_path),
+        }
     state_root = out / "service-state"
     token = secrets.token_urlsafe(48)
     deadline = time.monotonic() + args.timeout
@@ -253,7 +271,11 @@ def run_sequence(args, out, report):
     service = None
     observed_children = []
 
-    def check(name, condition):
+    observations = {}
+
+    def check(name, condition, observed=None):
+        if observed is not None:
+            observations[name] = observed
         report["tests"].append({"id": name, "passed": bool(condition)})
         need(condition, name + "_failed")
 
@@ -332,17 +354,19 @@ def run_sequence(args, out, report):
 
         try:
             start()
+            anonymous_status = client.request("GET", "/v1/capabilities", authenticated=False)[0]
+            invalid_status = client.request(
+                "GET",
+                "/v1/capabilities",
+                headers={"Authorization": "Bearer invalid"},
+                authenticated=False,
+            )[0]
             check(
                 "authentication",
-                client.request("GET", "/v1/capabilities", authenticated=False)[0] == 401
-                and client.request(
-                    "GET",
-                    "/v1/capabilities",
-                    headers={"Authorization": "Bearer invalid"},
-                    authenticated=False,
-                )[0]
-                == 401,
+                anonymous_status == invalid_status == 401,
+                {"anonymousStatus": anonymous_status, "invalidTokenStatus": invalid_status},
             )
+            rejected_bodies, rejected_options = [], []
             for bad in (
                 {"path": "/etc/passwd"},
                 {"url": "https://example.invalid/source.pdf"},
@@ -354,6 +378,7 @@ def run_sequence(args, out, report):
                     json.dumps(bad).encode(),
                     {"Content-Type": "application/json"},
                 )
+                rejected_bodies.append(code)
                 need(code == 415, "non_byte_input_accepted")
             for bad in (
                 {"path": "/etc/passwd"},
@@ -371,11 +396,18 @@ def run_sequence(args, out, report):
                         "X-Extraction-Options": json.dumps(bad),
                     },
                 )
+                rejected_options.append(
+                    {"status": code, "error": value.get("error", {}).get("code")}
+                )
                 need(
                     code == 400 and value.get("error", {}).get("code") == "invalid-options",
                     "caller_path_url_or_endpoint_option_accepted",
                 )
-            check("no_path_or_url_input", True)
+            check(
+                "no_path_or_url_input",
+                True,
+                {"bodyStatuses": rejected_bodies, "optionErrors": rejected_options},
+            )
             headers = {
                 "Content-Type": "application/octet-stream",
                 "X-Document-Format": args.format,
@@ -394,14 +426,23 @@ def run_sequence(args, out, report):
             job = first["jobId"]
             report["jobId"] = job
             code, same = client.request("POST", "/v1/jobs", data, headers)
-            check("idempotency_same", code == 202 and same.get("jobId") == job)
+            check(
+                "idempotency_same",
+                code == 202 and same.get("jobId") == job,
+                {"status": code, "initialJobId": job, "repeatedJobId": same.get("jobId")},
+            )
             code, conflict = client.request("POST", "/v1/jobs", data + b" ", headers)
             check(
                 "idempotency_conflict",
                 code == 409 and conflict.get("error", {}).get("code") == "idempotency-conflict",
+                {"status": code, "error": conflict.get("error", {}).get("code")},
             )
             snapshot = state_root / "uploads" / f"{job}.{args.format}"
-            check("input_snapshot", sha256(snapshot) == digest and first["sha256"] == digest)
+            check(
+                "input_snapshot",
+                sha256(snapshot) == digest and first["sha256"] == digest,
+                {"snapshotSha256": sha256(snapshot), "submittedSha256": first["sha256"]},
+            )
             done = client.wait(lambda: terminal(job))
             code, partial = client.request("GET", f"/v1/jobs/{job}/result")
             report["partialResult"] = capture("initial-partial", partial)
@@ -413,6 +454,11 @@ def run_sequence(args, out, report):
                 and any(
                     i.get("code") == "model_call_budget_exceeded" for i in partial.get("issues", [])
                 ),
+                {
+                    "httpStatus": code,
+                    "jobStatus": done["status"],
+                    "partialResult": report["partialResult"],
+                },
             )
             grant = {"additionalBudget": {"maxModelCalls": args.max_calls - 1}}
             report["budget"] = {
@@ -439,7 +485,15 @@ def run_sequence(args, out, report):
             )
             cancelled = client.wait(lambda: terminal(job), seconds=30)
             client.wait(lambda: not any(alive(p) for p in observed_children), seconds=30)
-            check("cancel_tree", cancelled["status"] == "cancelled" and bool(observed_children))
+            check(
+                "cancel_tree",
+                cancelled["status"] == "cancelled" and bool(observed_children),
+                {
+                    "jobStatus": cancelled["status"],
+                    "childrenBefore": observed_children,
+                    "childrenAliveAfter": [p for p in observed_children if alive(p)],
+                },
+            )
             code, kept = client.request("GET", f"/v1/jobs/{job}/result")
             need(code == 200 and kept.get("resultRevision", 0) > 0, "cancel_checkpoint_missing")
             report["cancelledResult"] = capture("cancelled-result", kept)
@@ -449,6 +503,12 @@ def run_sequence(args, out, report):
             check(
                 "persistent_results",
                 code == 200 and persisted == kept and sha256(snapshot) == digest,
+                {
+                    "httpStatus": code,
+                    "before": report["cancelledResult"],
+                    "after": capture("persisted-result", persisted),
+                    "snapshotSha256": sha256(snapshot),
+                },
             )
             # No second grant: cancellation cannot silently enlarge total budget.
             need(
@@ -468,6 +528,12 @@ def run_sequence(args, out, report):
                 "restart_interrupted",
                 restarted["status"] == "interrupted"
                 and restarted["attempt"] == before_restart["attempt"],
+                {
+                    "before": before_restart,
+                    "after": restarted,
+                    "childrenBefore": restarting_children,
+                    "childrenAliveAfterStop": [p for p in restarting_children if alive(p)],
+                },
             )
             code, restart_result = client.request("GET", f"/v1/jobs/{job}/result")
             report["restartResult"] = capture("restart-result", restart_result)
@@ -476,9 +542,11 @@ def run_sequence(args, out, report):
                 "restart_checkpoint_missing",
             )
             time.sleep(0.5)
+            after_delay = status(job)
+            observations["restart_interrupted"]["afterDelay"] = after_delay
             need(
-                status(job)["attempt"] == restarted["attempt"]
-                and status(job)["status"] == "interrupted",
+                after_delay["attempt"] == restarted["attempt"]
+                and after_delay["status"] == "interrupted",
                 "restart_automatically_replayed",
             )
             need(
@@ -495,6 +563,13 @@ def run_sequence(args, out, report):
                 and result.get("resultRevision", 0) >= kept["resultRevision"]
                 and result.get("extraction", {}).get("modelCalls", args.max_calls + 1)
                 <= args.max_calls,
+                {
+                    "httpStatus": code,
+                    "finalStatus": final_status,
+                    "cancelledAttempt": cancelled["attempt"],
+                    "result": report["aiResult"],
+                    "cancelledResult": report["cancelledResult"],
+                },
             )
             model = result.get("provenance", {}).get("model") or {}
             check(
@@ -508,15 +583,26 @@ def run_sequence(args, out, report):
                 and model.get("runtimeManifestSha256")
                 == execution["packManifestSha256"]["runtimeId"]
                 and model.get("modelManifestSha256") == execution["packManifestSha256"]["modelId"],
+                {"jobStatus": final_status["status"], "result": report["aiResult"]},
             )
             deleted = client.request("DELETE", "/v1/jobs/" + job)
+            deleted_status = client.request("GET", "/v1/jobs/" + job)[0]
+            upload_exists = snapshot.exists()
+            result_exists = (state_root / "results" / f"{job}.sqlite3").exists()
             check(
                 "delete_results",
                 deleted[0] == 200
                 and deleted[1].get("deleted") is True
-                and client.request("GET", "/v1/jobs/" + job)[0] == 404
-                and not snapshot.exists()
-                and not (state_root / "results" / f"{job}.sqlite3").exists(),
+                and deleted_status == 404
+                and not upload_exists
+                and not result_exists,
+                {
+                    "deleteStatus": deleted[0],
+                    "deleted": deleted[1].get("deleted"),
+                    "lookupStatus": deleted_status,
+                    "uploadExists": upload_exists,
+                    "resultDatabaseExists": result_exists,
+                },
             )
             need(
                 installed_tree(package_root) == files and sha256(args.input) == digest,
@@ -542,6 +628,15 @@ def run_sequence(args, out, report):
             report["residualCancelChildren"] = residual
             if residual:
                 report["checksPassed"] = False
+            report["lifecycleEvidence"] = capture(
+                "lifecycle-evidence",
+                {
+                    "schemaVersion": "document-files.http-lifecycle-observations.v1",
+                    "executionRunId": report["executionRunId"],
+                    "jobId": report.get("jobId"),
+                    "observations": observations,
+                },
+            )
 
 
 def main(argv=None):
@@ -555,6 +650,7 @@ def main(argv=None):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--review-specification", type=Path)
     parser.add_argument(
         "--format",
         required=True,
@@ -579,6 +675,8 @@ def main(argv=None):
     out.mkdir(mode=0o700, parents=False, exist_ok=False)
     report = {
         "schemaVersion": "document-files.http-installation-run.v1",
+        "observationProfile": "in-container-loopback.v1",
+        "notCovered": ["host-published-port-access", "independent-document-quality-suite"],
         "passed": False,
         "checksPassed": False,
         "releaseQualification": False,

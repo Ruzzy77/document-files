@@ -2,6 +2,20 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Require explicit roles for actual non-fixed table rows and distinguish native
+  header declarations from OCR predictions (prompt v19, planner v13, table protocol v5).
+- Preserve non-record subtotal/note values in budgeted, resumable scalar regions;
+  validate decimal text without losing precision, and remove only exact successful
+  duplicate reads (compiler v14). Missing roles/cells remain unresolved, not blank.
+- Build group-scope candidates from compiled header roles, not OCR flags alone (scope v6).
+- Separate page-local recognition checks from unrelated document issues and record
+  measured render-to-original-page coordinate transforms (recognition adapter v11).
+  Visual coverage, reading order and recognition-backed completion remain unfinished.
+- Prepare Windows builds with pinned official terms and actual host/toolchain evidence;
+  connect installed-HTTP observations to a separate hash-bound operational review.
+- Build/export images from fresh verified inputs without dependency downloads during
+  build steps. Actual Windows/image/HTTP qualification and redistribution review remain pending.
+
 - Split record-table structure and meaning into finite checkpointed stages; preserve
   compiled values on meaning failure and reject incompatible old checkpoints
   (prompt v18, planner v12, table protocol v4, checkpoint v2).

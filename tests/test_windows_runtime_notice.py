@@ -62,3 +62,20 @@ def test_native_attributions_include_required_acknowledgments_and_original_notic
     assert "University of California, Berkeley and its contributors" in text
     assert "licenses/jpeg-README.ijg" in text
     assert "not an independent redistribution approval" in text
+
+
+def test_generic_runtime_terms_cannot_substitute_for_product_terms(tmp_path):
+    path = tmp_path / "runtime.txt"
+    path.write_text(
+        "MICROSOFT VISUAL C++ RUNTIME. For MICROSOFT VISUAL STUDIO 2022. Distributable code.",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="product_mismatch"):
+        validate_notice(path)
+
+
+def test_undecodable_notice_is_not_silently_rewritten(tmp_path):
+    path = tmp_path / "notice.txt"
+    path.write_bytes(b"MICROSOFT VISUAL STUDIO 2022. Distributable code.\xff")
+    with pytest.raises(UnicodeDecodeError):
+        validate_notice(path)

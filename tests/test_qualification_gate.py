@@ -2,7 +2,9 @@
 
 import hashlib
 import importlib.util
+import io
 import json
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -19,6 +21,142 @@ def gate_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def operational_helper():
+    spec = importlib.util.spec_from_file_location(
+        "http_review", ROOT / "scripts/review_operational.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def http_fixture(report, assets, core, write, root):
+    """Synthetic observations for contract testing, never release evidence."""
+    source = next(a for a in assets if a["id"] == "evaluator-source")
+    raw_input = write("http-input.json", {"synthetic": "not an actual document run"})
+    result = json.loads((root / report["aiResult"]["path"]).read_bytes())
+    result.update(resultRevision=4)
+    result["source"]["sha256"] = raw_input["sha256"]
+    result["extraction"]["modelCalls"] = 4
+    report["aiResult"] = write("installed-http_service.json", result)
+    partial = write(
+        "http-partial.json",
+        {
+            "resultRevision": 1,
+            "extraction": {"modelCalls": 1},
+            "issues": [{"code": "model_call_budget_exceeded"}],
+        },
+    )
+    cancelled = write("http-cancelled.json", {"resultRevision": 2, "status": "partial"})
+    report.update(
+        schemaVersion="document-files.http-installation-run.v1",
+        observationProfile="in-container-loopback.v1",
+        notCovered=["host-published-port-access", "independent-document-quality-suite"],
+        passed=False,
+        releaseQualification=False,
+        checksPassed=True,
+        executionRunId="http-run",
+        jobId="http-job",
+        input=raw_input,
+        partialResult=partial,
+        cancelledResult=cancelled,
+        budget={"maxModelCalls": 12, "completionSeconds": 900},
+        residualCancelChildren=[],
+        cleanupForcedChildren=[],
+        reviewSpecification=write(
+            "http-spec.json",
+            {
+                "schemaVersion": "document-files.review-specification.v1",
+                "criteria": [{"id": "exact_values", "expected": "Synthetic fixture only"}],
+            },
+        ),
+    )
+    report["artifacts"].extend(["executed-wheel", "evaluator-source"])
+    report["coreExecution"] = {
+        "verification": "installed-wheel-and-runner-source-exact.v1",
+        "coreArtifactId": "executed-wheel",
+        "coreArtifactSha256": core["coreArtifactSha256"],
+        "packageTreeSha256": core["packageTreeSha256"],
+        "sourceArtifactId": source["id"],
+        "sourceArtifactSha256": source["sha256"],
+        "recorderSha256": core["recorderSha256"],
+        "runnerSha256": hashlib.sha256(
+            (ROOT / "scripts/run_http_installation_check.py").read_bytes()
+        ).hexdigest(),
+        "selectedImageArtifactId": "image",
+        "actualImageIdentityVerified": False,
+        "packManifestSha256": {
+            key: next(a["manifestSha256"] for a in assets if a["id"] == name)
+            for key, name in (
+                ("runtimeId", "runtime-linux-x86_64"),
+                ("modelId", "model"),
+                ("recognitionPackId", "recognition-linux-x86_64"),
+            )
+        },
+    }
+    children = [{"pid": 321, "startTicks": "456", "name": "llama-server"}]
+    observations = {
+        "authentication": {"anonymousStatus": 401, "invalidTokenStatus": 401},
+        "no_path_or_url_input": {
+            "bodyStatuses": [415] * 3,
+            "optionErrors": [{"status": 400, "error": "invalid-options"}] * 3,
+        },
+        "idempotency_same": {
+            "status": 202,
+            "initialJobId": "http-job",
+            "repeatedJobId": "http-job",
+        },
+        "idempotency_conflict": {"status": 409, "error": "idempotency-conflict"},
+        "input_snapshot": {
+            "snapshotSha256": raw_input["sha256"],
+            "submittedSha256": raw_input["sha256"],
+        },
+        "explicit_budget": {"httpStatus": 200, "jobStatus": "partial", "partialResult": partial},
+        "cancel_tree": {
+            "jobStatus": "cancelled",
+            "childrenBefore": children,
+            "childrenAliveAfter": [],
+        },
+        "persistent_results": {
+            "httpStatus": 200,
+            "before": cancelled,
+            "after": cancelled,
+            "snapshotSha256": raw_input["sha256"],
+        },
+        "restart_interrupted": {
+            "before": {"executionStatus": "running", "attempt": 2},
+            "after": {"status": "interrupted", "attempt": 2},
+            "afterDelay": {"status": "interrupted", "attempt": 2},
+            "childrenBefore": children,
+            "childrenAliveAfterStop": [],
+        },
+        "resume_checkpoint": {
+            "httpStatus": 200,
+            "finalStatus": {"attempt": 3},
+            "cancelledAttempt": 1,
+            "result": report["aiResult"],
+            "cancelledResult": cancelled,
+        },
+        "actual_ai_complete": {"jobStatus": "complete", "result": report["aiResult"]},
+        "delete_results": {
+            "deleteStatus": 200,
+            "deleted": True,
+            "lookupStatus": 404,
+            "uploadExists": False,
+            "resultDatabaseExists": False,
+        },
+    }
+    report["lifecycleEvidence"] = write(
+        "http-lifecycle.json",
+        {
+            "schemaVersion": "document-files.http-lifecycle-observations.v1",
+            "executionRunId": "http-run",
+            "jobId": "http-job",
+            "observations": observations,
+        },
+    )
 
 
 @pytest.fixture
@@ -129,6 +267,29 @@ def evidence(tmp_path):
         "artifacts": assets,
     }
     extra_assets, core_execution, _, _ = make_execution_artifacts(tmp_path, identity)
+    # Add the exact HTTP runner to the synthetic source archive; no executable is run.
+    source_asset = next(a for a in extra_assets if a["id"] == "evaluator-source")
+    source_path = tmp_path / source_asset["path"]
+    with tarfile.open(source_path) as archive:
+        members = [
+            (member, archive.extractfile(member).read()) for member in archive if member.isfile()
+        ]
+    prefix = members[0][0].name.split("/")[0]
+    with tarfile.open(source_path, "w:gz") as archive:
+        for member, raw in members:
+            archive.addfile(member, io.BytesIO(raw))
+        raw = (ROOT / "scripts/run_http_installation_check.py").read_bytes()
+        member = tarfile.TarInfo(prefix + "/scripts/run_http_installation_check.py")
+        member.size = len(raw)
+        archive.addfile(member, io.BytesIO(raw))
+    source_asset["sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    core_execution["evaluatorArtifactSha256"] = source_asset["sha256"]
+    build_path = tmp_path / source_asset["buildReceipt"]["path"]
+    build = json.loads(build_path.read_bytes())
+    build["artifacts"][source_path.name] = source_asset["sha256"]
+    build_ref = write(build_path.name, build)
+    for asset in extra_assets:
+        asset["buildReceipt"] = build_ref
     assets.extend(extra_assets)
     inventory_ref = write("artifacts.json", inventory)
     model["runtimeManifestSha256"] = next(
@@ -295,6 +456,8 @@ def evidence(tmp_path):
         )
         report["artifactInventory"] = inventory_ref
         reports[name] = report
+    http_fixture(reports["http_service"], assets, core_execution, write, tmp_path)
+    reports["http_service"]["execution"] = dict(reports["local_model"]["execution"])
     document = {
         **identity,
         "schemaVersion": "document-files.qualification.v2",
@@ -351,8 +514,14 @@ def evidence(tmp_path):
                     broken = json.loads((tmp_path / review_ref["path"]).read_text())
                     broken["independent"] = False
                     review_ref = write(review_ref["path"], broken)
+            if name.endswith("_model") or name == "http_service":
                 measurements = write(
-                    f"measurements-{name}.json", {"execution": report["execution"]}
+                    f"measurements-{name}.json",
+                    {
+                        "execution": report["execution"],
+                        "limitsBefore": {"cpuQuota": 4},
+                        "limitsAfter": {"cpuQuota": 4},
+                    },
                 )
                 execution_ref = write(
                     f"execution-{name}.json",
@@ -410,6 +579,41 @@ def evidence(tmp_path):
                             "deviceRequestCount": 0,
                             "mounts": [],
                         },
+                    },
+                )
+            if name == "http_service":
+                helper = operational_helper()
+                decisions = {
+                    "schemaVersion": "document-files.operational-review-decisions.v1",
+                    "sourceReportSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "reviewer": "synthetic independent fixture",
+                    "independent": True,
+                    "method": "independent-ground-truth",
+                    "executionReceipt": execution_ref,
+                    "containerIdentityReceipt": container_ref,
+                    "criteria": {
+                        key: {"passed": True, "findings": ["Synthetic observation checked"]}
+                        for key in gate.HTTP_TESTS
+                    },
+                    "semanticReview": {
+                        "criteria": {"exact_values": True},
+                        "findings": ["Synthetic result only"],
+                    },
+                }
+                decisions_ref = write("http-review-decisions.json", decisions)
+                assessed = helper.assess(
+                    tmp_path,
+                    report,
+                    decisions,
+                    {"path": path.name, "sha256": decisions["sourceReportSha256"]},
+                    gate,
+                )
+                review_ref = write(
+                    "http-review.json",
+                    {
+                        "schemaVersion": "document-files.operational-review.v1",
+                        "reviewDecisions": decisions_ref,
+                        **assessed,
                     },
                 )
             checks.append(
@@ -650,3 +854,189 @@ def test_execution_receipt_cannot_be_reused_for_another_report(evidence):
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="this model run"):
         gate_module().check(manifest_path, root, manifest["sourceCommit"], manifest["version"])
+
+
+def test_http_review_seals_separately_and_gate_revalidates_it(evidence):
+    reports, document, run, root = evidence
+    run()
+    raw = (root / "http_service.json").read_bytes()
+    helper = operational_helper()
+    receipt = helper.seal(
+        root,
+        root / "http_service.json",
+        root / "http-review-decisions.json",
+        root / "sealed-http-review.json",
+    )
+    assert receipt["passed"] is True
+    assert (root / "http_service.json").read_bytes() == raw
+    assert json.loads(raw)["passed"] is False
+    assert json.loads(raw)["releaseQualification"] is False
+    with pytest.raises(FileExistsError):
+        helper.seal(
+            root,
+            root / "http_service.json",
+            root / "http-review-decisions.json",
+            root / "sealed-http-review.json",
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "boolean_only",
+        "host_profile",
+        "claims_quality_suite",
+        "no_spec",
+        "no_lifecycle",
+        "wrong_run",
+        "cancel_survivor",
+        "no_real_child",
+        "restart_replayed",
+        "missing_persistence",
+        "delete_retained",
+        "new_budget",
+        "unknown_result",
+        "partial_ai",
+        "wrong_core",
+        "wrong_source",
+        "wrong_recorder",
+        "wrong_image",
+        "rss_only",
+        "swap",
+        "oom",
+        "http_network",
+    ],
+)
+def test_http_review_rejects_missing_or_conflicting_actual_evidence(evidence, mutation):
+    reports, _, run, root = evidence
+    report = reports["http_service"]
+    lifecycle_path = root / report["lifecycleEvidence"]["path"]
+    lifecycle = json.loads(lifecycle_path.read_bytes())
+    observations = lifecycle["observations"]
+    if mutation == "boolean_only":
+        report["passed"] = True
+    elif mutation == "host_profile":
+        report["observationProfile"] = "host-published-port"
+    elif mutation == "claims_quality_suite":
+        report["notCovered"] = []
+    elif mutation == "no_spec":
+        report.pop("reviewSpecification")
+    elif mutation == "no_lifecycle":
+        report.pop("lifecycleEvidence")
+    elif mutation == "wrong_run":
+        lifecycle["executionRunId"] = "different-run"
+    elif mutation == "cancel_survivor":
+        observations["cancel_tree"]["childrenAliveAfter"] = observations["cancel_tree"][
+            "childrenBefore"
+        ]
+    elif mutation == "no_real_child":
+        observations["cancel_tree"]["childrenBefore"] = []
+    elif mutation == "restart_replayed":
+        observations["restart_interrupted"]["afterDelay"]["attempt"] += 1
+    elif mutation == "missing_persistence":
+        observations.pop("persistent_results")
+    elif mutation == "delete_retained":
+        observations["delete_results"]["resultDatabaseExists"] = True
+    elif mutation == "new_budget":
+        report["budget"]["maxModelCalls"] = 1
+    elif mutation in {"unknown_result", "partial_ai"}:
+        path = root / report["aiResult"]["path"]
+        result = json.loads(path.read_bytes())
+        if mutation == "unknown_result":
+            result["source"]["sha256"] = "7" * 64
+        else:
+            result["extraction"]["status"] = "partial"
+        path.write_text(json.dumps(result))
+        report["aiResult"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        observations["resume_checkpoint"]["result"] = report["aiResult"]
+        observations["actual_ai_complete"]["result"] = report["aiResult"]
+    elif mutation in {"wrong_core", "wrong_source", "wrong_recorder"}:
+        field = {
+            "wrong_core": "packageTreeSha256",
+            "wrong_source": "sourceArtifactSha256",
+            "wrong_recorder": "recorderSha256",
+        }[mutation]
+        report["coreExecution"][field] = "7" * 64
+    elif mutation == "wrong_image":
+        report["coreExecution"]["selectedImageArtifactId"] = "model"
+    elif mutation == "rss_only":
+        report["execution"].pop("cgroupMemoryPeakBytes")
+        report["execution"]["rssBytes"] = 100
+    elif mutation in {"swap", "oom"}:
+        report["execution"]["memorySwapPeakBytes" if mutation == "swap" else "oomEventsDelta"] = 1
+    else:
+        report["execution"]["networkMode"] = "bridge"
+    lifecycle_path.write_text(json.dumps(lifecycle))
+    if "lifecycleEvidence" in report:
+        report["lifecycleEvidence"]["sha256"] = hashlib.sha256(
+            lifecycle_path.read_bytes()
+        ).hexdigest()
+    with pytest.raises((ValueError, KeyError)):
+        run()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "approve_boolean",
+        "changed_decisions",
+        "changed_raw",
+        "other_execution",
+        "wrong_cpu",
+        "other_expected",
+    ],
+)
+def test_operational_receipt_does_not_override_evidence(evidence, mutation):
+    _, document, run, root = evidence
+    run()
+    item = next(c for c in document["checks"] if c["id"] == "http_service")
+    gate = gate_module()
+    assets = gate.artifact_inventory(document, root, document["sourceCommit"], document["version"])
+    report = json.loads((root / item["evidence"]["path"]).read_bytes())
+    if mutation == "approve_boolean":
+        receipt_path = root / item["review"]["path"]
+        receipt_path.write_text(
+            json.dumps({"schemaVersion": "document-files.operational-review.v1", "passed": True})
+        )
+        item["review"]["sha256"] = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    elif mutation == "changed_decisions":
+        (root / "http-review-decisions.json").write_text("{}")
+    elif mutation == "changed_raw":
+        report["checksPassed"] = False
+    elif mutation == "other_execution":
+        item["executionReceipt"] = next(c for c in document["checks"] if c["id"] == "local_model")[
+            "executionReceipt"
+        ]
+    elif mutation == "wrong_cpu":
+        report["executionRunId"] = "unmeasured-run"
+    else:
+        (root / report["reviewSpecification"]["path"]).write_text("{}")
+    with pytest.raises((ValueError, KeyError)):
+        gate._reviewed_operational(report, item, root, root / item["evidence"]["path"], assets)
+
+
+@pytest.mark.parametrize("field,value", [("maxModelCalls", 13), ("completionSeconds", 901)])
+def test_http_review_rejects_expanded_short_document_budget(evidence, field, value):
+    reports, _, run, _ = evidence
+    reports["http_service"]["budget"][field] = value
+    with pytest.raises(ValueError, match="review|Review"):
+        run()
+
+
+def test_http_review_does_not_approve_negative_content_comparison(evidence):
+    _, _, run, root = evidence
+    run()
+    report_path = root / "http_service.json"
+    report = json.loads(report_path.read_bytes())
+    decisions = json.loads((root / "http-review-decisions.json").read_bytes())
+    criterion = next(iter(decisions["semanticReview"]["criteria"]))
+    decisions["semanticReview"]["criteria"][criterion] = False
+    receipt = operational_helper().assess(
+        root,
+        report,
+        decisions,
+        {"path": report_path.name, "sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()},
+        gate_module(),
+    )
+    assert receipt["passed"] is False
+    assert "independent-content-review" in receipt["missingEvidence"]

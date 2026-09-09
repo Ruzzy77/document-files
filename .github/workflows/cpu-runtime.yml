@@ -1,7 +1,7 @@
 name: Build pinned native CPU runtime candidates
 on:
   push:
-    paths: ['scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', 'scripts/build_cpu_runtime.py', '.github/workflows/cpu-runtime.yml']
+    paths: ['scripts/prepare_windows_build.ps1', 'scripts/windows_build_evidence.py', 'tests/test_windows_build_evidence.py', 'scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', 'scripts/build_cpu_runtime.py', '.github/workflows/cpu-runtime.yml']
   workflow_dispatch:
     inputs:
       pack_version:
@@ -39,7 +39,7 @@ jobs:
       - name: Prepare pinned builder environment
         run: uv sync --frozen --python 3.12
       - name: Test CPU build and license contracts without loading models
-        run: uv run --frozen python -m pytest -q tests/test_cpu_runtime_builder.py
+        run: uv run --frozen python -m pytest -q tests/test_cpu_runtime_builder.py tests/test_windows_runtime_notice.py tests/test_windows_build_evidence.py
       - name: Build matching Unix CPU candidate
         if: runner.os != 'Windows'
         shell: bash
@@ -54,43 +54,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          if (git status --porcelain) { throw 'CPU candidate requires clean source' }
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) { throw 'Installed vswhere missing' }
-          $installation = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $installation) { throw 'Installed x64 C++ tools missing' }
-          $developer = Join-Path $installation 'Common7\Tools\Launch-VsDevShell.ps1'
-          if (-not (Test-Path -LiteralPath $developer -PathType Leaf)) { throw 'Installed developer shell missing' }
-          # Official installed shell initializes compiler, SDK, dumpbin and x64 environment.
-          # https://learn.microsoft.com/visualstudio/ide/reference/command-prompt-powershell
-          & $developer -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-          if (-not $env:VSCMD_VER) { throw 'Developer environment not initialized' }
-          Get-Command cl.exe, dumpbin.exe, cmake.exe | Select-Object Name, Source
-          $licenses = @(Get-ChildItem -LiteralPath $installation -Filter License.rtf -Recurse -File |
-            Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
-            Where-Object {
-              $text = Get-Content -LiteralPath $_.FullName -Raw
-              $text = [regex]::Replace($text, '\\[a-zA-Z]+-?\d* ?', ' ') -replace '[{}]', ' '
-              $text -match '(?is)^.{0,700}MICROSOFT.{0,120}VISUAL\s+STUDIO.{0,100}2022' -and
-                $text -notmatch '(?is)^.{0,700}(PRE[- ]?RELEASE\s+SOFTWARE|VS2015_CTP_EVAL)' -and
-                $text -match '(?is)distributable.{0,30}code|redistribut'
-            })
-          if (-not $licenses.Count) { throw 'Matching Visual Studio 2022 license not found; an extension preview EULA cannot substitute for installed-product terms' }
-          $hashes = @($licenses | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } | Sort-Object -Unique)
-          if ($hashes.Count -ne 1) { throw 'Ambiguous installed Visual Studio licenses; resolve exact edition/license on the host' }
-          $license = ($licenses | Sort-Object FullName | Select-Object -First 1).FullName
-          $output = Join-Path $env:RUNNER_TEMP 'cpu-runtime-artifacts'
-          New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
-          @{installationPath=$installation; developerVersion=$env:VSCMD_VER; licensePath=$license; licenseSha256=$hashes[0].ToLowerInvariant()} |
-            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'windows-build-host.json') -Encoding utf8
-          uv run --frozen python scripts/build_cpu_runtime.py --target $env:TARGET `
-            --work (Join-Path $env:RUNNER_TEMP 'cpu-runtime-build') `
-            --output (Join-Path $output "llama-cpp-cpu-$env:PACK_VERSION-$env:TARGET.pack.zip") `
-            --version $env:PACK_VERSION --jobs 2 --windows-runtime-license $license
-          if ($LASTEXITCODE -ne 0) { throw 'CPU runtime build failed' }
+          # Explicit original from the official VS2022 Enterprise/Professional terms page.
+          # Pin changes require renewed product/edition review; this is not rights approval.
+          $termsUrl = 'https://visualstudio.microsoft.com/wp-content/uploads/2021/11/Visual-Studio-2022-Enterprise-Professional-License-EN.docx'
+          $termsSha = '9c0cd52b20db9d081854c75bd1b50c75514b8f8cb09c8cad15e89d90b97b5bf3'
+          $python = (uv python find).Trim()
+          & ./scripts/prepare_windows_build.ps1 -Kind cpu -Python $python `
+            -Evidence "$env:RUNNER_TEMP/windows-cpu-evidence" `
+            -Work "$env:RUNNER_TEMP/cpu-runtime-build" -Output "$env:RUNNER_TEMP/cpu-runtime-artifacts" `
+            -PackVersion $env:PACK_VERSION -TermsUrl $termsUrl -TermsSha256 $termsSha
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
+        if: always() && runner.os != 'Windows'
         with:
           name: cpu-runtime-candidate-${{ matrix.target }}
           path: |
@@ -100,4 +74,17 @@ jobs:
             ${{ runner.temp }}/cpu-runtime-build/declaration.json
           if-no-files-found: error
           retention-days: 14
+      - name: Preserve Windows review evidence without redistributing the unreviewed pack
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: cpu-runtime-review-windows-x86_64
+          path: |
+            ${{ runner.temp }}/windows-cpu-evidence/
+            ${{ runner.temp }}/cpu-runtime-build/configure.log
+            ${{ runner.temp }}/cpu-runtime-build/build.log
+            ${{ runner.temp }}/cpu-runtime-build/declaration.json
+          if-no-files-found: warn
+          retention-days: 14
+      # Windows binary delivery requires a separate review of exact redistribution terms.
 # Build candidates only: no model download, active pack change, release or support qualification.

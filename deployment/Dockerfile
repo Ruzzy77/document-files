@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # The caller must supply an audited digest-pinned Python 3.12 Linux image.
 # No OS packages, model assets or Python wheels are downloaded by this build.
 ARG BASE_IMAGE
@@ -11,7 +10,7 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     DOCUMENT_FILES_RUNTIME_ROOT=/state/native
 COPY wheelhouse /opt/wheelhouse
 COPY requirements.lock /opt/requirements.lock
-RUN python -m pip install --no-index --require-hashes --find-links=/opt/wheelhouse -r /opt/requirements.lock \
+RUN python -m pip install --force-reinstall --no-index --require-hashes --find-links=/opt/wheelhouse -r /opt/requirements.lock \
     && rm -rf /opt/wheelhouse \
     && mkdir -p /state/packs /config \
     && chown -R 10001:10001 /state /config

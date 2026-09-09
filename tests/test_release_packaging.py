@@ -53,6 +53,21 @@ def test_runtime_license_provenance_matches_contents():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest
 
 
+def test_sdist_includes_the_windows_preparation_entrypoint_and_release_helpers():
+    manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+    line = next(
+        line for line in manifest.splitlines() if line.startswith("recursive-include scripts ")
+    )
+    assert {"*.py", "*.ps1"} <= set(line.split()[2:])
+    for name in (
+        "prepare_windows_build.ps1",
+        "windows_build_evidence.py",
+        "build_release_image.py",
+        "review_operational.py",
+    ):
+        assert (ROOT / "scripts" / name).is_file()
+
+
 def test_stable_gate_rejects_missing_checks_and_stale_identity(tmp_path):
     gate = load_script("check_release_qualification")
     manifest = tmp_path / "qualification.json"

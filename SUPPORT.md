@@ -32,7 +32,59 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Latest source follow-up: release preparation
+### Current source follow-up: structure checks and release tooling
+
+Prompt v19 / planner v13 / table protocol v5 / compiler v14 require an explicit
+role for every observed row not fixed by a native header declaration. OCR header
+flags remain predictions; omitted roles never become data records. Scope v6 uses
+the compiled header classification when constructing header-group candidates.
+Missing source cells remain missing, and invalid decimal text remains uncertain
+with its original spelling and source range instead of being read as a number.
+
+Non-record subtotal, note and unmapped cells now have a separate scalar region.
+Its value bindings do not overlap the parent record readings, it shares the document
+budget, and it resumes independently after a pause. Duplicate removal requires the
+same successful binding and value representation; a failed numeric reading does not
+erase a valid source-text field. Scripted tests cover subtotal/note values, mixed
+rows, sparse cells, partial bindings and pause/resume. Unseen forms remain unqualified.
+
+Two bounded development probes stopped after structure, deliberately before meaning:
+
+| Development input | Actual structure inference | Checked result |
+|---|---|---|
+| Merged-header HTML | 1 call / 80.2 seconds | Exact two rows, long IDs and decimal spelling |
+| First table of the existing scan | 1 call / 97.6 seconds, plus one exact paragraph replay | Header excluded from records, Bolt/Nut cells correctly placed, unobserved Note uncertain |
+
+Saved structure responses were also recompiled after the final defensive changes,
+with identical values and value-source evidence. Both whole results remain partial
+because the probes stopped before meaning. They are not fresh OCR, full-document,
+independent-holdout, final-candidate or 16 GiB qualification. The meaning repair still
+protects a mechanically accepted interpretation even when its content is wrong;
+source-range processing and revisable meaning decisions are the next product work.
+
+Recognition adapter v11 records page-local processing dependencies without making
+one page's completion depend on unrelated document issues. It also records the
+actual full-render-to-original-PDF-page coordinate transform and checked inverse.
+This does not validate recognition/crop alignment, visual-content coverage, reading
+order or OCR truth. Original issues remain; recognition-backed PDF completion is
+still blocked until those missing checks have a source-bound resolution path.
+
+Windows build preparation now takes pinned official product terms and records the
+actual installed toolchain instead of searching recursively for a similarly named
+license file. An installed-HTTP operational review links separate expected results,
+raw observations, actual execution and image evidence. A fresh offline image builder
+checks selected source/core/dependency bytes and exports an identified image. These
+are implemented preparation paths, not executed Windows/image/HTTP qualification
+or approval of redistribution rights. Host-published HTTP access needs its own check.
+
+Current core regression: **880 passed, 12 skipped, 12 subtests passed**; full Ruff
+passes. The skips include two new actual Windows process checks, required on Windows
+CI rather than replaced by their scripted counterparts. The separate recognition-runtime
+overlay passed 65 PDF/OCR tests. New release helpers were also found byte-for-byte in a
+temporary source archive, with private files excluded; that archive was removed. No final
+candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
+
+### Earlier release-preparation history
 
 The scope interpreter now offers observed header groups over their actual mapped
 child columns and separates the current statement from surrounding source context.
@@ -98,8 +150,8 @@ issue has been removed. Full visual-content and reading-order accounting is unfi
 The current blanket recognition-completeness issue still blocks every recognition-backed
 PDF from the complete-only release gate. This remains a release blocker.
 
-Current core regression: **744 passed, 10 skipped, 12 subtests passed**; full Ruff passes.
-The separate recognition-runtime test overlay passed 60 PDF/OCR tests; exact final
+At that earlier checkpoint, core regression was **744 passed, 10 skipped, 12 subtests
+passed** and the separate recognition-runtime overlay passed 60 PDF/OCR tests; exact final
 recognition bundles remain unqualified. Eleven input/specification cases covering nine
 formats are prepared but have not undergone final model evaluation.
 

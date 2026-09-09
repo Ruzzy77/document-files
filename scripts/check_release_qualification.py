@@ -15,6 +15,7 @@ import importlib.util
 import json
 import re
 import subprocess
+import sys
 import tomllib
 import zipfile
 from pathlib import Path
@@ -51,6 +52,10 @@ HTTP_TESTS = {
     "explicit_budget",
     "input_snapshot",
     "no_path_or_url_input",
+    "persistent_results",
+    "restart_interrupted",
+    "actual_ai_complete",
+    "delete_results",
 }
 CONTAINER_TESTS = {
     "offline_extraction",
@@ -228,6 +233,8 @@ def _operational(report: dict, name: str, root: Path, assets: dict):
             or not result.get("source", {}).get("sha256")
         ):
             raise ValueError("Actual successful installed AI result required")
+        if name == "http_service" and observed.get("adapter") != "managed-llama-cpp.v1":
+            raise ValueError("Actual installed local HTTP model required")
         for kind, key in (("runtime", "runtimeManifestSha256"), ("model", "modelManifestSha256")):
             if not any(
                 assets[a]["kind"] == kind and assets[a].get("manifestSha256") == observed.get(key)
@@ -284,6 +291,172 @@ def _operational(report: dict, name: str, root: Path, assets: dict):
         or not report.get("runtimeRoute")
     ):
         raise ValueError(f"Actual client version/runtime required: {name}")
+
+
+def _http_execution(report, item, root, path, digest, assets):
+    """Verify installed HTTP runner + wheel + packs + measured loopback container."""
+    import tarfile
+
+    _identity(report, report["sourceCommit"], report["version"])
+    _bindings(report, "http_service", assets)
+    if report.get("observationProfile") != "in-container-loopback.v1" or report.get(
+        "notCovered"
+    ) != ["host-published-port-access", "independent-document-quality-suite"]:
+        raise ValueError("HTTP review requires explicit internal loopback-only coverage")
+    actual = report.get("coreExecution", {})
+    core = assets.get(actual.get("coreArtifactId"), {})
+    source = assets.get(actual.get("sourceArtifactId"), {})
+    if (
+        actual.get("verification") != "installed-wheel-and-runner-source-exact.v1"
+        or actual.get("coreArtifactId") not in report["artifacts"]
+        or actual.get("sourceArtifactId") not in report["artifacts"]
+        or core.get("kind") != "core"
+        or source.get("kind") != "core"
+        or not str(core.get("verifiedPath", "")).endswith(".whl")
+        or not str(source.get("verifiedPath", "")).endswith(".tar.gz")
+        or actual.get("coreArtifactSha256") != core["sha256"]
+        or actual.get("sourceArtifactSha256") != source["sha256"]
+    ):
+        raise ValueError("Installed HTTP core/source artifacts required")
+    spec = importlib.util.spec_from_file_location(
+        "http_execution_identity", ROOT / "evaluation/execution_identity.py"
+    )
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    if actual.get("packageTreeSha256") != helper.tree_digest(
+        helper.wheel_package(core["verifiedPath"])
+    ):
+        raise ValueError("Installed HTTP package differs from selected wheel")
+    with tarfile.open(source["verifiedPath"], "r:gz") as archive:
+
+        def member_sha(member):
+            matches = [
+                m
+                for m in archive.getmembers()
+                if Path(m.name).parts[1:] == tuple(member.split("/"))
+            ]
+            if len(matches) != 1 or not matches[0].isfile() or ".." in Path(matches[0].name).parts:
+                raise ValueError("HTTP runner source member missing or ambiguous")
+            return hashlib.sha256(archive.extractfile(matches[0]).read()).hexdigest()
+
+        runner = member_sha("scripts/run_http_installation_check.py")
+        recorder = member_sha("scripts/measure_cpu_execution.py")
+        if runner != actual.get("runnerSha256") or recorder != actual.get("recorderSha256"):
+            raise ValueError("HTTP executable identity differs from source artifact")
+        # The current validator interprets observations emitted by this exact runner contract.
+        if (
+            runner
+            != hashlib.sha256(
+                (ROOT / "scripts/run_http_installation_check.py").read_bytes()
+            ).hexdigest()
+        ):
+            raise ValueError("HTTP observations require the matching reviewed runner")
+    for kind, key in (
+        ("runtime", "runtimeId"),
+        ("model", "modelId"),
+        ("recognition", "recognitionPackId"),
+    ):
+        if not any(
+            assets[a]["kind"] == kind
+            and assets[a].get("manifestSha256") == actual.get("packManifestSha256", {}).get(key)
+            for a in report["artifacts"]
+        ):
+            raise ValueError("HTTP configured pack differs from selected artifact")
+    measured = _execution(
+        report,
+        root,
+        report["sourceCommit"],
+        report["version"],
+        path,
+        digest,
+        item["executionReceipt"],
+    )
+    _container_identity(measured, item, root, assets)
+    execution = measured["execution"]
+    ceiling, peak = execution.get("memoryCeilingBytes"), execution.get("cgroupMemoryPeakBytes")
+    if (
+        execution.get("device") != "cpu"
+        or execution.get("networkMode") != "none"
+        or any(
+            execution.get(k) is not True
+            for k in (
+                "offline",
+                "networkBlocked",
+                "memoryCeilingVerified",
+                "measurementComplete",
+                "limitsUnchanged",
+            )
+        )
+        or execution.get("gpuUsed") is not False
+        or execution.get("timedOut") is not False
+        or execution.get("recorderErrors") != []
+        or type(ceiling) is not int
+        or not 0 < ceiling <= 16 * 1024**3
+        or type(peak) is not int
+        or not 0 < peak <= ceiling
+        or any(
+            type(execution.get(k)) is not int or execution[k] != 0
+            for k in (
+                "memorySwapMaxBytes",
+                "memorySwapPeakBytes",
+                "oomEventsDelta",
+                "oomKillEventsDelta",
+                "gpuDeviceCount",
+                "exitCode",
+            )
+        )
+    ):
+        raise ValueError("Measured HTTP CPU16GB execution required")
+    _, receipt = _linked(root, item["executionReceipt"]["path"], item["executionReceipt"]["sha256"])
+    _, measurements = _linked(
+        root, receipt["measurements"]["path"], receipt["measurements"]["sha256"]
+    )
+    limits = measurements.get("limitsBefore", {})
+    cpu = limits.get("cpuQuota")
+    if (
+        type(cpu) not in {int, float}
+        or not 0 < cpu <= 4
+        or limits != measurements.get("limitsAfter")
+    ):
+        raise ValueError("Measured stable HTTP CPU quota required")
+    if actual.get("selectedImageArtifactId") not in report["artifacts"]:
+        raise ValueError("Selected HTTP image missing")
+    _, host = _linked(
+        root, item["containerIdentityReceipt"]["path"], item["containerIdentityReceipt"]["sha256"]
+    )
+    if host.get("imageArtifactId") != actual["selectedImageArtifactId"]:
+        raise ValueError("HTTP selected image differs from actual image")
+    return measured
+
+
+def _reviewed_operational(report, item, root, path, assets):
+    spec = importlib.util.spec_from_file_location(
+        "operational_review", ROOT / "scripts/review_operational.py"
+    )
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    _, review = _linked(root, item["review"]["path"], item["review"]["sha256"])
+    if review.get("schemaVersion") != "document-files.operational-review.v1":
+        raise ValueError("Independent operational review receipt required")
+    decisions_ref = review["reviewDecisions"]
+    _, decisions = _linked(root, decisions_ref["path"], decisions_ref["sha256"])
+    for key in ("executionReceipt", "containerIdentityReceipt"):
+        if item.get(key) != decisions.get(key):
+            raise ValueError("Operational review uses different execution proofs")
+    assessed = helper.assess(
+        root,
+        report,
+        decisions,
+        item["evidence"],
+        sys.modules[__name__] if __name__ in sys.modules else helper.gate_module(),
+    )
+    if (
+        any(review.get(key) != value for key, value in assessed.items())
+        or assessed["passed"] is not True
+    ):
+        raise ValueError("Operational review is stale, incomplete or lacks actual observations")
+    measured = _http_execution(report, item, root, path, item["evidence"]["sha256"], assets)
+    return {**measured, "passed": True}
 
 
 def _identity(document: dict, commit: str, version: str) -> None:
@@ -640,6 +813,8 @@ def check(manifest: Path, evidence_root: Path, source_commit: str, version: str)
                 _container_identity(report, item, evidence_root, assets)
             _actual_model(report, name, path, evidence_root)
         else:
+            if name == "http_service":
+                report = _reviewed_operational(report, item, evidence_root, path, assets)
             _operational(report, name, evidence_root, assets)
     if cloud not in {"qualified", "not-qualified"}:
         raise ValueError("Cloud support must be explicitly qualified or not-qualified")

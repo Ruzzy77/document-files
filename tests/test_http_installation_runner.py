@@ -141,3 +141,152 @@ def test_interrupt_preserves_failure_and_cannot_leave_success_status(tmp_path, m
     assert runner.main(arguments(tmp_path)) == 1
     report = json.loads((tmp_path / "run/report.json").read_bytes())
     assert report["checksPassed"] is False and report["failure"] == "KeyboardInterrupt"
+
+
+def test_simulated_lifecycle_records_observations_without_passing_raw_report(tmp_path, monkeypatch):
+    """Drive saved-response paths only. No service/model is actually executed."""
+    import hashlib
+
+    content = b"public synthetic source"
+    (tmp_path / "public.html").write_bytes(content)
+    (tmp_path / "config.json").write_text(json.dumps({"profiles": {"cpu": {}}}))
+    (tmp_path / "spec.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": "document-files.review-specification.v1",
+                "criteria": [{"id": "exact", "expected": "MUST_NOT_REACH_HTTP"}],
+            }
+        )
+    )
+    digest = hashlib.sha256(content).hexdigest()
+    inventory = {"sourceCommit": "a" * 40, "version": "1.8.0"}
+    packs = {"runtimeId": "b" * 64, "modelId": "c" * 64}
+    monkeypatch.setattr(
+        runner, "identity", lambda *_: (inventory, {"packManifestSha256": packs}, tmp_path, {})
+    )
+    monkeypatch.setattr(runner, "installed_tree", lambda *_: {})
+    monkeypatch.setattr(runner.sys, "platform", "linux")
+    old_exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda p: str(p) == "/proc/self/stat" or old_exists(p))
+    monkeypatch.setattr(runner.time, "sleep", lambda _: None)
+    state = {"status": "partial", "attempt": 1, "resumes": 0, "revision": 1}
+    upload = tmp_path / "run/service-state/uploads/job.html"
+    database = tmp_path / "run/service-state/results/job.sqlite3"
+
+    class Process:
+        pid = 100
+
+        def __init__(self, *_a, **_k):
+            pass
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            if state["status"] == "running":
+                state["status"], state["revision"] = "interrupted", 3
+
+        def wait(self, **_k):
+            return 0
+
+    monkeypatch.setattr(runner.subprocess, "Popen", Process)
+    child = {"pid": 200, "parent": 100, "startTicks": "321", "name": "llama-server"}
+    monkeypatch.setattr(
+        runner, "processes", lambda *_: [child] if state["status"] == "running" else []
+    )
+    monkeypatch.setattr(runner, "alive", lambda *_: state["status"] == "running")
+
+    class HTTP:
+        def __init__(self, *_):
+            pass
+
+        def wait(self, predicate, **_):
+            result = predicate()
+            assert result
+            return result
+
+        def request(self, method, path, body=b"", headers=None, authenticated=True):
+            assert b"MUST_NOT_REACH_HTTP" not in body
+            if path == "/v1/capabilities":
+                return (200 if authenticated else 401), {}
+            if path == "/v1/jobs" and method == "POST":
+                if headers.get("Content-Type") == "application/json":
+                    return 415, {}
+                if any(
+                    key in json.loads(headers["X-Extraction-Options"])
+                    for key in ("path", "url", "endpoint")
+                ):
+                    return 400, {"error": {"code": "invalid-options"}}
+                if body != content:
+                    return 409, {"error": {"code": "idempotency-conflict"}}
+                upload.parent.mkdir(parents=True, exist_ok=True)
+                upload.write_bytes(content)
+                database.parent.mkdir(parents=True, exist_ok=True)
+                database.write_bytes(b"synthetic database")
+                return 202, {"jobId": "job", "sha256": digest}
+            if path.endswith("/resume"):
+                state["resumes"] += 1
+                state["attempt"] += 1
+                state["status"] = "complete" if state["resumes"] == 3 else "running"
+                if state["status"] == "complete":
+                    state["revision"] = 4
+                return 202, {}
+            if path.endswith("/cancel"):
+                state["status"], state["revision"] = "cancelled", 2
+                return 202, {}
+            if path.endswith("/result"):
+                complete = state["status"] == "complete"
+                return 200, {
+                    "resultRevision": state["revision"],
+                    "source": {"sha256": digest},
+                    "extraction": {
+                        "status": "complete" if complete else "partial",
+                        "modelCalls": 4 if complete else 1,
+                    },
+                    "issues": [] if complete else [{"code": "model_call_budget_exceeded"}],
+                    "validation": {"valid": True, "errors": []},
+                    "provenance": {
+                        "model": {
+                            "adapter": "managed-llama-cpp.v1",
+                            "runtimeManifestSha256": packs["runtimeId"],
+                            "modelManifestSha256": packs["modelId"],
+                        }
+                    },
+                }
+            if method == "DELETE":
+                state["status"] = "deleted"
+                upload.unlink()
+                database.unlink()
+                return 200, {"deleted": True}
+            if state["status"] == "deleted":
+                return 404, {}
+            return 200, {
+                "status": state["status"],
+                "executionStatus": "running" if state["status"] == "running" else "completed",
+                "attempt": state["attempt"],
+            }
+
+    monkeypatch.setattr(runner, "HTTP", HTTP)
+    assert (
+        runner.main(arguments(tmp_path, **{"review-specification": str(tmp_path / "spec.json")}))
+        == 0
+    )
+    report = json.loads((tmp_path / "run/report.json").read_bytes())
+    assert report["passed"] is False and report["releaseQualification"] is False
+    assert report["checksPassed"] is True
+    assert report["observationProfile"] == "in-container-loopback.v1"
+    assert report["notCovered"] == [
+        "host-published-port-access",
+        "independent-document-quality-suite",
+    ]
+    observations = json.loads((tmp_path / report["lifecycleEvidence"]["path"]).read_bytes())[
+        "observations"
+    ]
+    assert set(observations) == set(report["plannedTests"])
+    assert observations["cancel_tree"]["childrenBefore"] == [child]
+    assert observations["cancel_tree"]["childrenAliveAfter"] == []
+    assert observations["restart_interrupted"]["afterDelay"]["status"] == "interrupted"
+    assert observations["delete_results"]["resultDatabaseExists"] is False
+    assert report["reviewSpecification"]["sha256"] == runner.sha256(
+        tmp_path / "run/review-specification.json"
+    )

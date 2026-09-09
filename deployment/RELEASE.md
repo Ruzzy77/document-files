@@ -69,14 +69,53 @@ product identity, `archiveSha256` and matching `imageId`. `imageId` is Docker's
 content-addressed configuration ID, not a registry manifest digest. Optional
 `imageDigest` must agree with the build receipt when an independently established
 manifest digest exists; do not invent it for a locally built image with no registry
-RepoDigest. The final image build/export wrapper and a qualified final image remain
-unimplemented/unverified; these fields define evidence requirements, not completion.
+RepoDigest. The image build/export wrapper is implemented; no final image has yet
+been built and qualified through this path.
 
 Every execution/installed report lists the **used** inventory IDs in `artifacts` and
 repeats the exact aggregate `artifactInventory` reference. Bind core + runtime +
 model + recognition for full extraction, and the image for container routes. A
 platform report also names its actual installed core `artifactSha256`. Its runtime
 and recognition targets must match its native or Linux-container route.
+
+## Build and export the selected image
+
+On the prepared Linux Docker host, use a clean matching source checkout, the exact
+Linux core receipt/wheel/sdist, a separately hash-locked wheelhouse and requirements
+file, and a locally available base image pinned by both RepoDigest and actual image ID:
+
+```sh
+python scripts/build_release_image.py \
+  --core-receipt /verified/core/build-inventory.json \
+  --core-receipt-sha256 TRUSTED_CORE_RECEIPT_SHA256 \
+  --wheel /verified/core/document_files-1.8.0-py3-none-any.whl \
+  --source /verified/core/document_files-1.8.0.tar.gz \
+  --wheelhouse /verified/wheelhouse \
+  --wheelhouse-inventory /verified/wheelhouse-inventory.json \
+  --wheelhouse-inventory-sha256 TRUSTED_WHEELHOUSE_INVENTORY_SHA256 \
+  --requirements /verified/requirements.lock \
+  --requirements-sha256 TRUSTED_REQUIREMENTS_SHA256 \
+  --base-image 'BASE_REPOSITORY@sha256:BASE_MANIFEST_SHA256' \
+  --base-image-id 'sha256:BASE_CONFIG_SHA256' --output /new/image-output
+```
+
+The wheelhouse inventory is an exact filename-to-SHA256 map; the requirements file
+uses exact versions and hashes. The wrapper copies only verified bytes into a new
+context, checks source/helper/Dockerfile identity, disables build-step networking and
+cache reuse, and verifies installed core files before export. The image receipt keeps
+the actual image ID separate from the archive SHA. Failure outputs are retained, not
+reused. The Dockerfile uses the installed frontend rather than fetching a syntax image.
+
+`--network=none` constrains build steps; it is not proof that the Docker daemon or
+host had no external access. Record host isolation separately. The base OS, exact
+runtime libc/CPU compatibility, security/licenses and complete installed execution
+still need review. A successful image build cannot qualify document extraction.
+
+The export check also matches ordered uncompressed layer hashes to the image config,
+with bounded tar/gzip inspection. All Docker commands share the supplied finite build
+budget; probe cleanup has a separate short limit and checks the exact run label, ID
+and image before deletion. Failure receipts distinguish CLI process cleanup from
+unverified daemon-side build termination. Actual Docker execution remains unverified.
 
 ## Immutable raw results, independent review and resource evidence
 
@@ -174,6 +213,31 @@ identity on the container host. The raw `http-installation-run.v1` report always
 the checks actually performed. Independent content review, image and isolation
 receipts are still required. Preparing this runner does not qualify the service.
 
+Supply `--review-specification` before starting the run to copy and hash-lock its
+expected content independently of inference. The specification is not model input.
+The runner stores actual response/status, process identity and retained/deleted-file
+observations separately as `http-lifecycle-observations.v1`. This is an in-container
+loopback profile; host-published-port access and the independent document-quality
+suite are explicitly not covered.
+
+After comparing those observations and the actual result with the frozen expected
+content, save `document-files.operational-review-decisions.v1`: raw-report SHA,
+reviewer/method/independence, execution and container receipt references, all twelve
+lifecycle decisions with findings, and every specified content criterion. Then seal
+the review without changing the raw report:
+
+```sh
+python scripts/review_operational.py --evidence-root /evidence \
+  --report http/raw-report.json --decisions http/review-decisions.json \
+  --output http/operational-review.json
+```
+
+Reference the sealed review from the `http_service` check's `review`. The release gate
+rechecks observation predicates, exact artifacts, installed core/source/pack/image
+identity, and cgroup evidence; a reviewer boolean or the old `passed: true` HTTP report
+cannot substitute for these inputs. A separate check must exercise host-published
+access when that route is offered. No actual final-image HTTP run has yet qualified.
+
 ## Large archives: transport parts only
 
 GitHub requires each release asset to be under 2 GiB. The prepared Qwen archive
@@ -237,15 +301,24 @@ Toolkit/Sync pinned release. Keep rollback and existing stored results available
 `cpu-runtime.yml` builds the four native runtime candidates from the pinned source.
 It runs only for an explicit dispatch or changes to that builder/workflow, leaves
 outputs under runner-temporary storage and does not activate packs. Windows uses
-the installed Visual Studio developer shell and discovers the actual installation's
-`License.rtf`; absent, ambiguous or product-mismatched notices fail the build rather
-than substituting generated license text. Earlier Windows candidates accidentally
+`prepare_windows_build.ps1` to identify the installed VS2022 Enterprise instance,
+prepare explicitly pinned official Enterprise/Professional terms, and record actual
+compiler/SDK/tool and available static-library hashes. The original DOCX, derived
+text, source URL, collection time and SHA receipt remain distinct. Changed URLs,
+hashes, product mismatches and preview terms fail rather than using generated text.
+The host receipt exists before toolchain lookup, so preparation failures retain their
+primary stage. Earlier Windows candidates accidentally
 selected an extension's VS2015 preview license and must not be promoted. The VS2022
 identity screen is only an obvious-mismatch guard: independently verify the installed
 edition, applicable product redistribution terms, static CRT files and final notices.
 A generic runtime-use license is not a substitute for those checks. Matching compiler/SDK, `dumpbin`, CMake,
 CPU instructions, runtime source access and enough disk must actually exist on the
 runner. An x64 build/`--version` smoke does not qualify inference or minimum-OS support.
+
+Windows CPU and native recognition CI preserve review JSON, logs and notices but do
+not upload unreviewed Windows binaries. The official terms and successful compilation
+are not redistribution approval. Review the exact output hashes and conditions before
+enabling their delivery.
 
 To verify an **existing** candidate's packs, dispatch `packs.yml` with its tag, the
 public aggregate inventory asset name and its independently trusted SHA256. The
