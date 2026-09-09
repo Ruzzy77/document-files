@@ -20,7 +20,7 @@ jobs:
             target: macos-aarch64
           - os: macos-15-intel
             target: macos-x86_64
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             target: linux-x86_64
           - os: windows-2022
             target: windows-x86_64
@@ -37,12 +37,49 @@ jobs:
       - name: Build checkbox-preserving backend and portable candidates
         shell: bash
         run: |
-          uv run --frozen python scripts/build_patched_rhwp.py --source "${RUNNER_TEMP}/rhwp-source"
+          uv run --frozen python scripts/build_patched_rhwp.py --source "${RUNNER_TEMP}/rhwp-source" --output "${RUNNER_TEMP}/rhwp-candidate"
+          if [ "$RUNNER_OS" = "Linux" ]; then export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/gcc-12; fi
           cargo test --locked --release -p rhwp --lib --manifest-path "${RUNNER_TEMP}/rhwp-source/Cargo.toml" checkbox
           cargo test --locked --release -p rhwp --lib --manifest-path "${RUNNER_TEMP}/rhwp-source/Cargo.toml" bullet
-          RHWP=$(uv run --frozen python -c 'import sys;sys.path.insert(0,"scripts");from provision_rhwp import cache_root,platform_key;import os;print(cache_root()/"rhwp/v0.8.6+pat.checkbox.1"/platform_key()/"bin"/("rhwp.exe" if os.name=="nt" else "rhwp"))')
+          RHWP="$RUNNER_TEMP/rhwp-candidate/bin/rhwp"
+          if [ "$RUNNER_OS" = "Windows" ]; then RHWP="$RHWP.exe"; fi
           uv run --frozen python scripts/build_release.py --rhwp "$RHWP" --rhwp-license "${RUNNER_TEMP}/rhwp-source/LICENSE"
           uv run --frozen python scripts/smoke_release.py "dist/document-files-1.8.0-${{ matrix.target }}.zip"
+      - name: Check every Linux portable ELF against the bookworm ABI
+        if: runner.os == 'Linux'
+        run: uv run --frozen python scripts/linux_abi.py --archive dist/document-files-1.8.0-linux-x86_64.zip --output dist/linux-abi
+      - name: Relocated bookworm core startup (not final image qualification)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          EVIDENCE="$GITHUB_WORKSPACE/dist/bookworm-core-evidence"
+          mkdir "$EVIDENCE"
+          # Provision only this explicit official test image; no document-time fetch.
+          timeout 300 docker pull --platform linux/amd64 python:3.12-bookworm
+          IMAGE=$(timeout 30 docker image inspect python:3.12-bookworm --format '{{index .RepoDigests 0}}')
+          timeout 30 docker image inspect "$IMAGE" --format '{{json .}}' | python3 -c 'import json,sys; x=json.load(sys.stdin); print(json.dumps({k:x[k] for k in ("Id","RepoDigests","Architecture","Os")}))' > "$EVIDENCE/probe-image.json"
+          CID=""
+          cleanup() {
+            if [ -s "$EVIDENCE/container-id.txt" ]; then CID=$(cat "$EVIDENCE/container-id.txt"); fi
+            if [[ "$CID" =~ ^[0-9a-f]{64}$ ]]; then
+              timeout 30 docker inspect "$CID" --format '{{json .State}}' > "$EVIDENCE/container-state.json" 2>&1 || true
+              timeout 60 docker rm --force "$CID" > "$EVIDENCE/cleanup.txt" 2>&1
+            fi
+          }
+          trap cleanup EXIT
+          timeout 60 docker create --cidfile "$EVIDENCE/container-id.txt" --platform linux/amd64 --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
+            --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,exec,size=2g \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/linux_abi.py,dst=/probe.py,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/dist/document-files-1.8.0-linux-x86_64.zip,dst=/input/archive.zip,readonly" \
+            --mount "type=bind,src=$EVIDENCE,dst=/evidence" \
+            "$IMAGE" python /probe.py --archive /input/archive.zip --output /evidence/result \
+            --startup core --startup-only > "$EVIDENCE/create.txt"
+          CID=$(cat "$EVIDENCE/container-id.txt")
+          timeout 300 docker start --attach "$CID" > "$EVIDENCE/container-log.txt" 2>&1
+          CODE=$(timeout 30 docker inspect "$CID" --format '{{.State.ExitCode}}')
+          printf '%s\n' "$CODE" > "$EVIDENCE/container-exit.txt"
+          test "$CODE" = 0
       - name: Export locked core Python dependency inventory
         shell: bash
         run: |
@@ -66,7 +103,11 @@ jobs:
         if: always()
         with:
           name: candidates-${{ matrix.target }}
-          path: dist/
+          path: |
+            dist/
+            ${{ runner.temp }}/rhwp-source/rhwp-abi.txt
+            ${{ runner.temp }}/rhwp-candidate/build.json
+            ${{ runner.temp }}/rhwp-candidate/rhwp-abi.txt
           if-no-files-found: error
           retention-days: 14
   # No automatic GitHub Release is published. Independent model and installed-client

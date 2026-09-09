@@ -204,6 +204,13 @@ def test_download_bytes_verified_before_use(tmp_path, monkeypatch, matches):
 
 def test_simulated_build_receipt_never_claims_pack_or_quality(tmp_path, monkeypatch):
     """Mock tool calls exercise receipt flow only; never evidence for a release."""
+    import sys
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import linux_abi
+
+    monkeypatch.setattr(linux_abi, "toolchain", lambda: {"simulated": True})
+    monkeypatch.setattr(linux_abi, "audit", lambda *_a: {"simulated": True, "rawEvidence": {}})
     pins = native.load_pins(native.PINS)
     payload = b"x"
     digest = native.hashlib.sha256(payload).hexdigest()

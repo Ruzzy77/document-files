@@ -145,6 +145,10 @@ def cmake_options(target):
         options["CMAKE_OSX_DEPLOYMENT_TARGET"] = "13.3"
         if target.endswith("aarch64"):
             options["GGML_CPU_ARM_ARCH"] = "armv8.2-a+fp16+dotprod"
+    if target.startswith("linux"):
+        from linux_abi import CC, CXX
+
+        options.update(CMAKE_C_COMPILER=CC, CMAKE_CXX_COMPILER=CXX)
     if target.startswith("windows"):
         options["CMAKE_MSVC_RUNTIME_LIBRARY"] = "MultiThreaded"
     return options
@@ -293,6 +297,12 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
         if os.environ.get(key):
             raise PackError(f"cpu_build_ambient_flags_forbidden:{key}")
     work.mkdir(parents=True)
+    linux_toolchain = None
+    if target.startswith("linux"):
+        from linux_abi import toolchain
+
+        linux_toolchain = toolchain()
+        (work / "linux-toolchain.json").write_text(json.dumps(linux_toolchain, indent=2) + "\n")
     source, build_dir, stage = work / "source", work / "build", work / "stage"
     run("git", "clone", "--filter=blob:none", "--no-checkout", SOURCE_URL, source)
     run("git", "checkout", "--detach", REVISION, cwd=source)
@@ -324,7 +334,7 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
     (work / "build.log").write_text(build_log)
     stage.mkdir()
     suffix = ".exe" if target.startswith("windows") else ""
-    dependencies, versions, symbols = {}, {}, ""
+    dependencies, versions, symbols, linux_abi = {}, {}, "", {}
     names = [f"llama-server{suffix}", f"llama-quantize{suffix}"]
     for name in names:
         matches = [p for p in (build_dir / "bin").rglob(name) if p.is_file() and not p.is_symlink()]
@@ -341,7 +351,10 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
         )
         dependencies[name] = audit_dependencies(target, run(*command, stage / name))
         if target.startswith("linux"):
-            symbols += run("readelf", "--version-info", stage / name)
+            from linux_abi import audit
+
+            linux_abi[name] = audit(stage / name, stage / f"{name}-abi.txt")
+            symbols += (stage / f"{name}-abi.txt").read_text()
         versions[name] = smoke_binary(stage / name, quantize=name.startswith("llama-quantize"))
     licenses, components, file_licenses = stage_notices(source, stage, windows_runtime_license)
     cpu = "armv8.2-a+fp16+dotprod" if target.endswith("aarch64") else "x86_64+avx2+fma+f16c+bmi2"
@@ -380,6 +393,8 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
         "target": target,
         "cpuRequirements": cpu,
         "cmakeOptions": options,
+        "linuxToolchain": linux_toolchain,
+        "linuxAbi": linux_abi,
         "dependencies": dependencies,
         "binaryVersions": versions,
         "buildHost": platform.platform(),

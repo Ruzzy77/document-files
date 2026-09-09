@@ -273,7 +273,7 @@ def rewrite_export(prefix: Path, target: str) -> None:
     export.write_text(value, encoding="utf-8")
 
 
-def collect_runtime_notices(target, notices, run, windows_license=None):
+def collect_runtime_notices(target, notices, run, windows_license=None, compiler="c++"):
     """Preserve real installed toolchain notices; never substitute a made-up text.
 
     Windows follows the CPU runtime builder's installed Visual Studio License.rtf
@@ -327,7 +327,7 @@ def collect_runtime_notices(target, notices, run, windows_license=None):
                 raise BuildError(f"installed static compiler runtime missing: {filename}")
             runtimes.append({"path": str(library), "sha256": sha(library)})
     else:
-        version = run(["c++", "-dumpfullversion"], "gcc-full-version").strip()
+        version = run([compiler, "-dumpfullversion"], "gcc-full-version").strip()
         if not re.fullmatch(r"\d+(?:\.\d+)+", version):
             raise BuildError("GCC version unavailable for installed notice selection")
         copyright = Path(f"/usr/share/doc/gcc-{version.split('.')[0]}-base/copyright")
@@ -342,7 +342,9 @@ def collect_runtime_notices(target, notices, run, windows_license=None):
             [r"GNU GENERAL PUBLIC LICENSE", r"Version 3"],
         )
         for name in ("libstdc++.a", "libgcc.a", "libgcc_eh.a"):
-            library = Path(run(["c++", f"-print-file-name={name}"], f"gcc-{name}-location").strip())
+            library = Path(
+                run([compiler, f"-print-file-name={name}"], f"gcc-{name}-location").strip()
+            )
             if not library.is_absolute() or not library.is_file():
                 raise BuildError(f"installed static compiler runtime missing: {name}")
             runtimes.append(
@@ -488,13 +490,21 @@ def run_build(args) -> dict:
 
     toolchain = {"cmake": run(["cmake", "--version"], "cmake-version")}
     if target.startswith("linux"):
-        toolchain["compiler"] = run(["c++", "--version"], "compiler-version")
+        from linux_abi import CC, CXX
+        from linux_abi import toolchain as linux_toolchain
+
+        toolchain["linux"] = linux_toolchain()
+        toolchain["compiler"] = run([CXX, "--version"], "compiler-version")
     else:
         toolchain["compiler"] = run(["cmd", "/c", "cl 2>&1 & exit /b 0"], "compiler-version")
     notices = work / "candidate/licenses"
     notices.mkdir(parents=True)
     runtime_notices = collect_runtime_notices(
-        target, notices, run, getattr(args, "windows_runtime_license", None)
+        target,
+        notices,
+        run,
+        getattr(args, "windows_runtime_license", None),
+        *([CXX] if target.startswith("linux") else []),
     )
     (work / "runtime-notices.json").write_text(
         json.dumps(runtime_notices, indent=2) + "\n", encoding="utf-8"
@@ -530,7 +540,11 @@ def run_build(args) -> dict:
                 "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
             ]
         else:
-            flags += ["-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"]
+            flags += [
+                f"-DCMAKE_C_COMPILER={CC}",
+                f"-DCMAKE_CXX_COMPILER={CXX}",
+                "-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc",
+            ]
         run(
             [
                 "cmake",
@@ -563,8 +577,12 @@ def run_build(args) -> dict:
     )
     raw = run(command, "native-dependencies")
     dependencies = parse_linkage(raw, target)
+    linux_abi = None
     if target.startswith("linux"):
-        run(["readelf", "--version-info", relocated], "glibc-versions")
+        from linux_abi import audit
+
+        linux_abi = audit(relocated, logs / "glibc-versions.txt")
+        linux_abi["rawEvidence"]["path"] = "logs/glibc-versions.txt"
     # Hide the entire install prefix: relocation must not silently use build products.
     prefix.rename(work / "prefix-not-on-runtime-path")
     version = run([relocated, "--version"], "relocated-version", runtime=True)
@@ -614,6 +632,7 @@ def run_build(args) -> dict:
         ],
         "sources": pins["sources"],
         "toolchain": toolchain,
+        "linuxAbi": linux_abi,
         "runtimeNotices": runtime_notices,
         "binary": {"path": relocated.relative_to(work).as_posix(), "sha256": sha(relocated)},
         "dependencies": dependencies,

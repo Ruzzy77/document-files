@@ -26,6 +26,9 @@ def test_all_platforms_pin_cpu_only_options_and_explicit_arch_baseline(target):
         assert all(options[f"GGML_{feature}"] == "ON" for feature in builder.X64_FEATURES)
     else:
         assert options["GGML_CPU_ARM_ARCH"] == "armv8.2-a+fp16+dotprod"
+    if target.startswith("linux"):
+        assert options["CMAKE_C_COMPILER"] == "/usr/bin/gcc-12"
+        assert options["CMAKE_CXX_COMPILER"] == "/usr/bin/g++-12"
     if target.startswith("windows"):
         assert options["CMAKE_MSVC_RUNTIME_LIBRARY"] == "MultiThreaded"
     cache = "\n".join(f"{key}:STRING={value}" for key, value in options.items())
@@ -145,3 +148,18 @@ def test_quantizer_help_is_an_expected_nonzero_smoke_not_a_fake_version(tmp_path
     assert result["exitCode"] == 1 and result["argument"] == "--help"
     with pytest.raises(builder.PackError, match="identity_or_smoke_failed"):
         builder.smoke_binary(tmp_path / "server")
+
+
+def test_new_ci_pack_version_is_explicit_and_valid_without_reusing_old_default(
+    tmp_path, monkeypatch
+):
+    workflow = (SCRIPTS.parent / ".github/workflows/cpu-runtime.yml").read_text()
+    assert "default: 'b10853-cpu.3'" in workflow
+    assert "inputs.pack_version || 'b10853-cpu.3'" in workflow
+    assert '--version "$PACK_VERSION"' in workflow
+    monkeypatch.setattr(builder, "current_target", lambda: "linux-x86_64")
+    monkeypatch.setattr(builder, "run", lambda *a, **k: pytest.fail("unexpected build"))
+    with pytest.raises(builder.PackError, match="fresh_paths"):
+        builder.build("linux-x86_64", tmp_path, tmp_path / "pack.zip", "b10853-cpu.3")
+    with pytest.raises(builder.PackError, match="invalid_cpu_build_options"):
+        builder.build("linux-x86_64", tmp_path / "new", tmp_path / "pack.zip", "b10853-cpu.0")

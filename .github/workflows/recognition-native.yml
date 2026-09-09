@@ -1,9 +1,9 @@
 name: Native recognition dependency candidates
 on:
   push:
-    paths: ['scripts/prepare_windows_build.ps1', 'scripts/windows_build_evidence.py', 'tests/test_windows_build_evidence.py', 'scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', 'scripts/build_recognition_native.py', 'scripts/recognition-native-sources.json', '.github/workflows/recognition-native.yml']
+    paths: ['scripts/prepare_windows_build.ps1', 'scripts/windows_build_evidence.py', 'tests/test_windows_build_evidence.py', 'scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', 'scripts/build_recognition_native.py', 'scripts/linux_abi.py', 'tests/test_linux_abi.py', 'scripts/recognition-native-sources.json', '.github/workflows/recognition-native.yml']
   pull_request:
-    paths: ['scripts/prepare_windows_build.ps1', 'scripts/windows_build_evidence.py', 'tests/test_windows_build_evidence.py', 'scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', 'scripts/build_recognition_native.py', 'scripts/recognition-native-sources.json', 'tests/test_recognition_native_builder.py', '.github/workflows/recognition-native.yml']
+    paths: ['scripts/prepare_windows_build.ps1', 'scripts/windows_build_evidence.py', 'tests/test_windows_build_evidence.py', 'scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', 'scripts/build_recognition_native.py', 'scripts/linux_abi.py', 'tests/test_linux_abi.py', 'scripts/recognition-native-sources.json', 'tests/test_recognition_native_builder.py', '.github/workflows/recognition-native.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,7 +17,7 @@ jobs:
         with:
           version: '0.10.4'
       - run: uv sync --frozen --python 3.12
-      - run: uv run --frozen python -m pytest -q -W error tests/test_recognition_native_builder.py tests/test_windows_runtime_notice.py tests/test_windows_build_evidence.py
+      - run: uv run --frozen python -m pytest -q -W error tests/test_linux_abi.py tests/test_recognition_native_builder.py tests/test_windows_runtime_notice.py tests/test_windows_build_evidence.py
   native:
     # Narrow builder/pin pushes bootstrap a workflow not yet on the default branch.
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
@@ -26,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             target: linux-x86_64
           - os: windows-2022
             target: windows-x86_64
@@ -34,11 +34,50 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        if: runner.os == 'Linux'
+        with:
+          version: '0.10.4'
+      - name: Prepare Linux builder Python 3.12
+        if: runner.os == 'Linux'
+        run: uv sync --frozen --python 3.12
       - name: Linux native build and relocated discovery
         if: runner.os == 'Linux'
         run: >-
-          python3 scripts/build_recognition_native.py --target linux-x86_64
+          uv run --frozen python scripts/build_recognition_native.py --target linux-x86_64
           --work native-work --cache native-inputs --download --with-tessdata --jobs 4
+      - name: Relocated bookworm native startup (not final image qualification)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          EVIDENCE="$RUNNER_TEMP/bookworm-native-evidence"
+          mkdir "$EVIDENCE"
+          # Provision only this explicit official test image; no document-time fetch.
+          timeout 300 docker pull --platform linux/amd64 python:3.12-bookworm
+          IMAGE=$(timeout 30 docker image inspect python:3.12-bookworm --format '{{index .RepoDigests 0}}')
+          timeout 30 docker image inspect "$IMAGE" --format '{{json .}}' | python3 -c 'import json,sys; x=json.load(sys.stdin); print(json.dumps({k:x[k] for k in ("Id","RepoDigests","Architecture","Os")}))' > "$EVIDENCE/probe-image.json"
+          CID=""
+          cleanup() {
+            if [ -s "$EVIDENCE/container-id.txt" ]; then CID=$(cat "$EVIDENCE/container-id.txt"); fi
+            if [[ "$CID" =~ ^[0-9a-f]{64}$ ]]; then
+              timeout 30 docker inspect "$CID" --format '{{json .State}}' > "$EVIDENCE/container-state.json" 2>&1 || true
+              timeout 60 docker rm --force "$CID" > "$EVIDENCE/cleanup.txt" 2>&1
+            fi
+          }
+          trap cleanup EXIT
+          timeout 60 docker create --cidfile "$EVIDENCE/container-id.txt" --platform linux/amd64 --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
+            --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,exec,size=2g \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/linux_abi.py,dst=/probe.py,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/native-work/candidate,dst=/input/candidate,readonly" \
+            --mount "type=bind,src=$EVIDENCE,dst=/evidence" \
+            "$IMAGE" python /probe.py --tree /input/candidate --output /evidence/result \
+            --startup native --startup-only > "$EVIDENCE/create.txt"
+          CID=$(cat "$EVIDENCE/container-id.txt")
+          timeout 300 docker start --attach "$CID" > "$EVIDENCE/container-log.txt" 2>&1
+          CODE=$(timeout 30 docker inspect "$CID" --format '{{.State.ExitCode}}')
+          printf '%s\n' "$CODE" > "$EVIDENCE/container-exit.txt"
+          test "$CODE" = 0
       - name: Windows installed toolchain license, native build and relocated discovery
         if: runner.os == 'Windows'
         shell: pwsh
@@ -64,6 +103,7 @@ jobs:
             native-work/runtime-notices.json
             native-work/candidate/THIRD_PARTY_NOTICES.txt
             native-work/logs/
+            ${{ runner.temp }}/bookworm-native-evidence/
             native-work/candidate/licenses/
           if-no-files-found: warn
           retention-days: 14

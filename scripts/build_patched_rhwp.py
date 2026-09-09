@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -18,8 +19,8 @@ VERSION = "0.8.6+pat.checkbox.1"
 PATCH = Path(__file__).resolve().parents[1] / "patches/rhwp/checkbox-preservation.patch"
 
 
-def run(*args, cwd=None):
-    subprocess.run(args, cwd=cwd, check=True)
+def run(*args, cwd=None, env=None):
+    subprocess.run(args, cwd=cwd, env=env, check=True)
 
 
 def main():
@@ -31,7 +32,12 @@ def main():
         help="New clone directory; existing files are never reset",
     )
     parser.add_argument("--cargo", default="cargo")
+    parser.add_argument(
+        "--output", type=Path, help="New private output directory instead of user cache"
+    )
     args = parser.parse_args()
+    if args.output and args.output.exists():
+        parser.error("output already exists; choose a new directory")
     source = args.source.expanduser().resolve()
     if source.exists():
         parser.error("source already exists; use a fresh directory to avoid losing changes")
@@ -46,13 +52,30 @@ def main():
     run("git", "checkout", "--detach", BASE_COMMIT, cwd=source)
     run("git", "apply", "--check", str(PATCH), cwd=source)
     run("git", "apply", str(PATCH), cwd=source)
-    run(args.cargo, "build", "--locked", "--release", "--bin", "rhwp", cwd=source)
+    build_env = os.environ.copy()
+    linux_toolchain = None
+    if platform_key() == "linux-x86_64":
+        from linux_abi import CC, CXX, toolchain
+
+        linux_toolchain = toolchain()
+        build_env.update(CC=CC, CXX=CXX)
+        build_env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"] = CC
+    run(args.cargo, "build", "--locked", "--release", "--bin", "rhwp", cwd=source, env=build_env)
+    linux_abi = None
+    if platform_key() == "linux-x86_64":
+        from linux_abi import audit
+
+        linux_abi = audit(source / "target/release/rhwp", source / "rhwp-abi.txt")
     name = "rhwp.exe" if os.name == "nt" else "rhwp"
     built = source / "target/release" / name
     output = subprocess.check_output([built, "--version"], text=True).strip()
     if output != f"rhwp v{VERSION}":
         raise RuntimeError(f"unexpected build identity: {output}")
-    destination = cache_root() / "rhwp" / f"v{VERSION}" / platform_key() / "bin"
+    destination = (
+        (args.output.resolve() / "bin")
+        if args.output
+        else cache_root() / "rhwp" / f"v{VERSION}" / platform_key() / "bin"
+    )
     destination.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=destination, delete=False) as staged:
         staged.write(built.read_bytes())
@@ -64,7 +87,14 @@ def main():
         "baseCommit": BASE_COMMIT,
         "patchSha256": hashlib.sha256(PATCH.read_bytes()).hexdigest(),
         "binarySha256": hashlib.sha256(built.read_bytes()).hexdigest(),
+        "linuxAbi": linux_abi,
+        "linuxToolchain": linux_toolchain,
+        "rustcVersion": subprocess.check_output(
+            ["rustc", "--version", "--verbose"], text=True
+        ).strip(),
     }
+    if linux_abi:
+        shutil.copy2(source / "rhwp-abi.txt", destination.parent / "rhwp-abi.txt")
     (destination.parent / "build.json").write_text(json.dumps(metadata, indent=2) + "\n")
     print(destination / name)
 
