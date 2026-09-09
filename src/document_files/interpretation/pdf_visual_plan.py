@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v2"
+VERSION = "document-files.pdf-visual-review.v3"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -222,6 +222,32 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
     sources.sort(key=lambda s: (s["bounds"][1], s["bounds"][0], s["sourceRef"]))
     for index, item in enumerate(sources):
         item["id"] = f"s{index}"
+    # Independent native line geometry may include a detached glyph stroke cut
+    # off by a recognition box. Offer only a unique, overlapping, exact-text
+    # observation; do not pad boxes or declare nearby pixels to be text.
+    native_lines = {}
+    for ref, node in doc.nodes.items():
+        spend()
+        loc = node.get("sourceStructure", {})
+        if (
+            node.get("observationBasis") == "native_pdf"
+            and node.get("semanticRole") == "line"
+            and loc.get("page") == page
+            and node.get("text")
+        ):
+            native_lines.setdefault(node["text"], []).append((ref, loc.get("bbox")))
+    for item in sources:
+        matches = []
+        for ref, bbox in native_lines.get(item["text"], []):
+            spend()
+            bounds = _box(bbox, width, height)
+            a = item["bounds"]
+            if max(a[0], bounds[0]) < min(a[2], bounds[2]) and max(a[1], bounds[1]) < min(
+                a[3], bounds[3]
+            ):
+                matches.append({"sourceRef": ref, "bounds": bounds})
+        if len(matches) == 1:
+            item["additionalObservation"] = matches[0]
     tables = {key: value for key, value in doc.tables.items() if value.get("page") == page}
     expected_grids, slots, table_boxes = [], [], {}
     for ref, table in tables.items():
@@ -366,16 +392,22 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
             bounds = _bounds(runs)
             candidates = []
             for item in sources:
-                if not (
-                    bounds[0] < item["bounds"][2]
-                    and item["bounds"][0] < bounds[2]
-                    and bounds[1] < item["bounds"][3]
-                    and item["bounds"][1] < bounds[3]
-                ):
-                    continue
-                spend(len(runs))
-                if any(_intersects_run(run, item["bounds"]) for run in runs):
-                    candidates.append(item["id"])
+                boxes = [item["bounds"]]
+                if "additionalObservation" in item:
+                    boxes.append(item["additionalObservation"]["bounds"])
+                for box in boxes:
+                    spend()
+                    if not (
+                        bounds[0] < box[2]
+                        and box[0] < bounds[2]
+                        and bounds[1] < box[3]
+                        and box[1] < bounds[3]
+                    ):
+                        continue
+                    spend(len(runs))
+                    if any(_intersects_run(run, box) for run in runs):
+                        candidates.append(item["id"])
+                        break
             # A whole row run may span touching border bands. Split/check its exact
             # union, rather than accepting a table bbox as structural evidence.
             structural, related = True, set()
@@ -483,7 +515,17 @@ def review_payload(plan):
     return {
         "page": plan["page"],
         "pixelSize": plan["pixelSize"],
-        "sources": [{k: s[k] for k in ("id", "text", "bounds")} for s in plan["sources"]],
+        "sources": [
+            {
+                **{k: s[k] for k in ("id", "text", "bounds")},
+                **(
+                    {"additionalBounds": s["additionalObservation"]["bounds"]}
+                    if "additionalObservation" in s
+                    else {}
+                ),
+            }
+            for s in plan["sources"]
+        ],
         "units": [
             {
                 k: u[k]
@@ -528,12 +570,16 @@ or final values may be produced."""
 
 def output_schema(plan):
     def decisions(ids, values):
+        if not ids:
+            return {"type": "array", "items": {"type": "null"}, "maxItems": 0}
         return {
             "type": "array",
+            "minItems": len(ids),
+            "maxItems": len(ids),
             "items": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string", "enum": ids or ["unused"]},
+                    "id": {"type": "string", "enum": ids},
                     "decision": {"type": "string", "enum": values},
                 },
                 "required": ["id", "decision"],
@@ -551,10 +597,13 @@ def output_schema(plan):
             "slots": decisions([s["id"] for s in plan["slots"]], ["empty", "unknown"]),
             "readingOrder": {
                 "type": "array",
-                "items": {
-                    "type": "string",
-                    "enum": [b["id"] for b in plan["blocks"]] or ["unused"],
-                },
+                "minItems": len(plan["blocks"]),
+                "maxItems": len(plan["blocks"]),
+                "items": (
+                    {"type": "string", "enum": [b["id"] for b in plan["blocks"]]}
+                    if plan["blocks"]
+                    else {"type": "null"}
+                ),
             },
             "unrepresentedContent": {"type": "boolean"},
         },

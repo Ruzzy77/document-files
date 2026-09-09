@@ -180,6 +180,59 @@ def test_previous_plan_version_cannot_be_accepted_by_rehashing():
         plan.validate_decision(value, answer(value), detail_bounds=None)
 
 
+def test_empty_slot_inventory_has_no_dummy_response_branch():
+    value = build()
+    schema = plan.output_schema(value)
+    assert schema["properties"]["slots"] == {
+        "type": "array",
+        "items": {"type": "null"},
+        "maxItems": 0,
+    }
+    assert "unused" not in str(schema)
+    for key, inventory in (("units", "units"), ("readingOrder", "blocks")):
+        assert schema["properties"][key]["minItems"] == len(value[inventory])
+        assert schema["properties"][key]["maxItems"] == len(value[inventory])
+
+
+@pytest.mark.parametrize("variant", ["exact", "text", "page", "ambiguous", "disjoint"])
+def test_native_geometry_only_offers_unique_exact_text_candidates(variant):
+    doc, capture, pixels = example()
+    # A detached stroke lies just above the recognition box. Exact connected
+    # components are the pixel helper's contract, separately tested from this join.
+    pixels["components"].append({"id": "detached", "runs": [[10, 14, 16]]})
+    pixels["foregroundPixelCount"] += 2
+    bbox = {"left": 4, "top": 3, "right": 8, "bottom": 7, "origin": "TOPLEFT"}
+    if variant == "disjoint":
+        bbox.update(top=1, bottom=3.9)
+    doc.node(
+        "native",
+        "item 0 " if variant == "text" else "item 0",
+        role="line",
+        observationBasis="native_pdf",
+        locator={"page": 2 if variant == "page" else 1, "bbox": bbox},
+    )
+    if variant == "ambiguous":
+        doc.nodes["other-native"] = deepcopy(doc.nodes["native"])
+    before = deepcopy(doc)
+    value = plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 10)
+    assert doc == before
+    assert value["foregroundPixelCount"] == 128
+    unmatched = [u for u in value["units"] if not u["sourceIds"]]
+    if variant == "exact":
+        assert not unmatched
+        assert value["sources"][0]["bounds"] == [12, 12, 24, 21]
+        assert value["sources"][0]["additionalObservation"] == {
+            "sourceRef": "native",
+            "bounds": [12, 9, 24, 21],
+        }
+        assert plan.review_payload(value)["sources"][0]["additionalBounds"] == [12, 9, 24, 21]
+        decision = answer(value)
+        decision["units"][0]["decision"] = "unknown"
+        assert plan.validate_decision(value, decision, detail_bounds=None)["status"] == "unresolved"
+    else:
+        assert len(unmatched) == 1 and unmatched[0]["pixelCount"] == 2
+
+
 @pytest.mark.parametrize(
     "budget", ["cancelled", "timeout", "comparisons", "sources", "units", "runs"]
 )

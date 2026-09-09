@@ -76,6 +76,15 @@ interrupted calls are not automatically retried. PNG bytes stay out of checkpoin
 Page-review v2 excludes measured elapsed time and the separate legacy whole-page
 projection from page identity while retaining source/observation evidence. Older
 v1 plans and checkpoints are rejected; there is no automatic decision migration.
+An owned whole-document development continuation reused page 2 after explicitly
+checking source, image, payload and decision equivalence. Its first new page-1 call
+returned in 119.71 seconds but was rejected: an unconstrained empty-slot branch
+allowed a dummy item, and a 38-pixel detached glyph stroke had no source candidate.
+No all-page changes or semantic calls occurred. Version 3 constrains array counts
+and supplies a unique overlapping exact-text native line's observed bounds, without
+padding or changing the original source. Rebuilding from saved PNGs preserves all
+74,892 page-1 and 84,206 page-2 foreground pixels; this is not a new model approval.
+V1/v2 checkpoints are not automatically migrated to v3.
 The optional projector builder now has an explicit flag and conversion receipt v2;
 its actual final-pack and multi-platform qualification remain pending.
 

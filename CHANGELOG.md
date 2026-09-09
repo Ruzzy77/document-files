@@ -2,6 +2,9 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Constrain PDF review arrays to the actual inventory (v3), with no dummy slot for
+  empty inventories. Offer unique, overlapping exact-text native line geometry as
+  an additional candidate; retain original bounds, pixel runs and unknown decisions.
 - Stabilize PDF page-review identity (v2): exclude grid measurement time and the
   separate legacy whole-page projection, retaining original PDF and observation
   evidence. Reject v1 plans/checkpoints rather than silently migrating decisions.
