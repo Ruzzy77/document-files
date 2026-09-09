@@ -2,6 +2,15 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add optional, explicitly pinned CPU vision-projector transport without changing
+  text-only pack behavior. Validate bounded inline images, freeze image/schema input,
+  use the owned server's multimodal token calculation and pin visual policy in job
+  identity. Image transport is not PDF content review or completeness approval.
+- Prepare transient PDF review images by reproducing the original full-page render
+  and verifying source, recipe, dimensions, coordinates and RGB digest. Preserve
+  bounded lossless crops without embedding image bytes into public observations.
+  Stable image identity excludes elapsed time; content/blank/order decisions remain
+  outside this helper.
 - Consume a native ruling only after rechecking its captured pixels, unique original
   OCR source membership and closed native table-cell borders (adapter v25, processing
   ledger v5, consumption v1). Preserve text, bindings and table context; exclude only

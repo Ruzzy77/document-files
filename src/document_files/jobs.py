@@ -99,6 +99,12 @@ def resolve_profile_identity(profile: ModelProfile) -> dict:
             if pack.manifest["kind"] != kind:
                 raise JobError("profile-pack-kind-mismatch", 409)
             identity[key] = pack.manifest_sha256
+            if key == "modelId":
+                from .interpretation.backends import managed_vision_identity
+
+                vision = managed_vision_identity(pack.manifest)
+                if vision is not None:
+                    identity["vision"] = vision
         if profile.kind == "local-pack" and "reasoningBudgetTokens" in profile.settings:
             from .interpretation.backends import ModelError, managed_reasoning_identity
 

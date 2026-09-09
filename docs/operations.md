@@ -43,6 +43,20 @@ status. Per-block termination does not guarantee a fixed final-answer reservatio
 semantic accuracy. The two-clause development comparison is not approval to change an
 installed production profile; full-path and independent qualification remain required.
 
+An explicitly selected model pack may also declare `model.vision` with an inventoried
+projector `file` and integer `minImageTokens`/`maxImageTokens` satisfying
+`1024 <= min <= max <= 1536`. The managed server loads only that projector, on CPU;
+it does not discover files, download assets or modify an active text-only pack.
+The internal image transport accepts at most two inline, single-frame, opaque 8-bit
+PNG/JPEG images (RGB or L), totaling 16 MiB and 16 million pixels. It rejects external
+URLs, paths, animation, transparency, EXIF/XMP and malformed images without resampling.
+The pinned server may preprocess images within the declared image-token limits.
+Image bytes, dimensions, projector digest and policy are recorded separately from
+content judgments. The same frozen request is used for the server's multimodal
+capability/context checks and generation; text token estimates are not a fallback.
+Visual policy changes also invalidate the job profile identity. This transport alone
+does not review a PDF page, resolve an empty cell or approve extraction completeness.
+
 Generate a random server token of at least 32 ASCII characters and supply it via
 `DOCUMENT_FILES_SERVER_TOKEN` or the container's owner-readable secret file.
 The foreground service defaults to loopback. LAN publication still requires auth;
@@ -80,7 +94,7 @@ incompatible checkpoints must not be force-resumed. A stage completing is not a
 semantic quality approval. Non-record subtotal/note values now use a separate scalar
 region, with no overlapping value bindings and the same total budget. Its unfinished
 work remains partial and resumes without another record-structure call.
-The current table protocol is v6. Every observed non-fixed row needs an explicit
+The current table protocol is v8. Every observed non-fixed row needs an explicit
 role; only native-declared header rows are fixed automatically, not OCR predictions.
 Missing cells and invalid decimal readings stay uncertain with original evidence.
 Row source provenance is program-derived; meaning applicability uses exclusive

@@ -40,10 +40,11 @@ def test_linux_arm_pack_target_does_not_accept_x64_execution(monkeypatch, machin
         runtime_packs.check_host({**manifest, "minimumGlibc": "2.40"})
 
 
-def fixture_pack(tmp_path: Path, version="1", *, kind="core", extra=None):
+def fixture_pack(tmp_path: Path, version="1", *, kind="core", extra=None, extra_files=None):
     contents = {"bin/server": b"native executable", "LICENSE": b"Apache License 2.0"}
     if kind == "model":
         contents["model.gguf"] = b"GGUFtest not a real model"
+    contents.update(extra_files or {})
     manifest = {
         "schemaVersion": "document-files.pack.v1",
         "id": kind,
@@ -207,13 +208,14 @@ def test_busy_store_and_foreign_runtime(tmp_path):
         store.activate("core", "2")
 
 
-def installed_cpu_packs(tmp_path):
+def installed_cpu_packs(tmp_path, *, vision=False, projector=b"GGUFsynthetic projector"):
     store = PackStore(tmp_path / "store")
     runtime = install(store, fixture_pack(tmp_path, kind="llama-cpp-runtime"))
     store.activate("llama-cpp-runtime", "1")
     model = fixture_pack(
         tmp_path,
         kind="model",
+        extra_files={"vision.gguf": projector} if vision else None,
         extra={
             "compatibleRuntimes": [
                 {
@@ -228,6 +230,17 @@ def installed_cpu_packs(tmp_path):
                 "quantization": "Q4_K_M",
                 "tokenizer": "embedded-gguf",
                 "chatTemplate": "embedded-gguf",
+                **(
+                    {
+                        "vision": {
+                            "file": "vision.gguf",
+                            "minImageTokens": 1024,
+                            "maxImageTokens": 1536,
+                        }
+                    }
+                    if vision
+                    else {}
+                ),
             },
         },
     )
@@ -236,8 +249,9 @@ def installed_cpu_packs(tmp_path):
     return store
 
 
-def test_private_cpu_command_and_guaranteed_shutdown(tmp_path):
-    store = installed_cpu_packs(tmp_path)
+@pytest.mark.parametrize("vision", [False, True])
+def test_private_cpu_command_and_guaranteed_shutdown(tmp_path, vision):
+    store = installed_cpu_packs(tmp_path, vision=vision)
     with (
         # Isolate launch-command assertions from private_fs's real SID subprocess.
         # Native private-storage behavior is exercised by PackStore above and its tests.
@@ -262,6 +276,11 @@ def test_private_cpu_command_and_guaranteed_shutdown(tmp_path):
                 assert command[command.index("--device") + 1] == "none"
                 assert '{"enable_thinking":false}' in command
                 assert "--no-mmproj-offload" in command
+                assert ("--mmproj" in command) is vision
+                if vision:
+                    assert command[command.index("--mmproj") + 1].endswith("/vision.gguf")
+                    assert command[command.index("--image-min-tokens") + 1] == "1024"
+                    assert command[command.index("--image-max-tokens") + 1] == "1536"
                 assert not any("huggingface" in arg for arg in command)
                 raise RuntimeError("consumer failed")
         kill.assert_called_once_with(popen.return_value)
@@ -501,3 +520,54 @@ def test_bad_zip_has_safe_typed_error(tmp_path):
     archive.write_bytes(b"not a zip")
     with pytest.raises(PackError, match="pack_invalid_archive"):
         install(store, archive)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        {},
+        {"file": "missing.gguf"},
+        {"file": "model.gguf"},
+        {"file": "../bad.gguf"},
+        {"url": "https://example.invalid/model"},
+        {"minImageTokens": True},
+        {"minImageTokens": 0},
+        {"maxImageTokens": -1},
+        {"minImageTokens": 1537},
+        {"maxImageTokens": 1537},
+        {"maxImageTokens": 1023},
+        {"maxImageTokens": 1024.0},
+    ],
+)
+def test_vision_manifest_rejects_unbound_or_unbounded_projector(tmp_path, change):
+    from copy import deepcopy
+
+    from document_files.runtime_packs import validate_manifest
+
+    store = installed_cpu_packs(tmp_path, vision=True)
+    manifest = deepcopy(store.resolve("model").manifest)
+    original = manifest["model"]["vision"]
+    manifest["model"]["vision"] = change if change in (None, {}) else {**original, **change}
+    with pytest.raises(PackError):
+        validate_manifest(manifest)
+
+
+def test_projector_mutation_and_non_gguf_never_launch(tmp_path):
+    store = installed_cpu_packs(tmp_path, vision=True, projector=b"NOPEinvalid gguf")
+    with patch("document_files.runtime_packs.subprocess.Popen") as popen:
+        with (
+            pytest.raises(PackError, match="local_model_invalid_projector"),
+            managed_llama_endpoint(store, "llama-cpp-runtime", "model"),
+        ):
+            pytest.fail("invalid projector must never start")
+        popen.assert_not_called()
+    model = store.resolve("model")
+    model.file("vision.gguf").write_bytes(b"GGUFmutated after installation")
+    with patch("document_files.runtime_packs.subprocess.Popen") as popen:
+        with (
+            pytest.raises(PackError),
+            managed_llama_endpoint(store, "llama-cpp-runtime", "model"),
+        ):
+            pytest.fail("mutated projector must never start")
+        popen.assert_not_called()

@@ -54,6 +54,16 @@ sampling policy, not floating-point reduction order or run-to-run output identit
 `ChatCompletionsClient` accepts an explicit `sampling` mapping for cloud endpoints
 and records it in its identity.
 
+Only a model pack with an explicit `model.vision` projector can accept image content
+parts in a managed `InferenceRequest`. The internal transport accepts inline PNG/JPEG
+data URLs, not paths or remote URLs: up to two single-frame, opaque 8-bit RGB/L images,
+16 MiB and 16 million pixels in total. It preserves the supplied bytes and rejects
+ambiguous metadata or unsupported media. The server's actual multimodal capability
+and image-aware input-token count are checked before generation. Projector digest,
+image-token limits and `document-files.managed-vision.v1` policy belong to both client
+and job execution identity. Text-only pack identity remains unchanged. This is an
+input-transport capability, not an automatic PDF visual-review or completion result.
+
 Optional `reasoning_budget_tokens=1024` enables thinking with a finite per-block limit.
 The administrator-profile spelling is `reasoningBudgetTokens`. Omission preserves the
 existing non-thinking default and profile identity. Explicit values must be integers
@@ -189,6 +199,8 @@ and [support boundaries](../SUPPORT.md) before treating a candidate as a release
 `ManagedPackClient.last_diagnostics` is the last completed/failed call snapshot,
 not a prompt or response log. It reports runtime preparation, context checking and
 server-exchange seconds, checked input-token count and requested output limit.
+Image requests additionally report validation time and input image hashes, dimensions
+and byte/pixel counts; image bytes are not copied into these diagnostics.
 The extraction result/checkpoint also retains this snapshot as
 `extraction.lastInferenceDiagnostics`. It contains no document text, endpoint or key.
 `InferenceResponse.timings` retains only supported finite, nonnegative numeric

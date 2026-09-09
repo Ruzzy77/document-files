@@ -118,6 +118,30 @@ def _json(data: bytes) -> dict:
     return value
 
 
+def model_vision_config(manifest: dict) -> dict | None:
+    """An optional, bounded projector declaration; never discover nearby files."""
+    model = manifest.get("model", {})
+    if "vision" not in model:
+        return None
+    vision = model["vision"]
+    if not isinstance(vision, dict) or set(vision) != {"file", "minImageTokens", "maxImageTokens"}:
+        raise PackError("pack_invalid_vision_configuration")
+    name = safe_relative(vision["file"])
+    if (
+        not name.endswith(".gguf")
+        or name == model.get("file")
+        or type(vision["minImageTokens"]) is not int
+        or type(vision["maxImageTokens"]) is not int
+        or not 1024 <= vision["minImageTokens"] <= vision["maxImageTokens"] <= 1536
+    ):
+        raise PackError("pack_invalid_vision_configuration")
+    rows = [item for item in manifest.get("files", []) if item.get("path") == name]
+    if len(rows) != 1 or rows[0].get("executable") or rows[0].get("size", 0) < 4:
+        raise PackError("pack_missing_vision_projector")
+    _digest(rows[0].get("sha256"))
+    return dict(vision)
+
+
 def validate_manifest(manifest: dict) -> dict:
     """Validate a manifest independently of the archive it describes."""
     try:
@@ -252,6 +276,7 @@ def validate_manifest(manifest: dict) -> dict:
                 or model.get("chatTemplate") != "embedded-gguf"
             ):
                 raise PackError("pack_missing_tokenizer_template")
+            model_vision_config(manifest)
         return manifest
     except (KeyError, TypeError, AttributeError) as exc:
         raise PackError("pack_invalid_manifest") from exc
@@ -589,6 +614,12 @@ def managed_llama_endpoint(
     with model_file.open("rb") as stream:
         if stream.read(4) != b"GGUF":
             raise PackError("local_model_invalid_gguf")
+    vision = model_vision_config(model.manifest)
+    projector = model.file(vision["file"]) if vision else None
+    if projector is not None:
+        with projector.open("rb") as stream:
+            if stream.read(4) != b"GGUF":
+                raise PackError("local_model_invalid_projector")
     # Binding port zero selects a currently-free loopback port. Token-authenticated
     # readiness below fails closed if another listener wins the close/start race.
     with socket.socket() as probe:
@@ -633,6 +664,15 @@ def managed_llama_endpoint(
             "--no-slots",
             "--no-warmup",
         ]
+        if vision:
+            command += [
+                "--mmproj",
+                str(projector),
+                "--image-min-tokens",
+                str(vision["minImageTokens"]),
+                "--image-max-tokens",
+                str(vision["maxImageTokens"]),
+            ]
         if threads is not None:
             command += ["--threads", str(threads)]
         if threads_batch is not None:

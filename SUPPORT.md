@@ -33,6 +33,34 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
+### Optional visual review preparation
+
+The managed client now has a separate, explicit vision-projector path. It preserves
+bounded inline PNG/JPEG bytes, checks actual server multimodal capability and counts
+image tokens using the same frozen request used for inference. Default text-only
+packs and installed client configurations are unchanged. This capability does not
+yet resolve PDF page completeness, scan blank cells or reading order.
+
+A development F16 projector was converted once from the already verified official
+Qwen3.5-9B snapshot with the matching pinned llama.cpp converter: 6.52 seconds,
+918,165,888 bytes, 334 tensors. Inspection identified `qwen3vl_merger`; an initially
+incorrect inspector constant was corrected without another conversion. The original
+weights and converter remained unchanged. A separate private development model pack
+reuses the exact Q4_K_M text weights. Neither projector conversion nor pack assembly
+establishes image inference quality, whole-pipeline memory fit or release approval.
+
+The first actual CPU image request returned normally in 110.28 seconds (one call,
+768-token output limit). A transient PDF helper reproduced the previous page-2 RGB
+digest exactly and supplied the full page plus a lossless cell-detail crop, with no
+OCR rerun. The checked image-aware input count matched the actual 4,158 prompt tokens;
+the response used 191 output tokens and the owned server exited. Original inputs,
+observations and activation state were unchanged. This was a development feasibility
+run on the Mac, partly concurrent with regression tests, not a 16 GiB benchmark.
+The model called the detail border-only, but incorrectly ordered the table after the
+lower condition notes. No empty value, reading order or page completion was accepted.
+Pixel-unit accounting, source-bound decision checks and shared-budget/checkpoint
+integration remain required before this path can resolve PDF observation issues.
+
 ### Linux ARM64 addition
 
 Linux ARM64 (`linux-aarch64`) is now a fifth release target; the four existing targets
@@ -61,6 +89,17 @@ runtime and native recognition CI builds passed; the native delivery archive was
 later recovered and statically verified without rewriting prior failed transfers.
 Complete recognition stages, CPU-only four-core/16 GiB execution, installation/rollback
 and client use remain unqualified.
+
+The f68fe0f ARM portable core was later acquired as a bounded selected archive member
+and matched the CI-attested portable SHA256. Its shipped Python and real launcher
+successfully ran capability inspection, document inspection and structure extraction
+on the approved two-page mixed PDF in the isolated Spark-A environment. The scanned
+page correctly remained partial without recognition. Additional native collection
+attempts failed in the test harness (an incorrect optional import, then a 2 MiB raw
+result storage cap), not with an established product defect. Native result review is
+therefore still incomplete. Both failures were preserved, with no swap/OOM or owned
+process/container remaining. These old-source component checks are not installation,
+current full-path or 16 GiB model qualification.
 
 An explicit ARM torchvision derivative was prepared from the pinned CPU wheel in a
 new output location. It restores five codec loader references and omits the now
