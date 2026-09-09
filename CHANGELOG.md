@@ -9,9 +9,34 @@
   unrecorded changes, lost reviews and incompatible checkpoints without losing values.
 - Link captured framework/cell OCR input pixels, serialized single-page PDF and original
   page coordinates with import-time checks (recognition adapter v12). Unknown transforms
-  remain unverified; fresh OCR quality, visual coverage and reading order remain pending.
-- Record two bounded full-path development meaning failures despite engine completion;
-  independent holdout, same-candidate qualification and consumer migration remain pending.
+  remain unverified. A fresh OCR run preserved all 12 input links without clearing any
+  original issue; OCR content quality and reading order remain pending.
+- Observe full rendered pixels independently of OCR rectangles with source-bound hashes,
+  low-contrast counts and explicit component/area budgets (recognition adapter v13).
+  Pixel/component observations do not establish complete content, blank values or OCR truth.
+- Connect visual components to bounded native/raw-OCR overlap candidates and rechecked
+  exact-text structure links without changing model inputs or original issues
+  (recognition adapter v14). Missing and ambiguous correspondence remains explicit;
+  rectangle overlap alone is not evidence that content was correctly processed.
+- Connect repeated OCR tokens through a unique, exact sequence within one verified
+  horizontal line (recognition adapter v16, ordered-ocr-source v2). Preserve ambiguity
+  at table boundaries and incomplete duplicate lines; do not rewrite text or promote
+  page completeness.
+- Record bounded full-path development meaning failures despite engine completion. Revert
+  the failed source-first output-order experiment; prompt v21 / table protocol v6 remain
+  current. Clause-level sampling diagnostics are not production-profile qualification.
+- Add an optional finite per-block reasoning limit for managed inference, consistently
+  applied to template checks, inference and checkpoint identity. Keep the non-thinking
+  default and total output ceiling; incomplete final answers remain failures.
+- Build Linux candidates with GCC 12, check actual ELF ABI requirements and exercise
+  relocated startup in a digest-identified bookworm image. Actual CPU/native startup
+  passed; final-image, full-model and 16 GiB qualification remain pending.
+- Preserve original ZIP header validation on Windows, record pinned-source Rust toolchain
+  identity, and retain bounded source-download failure evidence without relaxing hash pins.
+  Independent holdout, same-candidate qualification and consumer migration remain pending.
+- Prepare a separately checked Linux native delivery artifact containing the exact
+  binaries, source archives and build/startup evidence. Windows remains review-only;
+  this preparation is not a complete recognition pack or redistribution approval.
 
 - Require explicit roles for actual non-fixed table rows and distinguish native
   header declarations from OCR predictions (prompt v19, planner v13, table protocol v5).

@@ -49,9 +49,22 @@ silently expand memory or truncate the input. Model pack installation and a real
 successful extraction are separate checks. Optional `threads` and `threads_batch`
 keyword arguments pass explicit llama.cpp generation and prompt-processing thread
 counts; they are recorded in `identity`, and unset values keep the runtime defaults.
-The managed client decodes greedily (`temperature` 0 with a recorded seed) so that the
-same input, contract and pack produce the same structural decisions; `ChatCompletionsClient`
-accepts an explicit `sampling` mapping for cloud endpoints and records it in its identity.
+The managed client decodes greedily (`temperature` 0 with a recorded seed). This fixes
+sampling policy, not floating-point reduction order or run-to-run output identity.
+`ChatCompletionsClient` accepts an explicit `sampling` mapping for cloud endpoints
+and records it in its identity.
+
+Optional `reasoning_budget_tokens=1024` enables thinking with a finite per-block limit.
+The administrator-profile spelling is `reasoningBudgetTokens`. Omission preserves the
+existing non-thinking default and profile identity. Explicit values must be integers
+from 0 to 3,071, with the request's total output ceiling strictly larger; conflicts
+fail with `ai_reasoning_budget_conflict` before startup rather than changing a budget.
+The 3,072-token total ceiling still includes reasoning and final output. Mode, budget
+and `document-files.managed-reasoning.v1` are included in execution/profile identity;
+the original manifest's thinking setting is recorded separately, not overwritten.
+Reasoning content is never substituted for final JSON. A reasoning-limited `length`
+response with no final content retains usage and incomplete status. The per-block
+limit does not guarantee a final-answer reservation or correctness.
 
 For split text regions, `coverage.regions[*].nodeViews` identifies original source
 ranges, and `semanticDetails[*].sourceRanges` records the ranges actually read for
@@ -254,6 +267,33 @@ serialized single-page PDF to the original page. It rechecks raw-pass/source/pag
 fingerprints on import. Synthetic padding has no source support; unsupported mapping
 remains unverified. The record does not validate OCR text, framework-reported structure
 boxes, complete visual coverage or reading order.
+
+Adapter v13 adds `document-files.full-render-visual.v1` observations to the full-page
+render capture and `pdfPageVisualObservations` to imported metadata. Actual full RGB,
+profile, source and page identities bind pixel counts and bounded connected components.
+The default limits are 16 million pixels, 65,536 foreground row runs and 4,096 components;
+omitted geometry and unprocessed areas remain explicit. Non-white and low-contrast pixels
+are observations, not text/graphic/background classifications. Import validates the
+record's binding and counts, not OCR truth. These records do not resolve existing issues,
+prove blank values or change extraction completeness. Public v1 remains unchanged.
+
+Adapter v14 adds `document-files.visual-correspondence.v1` records under provenance
+`visualCorrespondences`. They link component and native-character/raw-OCR bbox
+candidates in both directions, with source/coordinate/render/recognition identities.
+Structure links reuse only rechecked exact source-text ranges; reported structure
+boxes are not used as independent evidence. Default per-page limits are 8,192 source
+items, 1,024 observations per kind, 262,144 bbox comparisons and 8,192 candidates.
+Missing geometry, partial source support, multiple/no candidates and unexamined
+comparisons remain explicit. The records are not added to model payloads, do not
+verify pixel assignments, and do not resolve completeness, reading order or blankness.
+
+Adapter v16 uses `document-files.ordered-ocr-source.v2` under provenance
+`recognitionOrderedSourceAlignments`. Only a unique full-text sequence in a verified
+horizontal raw OCR line can support repeated tokens; table overlap and ambiguous or
+incomplete duplicate lines are excluded. Raw captures and original text are unchanged.
+`observed-processing-ledger.v4` records accepted source positions without claiming OCR
+truth, blankness or page completeness. Prior derived records/checkpoints are not reused
+as current evidence.
 
 ### Internal input compaction
 

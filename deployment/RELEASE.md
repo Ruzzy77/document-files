@@ -28,6 +28,40 @@ component SBOMs and the model conversion receipt. Review current advisories for
 native libraries, recognition dependencies, model and container OS as well as the
 core Python dependency audit. Record unresolved exceptions against exact digests.
 
+### Linux build and runtime compatibility
+
+The Linux CI recipes currently build on Ubuntu 22.04 with explicitly selected GCC 12.
+`linux_abi.py` reads actual ELF version requirements and rejects requirements above
+GLIBC 2.36, GLIBCXX 3.4.30 or CXXABI 1.3.13. Compiler paths, versions, hashes and build-host
+libc are retained; declaration metadata is not a replacement for the ELF check.
+
+CPU and native builders also run relocated startup checks in an actual pulled
+`python:3.12-bookworm` image identified by its RepoDigest. The probe is non-root,
+read-only and network-isolated, with bounded execution and cleanup records. This is
+a compatibility probe, not the final slim product image or a recognition/model run.
+Its logs and ABI receipts do not qualify memory limits, a minimum kernel, installed
+clients or the public HTTP port. Final qualification must still bind the actual
+selected image, packs, execution and independent review below.
+
+Native source acquisition keeps expected/observed SHA, byte counts and bounded HTTP
+failure metadata. A hash mismatch fails the build; retries, changed pins or reuse of
+an incomplete file are not an automatic repair. Rust toolchain identity is collected
+from the pinned source directory with the same environment used by its build.
+
+The native CI now has a separate Linux-only delivery step. It checks the successful
+candidate, exact source archives/tessdata, notices, compiler/runtime hashes and actual
+bookworm startup/cleanup before uploading source-SHA/run/attempt-named inputs. Failed
+checks retain review evidence but do not upload that binary set. Windows stays review-only.
+This artifact is input for a full recognition-stage audit, not a recognition pack or
+release approval. The new delivery step still needs its actual CI execution verified.
+
+The current image recipe installs the core wheel but does not yet supply the patched
+Linux `rhwp` binary. A fresh empty state therefore does not establish HWP readiness.
+Final image preparation must either bind the exact same core candidate's verified
+`rhwp` read-only at an explicit path, or extend the image builder to include those
+verified bytes and notices. Record that dependency in the inventory/execution chain
+and exercise HWP processing; an unrelated cache or runtime download is not a substitute.
+
 ## One evidence root and artifact inventory
 
 Keep private reports and the exact candidate files beneath a dedicated evidence root.

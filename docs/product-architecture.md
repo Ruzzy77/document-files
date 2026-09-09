@@ -126,6 +126,27 @@ page. This does not verify reported recognition boxes or the meaning of missing 
 Unverified transforms and original issues survive; visual coverage and reading-order
 completion still need their own checks.
 
+Full-render visual observations are collected independently of OCR rectangles. Every
+non-white pixel is counted before bounded component analysis; low-contrast pixels,
+edge contact and omitted geometry remain explicit. Render/profile/source hashes bind
+the observations on import. Their components are unclassified: enclosing a component
+inside a text box does not prove that the text explains it, and white pixels do not
+prove a missing business value. Content correspondence, cell interpretation and reading
+order must be checked separately before an original issue can be resolved.
+
+The first correspondence layer records bounded, two-way bbox candidates against
+source-bound native glyphs and raw OCR. It rechecks existing exact-text links when
+connecting structure elements and never treats their reported boxes as independent
+content support. Missing, multiple and partial candidates survive. This provenance
+is excluded from model payloads; its source/geometry identity changes recognition
+checkpoints, not the public extraction contract.
+
+Repeated OCR tokens may additionally match through a unique whole-text sequence in
+one verified horizontal raw OCR line. Exact source text, TSV word/line identities,
+coordinates and unique anchors are rechecked. Table overlap, cross-line joins,
+normalized tokens and ambiguous or incomplete duplicate lines remain unresolved.
+This derived correspondence cannot establish overall reading order or OCR truth.
+
 ### Bounded non-table source views
 
 An oversized text region is partitioned into disjoint source views. Original nodes

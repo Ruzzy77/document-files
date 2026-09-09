@@ -26,6 +26,23 @@ ten generation threads slowed generation by about a third. Under a container CPU
 quota keep both values within the quota. These values are part of the profile
 fingerprint and of the recorded model identity, like the other profile settings.
 
+An administrator may explicitly set `reasoningBudgetTokens` on a local-pack profile.
+For example, `1024` enables thinking with that finite **per-block** limit while keeping
+greedy sampling and the existing 3,072-token total output ceiling. Omitting the setting
+retains the non-thinking default. The profile accepts integers from 0 to 3,071; zero
+requests immediate reasoning termination. Null, booleans, negative/unlimited values
+and values at or above the total ceiling are rejected. A request whose output ceiling
+is no larger than the reasoning budget fails with `ai_reasoning_budget_conflict`,
+without changing either limit.
+
+The same mode is used for template/context checks and inference. Mode, budget and
+execution-contract version are recorded in the selected profile and checkpoint identity;
+the installed model manifest is not rewritten. Reasoning is not returned as document
+content. A length-limited response without final JSON preserves usage and incomplete
+status. Per-block termination does not guarantee a fixed final-answer reservation or
+semantic accuracy. The two-clause development comparison is not approval to change an
+installed production profile; full-path and independent qualification remain required.
+
 Generate a random server token of at least 32 ASCII characters and supply it via
 `DOCUMENT_FILES_SERVER_TOKEN` or the container's owner-readable secret file.
 The foreground service defaults to loopback. LAN publication still requires auth;

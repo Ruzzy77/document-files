@@ -32,7 +32,7 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Current source follow-up: revisable meaning and coordinate evidence
+### Current source follow-up: table meaning, visual observations and Linux compatibility
 
 Prompt v21 / planner v14 / table protocol v6 / compiler v15 require an explicit
 role for every observed row not fixed by a native header declaration. OCR header
@@ -81,14 +81,69 @@ Record-definition provenance also included data cells too broadly. No independen
 holdout or final-candidate quality claim follows from these runs. The first run used
 the pre-hardening source snapshot; exact execution source hashes are retained.
 
-Recognition adapter v12 adds measured framework render/crop/rotation and cell-input
-links to the serialized single-page PDF and original page. Imported fingerprints,
-page mapping and transform bounds are checked. White padding is not source content;
-unsupported media origins and the old ruled-tables path remain unverified. Actual
-render/transform fixtures exercise the path, not a fresh OCR qualification run.
-Recognition bounding boxes, visual-content coverage, reading order and OCR truth
-are still unverified. Original issues remain; recognition-backed PDF completion is
-still blocked until those missing checks have a source-bound resolution path.
+A source-first output-order experiment then used 2 calls / 229.8 seconds and also
+reported complete, but regressed in content review: it combined the caption into a
+record-wide note and misclassified four numeric values as units. That experiment was
+reverted; prompt v21 / table protocol v6 remain current. Two human-segmented clause
+probes, followed by a four-call sampling comparison, did not produce a profile that
+correctly handled both the unit and condition. These component diagnostics do not
+test automatic source selection or qualify a production profile.
+
+A subsequent two-call comparison changed only thinking mode, retaining greedy sampling
+and the same requests. Thinking was active, but both calls exhausted their 3,072-token
+total output limit without final JSON (520.5 seconds combined). This is a budgeted
+completion failure, not evidence about the correctness of an answer that was never
+returned. Further prompt/sampling variants stopped while runtime/model compatibility
+and explicit reasoning/final-output budgeting were examined.
+
+The follow-up metadata audit found no mixed runtime, GGUF, template or tokenizer
+files; it did not establish numerical conversion equivalence. A separate four-call
+comparison then used the runtime's finite reasoning limit of 1,024 tokens per block,
+retaining the same Q4 model, greedy sampling, requests and 3,072-token total ceiling.
+Both limited-thinking calls returned the correct kind, content and column scopes;
+non-thinking reproduced its previous errors. Total time was 226.4 seconds. This is
+a pass for two human-segmented development clauses only, not automatic source
+selection, a full product run or approval to change the production default.
+
+The managed client now accepts an explicit administrator reasoning limit, records it
+in execution/checkpoint identity and uses the same mode for template checks and
+inference. Omission retains the non-thinking default. A fresh full-path development
+run with a 1,024-token reasoning limit is prepared, not yet executed.
+
+Recognition adapter v12 added measured framework render/crop/rotation and cell-input
+links to the serialized single-page PDF and original page. A fresh two-page OCR run
+took 11.6 seconds and preserved all 12 input-coordinate links, including eight repair
+crops. Both actual page and OCR rotations were zero. The original 12 issues remained
+unchanged, including unobserved cells and repair-budget exhaustion; the result stayed
+partial. This verifies input-coordinate capture, not OCR text or reported output boxes.
+
+Adapter v13 additionally observes the full rendered RGB independently of OCR boxes.
+It records non-white pixels, low-contrast pixels, bounded components and omitted
+areas with source/page/render hashes. Non-white is not automatically text or a
+graphic, and exact white is not a proven blank value. A render-only comparison of the
+same two pages preserved their pixels and coordinate evidence and recorded 168/169
+components; it used no OCR or semantic inference. Visual-content correspondence,
+reading order and issue-specific completion remain unfinished. Original issues stay
+active; visual observations alone cannot qualify recognition-backed PDF completion.
+
+Adapter v14 adds bounded, two-way overlap candidates between those components and
+source-bound native characters/raw OCR. Existing exact-text links connect structure
+elements without trusting their reported boxes as content evidence. Reprocessing the
+saved two-page observations took 0.032 seconds with no new render, OCR or model call.
+Seven second-page components had no overlap candidate, and 11 of its 15 structure
+elements had only partial text-range support. Original content, issues and model
+payloads were unchanged. These are diagnostic candidates, not verified visual
+assignments, blank values or a completion decision.
+
+Adapter v16 connects repeated tokens only when a verified horizontal OCR line has a
+unique, complete and exactly matching token sequence. It rejects table overlap,
+cross-line joins, normalized text, ambiguous targets and incomplete duplicate lines.
+Reimporting saved raw observations connected two repeated Korean tokens without new
+OCR or inference. Their source text, coordinates and raw detections were unchanged;
+the second page still has four unobserved cells and remains partial. Inspection of
+the render confirmed that three of those cells contain text missed after the eight
+repair calls were spent earlier in the table. Repair scheduling, blank-value evidence,
+reading order and issue-specific completion remain unfinished.
 
 Windows build preparation now takes pinned official product terms and records the
 actual installed toolchain instead of searching recursively for a similarly named
@@ -98,11 +153,25 @@ checks selected source/core/dependency bytes and exports an identified image. Th
 are implemented preparation paths, not executed Windows/image/HTTP qualification
 or approval of redistribution rights. Host-published HTTP access needs its own check.
 
-Current core regression: **880 passed, 12 skipped, 12 subtests passed**; full Ruff
-passes. The skips include two new actual Windows process checks, required on Windows
-CI rather than replaced by their scripted counterparts. The separate recognition-runtime
-overlay passed 65 PDF/OCR tests. New release helpers were also found byte-for-byte in a
-temporary source archive, with private files excluded; that archive was removed. No final
+Linux builders now use Ubuntu 22.04 with explicit GCC 12, inspect actual ELF version
+requirements and run relocated startup checks in an identified Debian bookworm image.
+At commit b1a6cc9, the CPU binaries required GLIBC 2.34 / GLIBCXX 3.4.30 / CXXABI 1.3.13;
+native Tesseract required GLIBC 2.35 with no dynamic GLIBCXX/CXXABI requirement. Both
+passed actual bookworm startup. This resolves that build's earlier libc mismatch,
+not final slim-image, OCR/inference, 16 GiB or minimum-kernel qualification.
+
+The same CI exposed a Windows ZIP test-fixture problem and a native source-download
+hash mismatch. Raw ZIP header tests and source acquisition diagnostics were corrected
+without relaxing path or hash checks. Rust toolchain identity is now read in its pinned
+source directory. At c02b7a6, core and CPU CI passed on all four targets; Linux and
+Windows native preparation passed. Candidate attestation was skipped. A later
+Linux-only native delivery step and the current source changes still need their own
+CI evidence; results from different commits are not combined into one candidate.
+
+After adapter v16, managed reasoning and Linux delivery integration, core regression
+passed **1,032 tests, with 65 skipped and 12 subtests**; full Ruff and formatting checks
+passed. The separate recognition-runtime overlay passed 122 PDF/OCR tests. Core skips include optional recognition dependencies and actual
+Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
 
 ### Earlier release-preparation history

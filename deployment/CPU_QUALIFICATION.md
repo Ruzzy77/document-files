@@ -5,7 +5,7 @@ A 16 GiB container ceiling is not a claim that a 16 GiB physical computer has en
 room for its operating system and container runtime. Keep host headroom available.
 No Windows/native-platform support follows from a Linux container result.
 
-## Current execution blocker
+## Remaining inputs for a full run
 
 The preparation host inspected on 2026-09-08 is macOS ARM64, 24 GiB RAM and 10 CPU
 cores. No Docker, Podman, Colima, Lima or OrbStack runtime/socket was found. Its
@@ -29,6 +29,13 @@ Linux CPU recognition/runtime packs plus an exactly compatible model pack. Missi
 Linux artifacts are a provisioning blocker, not a reason to run Mac binaries under
 emulation or silently fetch replacements. Do not rebuild existing whole packs just
 to perform an environment inventory. Resolve any provisioning need separately.
+
+The b1a6cc9 Linux CPU/native builds now pass actual relocated startup in an identified
+bookworm image; their measured ELF requirements fit that image. This addresses the
+previous glibc mismatch but does not supply the full recognition pack, compatible
+Linux model manifest or final product image. Existing synthetic isolation evidence
+and these startup probes remain separate from the full recognition/inference run.
+See [Linux build compatibility](RELEASE.md#linux-build-and-runtime-compatibility).
 
 ## Fixed configuration
 
