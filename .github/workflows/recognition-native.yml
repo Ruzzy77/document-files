@@ -75,9 +75,170 @@ jobs:
             --startup native --startup-only > "$EVIDENCE/create.txt"
           CID=$(cat "$EVIDENCE/container-id.txt")
           timeout 300 docker start --attach "$CID" > "$EVIDENCE/container-log.txt" 2>&1
+          timeout 30 docker inspect "$CID" --format '{{json .Image}}' > "$EVIDENCE/container-image.json"
           CODE=$(timeout 30 docker inspect "$CID" --format '{{.State.ExitCode}}')
           printf '%s\n' "$CODE" > "$EVIDENCE/container-exit.txt"
           test "$CODE" = 0
+      - name: Verify and stage Linux native candidate bytes
+        id: linux_candidate
+        if: success() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          uv run --frozen python - <<'PY'
+          # BEGIN LINUX CANDIDATE CONTRACT
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+          import subprocess
+
+          def digest(path):
+              with path.open('rb') as stream:
+                  return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+          def regular(root, name):
+              path = Path(name)
+              if path.is_absolute() or '..' in path.parts or '\\' in name:
+                  raise ValueError('Unsafe evidence reference')
+              result = root / path
+              if not result.is_file() or any(p.is_symlink() for p in (result, *result.parents)):
+                  raise ValueError('Nonregular evidence')
+              return result
+
+          def stage_candidate(root, work, cache, evidence, output, source):
+              def require(condition):
+                  if not condition:
+                      raise ValueError('Linux candidate evidence mismatch')
+              def checked(base, ref):
+                  path = regular(base, ref['path'])
+                  require(digest(path) == ref['sha256'])
+                  return path
+              def load(path):
+                  return json.loads(path.read_text(encoding='utf-8'))
+              require(re.fullmatch('[a-f0-9]{40}', source))
+              require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip() == source)
+              require(not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=root, text=True).strip())
+              receipt = load(regular(work, 'native-candidate.json'))
+              require(receipt['sourceCommit'] == source and receipt['dirtySource'] is False)
+              require(receipt['target'] == 'linux-x86_64' and receipt['nativeExecutionVerified'] is True)
+              require(receipt['languageDiscoveryVerified'] is True and set(receipt['languages']) == {'eng', 'kor', 'osd'})
+              require(receipt['releaseReady'] is False and receipt['fullRecognitionQualified'] is False)
+              require(receipt['builderSha256'] == digest(root / 'scripts/build_recognition_native.py'))
+              pins_path = root / 'scripts/recognition-native-sources.json'
+              require(receipt['sourcePinsSha256'] == digest(pins_path))
+              pins = load(pins_path)
+              require(receipt['sources'] == pins['sources'] and receipt['tessdata'] == pins['tessdata'])
+              expected = {f['path'] for f in receipt['files']}
+              require(len(expected) == len(receipt['files']))
+              candidate = work / 'candidate'
+              require(all(not p.is_symlink() and (p.is_file() or p.is_dir()) for p in candidate.rglob('*')))
+              require(expected == {p.relative_to(work).as_posix() for p in candidate.rglob('*') if p.is_file()})
+              for ref in receipt['files']:
+                  require(ref['path'].startswith('candidate/'))
+                  require(checked(work, ref).stat().st_size == ref['size'])
+              binary = checked(work, receipt['binary'])
+              require(binary.read_bytes()[:4] == b'\x7fELF')
+              require(receipt['linuxAbi']['sha256'] == digest(binary))
+              checked(work, receipt['linuxAbi']['rawEvidence'])
+              notices = receipt['runtimeNotices']
+              require(notices['collected'] is True)
+              require({n['path'] for n in notices['notices']} == {'gcc-runtime-copyright.txt', 'gcc-GPL-3.txt'})
+              for ref in notices['notices']:
+                  notice = checked(candidate / 'licenses', ref)
+                  require(digest(Path(ref['sourcePath'])) == digest(notice))
+              # GCC's exception applies to eligible compilation, not arbitrary GCC-derived works.
+              # Keep exact installed notices and runtime/toolchain identities, not a rights-approved flag.
+              require('GCC RUNTIME LIBRARY EXCEPTION' in (candidate / 'licenses/gcc-runtime-copyright.txt').read_text())
+              require({Path(r['path']).name for r in notices['staticRuntimes']} == {'libstdc++.a', 'libgcc.a', 'libgcc_eh.a'})
+              for ref in notices['staticRuntimes']:
+                  require(digest(Path(ref['resolvedPath'])) == ref['sha256'])
+              for compiler in receipt['toolchain']['linux']['compilers'].values():
+                  require(compiler['version'].split('.')[0] == '12')
+                  require(digest(Path(compiler['resolvedPath'])) == compiler['sha256'])
+              for command in receipt['commands']:
+                  require(command['exitCode'] == 0)
+                  checked(work, {'path': command['log'], 'sha256': command['sha256']})
+              sources = []
+              acquisitions = []
+              for ref in [*pins['sources'], *pins['tessdata']]:
+                  original = regular(cache, ref['sha256'])
+                  require(digest(original) == ref['sha256'])
+                  sources.append(original)
+                  name = 'logs/acquire-' + ref.get('id', ref.get('path', '')) + '.json'
+                  acquisition = regular(work, name)
+                  acquired = load(acquisition)
+                  require(acquired['status'] == 'verified')
+                  require(acquired['expectedSha256'] == acquired['observedSha256'] == ref['sha256'])
+                  acquisitions.append((acquisition, Path(name)))
+              compatibility = load(regular(evidence, 'result/compatibility.json'))
+              require(compatibility['passed'] is True and compatibility['libc'] == ['glibc', '2.36'])
+              require(compatibility['files'] == [{'path': 'bin/tesseract', 'sha256': digest(binary)}])
+              require(len(compatibility['startup']) == 2)
+              for probe in compatibility['startup']:
+                  require(probe['exitCode'] == 0 and probe['executableSha256'] == digest(binary))
+                  checked(evidence / 'result', probe['log'])
+              cid = regular(evidence, 'container-id.txt').read_text().strip()
+              require(re.fullmatch('[a-f0-9]{64}', cid))
+              require(regular(evidence, 'create.txt').read_text().strip() == cid)
+              require(regular(evidence, 'cleanup.txt').read_text().strip() == cid)
+              require(regular(evidence, 'container-exit.txt').read_text().strip() == '0')
+              state = load(regular(evidence, 'container-state.json'))
+              require(state['Running'] is False and state['Pid'] == 0 and state['ExitCode'] == 0)
+              image = load(regular(evidence, 'probe-image.json'))
+              require(image['Architecture'] == 'amd64' and image['Os'] == 'linux')
+              require(re.fullmatch('sha256:[a-f0-9]{64}', image['Id']))
+              require(load(regular(evidence, 'container-image.json')) == image['Id'])
+              # Fresh allowlisted output, never the full work tree or environment.
+              output.mkdir(exist_ok=False)
+              copies = [(checked(work, f), Path(f['path'])) for f in receipt['files']]
+              copies += [(regular(work, 'native-candidate.json'), Path('native-candidate.json')),
+                         (pins_path, Path('source-pins.json')),
+                         (root / 'scripts/build_recognition_native.py', Path('builder.py'))]
+              copies += [(p, Path('sources') / p.name) for p in sources]
+              copies += acquisitions
+              copies += [(root / 'scripts/linux_abi.py', Path('linux_abi.py'))]
+              copies += [(checked(work, {'path': c['log'], 'sha256': c['sha256']}), Path(c['log'])) for c in receipt['commands']]
+              copies += [(checked(work, receipt['linuxAbi']['rawEvidence']), Path(receipt['linuxAbi']['rawEvidence']['path']))]
+              evidence_names = ['probe-image.json', 'container-image.json', 'container-id.txt', 'create.txt', 'cleanup.txt', 'container-exit.txt', 'container-state.json', 'container-log.txt', 'result/compatibility.json']
+              evidence_names += ['result/' + probe['log']['path'] for probe in compatibility['startup']]
+              copies += [(regular(evidence, name), Path('bookworm') / name) for name in evidence_names]
+              inventory = {}
+              for original, relative in copies:
+                  destination = output / relative
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  before = digest(original)
+                  shutil.copyfile(original, destination)
+                  destination.chmod(original.stat().st_mode & 0o777)
+                  require(digest(destination) == before == digest(original))
+                  inventory[relative.as_posix()] = before
+              require(load(output / 'native-candidate.json') == receipt)
+              for ref in receipt['files']:
+                  checked(output, ref)
+              for original in sources:
+                  require(digest(output / 'sources' / original.name) == original.name)
+              for command in receipt['commands']:
+                  checked(output, {'path': command['log'], 'sha256': command['sha256']})
+              require(load(output / 'bookworm/result/compatibility.json') == compatibility)
+              for probe in compatibility['startup']:
+                  checked(output / 'bookworm/result', probe['log'])
+              require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip() == source)
+              require(not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=root, text=True).strip())
+              (output / 'delivery.json').write_text(json.dumps({'sourceCommit': source, 'target': 'linux-x86_64', 'releaseReady': False, 'fullRecognitionQualified': False, 'purpose': 'native inputs for independent Linux stage audit; not a release', 'files': inventory}, indent=2) + '\n')
+
+          if __name__ == '__main__':
+              stage_candidate(Path.cwd(), Path('native-work'), Path('native-inputs'), Path(os.environ['RUNNER_TEMP']) / 'bookworm-native-evidence', Path('linux-native-delivery'), os.environ['GITHUB_SHA'])
+          # END LINUX CANDIDATE CONTRACT
+          PY
+      - name: Preserve verified Linux native inputs (not a release)
+        if: success() && runner.os == 'Linux' && steps.linux_candidate.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: recognition-native-inputs-linux-x86_64-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: linux-native-delivery/
+          if-no-files-found: error
+          retention-days: 14
       - name: Windows installed toolchain license, native build and relocated discovery
         if: runner.os == 'Windows'
         shell: pwsh
@@ -107,6 +268,6 @@ jobs:
             native-work/candidate/licenses/
           if-no-files-found: warn
           retention-days: 14
-      # No native binary is uploaded until compiler runtime redistribution is reviewed.
+      # Windows remains review-only; Linux delivery is independently checked above.
       # Not a runtime pack or release attestation. Static compiler runtime notices,
       # baseline OS qualification, Python/wheels and actual OCR remain separate.

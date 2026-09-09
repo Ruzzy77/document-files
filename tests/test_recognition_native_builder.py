@@ -440,3 +440,235 @@ def test_interrupted_source_read_preserves_partial_hash_and_removes_partial(tmp_
     assert record["observedBytes"] == 3 and record["errorType"] == "OSError"
     assert "sensitive" not in evidence.read_text()
     assert not any((tmp_path / "cache").iterdir())
+
+
+def linux_delivery_contract():
+    """Exercise the exact inline workflow code, not a second implementation."""
+    import textwrap
+
+    workflow = (ROOT / ".github/workflows/recognition-native.yml").read_text()
+    code = workflow.split("          # BEGIN LINUX CANDIDATE CONTRACT\n", 1)[1].split(
+        "          # END LINUX CANDIDATE CONTRACT", 1
+    )[0]
+    namespace = {"__name__": "workflow_contract_test"}
+    exec(compile(textwrap.dedent(code), "<linux-candidate-workflow>", "exec"), namespace)
+    return namespace, workflow
+
+
+@pytest.fixture
+def linux_delivery(tmp_path, monkeypatch):
+    import hashlib
+
+    namespace, workflow = linux_delivery_contract()
+    root = tmp_path.resolve()
+    work, cache, evidence, output = (root / n for n in ("work", "cache", "evidence", "output"))
+    source = "a" * 40
+
+    def write(path, value):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(value if isinstance(value, bytes) else value.encode())
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def save(path, value):
+        return write(path, json.dumps(value))
+
+    write(root / "scripts/linux_abi.py", "ABI helper")
+    builder_sha = write(root / "scripts/build_recognition_native.py", "builder")
+    source_sha = write(cache / "original", "source")
+    (cache / "original").rename(cache / source_sha)
+    pins = {"sources": [{"id": "component", "sha256": source_sha}], "tessdata": []}
+    pin_sha = save(root / "scripts/recognition-native-sources.json", pins)
+    save(
+        work / "logs/acquire-component.json",
+        {"status": "verified", "expectedSha256": source_sha, "observedSha256": source_sha},
+    )
+    binary_sha = write(work / "candidate/bin/tesseract", b"\x7fELFbinary")
+    notices = []
+    for name in ("gcc-runtime-copyright.txt", "gcc-GPL-3.txt"):
+        digest = write(work / "candidate/licenses" / name, "GCC RUNTIME LIBRARY EXCEPTION")
+        original = root / "installed-notices" / name
+        write(original, "GCC RUNTIME LIBRARY EXCEPTION")
+        notices.append({"path": name, "sha256": digest, "sourcePath": str(original)})
+    runtimes = []
+    for name in ("libstdc++.a", "libgcc.a", "libgcc_eh.a"):
+        path = root / "installed-runtime" / name
+        digest = write(path, "static archive")
+        runtimes.append({"path": str(path), "resolvedPath": str(path), "sha256": digest})
+    compiler = root / "gcc-12"
+    compiler_sha = write(compiler, "GCC compiler")
+    raw_sha = write(work / "logs/abi.txt", "GLIBC_2.35")
+    command_sha = write(work / "logs/build.txt", "actual command output")
+    files = [
+        {
+            "path": p.relative_to(work).as_posix(),
+            "sha256": namespace["digest"](p),
+            "size": p.stat().st_size,
+        }
+        for p in (work / "candidate").rglob("*")
+        if p.is_file()
+    ]
+    receipt = {
+        "sourceCommit": source,
+        "dirtySource": False,
+        "target": "linux-x86_64",
+        "nativeExecutionVerified": True,
+        "languageDiscoveryVerified": True,
+        "languages": ["eng", "kor", "osd"],
+        "releaseReady": False,
+        "fullRecognitionQualified": False,
+        "builderSha256": builder_sha,
+        "sourcePinsSha256": pin_sha,
+        **pins,
+        "files": files,
+        "binary": {"path": "candidate/bin/tesseract", "sha256": binary_sha},
+        "linuxAbi": {
+            "sha256": binary_sha,
+            "rawEvidence": {"path": "logs/abi.txt", "sha256": raw_sha},
+        },
+        "runtimeNotices": {"collected": True, "notices": notices, "staticRuntimes": runtimes},
+        "toolchain": {
+            "linux": {
+                "compilers": {
+                    "cxx": {
+                        "version": "12.3.0",
+                        "resolvedPath": str(compiler),
+                        "sha256": compiler_sha,
+                    }
+                }
+            }
+        },
+        "commands": [{"exitCode": 0, "log": "logs/build.txt", "sha256": command_sha}],
+    }
+    save(work / "native-candidate.json", receipt)
+    probes = []
+    for i in range(2):
+        name = f"startup-{i}.txt"
+        digest = write(evidence / "result" / name, "startup output")
+        probes.append(
+            {"exitCode": 0, "executableSha256": binary_sha, "log": {"path": name, "sha256": digest}}
+        )
+    save(
+        evidence / "result/compatibility.json",
+        {
+            "passed": True,
+            "libc": ["glibc", "2.36"],
+            "files": [{"path": "bin/tesseract", "sha256": binary_sha}],
+            "startup": probes,
+        },
+    )
+    for name in ("container-id.txt", "create.txt", "cleanup.txt"):
+        write(evidence / name, "b" * 64 + "\n")
+    write(evidence / "container-exit.txt", "0\n")
+    save(evidence / "container-state.json", {"Running": False, "Pid": 0, "ExitCode": 0})
+    save(
+        evidence / "probe-image.json",
+        {"Id": "sha256:" + "c" * 64, "Architecture": "amd64", "Os": "linux"},
+    )
+    save(evidence / "container-image.json", "sha256:" + "c" * 64)
+    write(evidence / "container-log.txt", "startup")
+    monkeypatch.setattr(
+        namespace["subprocess"],
+        "check_output",
+        lambda args, **kwargs: source if args[1] == "rev-parse" else "",
+    )
+    return SimpleNamespace(
+        root=root,
+        work=work,
+        cache=cache,
+        evidence=evidence,
+        output=output,
+        source=source,
+        receipt=receipt,
+        save=save,
+        write=write,
+        namespace=namespace,
+        workflow=workflow,
+    )
+
+
+def run_linux_delivery(case):
+    case.namespace["stage_candidate"](
+        case.root, case.work, case.cache, case.evidence, case.output, case.source
+    )
+
+
+def test_linux_delivery_preserves_only_checked_candidate_sources_and_proof(linux_delivery):
+    case = linux_delivery
+    case.write(case.root / "private-secret.txt", "never copied")
+    run_linux_delivery(case)
+    record = json.loads((case.output / "delivery.json").read_text())
+    assert record["sourceCommit"] == case.source
+    assert record["releaseReady"] is False
+    assert (case.output / "candidate/bin/tesseract").read_bytes().startswith(b"\x7fELF")
+    assert len(list((case.output / "sources").iterdir())) == 1
+    assert not (case.output / "private-secret.txt").exists()
+    assert "steps.linux_candidate.outcome == 'success'" in case.workflow
+    assert "recognition-native-inputs-linux-x86_64-${{ github.sha }}" in case.workflow
+    assert "if: always()" in case.workflow
+    with pytest.raises(FileExistsError):
+        run_linux_delivery(case)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "dirty",
+        "windows",
+        "binary",
+        "source",
+        "notice",
+        "compiler",
+        "startup",
+        "cleanup",
+        "extra-file",
+        "symlink",
+    ],
+)
+def test_linux_delivery_rejects_unverified_bytes_without_output(linux_delivery, failure):
+    case = linux_delivery
+    if failure in ("dirty", "windows"):
+        case.receipt["dirtySource" if failure == "dirty" else "target"] = (
+            True if failure == "dirty" else "windows-x86_64"
+        )
+        case.save(case.work / "native-candidate.json", case.receipt)
+    elif failure == "binary":
+        case.write(case.work / "candidate/bin/tesseract", "tampered")
+    elif failure == "source":
+        next(case.cache.iterdir()).write_bytes(b"tampered")
+    elif failure == "notice":
+        case.write(case.root / "installed-notices/gcc-runtime-copyright.txt", "tampered")
+    elif failure == "compiler":
+        case.write(case.root / "gcc-12", "tampered")
+    elif failure == "startup":
+        case.write(case.evidence / "result/startup-0.txt", "tampered")
+    elif failure == "cleanup":
+        case.write(case.evidence / "cleanup.txt", "other container")
+    elif failure == "extra-file":
+        case.write(case.work / "candidate/uninventoried", "unexpected")
+    elif failure == "symlink":
+        # No symlink privilege requirement: the detector itself is mocked on Windows.
+        original = Path.is_symlink
+        case.namespace["Path"].is_symlink = lambda p: p.name == "tesseract" or original(p)
+    try:
+        with pytest.raises(ValueError):
+            run_linux_delivery(case)
+        assert not case.output.exists()
+    finally:
+        if failure == "symlink":
+            case.namespace["Path"].is_symlink = original
+
+
+def test_linux_delivery_rejects_change_between_check_and_copy(linux_delivery, monkeypatch):
+    case = linux_delivery
+    original_copy = case.namespace["shutil"].copyfile
+
+    def changing_copy(source, target):
+        if source.name == "tesseract":
+            source.write_bytes(b"\x7fELFchanged-after-first-check")
+        return original_copy(source, target)
+
+    monkeypatch.setattr(case.namespace["shutil"], "copyfile", changing_copy)
+    with pytest.raises(ValueError):
+        run_linux_delivery(case)
+    assert case.output.exists()  # Retain failed staged bytes, but no success receipt/upload.
+    assert not (case.output / "delivery.json").exists()
