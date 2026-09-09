@@ -5,11 +5,12 @@ from __future__ import annotations
 import copy
 import json
 
+from ..document_model.table_headers import declared_header
 from .compiler import preferred_binding
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v12"
+REGION_PLAN_VERSION = "document-files.region-plan.v13"
 
 
 def _encoded(value):
@@ -111,7 +112,7 @@ def column_candidates(table):
     for cell in sorted(
         [*cells, *table.get("headerCells", [])], key=lambda c: (c.get("row", 0), c.get("col", 0))
     ):
-        if cell.get("isHeader") is True:
+        if declared_header(cell, table):
             headers.setdefault(cell["sourceRef"], cell)
     col_count = max(
         table.get("colCount", 0) or 0,
@@ -132,7 +133,7 @@ def column_candidates(table):
         {
             row
             for cell in cells
-            if cell.get("isHeader") is not True
+            if not declared_header(cell, table)
             for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1))
         }
     )
@@ -191,11 +192,8 @@ def region_payload(observation, region):
         }
         for item in region.get("boundaryContext", [])
     ]
-    tables = (
-        {region["tableRef"]: _table_payload(observation.tables[region["tableRef"]])}
-        if region.get("tableRef")
-        else {}
-    )
+    table_ref = region.get("tableRef") or region.get("tableContextRef")
+    tables = {table_ref: _table_payload(observation.tables[table_ref])} if table_ref else {}
     for table in tables.values():
         for candidate in table.get("columnCandidates", []):
             # Header levels are joined with " > " so bilingual "A / B" labels stay intact.
@@ -210,6 +208,21 @@ def region_payload(observation, region):
         "bindings": {b: observation.bindings[b] for b in region["bindingIds"]},
         "requiredBindingIds": region.get("requiredBindingIds", []),
         "tables": tables,
+        **(
+            {
+                "tableKind": "nonrecord_values",
+                "valueRegion": {
+                    "parentRegionId": region["parentRegionId"],
+                    "instruction": (
+                        "Read the offered bindings as scalar values outside the compiled record. "
+                        "Table cells in context are definitions/context, not additional values. "
+                        "Preserve subtotal and note contents; never regenerate records."
+                    ),
+                },
+            }
+            if region.get("tableContextRef")
+            else {}
+        ),
         **({"boundaryContext": boundary} if boundary else {}),
         "relations": [
             r
@@ -231,6 +244,99 @@ def region_payload(observation, region):
             )
         ],
     }
+
+
+def route_table_values(observation, region, frozen, compiled, *, context_chars, metadata):
+    """Give observed non-record cells an ordinary scalar region, not a made-up value.
+
+    The parent keeps them as meaning context. Only their value bindings/owned
+    nodes move; source observations, geometry and compiled record reads do not.
+    Unclassified rows remain unresolved in the parent until structure is repaired.
+    """
+    from .semantic_prompts import SYSTEM
+    from .semantic_types import region_output_schema
+
+    table = observation.tables[region["tableRef"]]
+    roles = {role.row: role.role for repeat in frozen.repeats for role in repeat.rowRoles}
+    read_sources = {observation.bindings[bid]["sourceRef"] for bid in compiled.consumed_bindings}
+    record_sources = {
+        cell["sourceRef"]
+        for repeat in frozen.repeats
+        for cell in table["cells"]
+        if any(
+            roles.get(row) == "data"
+            for row in range(
+                max(repeat.rowStart, cell["row"]),
+                min(repeat.rowEnd + 1, cell["row"] + cell.get("rowSpan", 1)),
+            )
+        )
+        and any(
+            cell["col"] <= column.column < cell["col"] + cell.get("colSpan", 1)
+            for column in repeat.columns
+        )
+    }
+    definitions = {d["sourceRef"] for d in compiled.dispositions if d.get("role") == "structural"}
+    routed, record = set(), []
+    for cell in table["cells"]:
+        ref = cell["sourceRef"]
+        if ref in read_sources:
+            destination = "record_value"
+        elif ref in record_sources:
+            destination = "unresolved"
+        elif declared_header(cell, table) or ref in definitions:
+            destination = "definition"
+        elif any(
+            roles.get(row, "unresolved") == "unresolved"
+            for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1))
+        ):
+            destination = "unresolved"
+        else:
+            destination = "scalar_region"
+            routed.update(cell.get("sourceRefs", [ref]))
+            routed.add(ref)
+        record.append({"sourceRef": ref, "valueRoute": destination})
+    routed &= set(region["nodeIds"])
+    if not routed:
+        return None, record
+    child_id = region["id"] + ":nonrecord-values"
+    bids = [bid for bid in region["bindingIds"] if observation.bindings[bid]["sourceRef"] in routed]
+    child = {
+        "id": child_id,
+        "parentRegionId": region["id"],
+        "tableContextRef": region["tableRef"],
+        "nodeIds": [ref for ref in region["nodeIds"] if ref in routed],
+        "contextNodeIds": list(
+            dict.fromkeys(
+                [
+                    *[ref for ref in region["nodeIds"] if ref not in routed],
+                    *region.get("contextNodeIds", []),
+                ]
+            )
+        ),
+        "bindingIds": bids,
+        "requiredBindingIds": [bid for bid in region.get("requiredBindingIds", []) if bid in bids],
+    }
+    request = {
+        **region_payload(observation, child),
+        **metadata,
+        "outputContract": region_output_schema(observation, child, metadata.get("targetHandles")),
+    }
+    child["inputChars"] = len(_encoded(region_payload(observation, child)))
+    child["requestChars"] = len(SYSTEM) + len(_encoded(request))
+    child["withinContextBudget"] = child["requestChars"] <= context_chars
+    child["budgetReason"] = "nonrecord_value_region_exceeds_budget"
+    region["nodeIds"] = [ref for ref in region["nodeIds"] if ref not in routed]
+    region["contextNodeIds"] = list(
+        dict.fromkeys([*region.get("contextNodeIds", []), *child["nodeIds"]])
+    )
+    region["bindingIds"] = [bid for bid in region["bindingIds"] if bid not in bids]
+    region["requiredBindingIds"] = [
+        bid for bid in region.get("requiredBindingIds", []) if bid not in bids
+    ]
+    for item in record:
+        if item["valueRoute"] == "scalar_region":
+            item["regionId"] = child_id
+    return child, record
 
 
 def prepare_regions(observation, *, context_chars, request_metadata=None):
@@ -330,7 +436,7 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
             not_values.update(
                 cell["sourceRef"]
                 for cell in observation.tables[region["tableRef"]]["cells"]
-                if cell.get("isHeader") is True
+                if declared_header(cell, observation.tables[region["tableRef"]])
             )
         region["bindingIds"] = list(
             dict.fromkeys(
@@ -360,7 +466,7 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
                     required.append(selected)
         if region.get("tableRef"):
             for cell in observation.tables[region["tableRef"]]["cells"]:
-                if cell.get("isHeader") is True:
+                if declared_header(cell, observation.tables[region["tableRef"]]):
                     # Declared header text defines columns; requiring it as a value
                     # candidate pushed the interpreter to read headers as data.
                     continue
@@ -422,7 +528,7 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
                 result.append(region)
                 continue
             # Headers and linked notes remain context, even on later row slices.
-            header_nodes = [c["sourceRef"] for c in table["cells"] if c.get("isHeader")]
+            header_nodes = [c["sourceRef"] for c in table["cells"] if declared_header(c, table)]
             # With undeclared OCR headers, keep the observed first row as
             # unclassified context, not as an invented header or new value owner.
             leading_cells = (
@@ -437,7 +543,7 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
             # Do not guess headers for OCR tables or drop an all-header blank form.
             header_count = 0
             for row in rows:
-                if not all(table["cells"][i].get("isHeader") for i in row_cells[row]):
+                if not all(declared_header(table["cells"][i], table) for i in row_cells[row]):
                     break
                 header_count += 1
             if header_count < len(rows):
@@ -466,7 +572,9 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
                     **table,
                     "id": view_ref,
                     "cells": cells,
-                    "headerCells": [copy.deepcopy(c) for c in table["cells"] if c.get("isHeader")],
+                    "headerCells": [
+                        copy.deepcopy(c) for c in table["cells"] if declared_header(c, table)
+                    ],
                     "leadingCells": copy.deepcopy(leading_context),
                     "sourceTableRef": table_ref,
                     "viewRowStart": row_ids[0],

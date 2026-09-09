@@ -328,12 +328,13 @@ def grouped_table_fixture():
         "columnDefinitions": {"0": "r2price", "1": "r2length", "2": "r2width"},
     }
     obs.tables["table"] = {
+        "basis": "native_structure",
         "headerCells": [
             {"sourceRef": "price", "row": 0, "col": 0, "isHeader": True},
             {"sourceRef": "measurements", "row": 0, "col": 1, "colSpan": 2, "isHeader": True},
             {"sourceRef": "length", "row": 1, "col": 1, "isHeader": True},
             {"sourceRef": "width", "row": 1, "col": 2, "isHeader": True},
-        ]
+        ],
     }
     return obs, regions, compiled
 
@@ -450,3 +451,26 @@ def test_truncated_group_context_and_ambiguous_decisions_remain_partial():
     assert any(i.get("semanticId") == "usd" for i in result[0].issues)
     unresolved = {"taskId": task.id, "decision": "unresolved", "explanation": "Ambiguous group."}
     assert apply_scope_decision(compiled, task, unresolved) == (compiled, False)
+
+
+def test_header_group_uses_compiled_header_roles_not_recognizer_flags():
+    obs, regions, compiled = grouped_table_fixture()
+    table = obs.tables["table"]
+    table["basis"] = "docling_table_cells"
+    # Positive predictions alone are not confirmed header membership.
+    tasks = build_scope_tasks(obs, regions, compiled)
+    assert not any(
+        c.get("candidateKind") == "headerGroup" for t in tasks for c in t.payload["candidates"]
+    )
+    refs = [c["sourceRef"] for c in table["headerCells"]]
+    for c in table["headerCells"]:
+        c["isHeader"] = False
+    compiled[1].repeat_paths["rows"]["headerSourceRefs"] = refs
+    tasks = build_scope_tasks(obs, regions, compiled)
+    groups = [
+        c for t in tasks for c in t.payload["candidates"] if c.get("candidateKind") == "headerGroup"
+    ]
+    assert groups
+    assert all(
+        c["label"] == "Measurements" and "measurements" in c["definitionRefs"] for c in groups
+    )

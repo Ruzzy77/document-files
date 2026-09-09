@@ -60,8 +60,13 @@ then uses the saved structure, not another record-generation call. Each stage ha
 most two attempts sharing the total call/time budget; exhausted stages require an
 explicit additional grant. Checkpoint v2 includes table-protocol identity; old
 incompatible checkpoints must not be force-resumed. A stage completing is not a
-semantic quality approval, and unresolved subtotal/note content remains partial.
-The current table protocol is v4. Row source provenance is program-derived; meaning
+semantic quality approval. Non-record subtotal/note values now use a separate scalar
+region, with no overlapping value bindings and the same total budget. Its unfinished
+work remains partial and resumes without another record-structure call.
+The current table protocol is v5. Every observed non-fixed row needs an explicit
+role; only native-declared header rows are fixed automatically, not OCR predictions.
+Missing cells and invalid decimal readings stay uncertain with original evidence.
+Row source provenance is program-derived; meaning
 applicability uses exclusive column/record/row/unresolved choices. Accounting repair
 preserves accepted statement text and valid scopes, which may still be semantically
 wrong: independent content review is mandatory, not replaced by repair acceptance.

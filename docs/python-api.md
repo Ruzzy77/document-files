@@ -203,18 +203,31 @@ They are optional measurements, not an accuracy certificate or timeout usage rec
 
 ### Internal table stages
 
-Prompt v18 / planner v12 / table protocol v4 use a structural classification first.
+Prompt v19 / planner v13 / table protocol v5 use a structural classification first.
 Record tables compile one record definition before interpreting meanings over fixed
 IDs; scalar forms retain their binding-based path. `coverage.tableInterpretation`
 records each stage's attempts, status and usage. `structure_compiled` means retained
-partial work, not complete extraction. Compiler v13 rejects broad unbounded
+partial work, not complete extraction. Compiler v14 rejects broad unbounded
 parent/child scope unions while preserving explicit bounded row intersections.
 Public AnalysisJob v1, AnalysisResult v1 and extraction result contracts remain;
 private checkpoint v2 checks the changed protocol identities.
 
-Stage-one row decisions use `{row, role}`; actual row sources and wholly declared
-header roles are attached by the program. Missing source cells are never shifted or
-created. Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
+Stage-one row decisions use `{row, role}` for every observed non-fixed row; omissions,
+duplicates and unknown rows are rejected. Only wholly native-declared header rows
+are fixed automatically. OCR flags remain predictions, and row sources come from
+actual geometry. Missing source cells are never shifted or created. Scope v6 uses
+compiled header roles for group candidates, including AI-classified OCR headers.
+
+Non-record subtotal/note and unmapped cells are routed to a separate scalar region
+(`parentRegionId`, `tableContextRef`). `valueRoutes` records each actual cell's route;
+parent and child do not own the same value bindings. The child shares the document
+budget, is checkpointed, and cannot regenerate repeats. An unresolved mapped value
+stays unresolved in its original record. Decimal strings are checked lexically,
+without float conversion; unsupported locale/unit-bearing text remains uncertain
+with its source spelling. Duplicate removal requires the same successful binding
+and representation, not merely the same cell reference.
+
+Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
 The internal wire is converted to the unchanged source-linked Meaning IR. Accounting
 repair may add source-bound statements or resolve uncertain scopes, but cannot remove

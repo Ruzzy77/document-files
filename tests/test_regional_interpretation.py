@@ -360,7 +360,14 @@ def _table():
                     "rowStart": 0,
                     "rowEnd": 3,
                     "definitionRefs": ["c0:0"],
-                    "rowRoles": [{"row": 0, "role": "header", "sourceRefs": ["c0:0", "c0:1"]}],
+                    "rowRoles": [
+                        {
+                            "row": row,
+                            "role": "header" if row == 0 else "data",
+                            "sourceRefs": [f"c{row}:0", f"c{row}:1"],
+                        }
+                        for row in range(4)
+                    ],
                     "columns": [
                         {
                             "id": "name",
@@ -437,6 +444,7 @@ def test_missing_pdf_cell_is_not_observed_blank():
     doc, region, ir = _table()
     doc.tables["t"]["basis"] = "recognition"
     doc.tables["t"]["cells"] = [c for c in doc.tables["t"]["cells"] if c["sourceRef"] != "c3:1"]
+    ir.repeats[0].rowRoles[3].sourceRefs = ["c3:0"]
     result = combine_regions([compile_region(ir, doc, region)])
     assert result["data"]["rows"][-1]["amount"] is None
     assert result["valueEvidence"][-1]["status"] == "uncertain"
@@ -846,7 +854,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
                         "rowStart": 0,
                         "rowEnd": 1,
                         "definitionRefs": [header],
-                        "rowRoles": [],
+                        "rowRoles": [{"row": 1, "role": "data"}],
                         "columns": [
                             {
                                 "id": "length",
@@ -1031,7 +1039,12 @@ class RedundantFieldsThenRepeatModel(ReferenceModel):
                     "rowEnd": 2,
                     "definitionRefs": [headers[0]],
                     "rowRoles": [
-                        {"row": 0, "role": "header", "sourceRefs": list(headers.values())}
+                        {
+                            "row": row,
+                            "role": "header" if row == 0 else "data",
+                            "sourceRefs": [c["sourceRef"] for c in cells if c["row"] == row],
+                        }
+                        for row in range(3)
                     ],
                     "columns": [
                         {
@@ -1144,7 +1157,15 @@ def test_repeat_cannot_map_one_column_index_twice():
 
 def test_data_rows_outside_every_repeat_are_reported():
     doc, region, ir = _table()
-    ir = ir.model_copy(update={"repeats": [ir.repeats[0].model_copy(update={"rowEnd": 1})]})
+    ir = ir.model_copy(
+        update={
+            "repeats": [
+                ir.repeats[0].model_copy(
+                    update={"rowEnd": 1, "rowRoles": ir.repeats[0].rowRoles[:2]}
+                )
+            ]
+        }
+    )
     compiled = compile_region(ir, doc, region)
     flagged = [i for i in compiled.issues if i["code"] == "table_rows_outside_repeat"]
     assert flagged == [
@@ -1219,7 +1240,7 @@ def test_subtotal_row_fields_are_not_dropped_as_redundant():
     repeat = {
         **ir.repeats[0].model_dump(),
         "rowRoles": [
-            *(role.model_dump() for role in ir.repeats[0].rowRoles),
+            *(role.model_dump() for role in ir.repeats[0].rowRoles if role.row != 3),
             {"row": 3, "role": "subtotal", "sourceRefs": ["c3:0", "c3:1"]},
         ],
     }
@@ -1514,3 +1535,55 @@ def test_all_model_stages_honor_client_input_character_budget_before_dispatch():
     result = run(model=model)
     assert model.calls == 0
     assert any(i["code"] == "region_context_budget_exceeded" for i in result["issues"])
+
+
+def test_failed_decimal_record_read_does_not_delete_a_valid_scalar_representation():
+    from document_files.interpretation.semantic_types import FieldLink
+
+    doc, region, ir = _table()
+    ref = "c1:1"
+    doc.nodes[ref]["text"] = "12.5 mm"
+    bid = next(k for k, b in doc.bindings.items() if b["sourceRef"] == ref)
+    doc.bindings[bid].update(start=0, end=7)
+    ir.repeats[0].columns[1].valueType = "decimal"
+    ir.fields = [
+        FieldLink(
+            id="original",
+            key="original",
+            label="Original quantity",
+            definitionRefs=[ref],
+            bindingId=bid,
+            valueType="string",
+        )
+    ]
+    compiled = compile_region(ir, doc, region)
+    assert compiled.data["original"] == "12.5 mm"
+    assert compiled.data["rows"][0]["amount"] is None
+    assert compiled.dropped_fields == {}
+    assert any(i["code"] == "decimal_format_unresolved" for i in compiled.issues)
+
+
+def test_additional_span_on_record_cell_is_not_dropped_as_a_duplicate_read():
+    from document_files.interpretation.semantic_types import FieldLink
+
+    doc, region, ir = _table()
+    ref = "c1:0"
+    doc.nodes[ref]["text"] = "A [note]"
+    original = next(b for b in doc.bindings.values() if b["sourceRef"] == ref)
+    original["end"] = 8
+    bid = doc.bind(ref, start=2, end=8, candidateRole="content")
+    region["bindingIds"].append(bid)
+    ir.fields = [
+        FieldLink(
+            id="annotation",
+            key="annotation",
+            label="Annotation",
+            definitionRefs=[ref],
+            bindingId=bid,
+            valueType="string",
+        )
+    ]
+    compiled = compile_region(ir, doc, region)
+    assert compiled.data["rows"][0]["name"] == "A [note]"
+    assert compiled.data["annotation"] == "[note]"
+    assert compiled.dropped_fields == {}

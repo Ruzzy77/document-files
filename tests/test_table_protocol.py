@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.document_model.observe import observe_document
+from document_files.document_model.table_headers import fixed_header_rows, observed_rows
 from document_files.interpretation.backends import InferenceResponse, ModelError
 from document_files.interpretation.compiler import CompileError, compile_region
 from document_files.interpretation.contracts import ExtractionOptions
@@ -50,9 +51,16 @@ def record_response(payload):
             "label": "Records",
             "tableRef": table_ref,
             "rowStart": 0,
-            "rowEnd": 2,
+            "rowEnd": max(c["row"] + c.get("rowSpan", 1) - 1 for c in cells),
             "definitionRefs": list(headers.values()),
-            "rowRoles": [],
+            "rowRoles": [
+                {
+                    "row": row,
+                    "role": "header" if all(c.get("isHeader") for c in row_cells) else "data",
+                }
+                for row, row_cells in observed_rows(cells).items()
+                if row not in fixed_header_rows({**table, "cells": cells})
+            ],
             "columns": [
                 {
                     "id": "code",
@@ -455,7 +463,7 @@ def sparse_fixture():
             [("code", "string"), ("qty", "integer"), ("price", "decimal"), ("note", "string")]
         )
     ]
-    value["record"]["rowRoles"] += [{"row": 1, "role": "data"}, {"row": 2, "role": "data"}]
+
     return doc, region, payload, value
 
 
@@ -553,7 +561,7 @@ def test_v2_protocol_checkpoint_rejected_without_model_call():
 
 def test_declared_header_rows_are_program_roles_not_model_choices():
     doc, region, payload, value = fixture()
-    assert value["record"]["rowRoles"] == []
+    assert all(r["role"] == "data" for r in value["record"]["rowRoles"])
     request = structure_payload(payload)
     candidates = request["tables"][region["tableRef"]]["rowCandidates"]["rows"]
     assert candidates[0]["fixedRole"] == "header"
@@ -561,7 +569,11 @@ def test_declared_header_rows_are_program_roles_not_model_choices():
     schema = structure_schema(doc, region)
     assert schema["$defs"]["RowDecision"]["properties"]["row"]["enum"] == [1, 2]
     _, frozen = structural_ir(value, doc, region)
-    assert [(r.row, r.role) for r in frozen.repeats[0].rowRoles] == [(0, "header")]
+    assert [(r.row, r.role) for r in frozen.repeats[0].rowRoles] == [
+        (0, "header"),
+        (1, "data"),
+        (2, "data"),
+    ]
     assert frozen.repeats[0].rowRoles[0].sourceRefs == value["record"]["definitionRefs"]
     assert (frozen.repeats[0].rowStart, frozen.repeats[0].rowEnd) == (0, 2)
     model = TableModel()
@@ -590,9 +602,9 @@ def test_unknown_ocr_and_mixed_rows_are_not_automatically_headers(state):
     # Even mapping only the header-marked column cannot promote a mixed row.
     if state == "mixed":
         value["record"]["columns"] = value["record"]["columns"][:1]
-    _, frozen = structural_ir(value, doc, region)
-    assert frozen.repeats[0].rowRoles == []
-    value["record"]["rowRoles"] = [{"row": 0, "role": "header"}]
+    with pytest.raises(CompileError, match="row_roles_incomplete"):
+        structural_ir(value, doc, region)
+    value["record"]["rowRoles"].insert(0, {"row": 0, "role": "header"})
     _, frozen = structural_ir(value, doc, region)
     assert frozen.repeats[0].rowRoles[0].role == "header"  # Explicit AI decision remains allowed.
 
@@ -607,10 +619,10 @@ def test_declared_multilevel_rowspan_headers_keep_actual_sources_and_full_range(
     region = prepare_regions(doc, context_chars=20000)[0]
     payload = region_payload(doc, region)
     value = record_response(payload)
-    assert value["record"]["rowRoles"] == []
+    assert all(r["role"] == "data" for r in value["record"]["rowRoles"])
     _, frozen = structural_ir(value, doc, region)
     roles = frozen.repeats[0].rowRoles
-    assert [(role.row, role.role) for role in roles] == [(0, "header"), (1, "header")]
+    assert [(role.row, role.role) for role in roles] == [(0, "header"), (1, "header"), (2, "data")]
     cells = doc.tables[region["tableRef"]]["cells"]
     spanning = next(cell["sourceRef"] for cell in cells if cell.get("rowSpan") == 2)
     assert spanning in roles[0].sourceRefs and spanning in roles[1].sourceRefs
@@ -629,3 +641,166 @@ def test_v3_row_decision_checkpoint_is_rejected_before_dispatch():
     with pytest.raises(ValueError, match="incompatible"):
         execute(model, restore=checkpoint)
     assert len(model.requests) == 2
+
+
+@pytest.mark.parametrize("roles", [None, [], [{"row": 1, "role": "data"}]])
+def test_every_nonfixed_observed_row_requires_an_explicit_decision(roles):
+    doc, region, _, value = fixture()
+    if roles is None:
+        value["record"].pop("rowRoles")
+    else:
+        value["record"]["rowRoles"] = roles
+    assert not Draft202012Validator(structure_schema(doc, region)).is_valid(value)
+    with pytest.raises((ValidationError, CompileError)):
+        structural_ir(value, doc, region)
+
+
+def test_positive_ocr_header_flags_are_predictions_not_fixed_roles_or_excluded_values():
+    doc = observe_document(HTML, "html", {})
+    table = next(iter(doc.tables.values()))
+    table["basis"] = "docling_table_cells"
+    region = prepare_regions(doc, context_chars=20000)[0]
+    payload = region_payload(doc, region)
+    request = structure_payload(payload)
+    assert all(
+        "fixedRole" not in r for r in request["tables"][table["id"]]["rowCandidates"]["rows"]
+    )
+    header_refs = {c["sourceRef"] for c in table["cells"] if c["isHeader"]}
+    assert header_refs <= {doc.bindings[bid]["sourceRef"] for bid in region["bindingIds"]}
+    value = record_response(payload)
+    assert value["record"]["rowRoles"][0] == {"row": 0, "role": "header"}
+    _, frozen = structural_ir(value, doc, region)
+    fragment = compile_region(frozen, doc, region)
+    assert len(fragment.data["records"]) == 2
+    assert not fragment.issues
+
+
+def test_unknown_rows_and_geometry_holes_never_become_records():
+    doc, region, _, value = fixture()
+    _, frozen = structural_ir(value, doc, region)
+    frozen.repeats[0].rowRoles = frozen.repeats[0].rowRoles[:1]
+    fragment = compile_region(frozen, doc, region)
+    assert fragment.data == {"records": []}
+    assert any(i["code"] == "repeat_row_roles_incomplete" for i in fragment.issues)
+    assert fragment.value_evidence[-1]["status"] == "uncertain"
+    assert fragment.value_evidence[-1]["transformation"] == "unresolved_repeat_rows"
+    # Missing observed row 1 is not a blank row; only 0 and 2 are actual geometry.
+    doc.tables[region["tableRef"]]["cells"] = [
+        c for c in doc.tables[region["tableRef"]]["cells"] if c["row"] != 1
+    ]
+    value["record"]["rowRoles"] = [{"row": 2, "role": "data"}]
+    _, frozen = structural_ir(value, doc, region)
+    assert compile_region(frozen, doc, region).data["records"] == [{"code": "0008", "size": "0.00"}]
+
+
+@pytest.mark.parametrize("raw", ["Size", "1,23", "12.5 mm", "NaN", "Infinity"])
+def test_decimal_type_conflicts_preserve_original_and_remain_unresolved(raw):
+    doc = observe_document(HTML.replace(b"1.2300", raw.encode()), "html", {})
+    region = prepare_regions(doc, context_chars=20000)[0]
+    value = record_response(region_payload(doc, region))
+    ref = next(
+        c["sourceRef"]
+        for c in doc.tables[region["tableRef"]]["cells"]
+        if c["row"] == 1 and c["col"] == 1
+    )
+    _, frozen = structural_ir(value, doc, region)
+    fragment = compile_region(frozen, doc, region)
+    assert fragment.data["records"][0]["size"] is None
+    ev = next(e for e in fragment.value_evidence if e["target"]["path"] == "/records/0/size")
+    assert ev["raw"] == raw and ev["status"] == "uncertain" and ev["binding"] is None
+    assert doc.nodes[ref]["text"] == raw
+    assert any(i["code"] == "decimal_format_unresolved" for i in fragment.issues)
+
+
+NONRECORD_HTML = (
+    b"<table><tr><th>Code</th><th>Size</th></tr>"
+    b"<tr><td>0007</td><td>1.2300</td></tr>"
+    b"<tr><td>0008</td><td>0.00</td></tr>"
+    b"<tr><td>Total</td><td>1.2300</td></tr>"
+    b'<tr><td colspan="2">Checked after cooling</td></tr></table>'
+)
+
+
+class NonrecordModel(TableModel):
+    def infer(self, request):
+        payload = json.loads(request.messages[-1]["content"])
+        if payload.get("tableKind") == "nonrecord_values":
+            self.requests.append(request)
+            assert "RepeatLink" not in request.output_schema.get("$defs", {})
+            assert payload["valueRegion"]["parentRegionId"] != payload["regionId"]
+            value = {
+                "regionId": payload["regionId"],
+                "fields": [
+                    {
+                        "id": f"extra{index}",
+                        "key": f"extra{index}",
+                        "label": "Observed extra value",
+                        "bindingId": bid,
+                        "definitionRefs": [binding["sourceRef"]],
+                        "valueType": "string",
+                    }
+                    for index, (bid, binding) in enumerate(payload["bindings"].items())
+                ],
+            }
+            return InferenceResponse(json.dumps(value), {})
+        response = super().infer(request)
+        if payload.get("tableStage") == "structure":
+            value = json.loads(response.text)
+            for role in value["record"]["rowRoles"]:
+                if role["row"] >= 3:
+                    role["role"] = "subtotal" if role["row"] == 3 else "note"
+            response = InferenceResponse(json.dumps(value), response.usage)
+        return response
+
+
+def execute_nonrecord(model, states, *, restore=None, additional_budget=None, **options):
+    return extract_schema_from_stream(
+        AnalysisJob(
+            job_id="nonrecord", input=AnalysisInput.from_bytes(NONRECORD_HTML, format_id="html")
+        ),
+        io.BytesIO(NONRECORD_HTML),
+        model_client=model,
+        options=ExtractionOptions(reconstructionContext=False, **options),
+        checkpoint=states.append,
+        restore=restore,
+        additional_budget=additional_budget,
+    )
+
+
+def test_subtotal_and_note_values_use_scalar_region_and_retain_exact_records_and_sources():
+    model, states = NonrecordModel(), []
+    result = execute_nonrecord(model, states)
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert len(model.requests) == 3
+    assert result["data"] == {
+        "records": [{"code": "0007", "size": "1.2300"}, {"code": "0008", "size": "0.00"}],
+        "extra0": "Total",
+        "extra1": "1.2300",
+        "extra2": "Checked after cooling",
+    }
+    parent, child = states[-1]["regions"]
+    assert not set(parent["nodeIds"]) & set(child["nodeIds"])
+    assert not set(parent["bindingIds"]) & set(child["bindingIds"])
+    assert set(child["nodeIds"]) <= set(parent["contextNodeIds"])
+    assert len(result["document"]["structure"]["tables"][parent["tableRef"]]["cells"]) == 9
+    routes = states[-1]["tableStages"][parent["id"]]["structure"]["valueRoutes"]
+    assert sum(r["valueRoute"] == "scalar_region" for r in routes) == 3
+    resumed = execute_nonrecord(model, [], restore=states[-1])
+    assert resumed["data"] == result["data"] and len(model.requests) == 3
+
+
+def test_nonrecord_pending_budget_and_resume_do_not_repeat_or_erase_table_structure():
+    model, states = NonrecordModel(), []
+    partial = execute_nonrecord(model, states, maxModelCalls=2)
+    assert partial["extraction"]["status"] == "partial"
+    assert len(partial["data"]["records"]) == 2 and len(model.requests) == 2
+    assert partial["coverage"]["unprocessedRegions"] == [states[-1]["regions"][1]["id"]]
+    result = execute_nonrecord(
+        model,
+        [],
+        restore=states[-1],
+        maxModelCalls=2,
+        additional_budget={"maxModelCalls": 1, "completionSeconds": 60},
+    )
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert len(model.requests) == 3

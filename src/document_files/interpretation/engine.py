@@ -50,6 +50,7 @@ from .regions import (
     model_node,
     prepare_regions,
     region_payload,
+    route_table_values,
 )
 from .semantic_prompts import INTEGRATE, PROMPT_VERSION, SYSTEM
 from .semantic_types import (
@@ -857,6 +858,17 @@ def extract_schema_from_stream(
                 if stage == "structure"
                 else meaning_schema(observation, region, accepted[rid], catalog)
             )
+            # Routing can transfer non-record cells after structure compilation.
+            # Rebuild the request so meaning never sees their value bindings.
+            payload = region_payload(observation, region) | {
+                "intent": selected.intent,
+                "targetHandles": catalog,
+                **(
+                    {"sameTableMapping": payload["sameTableMapping"]}
+                    if "sameTableMapping" in payload
+                    else {}
+                ),
+            }
             request = (
                 structure_payload(payload)
                 if stage == "structure"
@@ -892,6 +904,7 @@ def extract_schema_from_stream(
                                     "column_leaf_header_missing",
                                     "table_rows_outside_repeat",
                                     "header_cell_bound_as_value",
+                                    "repeat_row_roles_incomplete",
                                 }
                             }
                         )
@@ -920,6 +933,23 @@ def extract_schema_from_stream(
                         progress["acceptedResponse"] = True
                     if stage == "structure":
                         state["kind"] = "record_table"
+                        child, routes = route_table_values(
+                            observation,
+                            region,
+                            candidate,
+                            fragment,
+                            context_chars=min(
+                                selected.contextChars,
+                                getattr(client, "input_budget_chars", selected.contextChars),
+                            ),
+                            metadata={"intent": selected.intent, "targetHandles": catalog},
+                        )
+                        progress["valueRoutes"] = routes
+                        if child is not None:
+                            regions.append(child)
+                            compiled[rid] = compile_region(
+                                candidate, observation, region, target_schema=selected.targetSchema
+                            )
                     progress["status"] = "complete"
                     progress.pop("feedback", None)
                     issues[:] = [
@@ -1044,7 +1074,10 @@ def extract_schema_from_stream(
                     break
                 last_response = response_hash
                 candidate = RegionInterpretation.model_validate(value)
-                if payload.get("tableKind") == "scalar_form" and candidate.repeats:
+                if (
+                    payload.get("tableKind") in {"scalar_form", "nonrecord_values"}
+                    and candidate.repeats
+                ):
                     raise CompileError("scalar_form_cannot_regenerate_records")
                 fragment = compile_region(
                     candidate, observation, region, target_schema=selected.targetSchema

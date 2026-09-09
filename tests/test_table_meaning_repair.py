@@ -42,7 +42,7 @@ class CaptionModel:
                     "rowStart": 0,
                     "rowEnd": 1,
                     "definitionRefs": [header],
-                    "rowRoles": [],
+                    "rowRoles": [{"row": 1, "role": "data"}],
                     "columns": [
                         {
                             "id": "size",

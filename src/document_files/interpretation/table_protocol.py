@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from ..document_model.table_headers import fixed_header_rows, observed_rows
 from ..result_types import Contract
 from .compiler import CompileError
 from .semantic_types import (
@@ -24,7 +25,7 @@ from .semantic_types import (
 )
 from .table_meaning import meaning_from_wire, meaning_wire_schema
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v4"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v5"
 STAGE_MAX_CALLS = 2
 STAGE_MAX_OUTPUT_TOKENS = 3072
 
@@ -34,11 +35,13 @@ for repeated records, scalar_form for label/value forms, or unresolved if ambigu
 For record_table return exactly one record definition, never values or per-row
 records. Choose its key/label, each column's name/type and rowRoles from the source.
 Use each column index once. Cover the entire offered table row range; identify
-header/subtotal/note/blank/unresolved rows in rowRoles, omitted rows mean data.
+every offered non-fixed row in rowRoles exactly once, including data rows.
+Use header/data/subtotal/note/blank/unresolved; never omit an observed row.
 Each rowRoles item has only row and role; the program attaches observed row sources.
 rowCandidates with fixedRole:header are declared header-only rows; the program
 adds them. Never include a fixedRole row in rowRoles, even as header. For other
-rows decide their role from context; false/missing isHeader is not a known header.
+rows decide their role from context. Header flags from recognition are predictions,
+not declarations; false/missing isHeader does not prove that a row is data.
 Row numbers are actual zero-based geometry, not record ordinals. rowCandidates
 group observed cells by actual row and column; missing cells remain absent. Never
 shift the next cell into a missing slot, or return sourceRefs in rowRoles.
@@ -75,7 +78,7 @@ class RowDecision(Contract):
 class StructureRecord(RepeatLink):
     # Stage-one decisions omit provenance; the public/internal compiled IR keeps
     # its existing RowRole contract, populated from actual observation geometry.
-    rowRoles: list[RowDecision] = Field(default_factory=list, max_length=1000)
+    rowRoles: list[RowDecision] = Field(max_length=1000)
 
 
 class TableStructure(Contract):
@@ -118,6 +121,9 @@ def structure_schema(observation, region, catalog=None):
     schema["$defs"]["RowDecision"]["properties"]["row"] = copy.deepcopy(
         schema["$defs"]["RowRole"]["properties"]["row"]
     )
+    required = schema["$defs"]["StructureRecord"].setdefault("required", [])
+    if "rowRoles" not in required:
+        required.append("rowRoles")
     repeat = schema["$defs"]["StructureRecord"]["properties"]
     cells = observation.tables[region["tableRef"]]["cells"]
     if not cells:
@@ -128,9 +134,10 @@ def structure_schema(observation, region, catalog=None):
     repeat["rowStart"] = {"type": "integer", "const": start}
     repeat["rowEnd"] = {"type": "integer", "const": end}
     repeat["groupId"] = {"type": "null"}
-    observed_rows = _observed_rows(cells)
-    fixed = _fixed_header_rows(observed_rows)
-    choices = sorted(set(observed_rows) - fixed)
+    rows = observed_rows(cells)
+    fixed = fixed_header_rows(observation.tables[region["tableRef"]])
+    choices = sorted(set(rows) - fixed)
+    repeat["rowRoles"].update(minItems=len(choices), maxItems=len(choices), uniqueItems=True)
     if choices:
         schema["$defs"]["RowDecision"]["properties"]["row"] = {"type": "integer", "enum": choices}
     else:
@@ -179,23 +186,25 @@ def structural_ir(value, observation, region):
         row < record.rowStart or row > record.rowEnd for row in roles
     ):
         raise CompileError("invalid_repeat_row_roles")
-    observed_rows = _observed_rows(cells)
-    fixed = _fixed_header_rows(observed_rows)
+    rows = observed_rows(cells)
+    fixed = fixed_header_rows(observation.tables[region["tableRef"]])
     if set(roles) & fixed:
         raise CompileError("table_structure_fixed_header_role_is_program_derived")
     compiled_roles = [
         {
             "row": row,
             "role": "header",
-            "sourceRefs": list(dict.fromkeys(cell["sourceRef"] for cell in observed_rows[row])),
+            "sourceRefs": list(dict.fromkeys(cell["sourceRef"] for cell in rows[row])),
         }
         for row in sorted(fixed)
     ]
     for role in record.rowRoles:
-        refs = list(dict.fromkeys(cell["sourceRef"] for cell in observed_rows.get(role.row, [])))
+        refs = list(dict.fromkeys(cell["sourceRef"] for cell in rows.get(role.row, [])))
         if not refs:
             raise CompileError("table_structure_role_has_no_observed_cells")
         compiled_roles.append({**role.model_dump(), "sourceRefs": refs})
+    if set(roles) != set(rows) - fixed:
+        raise CompileError("table_structure_row_roles_incomplete")
     compiled_roles.sort(key=lambda role: role["row"])
     compiled_record = RepeatLink.model_validate({**record.model_dump(), "rowRoles": compiled_roles})
     return decision, RegionInterpretation(regionId=region["id"], repeats=[compiled_record])
@@ -220,27 +229,6 @@ def meaning_ir(value, frozen):
     return result
 
 
-def _observed_rows(cells):
-    rows = {}
-    for cell in sorted(cells, key=lambda c: (c["row"], c["col"], c["sourceRef"])):
-        for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1)):
-            rows.setdefault(row, []).append(cell)
-    return {
-        row: sorted(observed, key=lambda c: (c["col"], c["row"], c["sourceRef"]))
-        for row, observed in rows.items()
-    }
-
-
-def _fixed_header_rows(observed_rows):
-    # Require every observed cell, not only selected columns: a mixed header/value
-    # row must stay an AI decision. Never promote false/missing OCR header flags.
-    return {
-        row
-        for row, cells in observed_rows.items()
-        if cells and all(cell.get("isHeader") is True for cell in cells)
-    }
-
-
 def _stage_payload(payload):
     return {k: v for k, v in payload.items() if k not in {"bindings", "requiredBindingIds"}} | {
         "tableStage": "structure",
@@ -257,8 +245,8 @@ def structure_payload(payload):
         cells = table["cells"]
         if isinstance(cells, dict):
             cells = [dict(zip(cells["columns"], row, strict=True)) for row in cells["rows"]]
-        observed_rows = _observed_rows(cells)
-        fixed = _fixed_header_rows(observed_rows)
+        rows = observed_rows(cells)
+        fixed = fixed_header_rows({**table, "cells": cells})
         candidates = {
             "cellColumns": ["column", "columnSpan", "sourceRef", "text"],
             "rows": [
@@ -275,7 +263,7 @@ def structure_payload(payload):
                         for cell in observed
                     ],
                 }
-                for row, observed in sorted(observed_rows.items())
+                for row, observed in sorted(rows.items())
             ],
         }
         result["tables"][ref] = {**table, "rowCandidates": candidates}

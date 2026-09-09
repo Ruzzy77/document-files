@@ -29,6 +29,14 @@ def frozen():
                     "tableRef": "table",
                     "rowStart": 2,
                     "rowEnd": 3,
+                    "rowRoles": [
+                        {
+                            "row": row,
+                            "role": "data",
+                            "sourceRefs": [f"cell-{row}-0", f"cell-{row}-1"],
+                        }
+                        for row in (2, 3)
+                    ],
                     "definitionRefs": ["header"],
                     "columns": [
                         {

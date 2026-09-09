@@ -7,11 +7,13 @@ JSON Pointers and assertion IDs. It never executes document conditions.
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass, field
 
 from jsonschema import Draft202012Validator
 from referencing import Registry
 
+from ..document_model.table_headers import declared_header, observed_rows
 from ..result_types import Assertion, Evidence, SourceBinding, Target
 from .accounting import bound_node_dispositions
 from .bindings import resolve
@@ -83,8 +85,25 @@ def _read(candidate, value_type, nodes):
     return value, raw, binding
 
 
+def _decimal_literal(raw):
+    return (
+        re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", raw.strip())
+        is not None
+    )
+
+
 def preferred_binding(bindings, source_ref, mode="source"):
     items = [(key, value) for key, value in bindings.items() if value["sourceRef"] == source_ref]
+    # Equivalent candidate containers may arrive in set/dictionary order. Prefer
+    # the whole original text over a later annotation span, then stable IDs.
+    items.sort(
+        key=lambda item: (
+            item[1].get("start") is not None,
+            item[1].get("start") or 0,
+            -(item[1].get("end") or 0),
+            item[0],
+        )
+    )
     if mode == "formula":
         paths = ["/semantic/value/formula"]
     elif mode == "cached":
@@ -100,6 +119,17 @@ def preferred_binding(bindings, source_ref, mode="source"):
             ):
                 return key
     return None
+
+
+def _column_header(cell, table, roles):
+    if cell.get("headerScope") in {"row", "rowgroup"}:
+        return False
+    role = roles.get(cell["row"])
+    if role == "header":
+        return True
+    # Native labels in subtotal/note/mixed rows are not automatically column
+    # headings. Header context outside a bounded data view keeps its declaration.
+    return declared_header(cell, table) and role is None
 
 
 @dataclass
@@ -202,7 +232,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 kind="field_definition",
                 description=label,
                 targets=[schema_target],
-                scope=data_targets,
+                scope=data_targets or [schema_target],
                 sourceRefs=source_refs,
                 basis="ai_interpreted",
                 status="interpreted",
@@ -262,7 +292,20 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             value, raw, binding = _read(candidate, value_type, nodes)
             if (status == "blank") != (raw == ""):
                 raise CompileError("blank_status_disagrees_with_observation")
-            out.consumed_bindings.add(binding_id)
+            if value_type == "decimal" and not _decimal_literal(raw):
+                # Keep source text/evidence without accepting a header, localised
+                # separator or unit-bearing string as a verified decimal value.
+                value, status, binding = None, "uncertain", None
+                out.issues.append(
+                    {
+                        "code": "decimal_format_unresolved",
+                        "bindingId": binding_id,
+                        "sourceRef": candidate["sourceRef"],
+                        "target": target.model_dump(),
+                    }
+                )
+            else:
+                out.consumed_bindings.add(binding_id)
             native = nodes[candidate["sourceRef"]].get("semantic", {}).get("value")
             if native:
                 out.value_observations.append(
@@ -309,7 +352,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
     # Cells that a repeat reads as record values are enumerated by the program. A
     # scalar field on such a cell duplicates that reading, possibly under another
     # label; the record reading is kept and the drop is recorded in the ledger.
-    record_cells = set()
+    record_bindings = {}
     # Declared header cells above a mapped column already define that column. A
     # scalar field defined only by such headers and reading no cell is a duplicate
     # of the column definition, not a form value.
@@ -321,7 +364,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         roles = {r.row: r.role for r in repeat.rowRoles}
         mapped = {c.column for c in repeat.columns}
         for cell in [*table["cells"], *table.get("headerCells", [])]:
-            if cell.get("isHeader") is True and any(
+            if _column_header(cell, table, roles) and any(
                 cell["col"] <= column < cell["col"] + cell.get("colSpan", 1) for column in mapped
             ):
                 mapped_headers.add(cell["sourceRef"])
@@ -330,10 +373,23 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 max(cell["row"], repeat.rowStart),
                 min(cell["row"] + cell.get("rowSpan", 1), repeat.rowEnd + 1),
             )
-            if any(roles.get(row, "data") == "data" for row in rows) and any(
-                cell["col"] <= column < cell["col"] + cell.get("colSpan", 1) for column in mapped
-            ):
-                record_cells.add(cell["sourceRef"])
+            if any(roles.get(row) == "data" for row in rows):
+                for column in repeat.columns:
+                    if cell["col"] <= column.column < cell["col"] + cell.get("colSpan", 1):
+                        bid = preferred_binding(
+                            by_source.get(cell["sourceRef"], {}),
+                            cell["sourceRef"],
+                            column.bindingMode,
+                        )
+                        if bid and bindings[bid].get("candidateStatus") != "unresolved_conflict":
+                            try:
+                                _, raw, _ = _read(bindings[bid], "string", nodes)
+                                value_type = column.valueType if raw else "string"
+                                _read(bindings[bid], value_type, nodes)
+                            except CompileError:
+                                continue
+                            if value_type != "decimal" or _decimal_literal(raw):
+                                record_bindings.setdefault(bid, set()).add(value_type)
 
     resolved_fields = []
     for field_link in ir.fields:
@@ -383,7 +439,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         if (
             field_link.bindingId in candidates
             and field_link.status in {"present", "blank"}
-            and bindings[field_link.bindingId]["sourceRef"] in record_cells
+            and field_link.valueType in record_bindings.get(field_link.bindingId, set())
         ):
             out.dropped_fields[field_link.id] = bindings[field_link.bindingId]["sourceRef"]
             continue
@@ -403,12 +459,12 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         )
         assign(tokens, value, shape)
 
-    region_table = tables.get(region.get("tableRef"), {})
+    region_table = tables.get(region.get("tableRef") or region.get("tableContextRef"), {})
     declared_headers = {
         cell["sourceRef"]
         for key in ("cells", "headerCells")
         for cell in region_table.get(key, [])
-        if cell.get("isHeader") is True
+        if declared_header(cell, region_table)
     }
     for field_link in resolved_fields:
         binding_id = field_link.bindingId
@@ -448,8 +504,27 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             range(repeat.rowStart, repeat.rowEnd + 1)
         ):
             raise CompileError("invalid_repeat_row_roles")
+        observed = {
+            row: row_cells
+            for row, row_cells in observed_rows(cells).items()
+            if repeat.rowStart <= row <= repeat.rowEnd
+        }
+        if not set(roles) <= set(observed):
+            raise CompileError("repeat_role_has_no_observed_cells")
+        missing_roles = sorted(set(observed) - set(roles))
+        if missing_roles:
+            out.issues.append(
+                {
+                    "code": "repeat_row_roles_incomplete",
+                    "tableRef": repeat.tableRef,
+                    "rows": missing_roles,
+                }
+            )
         for role in roles.values():
             refs(role.sourceRefs)
+            actual_refs = {cell["sourceRef"] for cell in observed[role.row]}
+            if set(role.sourceRefs) != actual_refs:
+                raise CompileError("repeat_row_role_sources_disagree_with_geometry")
         # Header geometry is program knowledge: every column's definition carries the
         # declared header cells above it, and a cited header that does not sit above
         # the column, or a missing lowest header, is reported for repair.
@@ -457,7 +532,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         for cell in sorted(
             [*cells, *table.get("headerCells", [])], key=lambda c: (c["row"], c["col"])
         ):
-            if cell.get("isHeader") is True:
+            if _column_header(cell, table, {row: role.role for row, role in roles.items()}):
                 declared.setdefault(cell["sourceRef"], cell)
         headers_above = {}
         for ref, cell in declared.items():
@@ -490,7 +565,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             for cell in cells
             if cell["sourceRef"] in column_definitions
             and (
-                cell.get("isHeader") is True
+                declared_header(cell, table)
                 or (cell["row"] in roles and roles[cell["row"]].role == "header")
             )
         )
@@ -530,8 +605,10 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                         if key in grid and grid[key] != cell:
                             raise CompileError("overlapping_observed_table_cells")
                         grid[key] = cell
-        for row in range(repeat.rowStart, repeat.rowEnd + 1):
-            if row in roles and roles[row].role != "data":
+        for row in sorted(observed):
+            if row not in roles:
+                continue  # Missing decisions never create records, including synthetic gaps.
+            if roles[row].role != "data":
                 if roles[row].role == "unresolved":
                     out.issues.append(
                         {"code": "repeat_row_unresolved", "tableRef": repeat.tableRef, "row": row}
@@ -541,6 +618,16 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             row_targets[repeat.id][row] = []
             for key, col in columns.items():
                 cell = grid.get((row, col.column))
+                if cell and declared_header(cell, table):
+                    out.issues.append(
+                        {
+                            "code": "header_cell_bound_as_value",
+                            "sourceRef": cell["sourceRef"],
+                            "tableRef": repeat.tableRef,
+                            "row": row,
+                            "column": col.column,
+                        }
+                    )
                 target = Target(space="data", path=f"{path}/{len(rows)}/{escape(key)}")
                 field_targets[col.id].append(target)
                 row_targets[repeat.id][row].append(target)
@@ -596,16 +683,22 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             "rowEnd": repeat.rowEnd,
             "columns": [c.column for c in repeat.columns],
             "columnDefinitions": {str(c.column): prefix + c.id for c in repeat.columns},
+            "headerSourceRefs": sorted(declared),
         }
         if not rows:
+            unresolved_rows = bool(missing_roles) or any(
+                r.role == "unresolved" for r in roles.values()
+            )
             out.value_evidence.append(
                 Evidence(
                     target=repeat_target,
                     sourceRefs=repeat.definitionRefs,
                     semanticIds=[prefix + repeat.id],
                     raw="",
-                    status="blank",
-                    transformation="observed_empty_repeat",
+                    status="uncertain" if unresolved_rows else "blank",
+                    transformation="unresolved_repeat_rows"
+                    if unresolved_rows
+                    else "observed_empty_repeat",
                 ).model_dump()
             )
 
@@ -614,7 +707,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         data_rows = {
             row
             for cell in region_cells
-            if cell.get("isHeader") is not True
+            if not declared_header(cell, tables[region["tableRef"]])
             for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1))
         }
         covered = set()

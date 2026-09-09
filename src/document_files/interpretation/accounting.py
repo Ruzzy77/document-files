@@ -65,7 +65,7 @@ def bound_node_dispositions(observation, region, fields, consumed, header_source
         if all(char.isspace() or char in ":=;" for char in "".join(gaps)):
             roles[ref] = "data"
 
-    table = observation.tables.get(region.get("tableRef"), {})
+    table = observation.tables.get(region.get("tableRef") or region.get("tableContextRef"), {})
     cells = {cell["sourceRef"] for cell in table.get("cells", [])}
     for bid in consumed:
         candidate = bindings[bid]
