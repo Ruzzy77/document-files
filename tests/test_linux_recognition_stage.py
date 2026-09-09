@@ -187,7 +187,7 @@ def fake_pip(command, env, log, budget):
     (target / "pip-1.dist-info/RECORD").write_bytes(csv_bytes(entries))
     log.write_text("synthetic installer; no pip executed\n")
     assert "LD_LIBRARY_PATH" not in env
-    assert command[1:3] == ["-I", "-S"]
+    assert command[1:4] == ["-I", "-S", "-B"]
     return {"exitCode": 0, "attempts": 1}
 
 
@@ -802,3 +802,103 @@ def test_data_requires_pip_home_relative_record_not_target_relative(mocked, setu
     monkeypatch.setattr(mocked, "run_pip", mutate)
     with pytest.raises(mocked.AssemblyError, match="unexpected_installed_data_record_path"):
         execute(mocked, setup)
+
+
+def shared_script_case(tool, tmp_path, second="pkg.cli:main", *, provided=False):
+    """Two fixed synthetic wheel definitions plus pip-style installed RECORDs."""
+    target = tmp_path / "installed"
+    target.mkdir()
+    expected, distributions = {}, {}
+    source_bytes = {}
+    for pkg, definition in (("meta", "pkg.cli:main"), ("slim", second)):
+        dist = pkg + "-1.dist-info"
+        files = {
+            dist + "/METADATA": f"Name: {pkg}\nVersion: 1\n".encode(),
+            dist + "/WHEEL": b"Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        }
+        if definition is not None:
+            files[dist + "/entry_points.txt"] = (
+                f"[console_scripts]\nshared = {definition}\n".encode()
+            )
+        if provided and pkg == "meta":
+            files["meta-1.data/scripts/shared"] = b"#!python\n# same body\n"
+        record = dist + "/RECORD"
+        files[record] = csv_bytes([record_row(n, d) for n, d in files.items()] + [[record, "", ""]])
+        wheel_path = tmp_path / (pkg + "-1-py3-none-any.whl")
+        with zipfile.ZipFile(wheel_path, "w") as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        input_wheel = {**identity(wheel_path), "name": pkg, "version": "1"}
+        limits = dict(
+            zip(tool.LIMITS, [1000000, 1000, 1000000, 1000, 1000000, 10, 1000], strict=True)
+        )
+        rows, dist = tool.wheel_inventory(wheel_path, input_wheel, tool.Budget(limits))
+        expected.update(rows)
+        distributions[dist] = input_wheel["sha256"]
+        for name, row in rows.items():
+            path = target / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(files[row["member"]])
+            source_bytes[name] = files[row["member"]]
+    actual_script = b"#!/fixed/python\n# same body\n"
+    (target / "bin").mkdir()
+    (target / "bin/shared").write_bytes(actual_script)
+    for dist, digest in distributions.items():
+        entries = [
+            record_row(name, source_bytes[name])
+            for name, row in expected.items()
+            if row["sourceSha256"] == digest and not row["record"] and "providedScript" not in row
+        ]
+        entries += [record_row("../../bin/shared", actual_script), [dist + "/RECORD", "", ""]]
+        (target / dist / "RECORD").write_bytes(csv_bytes(entries))
+    return target, expected, distributions, tool.Budget(limits)
+
+
+def test_shared_generated_console_identical_definitions_and_all_owners(tool, tmp_path):
+    target, expected, distributions, budget = shared_script_case(tool, tmp_path)
+    _, _, scripts, records = tool.installed_files(
+        target, expected, distributions, budget, "/fixed/python"
+    )
+    assert len(scripts) == 1
+    assert scripts[0]["sharedGeneratedConsoleScript"] is True
+    assert {x["distribution"] for x in scripts[0]["owners"]} == {
+        "meta-1.dist-info",
+        "slim-1.dist-info",
+    }
+    assert all(x["definition"]["target"] == "pkg.cli:main" for x in scripts[0]["owners"])
+    assert all(x["definition"]["sourceMemberSha256"] for x in scripts[0]["owners"])
+    assert all(b"../../bin/shared" not in row["bytes"] for row in records.values())
+
+
+@pytest.mark.parametrize("definition", ["different.cli:run", None])
+def test_shared_generated_different_or_missing_definition_rejected(tool, tmp_path, definition):
+    target, expected, distributions, budget = shared_script_case(tool, tmp_path, definition)
+    with pytest.raises(tool.AssemblyError, match="shared_script_definition_mismatch"):
+        tool.installed_files(target, expected, distributions, budget, "/fixed/python")
+
+
+def test_shared_generated_record_sha_mismatch_rejected(tool, tmp_path):
+    target, expected, distributions, budget = shared_script_case(tool, tmp_path)
+    p = target / "slim-1.dist-info/RECORD"
+    rows = list(csv.reader(p.read_text().splitlines()))
+    for row in rows:
+        if row[0] == "../../bin/shared":
+            row[1] = "sha256=different"
+    p.write_bytes(csv_bytes(rows))
+    with pytest.raises(tool.AssemblyError, match="installed_script_record_mutation"):
+        tool.installed_files(target, expected, distributions, budget, "/fixed/python")
+
+
+def test_shared_provided_script_still_rejected(tool, tmp_path):
+    target, expected, distributions, budget = shared_script_case(tool, tmp_path, provided=True)
+    with pytest.raises(tool.AssemblyError, match="duplicate_provided_script_owner"):
+        tool.installed_files(target, expected, distributions, budget, "/fixed/python")
+
+
+def test_modified_entrypoint_metadata_not_a_shared_ownership_proof(tool, tmp_path):
+    target, expected, distributions, budget = shared_script_case(tool, tmp_path)
+    (target / "slim-1.dist-info/entry_points.txt").write_bytes(
+        b"[console_scripts]\nshared = changed\n"
+    )
+    with pytest.raises(tool.AssemblyError, match="installed_wheel_bytes_changed"):
+        tool.installed_files(target, expected, distributions, budget, "/fixed/python")

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import configparser
 import contextlib
 import csv
 import hashlib
@@ -710,6 +711,44 @@ def script_installation_matches(original, installed, python, budget):
                 return True
 
 
+def original_console_definitions(actual, expected, distributions, budget):
+    """Definitions come only from byte-verified, top-level wheel entry_points.txt."""
+    definitions = {}
+    for distribution, digest in distributions.items():
+        name = distribution + "/entry_points.txt"
+        if name not in expected:
+            continue
+        source = expected[name]
+        require(source["sourceSha256"] == digest and name in actual, "entrypoint_source_mismatch")
+        require(actual[name].stat().st_size <= 2 * 1024**2, "entrypoint_metadata_budget")
+        require(
+            digest_file(actual[name], budget, staged=True) == source["sha256"],
+            "entrypoint_source_mismatch",
+        )
+        parser = configparser.ConfigParser(interpolation=None, delimiters=("=",), strict=True)
+        parser.optionxform = str
+        parser.read_string(actual[name].read_text())
+        require(not parser.defaults(), "entrypoint_defaults_rejected")
+        if not parser.has_section("console_scripts"):
+            continue
+        for script, target in parser.items("console_scripts"):
+            require(
+                re.fullmatch(r"[A-Za-z0-9_.-]+", script)
+                and script not in (".", "..")
+                and target.strip()
+                and "\n" not in target,
+                "invalid_console_definition",
+            )
+            definitions[(distribution, "bin/" + script)] = {
+                "group": "console_scripts",
+                "target": target.strip(),
+                "sourceMember": source["member"],
+                "sourceMemberSha256": source["sha256"],
+                "sourceWheelSha256": digest,
+            }
+    return definitions
+
+
 def installed_files(target, expected, distributions, budget, python=None):
     actual, generated, omitted_scripts = {}, {}, []
     total_files = total_bytes = 0
@@ -761,7 +800,8 @@ def installed_files(target, expected, distributions, budget, python=None):
             )
     # Every installed RECORD row must describe an actual file owned by this wheel,
     # or a deliberately omitted generated console script. No arbitrary ../../ paths.
-    rewritten, script_owners = {}, set()
+    definitions = original_console_definitions(actual, expected, distributions, budget)
+    rewritten, script_owners = {}, {}
     provided = {}
     for name, value in expected.items():
         if "providedScript" in value:
@@ -815,8 +855,20 @@ def installed_files(target, expected, distributions, budget, python=None):
                 continue
             if row[0].startswith("../../bin/"):
                 script = relative(row[0][6:])
-                require(script not in script_owners, "duplicate_installed_script_owner")
-                script_owners.add(script)
+                previous = script_owners.get(script, [])
+                definition = definitions.get((dist, script))
+                if previous:
+                    require(script not in provided, "duplicate_provided_script_owner")
+                    require(
+                        definition is not None
+                        and all(
+                            owner["definition"] is not None
+                            and owner["definition"]["group"] == definition["group"]
+                            and owner["definition"]["target"] == definition["target"]
+                            for owner in previous
+                        ),
+                        "shared_script_definition_mismatch",
+                    )
                 item = next((x for x in omitted_scripts if x["path"] == script), None)
                 require(item is not None, "unknown_installed_script")
                 encoded = (
@@ -826,6 +878,15 @@ def installed_files(target, expected, distributions, budget, python=None):
                     row[1:] == ["sha256=" + encoded, str(item["size"])],
                     "installed_script_record_mutation",
                 )
+                ownership = {
+                    "distribution": dist,
+                    "sourceWheelSha256": source_sha,
+                    "recordRow": list(row),
+                    "definition": definition,
+                }
+                script_owners.setdefault(script, []).append(ownership)
+                item["owners"] = script_owners[script]
+                item["sharedGeneratedConsoleScript"] = len(script_owners[script]) > 1
                 if script in provided:
                     preserved = provided[script]
                     require(preserved in owned and python is not None, "script_owner_mismatch")
@@ -874,7 +935,7 @@ def installed_files(target, expected, distributions, budget, python=None):
             "removedRows": removed,
             "relocatedDataRows": relocated,
         }
-    require(script_owners == {x["path"] for x in omitted_scripts}, "unowned_installed_script")
+    require(set(script_owners) == {x["path"] for x in omitted_scripts}, "unowned_installed_script")
     return actual, generated, omitted_scripts, rewritten
 
 
@@ -964,6 +1025,7 @@ def assemble(inputs_path, inputs_sha256, input_root, output=None, *, check_only=
             str(stage / runtime["executable"]),
             "-I",
             "-S",
+            "-B",
             "-c",
             bootstrap,
             str(out / "wheelhouse" / Path(pip["path"]).name),

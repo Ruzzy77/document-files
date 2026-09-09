@@ -38,6 +38,10 @@
   four unique closed native borders and a fully observed opaque-white interior.
   Preserve original values and resolved issue evidence; scans, ambiguous content and
   global completeness remain unverified.
+- Preserve multiple owners of an omitted generated console script only when their
+  pinned source definitions, installed RECORD rows and actual bytes agree. Use
+  explicit no-bytecode mode for isolated PBS bootstrap; environment flags alone
+  are ignored in isolated mode. Preserve the failed development-stage evidence.
 - Add a separate hash-pinned Linux recognition-stage assembler. Check offline inputs
   before executing the selected PBS runtime, preserve source files and archive-link
   provenance, validate installed bytes/RECORD, and keep original auxiliary scripts
