@@ -773,7 +773,7 @@ def test_batch_configuration_identity_and_invalid_settings():
         config, table_ocr_repair="ruled_cells_v2", repair_batch_size=2, repair_max_images=16
     )
     assert DoclingRecognition(changed).identity != original
-    assert DoclingRecognition(changed).identity["adapterVersion"] == "19"
+    assert DoclingRecognition(changed).identity["adapterVersion"] == "20"
     for key, value in (
         ("repair_batch_size", 3),
         ("repair_max_images", True),
@@ -851,23 +851,34 @@ def test_cell_pixel_producer_budget_blocks_frame_hash_crop_and_grid(monkeypatch,
     assert model.cell_observation_pixels == 16000000
 
 
-def test_native_cell_pixel_producer_uses_only_cached_image_and_accounts_grid(monkeypatch):
-    from document_files.document_model import docling_pipeline
-    from document_files.document_model.recognition_coordinates import image_identity
+def cell_framework_result(page):
+    width, height = page.size.width, page.size.height
+    dim = SimpleNamespace(
+        get_media_bbox=lambda: [0, 0, width, height],
+        get_crop_bbox=lambda: [0, 0, width, height],
+        get_angle=lambda: 0,
+    )
+    return SimpleNamespace(
+        _page_decoder=SimpleNamespace(get_page_dimension=lambda: dim),
+        page_width=width,
+        page_height=height,
+        page_number=page.page_no,
+        doc_key="key=" + "c" * 64,
+        _boundary_type="crop_box",
+    )
 
+
+def test_native_cell_pixel_producer_uses_only_cached_image_and_accounts_grid(monkeypatch):
     model, page, snapshot, calls = cell_batch_fixture(monkeypatch)
     canvas = page.get_image()
     page._image_cache = {3.0: canvas}
-    page._backend = SimpleNamespace(_result=object())
+    page._backend = SimpleNamespace(_result=cell_framework_result(page))
     cluster = page.predictions.layout.clusters[0]
-    monkeypatch.setattr(
-        docling_pipeline, "framework_frame", lambda *_: {"canvas": image_identity(canvas)}
-    )
     page.get_image = lambda **_: pytest.fail("native observation must not render")
     model._observe_cached_native_cells(page, snapshot, cluster, cluster.bbox)
     record = snapshot["cellObservations"][0]
     assert record["status"] == "captured" and len(record["slots"]) == 4
-    assert record["preparation"] == {"frameIdentityPixels": 104250, "gridDetectionPixels": 104250}
+    assert record["preparation"] == {"frameIdentityPixels": 0, "gridDetectionPixels": 104250}
     assert model.cell_observation_pixels == record["usage"]["totalExaminedPixels"]
     assert all(s["ocrUnit"] is None for s in record["slots"])
     assert not calls and not snapshot["issues"]
@@ -884,27 +895,23 @@ def test_native_cell_pixel_producer_without_cache_is_explicitly_unavailable(monk
 
 def test_cell_region_failure_consumes_unknown_remaining_reservation(monkeypatch):
     from document_files.document_model import docling_pipeline
-    from document_files.document_model.recognition_coordinates import image_identity
 
     model, page, snapshot, _ = cell_batch_fixture(monkeypatch)
     canvas = page.get_image()
-    page._backend = SimpleNamespace(_result=object())
+    page._backend = SimpleNamespace(_result=cell_framework_result(page))
     cluster = page.predictions.layout.clusters[0]
-    monkeypatch.setattr(
-        docling_pipeline, "framework_frame", lambda *_: {"canvas": image_identity(canvas)}
-    )
 
     def partial_failure(image, **_kwargs):
         with image.crop([0, 0, 5, 5]) as prefix:
             prefix.tobytes()
         raise RuntimeError("partial pixel inspection")
 
-    monkeypatch.setattr(docling_pipeline, "observe_table_cells", partial_failure)
+    monkeypatch.setattr(docling_pipeline, "observe_framework_table_cells", partial_failure)
     model._observe_cell_pixels(page, snapshot, cluster, canvas, [0, 0, 417, 250], {})
     record = snapshot["cellObservations"][0]
     assert record["status"] == "unavailable" and record["unknownWork"] is True
-    assert record["reservedBudgetConsumed"] == 16000000 - 104250
-    assert record["usage"]["totalExaminedPixels"] == 104250  # Only the known frame pass.
+    assert record["reservedBudgetConsumed"] == 16000000
+    assert record["usage"]["totalExaminedPixels"] == 0  # No measured prefix is known.
     assert model.cell_observation_pixels == 16000000
     monkeypatch.setattr(canvas, "crop", lambda *_: pytest.fail("reservation reused"))
     model._observe_cell_pixels(page, snapshot, cluster, canvas, [0, 0, 417, 250], {})
@@ -930,3 +937,26 @@ def test_native_grid_failure_preserves_unknown_consumed_work(monkeypatch):
     assert record["reservedWork"] == {"gridDetectionPixels": 104250}
     assert record["usage"]["totalExaminedPixels"] == 0
     assert model.cell_observation_pixels == 104250
+
+
+def test_cell_observation_tables_share_cumulative_budget_without_rehash_after_exhaustion(
+    monkeypatch,
+):
+    from document_files.document_model import docling_pipeline
+
+    model, page, snapshot, calls = cell_batch_fixture(monkeypatch, repair_max_pixels=700000)
+    canvas = page.get_image()
+    page._backend = SimpleNamespace(_result=cell_framework_result(page))
+    cluster = page.predictions.layout.clusters[0]
+    _, grid = docling_pipeline.remove_grid(canvas, max_pixels=700000)
+    model._observe_cell_pixels(page, snapshot, cluster, canvas, [0, 0, 417, 250], grid)
+    first = snapshot["cellObservations"][0]
+    assert first["status"] == "captured"
+    consumed = first["usage"]["totalExaminedPixels"]
+    assert model.cell_observation_pixels == consumed
+    assert 700000 - consumed < 2 * canvas.width * canvas.height
+    monkeypatch.setattr(canvas, "tobytes", lambda *_: pytest.fail("second table exceeded budget"))
+    monkeypatch.setattr(canvas, "crop", lambda *_: pytest.fail("second table exceeded budget"))
+    model._observe_cell_pixels(page, snapshot, cluster, canvas, [0, 0, 417, 250], grid)
+    assert snapshot["cellObservations"][1]["reason"] == "cell_pixel_budget_exceeded"
+    assert model.cell_observation_pixels == consumed and not calls

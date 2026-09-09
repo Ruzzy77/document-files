@@ -17,7 +17,7 @@ from pathlib import Path
 from .recognition_batches import BATCH_VERSION, RAW_VERSION, batch_rows, run_fingerprint
 from .recognition_cell_observations import (
     cell_ocr_links,
-    observe_table_cells,
+    observe_framework_table_cells,
     unavailable_cell_observation,
 )
 from .recognition_coordinates import (
@@ -563,19 +563,15 @@ def pipeline_class(config, snapshots, restored=None):
             collected = None
             observation_started = False
             try:
-                # framework_frame hashes the full canvas. Do not enter it unless both
-                # its pass and the subsequent canvas/crop identity pass fit.
-                if 2 * frame_pixels + crop_pixels > remaining:
+                # Frame construction and cell observation share one full-canvas
+                # identity pass inside a single operation, never a saved hash.
+                if frame_pixels + crop_pixels > remaining:
                     raise ValueError("cell_pixel_budget_exceeded")
-                preparation["frameIdentityPixels"] = frame_pixels
-                self.cell_observation_pixels += frame_pixels
-                frame = framework_frame(page._backend._result, canvas)
-                if not isinstance(frame, dict):
-                    raise ValueError("source_frame_unavailable")
+                framework_result = page._backend._result
                 observation_started = True
-                collected = observe_table_cells(
+                collected = observe_framework_table_cells(
                     canvas,
-                    source_frame=frame,
+                    framework_result=framework_result,
                     table_crop_bounds=bounds,
                     cluster_id=cluster.id,
                     local_page_number=page.page_no,
@@ -594,7 +590,7 @@ def pipeline_class(config, snapshots, restored=None):
                     cluster_id=cluster.id,
                     local_page_number=page.page_no,
                     reason="cell_pixel_budget_exceeded"
-                    if 2 * frame_pixels + crop_pixels > remaining
+                    if frame_pixels + crop_pixels > remaining
                     else "source_frame_or_cell_pixels_unavailable",
                 )
                 if observation_started:
@@ -645,7 +641,7 @@ def pipeline_class(config, snapshots, restored=None):
             ]
             remaining = config.repair_max_pixels - self.cell_observation_pixels
             pixels = max(0, bounds[2] - bounds[0]) * max(0, bounds[3] - bounds[1])
-            if pixels <= 0 or 2 * canvas.width * canvas.height + 2 * pixels > remaining:
+            if pixels <= 0 or canvas.width * canvas.height + 2 * pixels > remaining:
                 snapshot.setdefault("cellObservations", []).append(
                     unavailable_cell_observation(
                         cluster_id=cluster.id,

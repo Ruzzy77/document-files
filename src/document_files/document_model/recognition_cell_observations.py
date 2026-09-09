@@ -6,10 +6,10 @@ import hashlib
 import re
 from copy import deepcopy
 
-from .recognition_coordinates import _frame_to_page, fingerprint, image_identity
+from .recognition_coordinates import _frame_to_page, fingerprint, framework_frame, image_identity
 from .table_ocr_repair import resolved_cell_geometry
 
-VERSION = "document-files.cell-observation.v1"
+VERSION = "document-files.cell-observation.v2"
 MAX_CELLS = 4096
 MAX_PIXELS = 64000000
 
@@ -98,7 +98,27 @@ def unavailable_cell_observation(*, cluster_id, local_page_number, reason):
     return record
 
 
-def observe_table_cells(
+def observe_table_cells(canvas, *, source_frame, **options):
+    """Standalone supplied-frame path: independently hash the actual canvas."""
+    if "framework_result" in options:
+        raise TypeError("standalone observation does not accept a framework result")
+    return _observe_table_cells(canvas, source_frame=source_frame, **options)
+
+
+def observe_framework_table_cells(canvas, *, framework_result, **options):
+    """Build the frame and inspect the same in-process canvas as one bounded operation.
+
+    No caller-supplied image identity or trusted-frame flag is accepted. The
+    framework's actual full-canvas hash is consumed immediately in this call.
+    """
+    if framework_result is None:
+        raise ValueError("framework result unavailable")
+    return _observe_table_cells(
+        canvas, source_frame=None, framework_result=framework_result, **options
+    )
+
+
+def _observe_table_cells(
     canvas,
     *,
     source_frame,
@@ -110,6 +130,7 @@ def observe_table_cells(
     max_pixels=16000000,
     max_cells=4096,
     preparation_pixels=None,
+    framework_result=None,
 ):
     """Inspect supplied pixels only. Boxes are canvas TOPLEFT; grid is crop-local."""
     if (
@@ -127,7 +148,7 @@ def observe_table_cells(
     ):
         raise ValueError("cell preparation budget invalid")
     preparation_cost = sum(preparation.values())
-    if not isinstance(source_frame, dict):
+    if not isinstance(source_frame, dict) and framework_result is None:
         return unavailable_cell_observation(
             cluster_id=cluster_id,
             local_page_number=local_page_number,
@@ -155,7 +176,7 @@ def observe_table_cells(
         "localPageNumber": local_page_number,
         "clusterId": cluster_id,
         "sourceFrame": deepcopy(source_frame),
-        "sourceFrameFingerprint": fingerprint(source_frame),
+        "sourceFrameFingerprint": fingerprint(source_frame) if source_frame is not None else None,
         "canvas": {"size": [width, height], "mode": canvas.mode},
         "tableCrop": {"pixelBounds": bounds},
         "geometry": geometry,
@@ -178,7 +199,28 @@ def observe_table_cells(
     # Identity hashing is included in the same pixel-work budget, not a hidden extra pass.
     identity_cost = width * height + _area(bounds)
     if preparation_cost + identity_cost <= max_pixels:
-        record["canvas"] = image_identity(canvas)
+        if framework_result is not None:
+            # framework_frame is the only full-canvas read on this path; both the
+            # frame geometry and its identity come from this exact image object.
+            source_frame = framework_frame(framework_result, canvas)
+            actual_identity = source_frame["canvas"]
+        else:
+            actual_identity = image_identity(canvas)
+            if source_frame.get("canvas") != actual_identity:
+                raise ValueError("supplied frame does not match actual canvas pixels")
+        if (
+            type(local_page_number) is not int
+            or type(source_frame.get("localPageNumber")) is not int
+            or source_frame["localPageNumber"] != local_page_number
+            or source_frame.get("requestedCropTopLeft") is not None
+            or source_frame.get("cropPixelBounds") != [0, 0, width, height]
+            or actual_identity.get("size") != [width, height]
+            or actual_identity.get("mode") != canvas.mode
+        ):
+            raise ValueError("cell frame is not this complete local page canvas")
+        record["canvas"] = deepcopy(actual_identity)
+        record["sourceFrame"] = deepcopy(source_frame)
+        record["sourceFrameFingerprint"] = fingerprint(source_frame)
         with canvas.crop(bounds) as crop:
             record["tableCrop"]["image"] = image_identity(crop)
         record["identitiesMeasured"] = True

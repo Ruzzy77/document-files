@@ -285,16 +285,19 @@ change the source PDF page. Incomplete or failed output remains evidence, not a
 completed or reusable observation. Prior policy identities cannot resume as this
 contract. These are internal observation records; the public result v1 is unchanged.
 
-Adapter v19 adds `document-files.cell-observation.v1` records. It inspects existing
+Adapter v20 emits `document-files.cell-observation.v2` records. It inspects existing
 canvas pixels for the full cell, interior, OCR window and remaining edge bands without
-additional rendering. Pixel, cell and preparation work are bounded; low-contrast and
+additional rendering. Frame creation and observation share one actual full-canvas
+hash inside one operation; separately supplied frames still require an independent
+pixel hash comparison. This avoids duplicate work without increasing the pixel budget.
+Pixel, cell and preparation work are bounded; low-contrast and
 nonopaque pixels are not silently discarded. `recognitionCellPixelObservations`
 provenance separates internal measurement checks, original-page coordinate linkage
 and unique table/slot correspondence. Import does not recompute unavailable RGB
 pixels or approve OCR accuracy. Raw OCR-link evidence retains an `unverified` execution
 status even when references agree. No new value binding, blank-value assertion or
 content-completeness approval follows; older adapter checkpoints cannot be resumed
-under the new identity.
+under the new identity, and v1 cell-observation records are not accepted as v2 evidence.
 
 Recognition adapter v12 records `document-files.recognition-coordinates.v1` evidence
 for captured OCR input pixels through the actual framework crop/rotation and the

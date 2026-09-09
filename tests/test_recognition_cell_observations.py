@@ -250,3 +250,174 @@ def test_exhausted_pixel_budget_never_reads_or_crops_supplied_canvas(monkeypatch
     monkeypatch.setattr(image, "crop", forbidden)
     record = collect(image, frame, grid, max_pixels=0)
     assert len(record["slots"]) == 4 and record["usage"]["totalExaminedPixels"] == 0
+
+
+def framework_result(frame):
+    from types import SimpleNamespace
+
+    dim = SimpleNamespace(
+        get_media_bbox=lambda: frame["normalizedMediaBox"],
+        get_crop_bbox=lambda: frame["normalizedCropBox"],
+        get_angle=lambda: frame["normalizedAngle"],
+    )
+    return SimpleNamespace(
+        _page_decoder=SimpleNamespace(get_page_dimension=lambda: dim),
+        page_width=frame["pageSize"][0],
+        page_height=frame["pageSize"][1],
+        page_number=frame["localPageNumber"],
+        doc_key=frame["documentKey"],
+        _boundary_type=frame["boundaryType"],
+    )
+
+
+def framework_collect(image, frame, grid, **options):
+    from document_files.document_model.recognition_cell_observations import (
+        observe_framework_table_cells,
+    )
+
+    return observe_framework_table_cells(
+        image,
+        framework_result=framework_result(frame),
+        table_crop_bounds=[0, 0, 60, 40],
+        cluster_id=3,
+        local_page_number=1,
+        grid=grid,
+        **options,
+    )
+
+
+def test_framework_observation_reads_full_canvas_once_and_keeps_frame_and_links(monkeypatch):
+    image, frame, grid, mapping = fixture()
+    standalone = collect(image, frame, grid)
+    raw = image.tobytes
+    reads = []
+
+    def count(*args, **kwargs):
+        reads.append(1)
+        return raw(*args, **kwargs)
+
+    monkeypatch.setattr(image, "tobytes", count)
+    record = framework_collect(image, frame, grid)
+    assert len(reads) == 1
+    assert record == standalone
+    assert record["usage"]["identityPixels"] == 4800
+    assert record["preparation"]["frameIdentityPixels"] == 0
+    assert check(record, mapping)["status"] == "verified"
+    assert record["localPageNumber"] == record["sourceFrame"]["localPageNumber"] == 1
+
+
+@pytest.mark.parametrize("change", ["hash", "other_canvas", "page", "crop"])
+def test_standalone_frame_mismatch_is_rejected_from_actual_pixels(change):
+    image, frame, grid, _ = fixture()
+    if change == "hash":
+        frame["canvas"]["sha256"] = "0" * 64
+    elif change == "other_canvas":
+        image.putpixel((10, 10), (254, 254, 254))
+    elif change == "page":
+        frame["localPageNumber"] = 2
+    else:
+        frame["requestedCropTopLeft"] = [0, 0, 10, 10]
+    with pytest.raises(ValueError):
+        collect(image, frame, grid)
+
+
+def test_framework_path_uses_current_canvas_not_external_frame_identity():
+    image, frame, grid, mapping = fixture()
+    image.putpixel((10, 10), (254, 254, 254))
+    frame["canvas"]["sha256"] = (
+        "0" * 64
+    )  # This object is never an identity input on framework path.
+    record = framework_collect(image, frame, grid)
+    assert record["canvas"] == image_identity(image)
+    assert record["slots"][0]["regions"]["interior"]["nonWhiteRGBPixels"] == 1
+    assert check(record, mapping)["status"] == "verified"
+    with pytest.raises(TypeError):
+        collect(image, frame, grid, framework_result=framework_result(frame))
+
+
+def test_framework_budget_denial_never_creates_frame_or_reads_pixels(monkeypatch):
+    from document_files.document_model import recognition_cell_observations as module
+
+    image, frame, grid, _ = fixture()
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("budget denial must precede framework frame creation")
+
+    monkeypatch.setattr(module, "framework_frame", forbidden)
+    monkeypatch.setattr(image, "tobytes", forbidden)
+    monkeypatch.setattr(image, "crop", forbidden)
+    record = framework_collect(image, frame, grid, max_pixels=4799)
+    assert record["status"] == "partial" and record["usage"]["totalExaminedPixels"] == 0
+    assert not record["identitiesMeasured"]
+
+
+def test_framework_wrong_local_page_is_not_linked():
+    image, frame, grid, _ = fixture()
+    frame["localPageNumber"] = 2
+    with pytest.raises(ValueError):
+        framework_collect(image, frame, grid)
+
+
+def test_previous_cell_observation_version_is_not_reused():
+    image, frame, grid, mapping = fixture()
+    record = collect(image, frame, grid)
+    record["version"] = "document-files.cell-observation.v1"
+    record["fingerprint"] = fingerprint(record)
+    assert check(record, mapping)["status"] == "unverified"
+
+
+def test_large_synthetic_canvas_twelve_slots_fit_single_pass_budget(monkeypatch):
+    """Recorded development geometry, but entirely synthetic pixels and no renderer/OCR."""
+    from document_files.document_model.recognition_cell_observations import (
+        observe_framework_table_cells,
+    )
+
+    _, frame, _, _ = fixture()
+    from PIL import Image
+
+    with Image.new("RGB", (2480, 3509), "white") as image:
+        frame.update(
+            pageSize=[595, 842],
+            normalizedMediaBox=[0, 0, 595, 842],
+            normalizedCropBox=[0, 0, 595, 842],
+        )
+        grid = {
+            "horizontalLines": [
+                [4, 4, 2134, 5],
+                [4, 213, 2134, 4],
+                [4, 421, 2134, 4],
+                [4, 630, 2134, 4],
+            ],
+            "verticalLines": [
+                [4, 4, 4, 630],
+                [738, 4, 4, 630],
+                [1079, 4, 5, 630],
+                [1542, 4, 4, 630],
+                [2134, 4, 4, 630],
+            ],
+        }
+        raw = image.tobytes
+        reads = []
+
+        def count(*args, **kwargs):
+            reads.append(1)
+            return raw(*args, **kwargs)
+
+        monkeypatch.setattr(image, "tobytes", count)
+        record = observe_framework_table_cells(
+            image,
+            framework_result=framework_result(frame),
+            table_crop_bounds=[169, 606, 2308, 1240],
+            cluster_id=0,
+            local_page_number=1,
+            grid=grid,
+            max_pixels=16000000,
+        )
+        assert len(reads) == 1
+        assert record["status"] == "captured" and len(record["slots"]) == 12
+        assert record["usage"]["identityPixels"] == 8702320 + 1356126
+        assert record["usage"]["totalExaminedPixels"] <= 16000000
+        assert all(s["measurementStatus"] == "measured" for s in record["slots"])
+        # The old separate full-frame hash alone would exceed this same budget.
+        assert record["usage"]["totalExaminedPixels"] + 8702320 > 16000000
+        assert record["blankValueProven"] is False and record["contentCoverageVerified"] is False

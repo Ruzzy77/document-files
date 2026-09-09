@@ -293,11 +293,27 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After Linux ARM64, adapter v19, image-export checks and input v2 integration,
-core regression passed **1,300 tests, with 154 skipped and 12 subtests**; Ruff and formatting checks
-passed. The separate recognition-runtime overlay passed 222 PDF/OCR tests. Core skips include optional recognition dependencies and actual
+After adapter v20 and cell-observation v2 integration, core regression passed
+**1,300 tests, with 165 skipped and 12 subtests**; Ruff and formatting checks passed.
+The separate recognition-runtime overlay passed **233 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
+
+A fresh adapter v19 development run returned in 7.88 seconds of recognition
+(8.39 seconds including supervision), with child exit 0 and no known remaining
+processes. Its 109 nodes, 357 bindings, seven issues and coverage matched the earlier
+v18 result exactly. Twelve native-page cell slots were linked, but the scan-page
+observation remained unavailable: hashing its full canvas twice exceeded the unchanged
+16-million-pixel observation budget. Adapter v20 removes that duplicate hash within
+one operation while independently checking externally supplied frames. Pixel evidence
+does not resolve the remaining blank/line/content-completeness questions.
+
+The 117 acquired ARM inputs were independently rehashed and inspected without installation.
+Selected ELF files matched AArch64, but OpenCV's GUI dependencies, an empty Qt interpreter
+entry, torchvision's bundled loader and several bundled-library notices remain unresolved.
+A pinned-source ANTLR 4.9.3 pure Python wheel was built once offline in a fresh isolated
+environment; its 56 source files were preserved byte-for-byte. These are input-preparation
+results, not complete recognition-stage, redistribution or target-execution approval.
 
 ### Earlier release-preparation history
 

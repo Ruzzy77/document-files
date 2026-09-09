@@ -18,7 +18,10 @@
   v1 blocking behavior. Preserve unresolved stage requirements separately, bind each
   selected file to an exact source-manifest row, and keep model reuse local-copy-only.
 - Record bounded full-cell, interior, OCR-window and edge pixels separately from OCR
-  values (adapter v19). Link verified frames to unique unmerged table geometry only;
+  values (adapter v20, cell-observation v2). Build the source frame and pixel identity
+  together to avoid a second full-canvas hash without increasing the pixel budget;
+  independently recheck externally supplied frames. Link verified frames to unique
+  unmerged table geometry only;
   missing pixels, ambiguous layouts and OCR-link execution remain unverified. Preserve
   existing values, issues and partial status; no blank/completeness approval follows.
 
