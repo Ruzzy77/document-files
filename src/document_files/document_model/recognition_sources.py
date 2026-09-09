@@ -5,6 +5,378 @@ from __future__ import annotations
 from .docling_adapter import box
 from .native import bind_spans
 
+ORDERED_SOURCE_VERSION = "document-files.ordered-ocr-source.v2"
+
+
+def _validated_raw_words(capture):
+    """Check the saved TSV and detections together, without interpreting text."""
+    import csv
+    import hashlib
+    import io
+
+    from .table_ocr_repair import parse_tsv
+
+    raw = capture["tsv"].encode("utf-8")
+    if (
+        capture.get("status") != "complete"
+        or hashlib.sha256(raw).hexdigest() != capture["tsvSha256"]
+        or raw_pass_fingerprint(capture) != capture["fingerprint"]
+    ):
+        raise ValueError
+    words = [
+        (i, r)
+        for i, r in enumerate(csv.DictReader(io.StringIO(capture["tsv"]), delimiter="\t"))
+        if r.get("text", "").strip()
+    ]
+    detections = capture["detections"]
+    if len(words) != len(detections) or any(
+        d.get("ordinal") != i or d.get("raw") != r or d.get("text") != r["text"]
+        for (i, r), d in zip(words, detections, strict=True)
+    ):
+        raise ValueError
+    parsed = parse_tsv(raw)
+    accepted = [d for d in detections if d.get("accepted") is True]
+    if len(accepted) != len(parsed) or any(
+        d.get("imageBBox") != {k: r[k] for k in ("left", "top", "width", "height")}
+        or d.get("confidence") != r["conf"]
+        or d["text"] != r["text"]
+        for d, r in zip(accepted, parsed, strict=True)
+    ):
+        raise ValueError
+    return detections
+
+
+def _ordered_source_alignments(doc, payload, structural_ids, *, prefix):
+    """Only unique, whole-target, anchored runs in one verified horizontal OCR line.
+
+    No table cells, reordered/overlapping words, normalized tokens, partial tokens,
+    cross-line joins or guesses about page reading order are accepted.
+    """
+    import math
+    from collections import Counter
+
+    from .recognition_coordinates import coordinate_links, subset_mapping
+
+    result = {
+        "version": ORDERED_SOURCE_VERSION,
+        "batch": prefix,
+        "scope": "single_horizontal_raw_ocr_line_exact_target_sequence_only",
+        "maxComparisons": 65536,
+        "comparisonBudgetUnit": "target_characters_and_token_comparisons",
+        "maxAlignmentPaths": 1024,
+        "comparisons": 0,
+        "truncated": False,
+        "alignments": [],
+        "ambiguousIncompleteLineTargets": [],
+        "ocrTruthVerified": False,
+        "readingOrderVerified": False,
+    }
+    captures, cells = payload.get("rawOCRPasses", []), payload.get("cells", [])
+    if (
+        not isinstance(captures, list)
+        or not isinstance(cells, list)
+        or (len(captures) > 256 or len(cells) > 8192 or len(structural_ids) > 2048)
+    ):
+        result["truncated"] = True
+        return result
+    table_nodes = {c["sourceRef"] for t in doc.tables.values() for c in t["cells"]}
+    # Exclude non-cell text geometrically inside a table as well: line order
+    # cannot choose among columns or make a merged-cell decision.
+    table_boxes = [(t.get("page"), t.get("locator", {}).get("bbox")) for t in doc.tables.values()]
+    source_sha = doc.provenance.get("sourceSha256")
+    renders = {
+        r["capture"].get("fingerprint"): r["capture"]
+        for r in doc.provenance.get("pdfPageRenderCaptures", [])
+        if isinstance(r.get("capture"), dict)
+    }
+
+    def contained(a, b):
+        return (
+            b
+            and all(math.isfinite(v) for v in (*a, *b))
+            and (b[0] <= a[0] < a[2] <= b[2] and b[1] <= a[1] < a[3] <= b[3])
+        )
+
+    def coords(b):
+        if not b or b.get("origin") != "TOPLEFT":
+            raise ValueError
+        values = [b[k] for k in ("left", "top", "right", "bottom")]
+        if not all(type(v) in (float, int) and math.isfinite(v) for v in values):
+            raise ValueError
+        return values
+
+    def overlaps_table(bounds, page):
+        for table_page, raw_bounds in table_boxes:
+            if table_page != page:
+                continue
+            if not raw_bounds:
+                return True  # Cannot establish that this target is outside the table.
+            table = coords(raw_bounds)
+            if min(bounds[2], table[2]) > max(bounds[0], table[0]) and min(
+                bounds[3], table[3]
+            ) > max(bounds[1], table[1]):
+                return True
+        return False
+
+    proposals = {}
+    uncertain_lines = {}
+    path_count = 0
+
+    def spend(cost=1):
+        if result["comparisons"] + cost > result["maxComparisons"]:
+            result["truncated"] = True
+            raise ValueError("ordered source comparison budget exceeded")
+        result["comparisons"] += cost
+
+    try:
+        if sum(len(c.get("tsv", "")) for c in captures) > 4_000_000:
+            result["truncated"] = True
+            return result
+        cell_index = {}
+        for ci, cell in enumerate(cells):
+            if (
+                cell.get("fromOcr") is not True
+                or cell.get("sourceKind") != "ocr"
+                or cell.get("text") != cell.get("raw")
+                or cell.get("candidateStatus") == "unresolved_conflict"
+                or (cell.get("structureView") or {}).get("selection") == "ruling_line_excluded"
+            ):
+                continue
+            b = box(cell.get("bbox"), None)  # only an explicit TOPLEFT source is supported
+            if b is None:
+                continue
+            key = (cell.get("page_no"), cell.get("raw"), tuple(coords(b)))
+            cell_index.setdefault(key, []).append(ci)
+        links = {}
+        page_heights = {}
+        for imported in doc.provenance.get("recognitionCoordinateEvidence", []):
+            if imported.get("status") != "verified" or imported.get("sourceSha256") != source_sha:
+                continue
+            evidence = imported["evidence"]
+            mapping = evidence["mapping"]
+            render = renders.get(mapping["originalRenderFingerprint"])
+            if (
+                not render
+                or render["sourceSha256"] != source_sha
+                or (
+                    render["fingerprint"] != page_render_fingerprint(render)
+                    or imported.get("page") != render["page_no"]
+                    or render["intrinsicRotation"] != 0
+                    or mapping != subset_mapping(render, mapping["subsetRender"])
+                    or mapping["status"] != "verified"
+                    or mapping["subsetRender"]["fingerprint"]
+                    != page_render_fingerprint(mapping["subsetRender"])
+                )
+            ):
+                continue
+            w, h = render["pageSizeCanvasUnits"]
+            if list(render["pageBoxes"]["effective"]) != [0, 0, w, h] or list(
+                render["pageBoxes"]["mediaDeclared"]
+            ) != [0, 0, w, h]:
+                continue
+            computed = coordinate_links(mapping, captures, payload.get("tableRepairs", []))
+            if computed != evidence["rawPassLinks"] or len(
+                {c["fingerprint"] for c in captures}
+            ) != len(captures):
+                continue
+            for link in computed:
+                if link["status"] == "verified":
+                    links[link["passFingerprint"]] = link
+                    page_heights[link["passFingerprint"]] = h
+        for capture_index, capture in enumerate(captures):
+            link = links.get(capture.get("fingerprint"))
+            if (
+                not link
+                or capture.get("sourcePass") != "page_ocr"
+                or capture["transform"].get("orientation") != 0
+            ):
+                continue
+            detections = _validated_raw_words(capture)
+            groups = {}
+            for di, detection in enumerate(detections):
+                raw = detection["raw"]
+                line = tuple(int(raw[k]) for k in ("page_num", "block_num", "par_num", "line_num"))
+                if any(v <= 0 for v in line) or line[0] != 1 or raw.get("level") != "5":
+                    raise ValueError("raw line identity unavailable")
+                groups.setdefault(line, []).append((di, detection))
+            for line, group in groups.items():
+                if len(group) > 128:
+                    result["truncated"] = True
+                    raise ValueError("ordered source line token budget exceeded")
+                if len(group) < 3:
+                    continue
+                tokens = []
+                invalid = False
+                last_right, last_word = -math.inf, 0
+                top, bottom = -math.inf, math.inf
+                for di, detection in group:
+                    text = detection["text"]
+                    b = detection["imageBBox"]
+                    image_box = [
+                        b["left"],
+                        b["top"],
+                        b["left"] + b["width"],
+                        b["top"] + b["height"],
+                    ]
+                    word = int(detection["raw"]["word_num"])
+                    if (
+                        detection.get("accepted") is not True
+                        or not text
+                        or any(c.isspace() for c in text)
+                        or word != last_word + 1
+                        or image_box[0] < last_right
+                        or not contained(image_box, link["sourceSupportedInputPixelBounds"])
+                    ):
+                        invalid = True
+                        break
+                    a, b_, c, d, e, f = link["inputPixelToOriginalPageAffine"]
+                    # The initial version deliberately supports only the actual
+                    # unrotated horizontal transform and its full source bounds.
+                    if a <= 0 or d >= 0 or b_ != 0 or c != 0:
+                        invalid = True
+                        break
+                    height = page_heights[capture["fingerprint"]]
+                    mapped = [
+                        a * image_box[0] + e,
+                        height - (d * image_box[1] + f),
+                        a * image_box[2] + e,
+                        height - (d * image_box[3] + f),
+                    ]
+                    reported = detection["pageBBox"]
+                    pb = [reported[k] for k in ("l", "t", "r", "b")]
+                    if reported.get("coord_origin") != "TOPLEFT" or not all(
+                        math.isclose(x, y, abs_tol=1e-7, rel_tol=1e-9)
+                        for x, y in zip(mapped, pb, strict=True)
+                    ):
+                        invalid = True
+                        break
+                    indices = cell_index.get((capture["page_no"], text, tuple(pb)), [])
+                    if len(indices) != 1:
+                        invalid = True
+                        break
+                    tokens.append((di, indices[0], text, pb))
+                    last_right, last_word = image_box[2], word
+                    top, bottom = max(top, image_box[1]), min(bottom, image_box[3])
+                if invalid or top >= bottom:
+                    # A failed typed-source/geometry match cannot erase a second
+                    # raw occurrence and make the remaining occurrence unique.
+                    uncertain_lines.setdefault(capture_index, []).append(
+                        [detection["text"] for _, detection in group]
+                    )
+                    continue
+                for target in structural_ids:
+                    if target in table_nodes:
+                        continue
+                    node = doc.nodes[target]
+                    loc = node.get("sourceStructure", {})
+                    target_text = node.get("originalRecognitionText", node["text"])
+                    spend(len(target_text))
+                    if (
+                        loc.get("page") != capture["page_no"]
+                        or not target_text
+                        or target_text != node["text"]
+                        or target_text.strip() != target_text
+                        or len(target_text) > 8192
+                    ):
+                        continue
+                    target_box = coords(loc.get("bbox"))
+                    if overlaps_table(target_box, capture["page_no"]):
+                        continue
+                    for start_index in range(len(tokens)):
+                        spend()
+                        position, selected = 0, []
+                        for di, ci, text, pb in tokens[start_index:]:
+                            spend(len(text))
+                            if (
+                                not contained(pb, target_box)
+                                or overlaps_table(pb, capture["page_no"])
+                                or not target_text.startswith(text, position)
+                            ):
+                                break
+                            end = position + len(text)
+                            if end < len(target_text) and not target_text[end].isspace():
+                                break  # No token splitting or merging against target words.
+                            selected.append(
+                                {
+                                    "rawRef": f"{prefix}:raw:{capture_index}:{di}",
+                                    "sourceCellIndex": ci,
+                                    "targetRef": target,
+                                    "targetStart": position,
+                                    "targetEnd": end,
+                                }
+                            )
+                            position = end
+                            while position < len(target_text) and target_text[position].isspace():
+                                spend()
+                                position += 1
+                            if position == len(target_text):
+                                words = [
+                                    target_text[x["targetStart"] : x["targetEnd"]] for x in selected
+                                ]
+                                if (
+                                    len(words) >= 3
+                                    and target_text.count(words[0]) == 1
+                                    and target_text.count(words[-1]) == 1
+                                    and any(target_text.count(t) > 1 for t in words)
+                                ):
+                                    witness = {
+                                        "targetRef": target,
+                                        "targetText": target_text,
+                                        "targetGeometry": loc,
+                                        "rawPassFingerprint": capture["fingerprint"],
+                                        "coordinateLink": link,
+                                        "line": list(line),
+                                        "sequence": selected,
+                                    }
+                                    fp = page_render_fingerprint(witness)
+                                    path_count += 1
+                                    if path_count > result["maxAlignmentPaths"]:
+                                        result["truncated"] = True
+                                        raise ValueError("ordered source path budget exceeded")
+                                    proposals.setdefault(target, []).append(
+                                        (selected, fp, words, capture_index)
+                                    )
+                                break
+        candidates = []
+        for paths in proposals.values():
+            if len(paths) != 1:
+                continue
+            selected, fp, words, capture_index = paths[0]
+            ambiguous = False
+            for raw_words in uncertain_lines.get(capture_index, []):
+                spend(len(raw_words) * len(words))
+                if any(
+                    raw_words[i : i + len(words)] == words
+                    for i in range(len(raw_words) - len(words) + 1)
+                ):
+                    ambiguous = True
+                    break
+            if ambiguous:
+                result["ambiguousIncompleteLineTargets"].append(selected[0]["targetRef"])
+                continue
+            for entry, text in zip(selected, words, strict=True):
+                target_text = doc.nodes[entry["targetRef"]].get(
+                    "originalRecognitionText", doc.nodes[entry["targetRef"]]["text"]
+                )
+                if target_text.count(text) > 1:
+                    candidates.append({**entry, "witnessFingerprint": fp})
+        raw_counts = Counter(e["rawRef"] for e in candidates)
+        cell_counts = Counter(e["sourceCellIndex"] for e in candidates)
+        for entry in candidates:
+            if raw_counts[entry["rawRef"]] == cell_counts[entry["sourceCellIndex"]] == 1:
+                result["alignments"].append(entry)
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        IndexError,
+        AttributeError,
+        OverflowError,
+        ZeroDivisionError,
+    ):
+        result["alignments"] = []
+    return result
+
 
 def import_source_observations(doc, payload, exported, structural_ids, *, prefix):
     """Return only unassigned OCR candidates; matched originals stay as evidence.
@@ -32,6 +404,10 @@ def import_source_observations(doc, payload, exported, structural_ids, *, prefix
     binding_index = {}
     for binding in doc.bindings.values():
         binding_index.setdefault(binding["sourceRef"], []).append(binding)
+    ordered = _ordered_source_alignments(doc, payload, structural_ids, prefix=prefix)
+    ordered["fingerprint"] = page_render_fingerprint(ordered)
+    doc.provenance.setdefault("recognitionOrderedSourceAlignments", []).append(ordered)
+    ordered_cells = {e["sourceCellIndex"]: e for e in ordered["alignments"]}
     primary = []
     imported_refs = []
 
@@ -129,12 +505,23 @@ def import_source_observations(doc, payload, exported, structural_ids, *, prefix
             if raw and cell["text"] == raw and text.count(raw) == 1:
                 start = text.index(raw)
                 matching.append((target, start, start + len(raw)))
+        order_match = ordered_cells.get(index)
+        if order_match and order_match["targetRef"] in adjacent:
+            matching.append(
+                (order_match["targetRef"], order_match["targetStart"], order_match["targetEnd"])
+            )
         # Structural table cells are preferred only when they carry the exact text.
         cell_matches = [m for m in matching if m[0] in table_refs]
         if cell_matches:
             matching = cell_matches
         if len(matching) == 1:
             target, start, end = matching[0]
+            if order_match and (target, start, end) != (
+                order_match["targetRef"],
+                order_match["targetStart"],
+                order_match["targetEnd"],
+            ):
+                order_match = None
             doc.nodes[ref]["semanticInput"] = {
                 "role": "source_overlap_not_independent",
                 "representativeRefs": [target],
@@ -149,7 +536,17 @@ def import_source_observations(doc, payload, exported, structural_ids, *, prefix
                     else "/text",
                     "targetStart": start,
                     "targetEnd": end,
-                    "basis": "exact_unique_text_and_geometry",
+                    "basis": "exact_unique_ocr_line_order_v1"
+                    if order_match
+                    else "exact_unique_text_and_geometry",
+                    **(
+                        {
+                            "orderedAlignmentFingerprint": ordered["fingerprint"],
+                            "rawRef": order_match["rawRef"],
+                        }
+                        if order_match
+                        else {}
+                    ),
                     "truthVerified": False,
                 }
             )
@@ -234,7 +631,7 @@ def import_source_observations(doc, payload, exported, structural_ids, *, prefix
                 }
             )
     raw_ledger = import_raw_ocr_ledger(
-        doc, payload, exported, structural_ids, imported_refs, prefix=prefix
+        doc, payload, exported, structural_ids, imported_refs, prefix=prefix, ordered=ordered
     )
     doc.provenance.setdefault("recognitionSourceObservations", []).append(
         {
@@ -270,20 +667,18 @@ def raw_pass_fingerprint(capture):
     ).hexdigest()
 
 
-def import_raw_ocr_ledger(doc, payload, exported, structural_ids, imported_refs, *, prefix):
+def import_raw_ocr_ledger(
+    doc, payload, exported, structural_ids, imported_refs, *, prefix, ordered=None
+):
     """Account returned word detections, not undetected content or OCR correctness.
 
     Raw captures are immutable provenance. This derived ledger never invents a blank,
     suppresses a conflict, or promotes the document's content-completeness status.
     """
-    import csv
-    import hashlib
-    import io
     import math
     from copy import deepcopy
 
-    from .table_ocr_repair import parse_tsv
-
+    ordered_raw = {e["rawRef"]: e for e in (ordered or {}).get("alignments", [])}
     captures = payload.get("rawOCRPasses", [])
     expected_pages = {int(p) for p in exported.get("pages", {}) if str(p).isdigit()}
     declared = payload.get("rawCapturePages", [])
@@ -446,33 +841,7 @@ def import_raw_ocr_ledger(doc, payload, exported, structural_ids, imported_refs,
             ):
                 raise ValueError
             seen.add((page, pass_id))
-            raw = capture["tsv"].encode("utf-8")
-            if (
-                capture.get("status") != "complete"
-                or hashlib.sha256(raw).hexdigest() != capture["tsvSha256"]
-                or raw_pass_fingerprint(capture) != capture["fingerprint"]
-            ):
-                raise ValueError
-            words = [
-                (i, r)
-                for i, r in enumerate(csv.DictReader(io.StringIO(capture["tsv"]), delimiter="\t"))
-                if r.get("text", "").strip()
-            ]
-            detections = capture["detections"]
-            if len(words) != len(detections) or any(
-                d.get("ordinal") != i or d.get("raw") != r or d.get("text") != r["text"]
-                for (i, r), d in zip(words, detections, strict=True)
-            ):
-                raise ValueError
-            parsed = parse_tsv(raw)
-            accepted = [d for d in detections if d.get("accepted") is True]
-            if len(accepted) != len(parsed) or any(
-                d.get("imageBBox") != {k: r[k] for k in ("left", "top", "width", "height")}
-                or d.get("confidence") != r["conf"]
-                or d["text"] != r["text"]
-                for d, r in zip(accepted, parsed, strict=True)
-            ):
-                raise ValueError
+            detections = _validated_raw_words(capture)
             if (
                 not isinstance(capture.get("image"), dict)
                 or not isinstance(capture.get("transform"), dict)
@@ -520,12 +889,35 @@ def import_raw_ocr_ledger(doc, payload, exported, structural_ids, imported_refs,
             bounds = box(loc, height)
             text = detection["text"]
             candidates = [r for r in structural_ids if matches(doc.nodes[r], text, bounds, page)]
+            ordered_match = ordered_raw.get(entry["rawRef"])
+            if ordered_match:
+                target = ordered_match["targetRef"]
+                source_ref = f"{prefix}:source:{ordered_match['sourceCellIndex']}"
+                # Only a support actually accepted by this import can affect raw
+                # processing. Never consume an externally supplied result flag.
+                if any(
+                    r.get("kind") == "recognitionSourceSupport"
+                    and r.get("basis") == "exact_unique_ocr_line_order_v1"
+                    and r.get("sourceRef") == source_ref
+                    and r.get("targetRef") == target
+                    and r.get("rawRef") == entry["rawRef"]
+                    and r.get("orderedAlignmentFingerprint") == ordered.get("fingerprint")
+                    for r in doc.relations
+                ):
+                    candidates.append(target)
+                else:
+                    ordered_match = None
             if len(candidates) == 1:
                 target = candidates[0]
                 target_text = doc.nodes[target].get(
                     "originalRecognitionText", doc.nodes[target]["text"]
                 )
-                start = target_text.index(text)
+                start = ordered_match["targetStart"] if ordered_match else target_text.index(text)
+                if target_text[start : start + len(text)] != text:
+                    entry["reason"] = "ordered_target_changed"
+                    continue
+                if ordered_match:
+                    entry["orderedAlignmentFingerprint"] = ordered["fingerprint"]
                 supported.setdefault(target, set()).update(range(start, start + len(text)))
                 entry.update(
                     status="structural_observation",
@@ -633,7 +1025,7 @@ def import_raw_ocr_ledger(doc, payload, exported, structural_ids, imported_refs,
         valid and not unresolved and not unsupported and not unverified_tables and not local_issues
     )
     result = {
-        "version": "document-files.observed-processing-ledger.v3",
+        "version": "document-files.observed-processing-ledger.v4",
         "batch": prefix,
         "scope": "returned_word_detections_and_exported_structure_only",
         "allRawOCRDetectionsPreserved": valid,

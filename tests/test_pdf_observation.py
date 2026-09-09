@@ -1312,7 +1312,7 @@ def test_raw_processing_coverage_does_not_depend_on_other_pages_or_aggregate_iss
     doc.issues.extend(deepcopy(preserved))
     import_source_observations(doc, payload, source, ids, prefix="page1")
     ledger = doc.provenance["recognitionProcessingLedgers"][0]
-    assert ledger["version"] == "document-files.observed-processing-ledger.v3"
+    assert ledger["version"] == "document-files.observed-processing-ledger.v4"
     assert ledger["observedProcessingCoverage"] == "complete"
     assert ledger["processingDependencies"]["issues"] == []
     assert ledger["processingDependencies"]["pages"] == [1]
@@ -1969,7 +1969,7 @@ def test_render_budget_failure_cannot_be_checkpointed_as_complete_conversion(mon
     )
 
 
-def coordinate_parser_fixture(rotation=0):
+def coordinate_parser_fixture(rotation=0, *, cropped=True):
     """Real pinned parsers over synthetic geometry; not OCR quality evidence."""
     import hashlib
     import io
@@ -1989,7 +1989,8 @@ def coordinate_parser_fixture(rotation=0):
     pdf.save()
     original = pdfium.PdfDocument(drawing.getvalue())
     page = original[0]
-    page.set_cropbox(10.25, 15.5, 99.75, 70.25)
+    if cropped:
+        page.set_cropbox(10.25, 15.5, 99.75, 70.25)
     page.set_rotation(rotation)
     page.close()
     content = io.BytesIO()
@@ -2017,7 +2018,7 @@ def coordinate_parser_fixture(rotation=0):
     return parser, results[0], source, subset_mapping(source, captured)
 
 
-def coordinate_ocr_capture(result, mapping, *, orientation=0, origin="TOPLEFT"):
+def coordinate_ocr_capture(result, mapping, *, orientation=0, origin="TOPLEFT", scale=1.37):
     from types import SimpleNamespace
 
     from docling_core.types.doc import BoundingBox, CoordOrigin
@@ -2044,7 +2045,7 @@ def coordinate_ocr_capture(result, mapping, *, orientation=0, origin="TOPLEFT"):
     if origin == "BOTTOMLEFT":
         request = request.to_bottom_left_origin(page_height=result.page_height)
     with capture_framework_crops(page, observer):
-        cropped = result.get_image(scale=1.37, cropbox=request).convert("RGB")
+        cropped = result.get_image(scale=scale, cropbox=request).convert("RGB")
         transformed = cropped.rotate(-orientation, expand=True)
         identity = image_identity(transformed)
         frame = bind_ocr_frame(
@@ -2724,3 +2725,341 @@ def test_visual_correspondence_raw_source_binding_and_target_range_rechecked(rot
             assert result["observations"][0]["geometryStatus"] == "unavailable"
             assert result["status"] == "partial_candidates"
         assert result["contentCoverageVerified"] is False
+
+
+def ordered_source_fixture(variant="valid"):
+    """Real parser coordinate capture with synthetic TSV; never quality evidence."""
+    import hashlib
+
+    from document_files.document_model.pdf import import_page_render
+    from document_files.document_model.recognition_coordinates import coordinate_links
+    from document_files.document_model.recognition_sources import raw_pass_fingerprint
+
+    parser, parsed, render, mapping = coordinate_parser_fixture(cropped=False)
+    capture = coordinate_ocr_capture(parsed, mapping, scale=3)
+    cx, cy, cr, cb = capture["pixelFrame"]["cropPixelBounds"]
+    capture["transform"].update(
+        scale=3,
+        crop={"l": cx / 3, "t": cy / 3, "r": cr / 3, "b": cb / 3, "coord_origin": "TOPLEFT"},
+    )
+    words = ["A", "이", "0", "이", "Z"]
+    if variant in {"two_lines", "two_lines_normalized"}:
+        words *= 2
+    capture.update(status="complete", detections=[])
+    cells = []
+    columns = [
+        "level",
+        "page_num",
+        "block_num",
+        "par_num",
+        "line_num",
+        "word_num",
+        "left",
+        "top",
+        "width",
+        "height",
+        "conf",
+        "text",
+    ]
+    rows = []
+    for index, word in enumerate(words):
+        left, top = 5 + index % 5 * 12, 10 + index // 5 * 20
+        line_no, word_no = 1 + index // 5, index % 5 + 1
+        if variant == "cross_line" and index >= 3:
+            line_no, word_no = 2, index - 2
+        if variant == "overlap" and index == 2:
+            left = 19
+        if variant == "vertical_disjoint" and index == 2:
+            top = 35
+        if variant == "unknown_word_order" and index == 2:
+            word_no = 1
+        row = dict(
+            zip(
+                columns,
+                map(str, [5, 1, 1, 1, line_no, word_no, left, top, 6, 9, 90, word]),
+                strict=True,
+            )
+        )
+        rows.append("\t".join(row[k] for k in columns))
+        pb = {
+            "l": (cx + left) / 3,
+            "t": (cy + top) / 3,
+            "r": (cx + left + 6) / 3,
+            "b": (cy + top + 9) / 3,
+            "coord_origin": "TOPLEFT",
+        }
+        capture["detections"].append(
+            {
+                "ordinal": index,
+                "text": word,
+                "raw": row,
+                "accepted": True,
+                "confidence": 90.0,
+                "imageBBox": {"left": left, "top": top, "width": 6, "height": 9},
+                "pageBBox": pb,
+                "mappingBasis": "synthetic_exact_coordinate_contract",
+            }
+        )
+        cells.append(
+            {
+                "text": word,
+                "raw": word,
+                "sourceKind": "ocr",
+                "fromOcr": True,
+                "page_no": 1,
+                "bbox": deepcopy(pb),
+                "backendCellIndex": index,
+            }
+        )
+    capture["tsv"] = "\t".join(columns) + "\n" + "\n".join(rows) + "\n"
+    capture["tsvSha256"] = hashlib.sha256(capture["tsv"].encode()).hexdigest()
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    if variant == "normalized_source":
+        cells[1]["text"] = "I"
+    if variant == "two_lines_normalized":
+        cells[5]["text"] = "normalized"
+    if variant == "source_conflict":
+        cells[1]["candidateStatus"] = "unresolved_conflict"
+    payload = {
+        "version": "document-files.recognition-source-observations.v1",
+        "cells": cells,
+        "rawCaptureVersion": "document-files.raw-ocr.v1",
+        "rawOCRPasses": [capture],
+        "rawCapturePages": [
+            {"page_no": 1, "captureAvailable": True, "passFingerprints": [capture["fingerprint"]]}
+        ],
+    }
+    doc = ObservationDocument()
+    doc.provenance["sourceSha256"] = render["sourceSha256"]
+    import_page_render(doc, render, source_hash=render["sourceSha256"], page=1)
+    links = coordinate_links(mapping, [capture])
+    assert links[0]["status"] == "verified"
+    doc.provenance["recognitionCoordinateEvidence"] = [
+        {
+            "page": 1,
+            "sourceSha256": render["sourceSha256"],
+            "status": "verified",
+            "evidence": {"mapping": mapping, "rawPassLinks": links},
+        }
+    ]
+    if variant == "unverified_coordinates":
+        doc.provenance["recognitionCoordinateEvidence"][0]["status"] = "unverified"
+    if variant == "wrong_source":
+        doc.provenance["recognitionCoordinateEvidence"][0]["sourceSha256"] = "0" * 64
+    bounds = {
+        "left": (cx + 5) / 3,
+        "top": (cy + 10) / 3,
+        "right": (cx + 59) / 3,
+        "bottom": (cy + (39 if variant in {"two_lines", "two_lines_normalized"} else 19)) / 3,
+        "origin": "TOPLEFT",
+    }
+    if variant == "partial_containment":
+        bounds["left"] += 0.1
+    text = "A 이0 이 Z" if variant == "no_separator" else "A 이 0 이 Z"
+    target = doc.node(
+        "target",
+        text,
+        role="recognized_text",
+        locator={"page": 1, "bbox": bounds},
+        observationBasis="recognition",
+        originalRecognitionText=text,
+    )
+    ids = [target]
+    if variant == "normalized_target":
+        doc.nodes[target]["text"] = "A I 0 I Z"
+    if variant == "duplicate_target":
+        ids.append(
+            doc.node(
+                "other",
+                text,
+                role="recognized_text",
+                locator={"page": 1, "bbox": deepcopy(bounds)},
+                observationBasis="recognition",
+                originalRecognitionText=text,
+            )
+        )
+    if variant == "table":
+        doc.tables["table"] = {
+            "id": "table",
+            "cells": [{"sourceRef": target}],
+            "page": 1,
+            "locator": {"bbox": bounds},
+            "declaredRowCount": 1,
+            "declaredColCount": 1,
+        }
+    doc.issue("recognition_content_completeness_unverified")
+    doc.issue("recognition_table_cells_unobserved", page=1, tableRef="unrelated_missing")
+    return doc, payload, {"pages": {"1": {"size": {"height": 80}}}}, ids
+
+
+def test_exact_single_raw_line_resolves_repeated_tokens_without_rewriting_or_global_completion():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, exported, ids = ordered_source_fixture()
+    original = deepcopy((payload, doc.nodes, doc.issues, doc.coverage))
+    assert import_source_observations(doc, payload, exported, ids, prefix="page1") == []
+    alignment = doc.provenance["recognitionOrderedSourceAlignments"][0]
+    assert [
+        (e["sourceCellIndex"], e["targetStart"], e["targetEnd"]) for e in alignment["alignments"]
+    ] == [(1, 2, 3), (3, 6, 7)]
+    assert alignment["readingOrderVerified"] is False
+    for index in (1, 3):
+        assert (
+            doc.nodes[f"page1:source:{index}"]["semanticInput"]["role"]
+            == "source_overlap_not_independent"
+        )
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert ledger["version"] == "document-files.observed-processing-ledger.v4"
+    assert ledger["unsupportedStructuralText"] == []
+    assert all(e["status"] == "structural_observation" for e in ledger["entries"])
+    assert ledger["observedProcessingCoverage"] == "partial"  # actual other local failure remains
+    assert (
+        ledger["pageContentCompletenessVerified"] is False and ledger["ocrTruthVerified"] is False
+    )
+    assert payload == original[0] and doc.nodes["target"] == original[1]["target"]
+    assert doc.issues[: len(original[2])] == original[2] and doc.coverage == original[3]
+    assert not any(i["code"] == "recognition_unassigned_content" for i in doc.issues)
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "two_lines",
+        "two_lines_normalized",
+        "no_separator",
+        "cross_line",
+        "overlap",
+        "vertical_disjoint",
+        "unknown_word_order",
+        "normalized_source",
+        "normalized_target",
+        "source_conflict",
+        "unverified_coordinates",
+        "wrong_source",
+        "partial_containment",
+        "duplicate_target",
+        "table",
+    ],
+)
+def test_ordered_source_matching_never_guesses_ambiguous_partial_or_cross_cell_alignment(variant):
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, exported, ids = ordered_source_fixture(variant)
+    before = deepcopy(payload)
+    import_source_observations(doc, payload, exported, ids, prefix="page1")
+    alignment = doc.provenance["recognitionOrderedSourceAlignments"][0]
+    assert alignment["alignments"] == []
+    if variant == "two_lines_normalized":
+        assert alignment["ambiguousIncompleteLineTargets"] == ["target"]
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert ledger["observedProcessingCoverage"] == "partial"
+    assert any(e["status"] == "unresolved" for e in ledger["entries"])
+    assert payload == before and doc.coverage == {}
+
+
+def test_ordered_source_alignment_budget_preserves_unresolved_candidates():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, exported, ids = ordered_source_fixture()
+    for index in range(10):
+        ref = f"long-target-{index}"
+        doc.nodes[ref] = {
+            **deepcopy(doc.nodes["target"]),
+            "text": "x" * 8192,
+            "originalRecognitionText": "x" * 8192,
+        }
+        ids.append(ref)
+    before = deepcopy(payload)
+    import_source_observations(doc, payload, exported, ids, prefix="page1")
+    alignment = doc.provenance["recognitionOrderedSourceAlignments"][0]
+    assert alignment["truncated"] is True and alignment["alignments"] == []
+    assert alignment["comparisons"] <= alignment["maxComparisons"]
+    assert payload == before
+    assert (
+        doc.provenance["recognitionProcessingLedgers"][0]["observedProcessingCoverage"] == "partial"
+    )
+
+
+def ordered_source_cross_table_fixture():
+    """A non-cell target extends beyond a table and spans several of its cells."""
+    doc, payload, exported, ids = ordered_source_fixture()
+    first, last = payload["cells"][1]["bbox"], payload["cells"][3]["bbox"]
+    bounds = {
+        "left": first["l"],
+        "top": first["t"],
+        "right": first["r"],
+        "bottom": first["b"],
+        "origin": "TOPLEFT",
+    }
+    ids.append(doc.node("table-cell", "이", locator={"page": 1, "bbox": bounds}))
+    doc.tables["table"] = {
+        "id": "table",
+        "cells": [{"sourceRef": "table-cell"}],
+        "page": 1,
+        "locator": {"bbox": {**bounds, "right": last["r"]}},
+        "declaredRowCount": 1,
+        "declaredColCount": 2,
+    }
+    return doc, payload, exported, ids
+
+
+def test_ordered_noncell_target_overlapping_table_does_not_connect_across_cells():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, exported, ids = ordered_source_cross_table_fixture()
+    import_source_observations(doc, payload, exported, ids, prefix="page1")
+    alignment = doc.provenance["recognitionOrderedSourceAlignments"][0]
+    assert alignment["version"] == "document-files.ordered-ocr-source.v2"
+    assert alignment["alignments"] == []
+    supports = [
+        r
+        for r in doc.relations
+        if r.get("kind") == "recognitionSourceSupport" and r.get("sourceRef") == "page1:source:1"
+    ]
+    assert len(supports) == 1 and supports[0]["targetRef"] == "table-cell"
+    assert supports[0]["basis"] == "exact_unique_text_and_geometry"
+    assert "orderedAlignmentFingerprint" not in supports[0]
+    assert doc.nodes["page1:source:3"]["semanticInput"]["role"] == "unresolved_conflict"
+
+
+def test_table_preference_cannot_label_another_target_with_ordered_support(monkeypatch):
+    from document_files.document_model import recognition_sources
+
+    doc, payload, exported, ids = ordered_source_fixture()
+    prior = recognition_sources._ordered_source_alignments(doc, payload, ids, prefix="page1")
+    assert len(prior["alignments"]) == 2
+    doc, payload, exported, ids = ordered_source_cross_table_fixture()
+    # Exercise the downstream preference independently, with a precomputed
+    # candidate from before the table was known. This is not source evidence.
+    monkeypatch.setattr(
+        recognition_sources, "_ordered_source_alignments", lambda *a, **kw: deepcopy(prior)
+    )
+    recognition_sources.import_source_observations(doc, payload, exported, ids, prefix="page1")
+    support = next(
+        r
+        for r in doc.relations
+        if r.get("kind") == "recognitionSourceSupport" and r.get("sourceRef") == "page1:source:1"
+    )
+    assert support["targetRef"] == "table-cell"
+    assert support["basis"] == "exact_unique_text_and_geometry"
+    assert "orderedAlignmentFingerprint" not in support and "rawRef" not in support
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert "orderedAlignmentFingerprint" not in ledger["entries"][1]
+
+
+def test_ordered_target_touching_but_not_overlapping_table_keeps_line_alignment():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, exported, ids = ordered_source_fixture()
+    bounds = deepcopy(doc.nodes["target"]["sourceStructure"]["bbox"])
+    bounds["left"], bounds["right"] = bounds["right"], bounds["right"] + 10
+    doc.tables["table"] = {
+        "id": "table",
+        "cells": [],
+        "page": 1,
+        "locator": {"bbox": bounds},
+        "declaredRowCount": 1,
+        "declaredColCount": 1,
+    }
+    import_source_observations(doc, payload, exported, ids, prefix="page1")
+    assert len(doc.provenance["recognitionOrderedSourceAlignments"][0]["alignments"]) == 2
