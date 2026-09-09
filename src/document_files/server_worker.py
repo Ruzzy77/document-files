@@ -42,6 +42,7 @@ def build_model_client(profile: ModelProfile):
             settings["modelId"],
             threads=settings.get("threads"),
             threads_batch=settings.get("threadsBatch"),
+            reasoning_budget_tokens=settings.get("reasoningBudgetTokens"),
         )
     raise ModelError("ai_profile_unsupported")
 
@@ -77,9 +78,11 @@ def run_job(
             if profile.kind == "local-pack":
                 pinned = json.loads(record["pack_identity"])
                 identity = client.identity
-                if identity.get("runtimeManifestSha256") != pinned.get("runtimeId") or identity.get(
-                    "modelManifestSha256"
-                ) != pinned.get("modelId"):
+                if (
+                    identity.get("runtimeManifestSha256") != pinned.get("runtimeId")
+                    or identity.get("modelManifestSha256") != pinned.get("modelId")
+                    or identity.get("reasoning") != pinned.get("reasoning")
+                ):
                     raise JobError("profile-pack-changed", 409)
             observation = observation_resolver(profile, parent_managed=True)
             recognition_pin = json.loads(record["pack_identity"]).get("recognitionPackId")

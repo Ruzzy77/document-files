@@ -44,6 +44,24 @@ def safe_timings(value):
     }
 
 
+MANAGED_REASONING_VERSION = "document-files.managed-reasoning.v1"
+MANAGED_MAX_OUTPUT_TOKENS = 3072
+
+
+def managed_reasoning_identity(budget):
+    """Explicit execution policy, not a mutation of the installed model manifest."""
+    if budget is not None and (
+        type(budget) is not int or not 0 <= budget < MANAGED_MAX_OUTPUT_TOKENS
+    ):
+        raise ModelError("ai_configuration_invalid")
+    return {
+        "version": MANAGED_REASONING_VERSION,
+        "mode": "thinking" if budget is not None else "non-thinking",
+        "budgetTokens": budget,
+        "budgetScope": "per-block" if budget is not None else None,
+    }
+
+
 LOCAL_GRAMMAR_VERSION = "document-files.llama-grammar.v1"
 SAMPLING_KEYS = {"temperature", "top_p", "top_k", "seed"}
 # The internal interpreter decodes greedily: structural decisions must not vary
@@ -270,14 +288,7 @@ class ChatCompletionsClient:
             raise ModelError("ai_response_incomplete")
         return result.text
 
-    def infer(self, request: InferenceRequest) -> InferenceResponse:
-        """One bounded HTTP exchange; process-owned jobs provide hard cancellation.
-
-        The optional callback is checked before/after network IO. A synchronous
-        blocked socket is bounded by timeout; it is not falsely reported as an
-        immediately cancellable background request.
-        """
-        request.check_cancelled()
+    def _request_payload(self, request: InferenceRequest):
         payload = {"model": self.model, "messages": request.messages, **self.sampling}
         if self.response_format == "json_schema" and request.output_schema is not None:
             payload["response_format"] = {
@@ -295,6 +306,23 @@ class ChatCompletionsClient:
         max_tokens = request.max_output_tokens or self.max_output_tokens
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        return payload
+
+    def _response_content(self, choice):
+        content = choice["message"]["content"]
+        if not isinstance(content, str):
+            raise ModelError("ai_response_invalid")
+        return content
+
+    def infer(self, request: InferenceRequest) -> InferenceResponse:
+        """One bounded HTTP exchange; process-owned jobs provide hard cancellation.
+
+        The optional callback is checked before/after network IO. A synchronous
+        blocked socket is bounded by timeout; it is not falsely reported as an
+        immediately cancellable background request.
+        """
+        request.check_cancelled()
+        payload = self._request_payload(request)
         body = json.dumps(
             payload,
             ensure_ascii=False,
@@ -327,9 +355,7 @@ class ChatCompletionsClient:
                 "function_call",
             }:
                 raise ModelError("ai_response_invalid")
-            content = choice["message"]["content"]
-            if not isinstance(content, str):
-                raise ModelError("ai_response_invalid")
+            content = self._response_content(choice)
             usage = data.get("usage", {})
             usage = {
                 key: value
@@ -366,12 +392,47 @@ class ChatCompletionsClient:
             raise ModelError("ai_response_invalid") from None
 
 
+class _ManagedLlamaTransport(ChatCompletionsClient):
+    """Only instantiated for an owned, authenticated loopback llama.cpp server."""
+
+    def __init__(self, *args, reasoning_budget_tokens=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        managed_reasoning_identity(reasoning_budget_tokens)
+        self.reasoning_budget_tokens = reasoning_budget_tokens
+
+    def _request_payload(self, request):
+        payload = super()._request_payload(request)
+        if self.reasoning_budget_tokens is not None:
+            output_tokens = request.max_output_tokens or self.max_output_tokens
+            if output_tokens is None or self.reasoning_budget_tokens >= output_tokens:
+                raise ModelError("ai_reasoning_budget_conflict")
+            payload["chat_template_kwargs"] = {"enable_thinking": True}
+            payload["reasoning_budget_tokens"] = self.reasoning_budget_tokens
+            # Keep private reasoning separate even if a server environment default
+            # would otherwise merge it into final content.
+            payload["reasoning_format"] = "deepseek"
+        return payload
+
+    def _response_content(self, choice):
+        # A bounded reasoning run can end before final content begins. Preserve
+        # its finish reason and total usage, never substitute reasoning text.
+        if (
+            self.reasoning_budget_tokens is not None
+            and choice.get("finish_reason") == "length"
+            and choice["message"].get("content") is None
+        ):
+            return ""
+        return super()._response_content(choice)
+
+
 class ManagedPackClient:
     """Lazy CPU llama.cpp slot, pinned to verified installed manifest identities.
 
     ``threads`` (generation) and ``threads_batch`` (prompt processing) are explicit
     execution settings recorded in the identity. Unset keeps the pinned runtime's
-    own defaults; the client never sizes them from the host.
+    own defaults; the client never sizes them from the host. An explicitly set
+    ``reasoning_budget_tokens`` enables thinking with a finite per-block budget;
+    the total output cap is unchanged. None retains the non-thinking default.
     """
 
     def __init__(
@@ -384,6 +445,7 @@ class ManagedPackClient:
         interpretation_protocol: str = "compact",
         threads: int | None = None,
         threads_batch: int | None = None,
+        reasoning_budget_tokens: int | None = None,
     ):
         from ..runtime_packs import PackError, PackStore
 
@@ -392,12 +454,14 @@ class ManagedPackClient:
             for value in (threads, threads_batch)
         ):
             raise ModelError("ai_configuration_invalid")
+        self.reasoning = managed_reasoning_identity(reasoning_budget_tokens)
+        self.reasoning_budget_tokens = reasoning_budget_tokens
         self.interpretation_protocol = interpretation_protocol
         self.parent_managed = parent_managed
         self.threads, self.threads_batch = threads, threads_batch
         self.context_tokens = 8192
         self.input_budget_chars = 16000
-        self.max_output_tokens = 3072
+        self.max_output_tokens = MANAGED_MAX_OUTPUT_TOKENS
         self.runtime_id, self.model_id = runtime_id, model_id
         self._lock = threading.RLock()
         self._slot = threading.Lock()
@@ -438,12 +502,15 @@ class ManagedPackClient:
                 "threadsBatch": threads_batch,
                 "sampling": dict(MANAGED_SAMPLING),
             }
+            if reasoning_budget_tokens is not None:
+                self._identity["reasoning"] = dict(self.reasoning)
+                self._identity["modelManifestThinking"] = model_config.get("thinking")
         except (PackError, OSError):
             raise ModelError("ai_pack_unavailable") from None
 
     @property
     def identity(self) -> dict[str, Any]:
-        return dict(self._identity)
+        return json.loads(json.dumps(self._identity))
 
     @property
     def last_diagnostics(self):
@@ -477,7 +544,7 @@ class ManagedPackClient:
                 or endpoint.model_manifest_sha256 != self._identity["modelManifestSha256"]
             ):
                 raise ModelError("ai_model_changed")
-            self._client = ChatCompletionsClient(
+            self._client = _ManagedLlamaTransport(
                 endpoint.base_url.rstrip("/") + "/chat/completions",
                 endpoint.model,
                 endpoint.api_key,
@@ -485,6 +552,7 @@ class ManagedPackClient:
                 strict_schema=False,
                 interpretation_protocol=self.interpretation_protocol,
                 sampling=MANAGED_SAMPLING,
+                reasoning_budget_tokens=self.reasoning_budget_tokens,
             )
             self._manager = manager
         except BaseException:
@@ -535,11 +603,23 @@ class ManagedPackClient:
             raise ModelError("ai_context_probe_invalid") from None
 
     def _check_context(self, request: InferenceRequest, deadline: float, output_tokens: int):
-        formatted = self._context_json(
-            "/apply-template", {"messages": request.messages}, deadline, request
-        ).get("prompt")
+        payload = {"messages": request.messages}
+        if self.reasoning_budget_tokens is not None:
+            # Use the very same owned transport dialect, schema and mode during
+            # template preparation; otherwise the context reservation can differ.
+            payload = self._client._request_payload(
+                InferenceRequest(
+                    request.messages,
+                    output_schema=_local_grammar_schema(request.output_schema),
+                    max_output_tokens=output_tokens,
+                    timeout=request.timeout,
+                )
+            )
+        formatted = self._context_json("/apply-template", payload, deadline, request).get("prompt")
         if not isinstance(formatted, str):
             raise ModelError("ai_context_probe_invalid")
+        if self.reasoning_budget_tokens is not None and not formatted.rstrip().endswith("<think>"):
+            raise ModelError("ai_reasoning_mode_unsupported")
         tokens = self._context_json(
             "/tokenize",
             {"content": formatted, "add_special": True, "parse_special": True},
@@ -572,6 +652,7 @@ class ManagedPackClient:
             "version": "document-files.inference-diagnostics.v1",
             "stages": {},
             "status": "interrupted",
+            "reasoning": dict(self.reasoning),
         }
 
         def next_stage(name):
@@ -582,6 +663,14 @@ class ManagedPackClient:
 
         try:
             request.check_cancelled()
+            output_tokens = request.max_output_tokens or self.max_output_tokens
+            if output_tokens > self.max_output_tokens:
+                raise ModelError("ai_context_exceeded")
+            if (
+                self.reasoning_budget_tokens is not None
+                and self.reasoning_budget_tokens >= output_tokens
+            ):
+                raise ModelError("ai_reasoning_budget_conflict")
             with self._lock:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -591,9 +680,6 @@ class ManagedPackClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ModelError("ai_timeout")
-            output_tokens = request.max_output_tokens or self.max_output_tokens
-            if output_tokens > self.max_output_tokens:
-                raise ModelError("ai_context_exceeded")
             next_stage("contextCheck")
             diagnostic["inputTokens"] = self._check_context(request, deadline, output_tokens)
             diagnostic["maxOutputTokens"] = output_tokens
@@ -615,6 +701,8 @@ class ManagedPackClient:
             request.check_cancelled()
             diagnostic["serverTimings"] = safe_timings(result.timings)
             diagnostic["finishReason"] = result.finish_reason
+            diagnostic["usage"] = dict(result.usage)
+            diagnostic["finalContentPresent"] = bool(result.text)
             diagnostic["status"] = "response_received"
             return result
         except ModelError as exc:

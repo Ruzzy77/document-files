@@ -43,6 +43,7 @@ def build_service_from_config(path: str | Path) -> JobService:
                     "recognitionPackId",
                     "threads",
                     "threadsBatch",
+                    "reasoningBudgetTokens",
                 },
             }[kind]
             if set(entry) - fields - {"type", "revision"}:
@@ -57,7 +58,14 @@ def build_service_from_config(path: str | Path) -> JobService:
                 not isinstance(value, str) or not value
                 for key, value in settings.items()
                 if key
-                not in {"maxOutputTokens", "strictSchema", "threads", "threadsBatch", "sampling"}
+                not in {
+                    "maxOutputTokens",
+                    "strictSchema",
+                    "threads",
+                    "threadsBatch",
+                    "sampling",
+                    "reasoningBudgetTokens",
+                }
             ):
                 raise ValueError
             if kind == "chat-completions" and "sampling" in settings:
@@ -71,6 +79,15 @@ def build_service_from_config(path: str | Path) -> JobService:
                 if key in settings
             ):
                 raise ValueError
+            if kind == "local-pack" and "reasoningBudgetTokens" in settings:
+                from .interpretation.backends import ModelError, managed_reasoning_identity
+
+                if settings["reasoningBudgetTokens"] is None:
+                    raise ValueError
+                try:
+                    managed_reasoning_identity(settings["reasoningBudgetTokens"])
+                except ModelError:
+                    raise ValueError from None
             if kind == "chat-completions":
                 maximum = settings.get("maxOutputTokens")
                 if (

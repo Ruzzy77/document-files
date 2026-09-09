@@ -99,6 +99,16 @@ def resolve_profile_identity(profile: ModelProfile) -> dict:
             if pack.manifest["kind"] != kind:
                 raise JobError("profile-pack-kind-mismatch", 409)
             identity[key] = pack.manifest_sha256
+        if profile.kind == "local-pack" and "reasoningBudgetTokens" in profile.settings:
+            from .interpretation.backends import ModelError, managed_reasoning_identity
+
+            budget = profile.settings["reasoningBudgetTokens"]
+            if budget is None:
+                raise JobError("invalid-profile")
+            try:
+                identity["reasoning"] = managed_reasoning_identity(budget)
+            except ModelError:
+                raise JobError("invalid-profile") from None
         return identity
     except (PackError, OSError, KeyError):
         raise JobError("profile-pack-unavailable", 409) from None

@@ -17,7 +17,7 @@ from document_files.interpretation.backends import (
 )
 
 
-def response_transport(monkeypatch, *, finish="stop", callback=None):
+def response_transport(monkeypatch, *, finish="stop", callback=None, content="{}", reasoning=None):
     payloads = []
 
     class Response(io.BytesIO):
@@ -26,7 +26,13 @@ def response_transport(monkeypatch, *, finish="stop", callback=None):
     class Opener:
         def open(self, request, *, timeout):
             if request.full_url.endswith("/apply-template"):
-                return Response(json.dumps({"prompt": "formatted-public-fixture"}).encode())
+                mode = (
+                    json.loads(request.data).get("chat_template_kwargs", {}).get("enable_thinking")
+                )
+                suffix = "<think>\n" if mode else ""
+                return Response(
+                    json.dumps({"prompt": "formatted-public-fixture" + suffix}).encode()
+                )
             if request.full_url.endswith("/tokenize"):
                 return Response(json.dumps({"tokens": [1, 2, 3]}).encode())
             payloads.append(json.loads(request.data))
@@ -36,7 +42,12 @@ def response_transport(monkeypatch, *, finish="stop", callback=None):
                 json.dumps(
                     {
                         "model": "test",
-                        "choices": [{"finish_reason": finish, "message": {"content": "{}"}}],
+                        "choices": [
+                            {
+                                "finish_reason": finish,
+                                "message": {"content": content, "reasoning_content": reasoning},
+                            }
+                        ],
                         "usage": {
                             "prompt_tokens": 10,
                             "completion_tokens": 2,
@@ -170,7 +181,7 @@ def fake_packs(monkeypatch, *, changed=False):
     model = SimpleNamespace(
         manifest={
             "kind": "model",
-            "model": {"name": "Qwen3.5-9B", "quantization": "Q4_K_M"},
+            "model": {"name": "Qwen3.5-9B", "quantization": "Q4_K_M", "thinking": False},
             "compatibleRuntimes": [
                 {"id": "runtime", "version": "v1", "manifestSha256": "a" * 64},
             ],
@@ -459,3 +470,193 @@ def test_cloud_sampling_is_explicit_recorded_and_validated(monkeypatch):
     ):
         with pytest.raises(ModelError, match="ai_configuration_invalid"):
             ChatCompletionsClient("http://127.0.0.1:1/v1", "m", sampling=invalid)
+
+
+@pytest.mark.parametrize("budget", [-1, True, False, "1024", 1.5, 3072, 4096])
+def test_managed_reasoning_rejects_invalid_budgets(monkeypatch, tmp_path, budget):
+    events = fake_packs(monkeypatch)
+    with pytest.raises(ModelError, match="ai_configuration_invalid"):
+        ManagedPackClient(tmp_path, "runtime", "model", reasoning_budget_tokens=budget)
+    assert not events
+
+
+@pytest.mark.parametrize("budget", [0, 1024, 3071])
+def test_managed_reasoning_context_transport_identity_and_diagnostics(
+    monkeypatch, tmp_path, budget
+):
+    events = fake_packs(monkeypatch)
+    calls = response_transport(monkeypatch, reasoning="private model reasoning")
+    client = ManagedPackClient(tmp_path, "runtime", "model", reasoning_budget_tokens=budget)
+    default = ManagedPackClient(tmp_path, "runtime", "model")
+    assert "reasoning" not in default.identity  # Old default checkpoint identity is unchanged.
+    identity = client.identity
+    assert identity["reasoning"] == {
+        "version": "document-files.managed-reasoning.v1",
+        "mode": "thinking",
+        "budgetTokens": budget,
+        "budgetScope": "per-block",
+    }
+    assert identity["modelManifestThinking"] is False  # Declaration is not overwritten.
+    probes = []
+    original = client._context_json
+
+    def probe(path, payload, deadline, request):
+        probes.append((path, payload))
+        return original(path, payload, deadline, request)
+
+    monkeypatch.setattr(client, "_context_json", probe)
+    result = client.infer(InferenceRequest([], output_schema={"type": "object"}, timeout=5))
+    assert probes[0][1] == calls[0]
+    assert calls[0]["chat_template_kwargs"] == {"enable_thinking": True}
+    assert calls[0]["reasoning_budget_tokens"] == budget
+    assert calls[0]["reasoning_format"] == "deepseek"
+    assert calls[0]["max_tokens"] == 3072
+    assert result.text == "{}" and "private model reasoning" not in str(result)
+    assert client.last_diagnostics["reasoning"] == identity["reasoning"]
+    assert client.last_diagnostics["usage"] == result.usage
+    assert client.last_diagnostics["finalContentPresent"] is True
+    assert "private model reasoning" not in json.dumps(client.last_diagnostics)
+    assert client.identity == identity
+    exposed = client.identity
+    exposed["reasoning"]["budgetTokens"] = 9999
+    assert client.identity == identity
+    client.close()
+    default.close()
+    assert [event[0] for event in events] == ["start", "close"]
+
+
+def test_managed_reasoning_conflict_fails_before_start_without_adjustment(monkeypatch, tmp_path):
+    events = fake_packs(monkeypatch)
+    calls = response_transport(monkeypatch)
+    client = ManagedPackClient(tmp_path, "runtime", "model", reasoning_budget_tokens=1024)
+    for output in (64, 1024):
+        with pytest.raises(ModelError, match="ai_reasoning_budget_conflict"):
+            client.infer(InferenceRequest([], max_output_tokens=output))
+        assert client.last_diagnostics["errorCode"] == "ai_reasoning_budget_conflict"
+    assert not events and not calls
+    assert client.reasoning_budget_tokens == 1024
+    client.close()
+
+
+@pytest.mark.parametrize("content", [None, ""])
+def test_managed_reasoning_length_keeps_usage_without_exposing_reasoning(
+    monkeypatch, tmp_path, content
+):
+    fake_packs(monkeypatch)
+    response_transport(monkeypatch, finish="length", content=content, reasoning="hidden reasoning")
+    client = ManagedPackClient(tmp_path, "runtime", "model", reasoning_budget_tokens=1024)
+    result = client.infer(InferenceRequest([]))
+    assert result.text == "" and result.finish_reason == "length"
+    assert result.usage == {"prompt_tokens": 10, "completion_tokens": 2}
+    assert client.last_diagnostics["finalContentPresent"] is False
+    assert client.last_diagnostics["finishReason"] == "length"
+    assert "hidden reasoning" not in json.dumps(client.last_diagnostics)
+    with pytest.raises(ModelError, match="ai_response_incomplete"):
+        client.complete([], timeout=5)
+    client.close()
+
+
+def test_default_managed_null_content_keeps_existing_invalid_response(monkeypatch, tmp_path):
+    fake_packs(monkeypatch)
+    response_transport(monkeypatch, finish="length", content=None, reasoning="hidden reasoning")
+    client = ManagedPackClient(tmp_path, "runtime", "model")
+    with pytest.raises(ModelError, match="ai_response_invalid"):
+        client.infer(InferenceRequest([]))
+    client.close()
+
+
+def test_cloud_cannot_configure_managed_reasoning(monkeypatch):
+    for settings in (
+        {"reasoning_budget_tokens": 1024},
+        {"chat_template_kwargs": {"enable_thinking": True}},
+    ):
+        with pytest.raises(ModelError, match="ai_configuration_invalid"):
+            ChatCompletionsClient("https://example.invalid/v1", "m", sampling=settings)
+    calls = response_transport(monkeypatch)
+    ChatCompletionsClient("https://example.invalid/v1", "m").infer(InferenceRequest([]))
+    assert "reasoning_budget_tokens" not in calls[0]
+    assert "chat_template_kwargs" not in calls[0]
+
+
+def test_profile_reasoning_version_and_mode_are_part_of_pinned_identity(monkeypatch, tmp_path):
+    from document_files.jobs import ModelProfile, resolve_profile_identity
+
+    fake_packs(monkeypatch)
+    settings = {"packRoot": str(tmp_path), "runtimeId": "runtime", "modelId": "model"}
+    default = ModelProfile("cpu", "1", "local-pack", settings)
+    enabled = ModelProfile("cpu", "1", "local-pack", {**settings, "reasoningBudgetTokens": 1024})
+    smaller = ModelProfile("cpu", "1", "local-pack", {**settings, "reasoningBudgetTokens": 512})
+    assert resolve_profile_identity(default) == {"runtimeId": "a" * 64, "modelId": "b" * 64}
+    first = resolve_profile_identity(enabled)
+    assert first["reasoning"]["version"] == "document-files.managed-reasoning.v1"
+    assert first["reasoning"]["budgetTokens"] == 1024
+    assert first != resolve_profile_identity(smaller) != resolve_profile_identity(default)
+    assert enabled.descriptor() != default.descriptor()
+
+
+def test_managed_reasoning_refuses_ignored_template_mode(monkeypatch, tmp_path):
+    events = fake_packs(monkeypatch)
+    calls = response_transport(monkeypatch)
+    client = ManagedPackClient(tmp_path, "runtime", "model", reasoning_budget_tokens=1024)
+    monkeypatch.setattr(client, "_context_json", lambda *args: {"prompt": "<think>\n</think>\n"})
+    with pytest.raises(ModelError, match="ai_reasoning_mode_unsupported"):
+        client.infer(InferenceRequest([]))
+    assert not calls
+    client.close()
+    assert [e[0] for e in events] == ["start", "close"]
+
+
+def test_reasoning_length_usage_checkpoint_and_mode_resume_mismatch(monkeypatch, tmp_path):
+    from document_files.analysis import AnalysisInput, AnalysisJob
+    from document_files.interpretation.contracts import ExtractionOptions
+    from document_files.interpretation.engine import extract_schema_from_stream
+
+    fake_packs(monkeypatch)
+    calls = response_transport(
+        monkeypatch, finish="length", content=None, reasoning="private reasoning"
+    )
+    client = ManagedPackClient(tmp_path, "runtime", "model", reasoning_budget_tokens=1024)
+    source = b"Public fixture: 1\n"
+    job = AnalysisJob(job_id="reasoning", input=AnalysisInput.from_bytes(source, format_id="txt"))
+    options = ExtractionOptions(reconstructionContext=False, maxModelCalls=1)
+    states = []
+    result = extract_schema_from_stream(
+        job, io.BytesIO(source), options=options, model_client=client, checkpoint=states.append
+    )
+    assert result["extraction"]["status"] != "complete"
+    assert result["extraction"]["usage"]["completionTokens"] == 2
+    assert result["extraction"]["usage"]["modelCalls"] == 1
+    assert result["extraction"]["lastInferenceDiagnostics"]["finishReason"] == "length"
+    assert "private reasoning" not in json.dumps(states)
+    other = ManagedPackClient(tmp_path, "runtime", "model", reasoning_budget_tokens=512)
+    with pytest.raises(ValueError, match="incompatible"):
+        extract_schema_from_stream(
+            job, io.BytesIO(source), options=options, model_client=other, restore=states[-1]
+        )
+    assert len(calls) == 1
+    client.close()
+    other.close()
+
+
+def test_profile_reasoning_contract_version_invalidates_job_fingerprint(monkeypatch, tmp_path):
+    from document_files.jobs import JobError, JobStore, ModelProfile
+
+    fake_packs(monkeypatch)
+    settings = {
+        "packRoot": str(tmp_path),
+        "runtimeId": "runtime",
+        "modelId": "model",
+        "reasoningBudgetTokens": 1024,
+    }
+    profile = ModelProfile("cpu", "1", "local-pack", settings)
+    store = JobStore(tmp_path / "jobs")
+    job = store.submit(
+        io.BytesIO(b"Public"), format_id="txt", profile=profile, idempotency_key="key"
+    )
+    monkeypatch.setattr(
+        "document_files.interpretation.backends.MANAGED_REASONING_VERSION", "future-version"
+    )
+    with pytest.raises(JobError, match="idempotency-conflict"):
+        store.submit(io.BytesIO(b"Public"), format_id="txt", profile=profile, idempotency_key="key")
+    with pytest.raises(JobError, match="profile-pack-changed"):
+        store.resume(job["jobId"], profile)

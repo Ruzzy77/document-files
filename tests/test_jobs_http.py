@@ -598,7 +598,16 @@ def test_admin_response_settings_reach_worker_without_requests(tmp_path, monkeyp
     ]
 
 
-@pytest.mark.parametrize("settings", [{}, {"threads": 4}, {"threads": 4, "threadsBatch": 10}])
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {},
+        {"threads": 4},
+        {"threads": 4, "threadsBatch": 10},
+        {"reasoningBudgetTokens": 1024},
+        {"reasoningBudgetTokens": 0},
+    ],
+)
 def test_admin_thread_settings_reach_the_local_pack_client(tmp_path, monkeypatch, settings):
     from document_files.http_server import build_service_from_config
     from document_files.server_worker import build_model_client
@@ -631,7 +640,11 @@ def test_admin_thread_settings_reach_the_local_pack_client(tmp_path, monkeypatch
     assert captured == [
         (
             (str(tmp_path / "packs"), "llama-cpp-cpu", "qwen"),
-            {"threads": settings.get("threads"), "threads_batch": settings.get("threadsBatch")},
+            {
+                "threads": settings.get("threads"),
+                "threads_batch": settings.get("threadsBatch"),
+                "reasoning_budget_tokens": settings.get("reasoningBudgetTokens"),
+            },
         )
     ]
     assert service.profile("cpu").descriptor()["settings"].get("threads") == settings.get("threads")
@@ -646,6 +659,7 @@ def test_admin_thread_settings_reach_the_local_pack_client(tmp_path, monkeypatch
         {"threads": "4"},
         {"threadsBatch": 1025},
         {"threadsBatch": 1.5},
+        *[{"reasoningBudgetTokens": value} for value in (-1, True, None, "1024", 1.5, 3072, 99999)],
         {"sampling": {"temperature": 0.0}},
     ],
 )
@@ -657,6 +671,7 @@ def test_admin_thread_settings_fail_closed(tmp_path, setting):
     for profile in (
         {"type": "local-pack", "packRoot": "/packs", "runtimeId": "r", "modelId": "m", **setting},
         {**cloud, "threads": 4},
+        {**cloud, "reasoningBudgetTokens": 1024},
     ):
         path.write_text(
             json.dumps(
@@ -750,3 +765,29 @@ def test_worker_transport_identity_includes_admin_response_settings(profile):
         identity = build_model_client(changed).identity["configurationId"]
         assert identity not in seen
         seen.add(identity)
+
+
+def test_worker_refuses_runtime_reasoning_mode_different_from_profile(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    expected = {
+        "version": "document-files.managed-reasoning.v1",
+        "mode": "thinking",
+        "budgetTokens": 1024,
+        "budgetScope": "per-block",
+    }
+    pinned = {"runtimeId": "runtime-sha", "modelId": "model-sha", "reasoning": expected}
+    monkeypatch.setattr("document_files.jobs.resolve_profile_identity", lambda _: pinned)
+    monkeypatch.setattr("document_files.server_worker.resolve_profile_identity", lambda _: pinned)
+    profile = ModelProfile("cpu", "1", "local-pack", {"reasoningBudgetTokens": 1024})
+    store = JobStore(tmp_path)
+    job_id = submit(store, profile)["jobId"]
+    store.claim()
+    closed = []
+    client = SimpleNamespace(
+        identity={"runtimeManifestSha256": "runtime-sha", "modelManifestSha256": "model-sha"},
+        close=lambda: closed.append(True),
+    )
+    assert run_job(store, job_id, resolver=lambda _: client) == 1
+    assert store.get(job_id)["error"] == "profile-pack-changed"
+    assert closed == [True]
