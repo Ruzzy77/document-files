@@ -245,7 +245,7 @@ def _frame_to_page(frame, mapping):
     )
 
 
-def coordinate_links(mapping, captures, repairs=()):
+def coordinate_links(mapping, captures, repairs=(), runs=()):
     """Derive independent original-page matrices without rewriting upstream bboxes."""
     from .recognition_sources import raw_pass_fingerprint
 
@@ -267,6 +267,15 @@ def coordinate_links(mapping, captures, repairs=()):
                 or capture["page_no"] != mapping["originalPageNumber"]
             ):
                 raise ValueError
+            if "runFingerprint" in capture:
+                from .recognition_batches import validated_batch_capture
+
+                validated_batch_capture(capture, runs, captures)
+                # This is an OCR input ordinal, never the PDF subset page number.
+                if type(capture.get("tsvInputPageNumber")) is not int or capture[
+                    "tsvInputPageNumber"
+                ] not in (1, 2):
+                    raise ValueError
             frame = capture["pixelFrame"]
             if frame["status"] != "input_pixels_matched" or frame["inputImage"] != capture["image"]:
                 raise ValueError

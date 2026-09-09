@@ -14,6 +14,7 @@ import time
 from copy import deepcopy
 from pathlib import Path
 
+from .recognition_batches import BATCH_VERSION, RAW_VERSION, batch_rows, run_fingerprint
 from .recognition_coordinates import (
     bind_ocr_frame,
     capture_framework_crops,
@@ -22,6 +23,7 @@ from .recognition_coordinates import (
 )
 from .table_ocr_repair import (
     bounded_tsv,
+    bounded_tsv_result,
     box_overlap,
     cell_ocr_units,
     geometric_structure_order,
@@ -33,6 +35,15 @@ from .table_ocr_repair import (
 
 def pipeline_class(config, snapshots, restored=None):
     restored = restored if restored is not None else {}
+    execution_policy = {
+        "version": BATCH_VERSION,
+        "batchSize": config.repair_batch_size,
+        "maxImages": config.repair_max_images,
+        "maxCalls": config.repair_max_calls,
+        "maxInputPixels": config.repair_max_input_pixels,
+        "maxPixels": config.repair_max_pixels,
+        "maxSeconds": config.repair_max_seconds,
+    }
     import pandas as pd
     from docling.models.stages.ocr.tesseract_ocr_cli_model import (
         TesseractOcrCliModel,
@@ -63,6 +74,8 @@ def pipeline_class(config, snapshots, restored=None):
     class ExactTesseract(TesseractOcrCliModel):
         repair_calls = 0
         repair_pixels = 0
+        repair_images = 0
+        repair_input_pixels = 0
         repair_tables = 0
         repair_elapsed = 0.0
         orientation = None
@@ -249,6 +262,197 @@ def pipeline_class(config, snapshots, restored=None):
                 ],
             )
 
+        def _run_cell_image_batch(self, inputs, *, languages, psm, timeout):
+            """Independent image files only; one shared TSV, explicit per-image frames."""
+            if not 1 <= len(inputs) <= 2 or not languages or psm not in (6, 7):
+                raise ValueError("cell batch input contract invalid")
+            from PIL import Image
+
+            batch_started = time.monotonic()
+            if not hasattr(self, "raw_runs"):
+                self.raw_runs = []
+            if not hasattr(self, "raw_passes"):
+                self.raw_passes, self.raw_capture_issues = [], []
+            repair_indices = {item["transform"]["repairIndex"] for item in inputs}
+            unit_indices = [item["transform"]["cellUnitIndex"] for item in inputs]
+            if len(repair_indices) != 1 or len(set(unit_indices)) != len(inputs):
+                raise ValueError("cell batch crosses table or repeats input")
+            for item in inputs:
+                with Image.open(item["path"]) as image:
+                    if image_identity(image) != item["image"]:
+                        raise ValueError("cell batch input pixels changed")
+                if item.get("localPdfPageNumber") != self.raw_page_no:
+                    raise ValueError("cell batch crosses PDF page")
+                if item["psm"] != psm or item["languages"] != languages:
+                    raise ValueError("cell batch OCR settings differ")
+            run = {
+                "version": BATCH_VERSION,
+                "page_no": self.raw_page_no,
+                "languages": list(languages),
+                "psm": psm,
+                "inputs": [
+                    {
+                        "tsvInputPageNumber": index + 1,
+                        **{
+                            k: deepcopy(v)
+                            for k, v in item.items()
+                            if k not in {"path", "languages", "psm"}
+                        },
+                    }
+                    for index, item in enumerate(inputs)
+                ],
+                "status": "failed",
+            }
+            self.raw_runs.append(run)
+            captures = []
+            for index, item in enumerate(inputs):
+                capture = {
+                    "passId": f"pass-{len(self.raw_passes)}",
+                    "page_no": self.raw_page_no,
+                    "sourcePass": "table_repair",
+                    "image": deepcopy(item["image"]),
+                    "transform": deepcopy(item["transform"]),
+                    "unitFingerprint": item["unitFingerprint"],
+                    "tsvInputPageNumber": index + 1,
+                    "status": "failed",
+                    "detections": [],
+                }
+                if item.get("pixelFrame") is not None:
+                    capture["pixelFrame"] = deepcopy(item["pixelFrame"])
+                self.raw_passes.append(capture)
+                captures.append(capture)
+            error = None
+            try:
+                with tempfile.TemporaryDirectory(prefix="document-files-cell-list-") as directory:
+                    listing = Path(directory) / "inputs.txt"
+                    # Only internally generated absolute temporary image paths enter this file.
+                    paths = [str(Path(item["path"]).resolve()) for item in inputs]
+                    if any("\n" in path or "\r" in path for path in paths):
+                        raise ValueError("cell input path invalid")
+                    listing.write_text("\n".join(paths) + "\n", encoding="utf-8")
+                    command = [
+                        self._safe_tesseract_cmd,
+                        "-l",
+                        "+".join(languages),
+                        "--tessdata-dir",
+                        self._safe_tessdata_path,
+                        "--psm",
+                        str(psm),
+                        self._sanitize_filename(str(listing)),
+                        "stdout",
+                        "tsv",
+                    ]
+                    call_remaining = timeout - (time.monotonic() - batch_started)
+                    if call_remaining <= 0:
+                        raise subprocess.TimeoutExpired("cell batch preparation", timeout)
+                    outcome = bounded_tsv_result(
+                        command,
+                        timeout=call_remaining,
+                        max_bytes=min(config.max_output_bytes, 16 * 1024 * 1024),
+                    )
+                raw, error = outcome.pop("raw"), outcome.pop("error", None)
+                run.update(outcome)
+                run["tsvSha256"] = hashlib.sha256(raw).hexdigest()
+                try:
+                    run["tsv"] = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    import base64
+
+                    run["rawBase64"] = base64.b64encode(raw).decode("ascii")
+                    raise ValueError("cell batch TSV is not UTF-8") from None
+                if error is not None:
+                    raise error
+                if (
+                    run.get("exitCode") != 0
+                    or run.get("timedOut") is not False
+                    or run.get("outputTruncated") is not False
+                ):
+                    raise ValueError("cell batch process did not complete")
+                rows = batch_rows(raw, len(inputs))
+                for index, item in enumerate(inputs, 1):
+                    header = rows[index][0][1]
+                    if (
+                        [int(header["width"]), int(header["height"])] != item["image"]["size"]
+                        or int(header["left"]) != 0
+                        or int(header["top"]) != 0
+                    ):
+                        raise ValueError("cell batch TSV input dimensions differ")
+                parsed = parse_tsv(raw)
+                results = {}
+                for capture, item in zip(captures, inputs, strict=True):
+                    page_number = capture["tsvInputPageNumber"]
+                    accepted = iter(r for r in parsed if int(r["page_num"]) == page_number)
+                    next_row = next(accepted, None)
+                    output, ordinals = [], []
+                    for ordinal, row in rows[page_number]:
+                        if not row["text"].strip():
+                            continue
+                        detection = {
+                            "ordinal": ordinal,
+                            "text": row["text"],
+                            "raw": row,
+                            "accepted": False,
+                        }
+                        capture["detections"].append(detection)
+                        if next_row is None:
+                            continue
+                        try:
+                            match = (
+                                row["text"] == next_row["text"]
+                                and all(
+                                    int(row[k]) == next_row[k]
+                                    for k in ("left", "top", "width", "height")
+                                )
+                                and float(row["conf"]) == next_row["conf"]
+                            )
+                        except (ValueError, TypeError):
+                            match = False
+                        if not match:
+                            continue
+                        x, y = item["transform"]["pixelOrigin"]
+                        sx, sy = item["transform"]["scale"]
+                        left, top = (x + next_row["left"]) / sx, (y + next_row["top"]) / sy
+                        detection.update(
+                            accepted=True,
+                            confidence=next_row["conf"],
+                            imageBBox={k: next_row[k] for k in ("left", "top", "width", "height")},
+                            pageBBox={
+                                "l": left,
+                                "t": top,
+                                "r": left + next_row["width"] / sx,
+                                "b": top + next_row["height"] / sy,
+                                "coord_origin": "TOPLEFT",
+                            },
+                            mappingBasis="explicit_table_unit_pixel_transform",
+                        )
+                        output.append(next_row)
+                        ordinals.append(ordinal)
+                        next_row = next(accepted, None)
+                    results[item["transform"]["cellUnitIndex"]] = pd.DataFrame(
+                        output,
+                        index=ordinals,
+                        columns=["left", "top", "width", "height", "conf", "text"],
+                    )
+                run["status"] = "complete"
+                for capture in captures:
+                    capture["status"] = "complete"
+                return results
+            except BaseException as failure:
+                run["status"] = (
+                    "timed_out"
+                    if isinstance(failure, subprocess.TimeoutExpired)
+                    else "failed"
+                    if isinstance(failure, Exception)
+                    else "cancelled"
+                )
+                run["errorType"] = type(failure).__name__
+                self.raw_capture_issues.append({"code": "recognition_raw_capture_failed"})
+                raise
+            finally:
+                run["fingerprint"] = run_fingerprint(run)
+                for capture in captures:
+                    capture["runFingerprint"] = run["fingerprint"]
+
         def __call__(self, conv_res, page_batch):
             for source_page in page_batch:
                 with capture_framework_crops(source_page, self):
@@ -256,7 +460,7 @@ def pipeline_class(config, snapshots, restored=None):
 
         def _captured_page(self, conv_res, source_page):
             self.orientation = None
-            self.raw_passes, self.raw_capture_issues = [], []
+            self.raw_passes, self.raw_capture_issues, self.raw_runs = [], [], []
             self.raw_page_no = source_page.page_no
             self.raw_transform_seen = False
             self.raw_rectangles = []
@@ -272,7 +476,8 @@ def pipeline_class(config, snapshots, restored=None):
                     "repairs": [],
                     "issues": self.raw_capture_issues,
                     "rawOCRPasses": self.raw_passes,
-                    "rawCaptureVersion": "document-files.raw-ocr.v1",
+                    "rawCaptureVersion": RAW_VERSION,
+                    "rawOCRRuns": self.raw_runs,
                 }
                 snapshot["originalOCRFingerprint"] = hashlib.sha256(
                     json.dumps(
@@ -336,6 +541,15 @@ def pipeline_class(config, snapshots, restored=None):
                     selection["sourceIndexPreserved"] = True
 
         def repair(self, page, original, snapshot):
+            if config.repair_batch_size == 2:
+                if not hasattr(self, "raw_runs"):
+                    self.raw_runs = []
+                if not hasattr(self, "raw_passes"):
+                    self.raw_passes, self.raw_capture_issues = [], snapshot["issues"]
+                self.raw_page_no = page.page_no
+                snapshot["rawOCRRuns"] = self.raw_runs
+                snapshot["rawOCRPasses"] = self.raw_passes
+                snapshot["rawCaptureVersion"] = RAW_VERSION
             if page.predictions.layout is None or page.parsed_page is None:
                 return
             cells = list(original)
@@ -361,7 +575,9 @@ def pipeline_class(config, snapshots, restored=None):
                     reused = False
                     for repair_index, prior in enumerate(restored.get("tableRepairs", [])):
                         if (
-                            prior.get("assessmentComplete")
+                            config.repair_batch_size == 1
+                            and prior.get("executionPolicy") == execution_policy
+                            and prior.get("assessmentComplete")
                             and prior.get("policy", "ruled_tables_v1") == config.table_ocr_repair
                             and prior.get("sourceBBox") == bbox.model_dump(mode="json")
                         ):
@@ -526,6 +742,7 @@ def pipeline_class(config, snapshots, restored=None):
                     info.update(
                         clusterId=cluster.id,
                         policy=config.table_ocr_repair,
+                        executionPolicy=deepcopy(execution_policy),
                         page_no=page.page_no,
                         sourceBBox=bbox.model_dump(mode="json"),
                         transform={
@@ -590,6 +807,7 @@ def pipeline_class(config, snapshots, restored=None):
                             for i, p in enumerate(restored.get("tableRepairs", []))
                             if restored.get("originalOCRFingerprint")
                             == snapshot.get("originalOCRFingerprint")
+                            and p.get("executionPolicy") == execution_policy
                             and p.get("policy", "ruled_tables_v1") == config.table_ocr_repair
                             and p.get("sourceBBox") == info["sourceBBox"]
                             and p.get("sourcePixelsSha256") == info["sourcePixelsSha256"]
@@ -597,6 +815,8 @@ def pipeline_class(config, snapshots, restored=None):
                         None,
                     )
                     incomplete = False
+                    batch_results = {}
+                    copied_runs = set()
                     for unit_index, (unit_image, unit) in enumerate(units):
                         state = execution["states"][unit_index]
                         prior_index, prior = prior_pair if prior_pair else (None, {})
@@ -618,6 +838,69 @@ def pipeline_class(config, snapshots, restored=None):
                             ),
                             None,
                         )
+                        if saved_unit and config.repair_batch_size == 2 and unit_image is not None:
+                            from .recognition_batches import validated_batch_capture
+
+                            candidates = [
+                                c
+                                for c in restored.get("rawOCRPasses", [])
+                                if c.get("transform", {}).get("repairIndex") == prior_index
+                                and c.get("transform", {}).get("cellUnitIndex") == unit_index
+                            ]
+                            try:
+                                if (
+                                    len(candidates) != 1
+                                    or prior_index != len(snapshot["repairs"]) - 1
+                                    or restored.get("rawCaptureVersion") != RAW_VERSION
+                                ):
+                                    raise ValueError
+                                saved_capture = candidates[0]
+                                validated_batch_capture(
+                                    saved_capture,
+                                    restored.get("rawOCRRuns", []),
+                                    restored.get("rawOCRPasses", []),
+                                )
+                                saved_run = next(
+                                    r
+                                    for r in restored["rawOCRRuns"]
+                                    if r["fingerprint"] == saved_capture["runFingerprint"]
+                                )
+                                for member in saved_run["inputs"]:
+                                    index = member["transform"]["cellUnitIndex"]
+                                    if (
+                                        not 0 <= index < len(units)
+                                        or units[index][0] is None
+                                        or member["image"] != image_identity(units[index][0])
+                                        or member["unitFingerprint"]
+                                        != units[index][1]["fingerprint"]
+                                        or (
+                                            member.get("pixelFrame") is not None
+                                            and member["pixelFrame"]["unitFingerprint"]
+                                            != units[index][1]["fingerprint"]
+                                        )
+                                    ):
+                                        raise ValueError
+                                if saved_run["fingerprint"] not in copied_runs:
+                                    if not hasattr(self, "raw_runs"):
+                                        self.raw_runs, self.raw_passes = [], []
+                                    self.raw_runs.append(
+                                        {**deepcopy(saved_run), "page_no": page.page_no}
+                                    )
+                                    for capture in restored["rawOCRPasses"]:
+                                        if (
+                                            capture.get("runFingerprint")
+                                            == saved_run["fingerprint"]
+                                        ):
+                                            self.raw_passes.append(
+                                                {
+                                                    **deepcopy(capture),
+                                                    "page_no": page.page_no,
+                                                    "passId": f"pass-{len(self.raw_passes)}",
+                                                }
+                                            )
+                                    copied_runs.add(saved_run["fingerprint"])
+                            except (KeyError, ValueError, TypeError, IndexError, StopIteration):
+                                saved_unit = None
                         if saved_unit:
                             snapshot["issues"].append(
                                 {"code": "recognition_raw_reused_repair_unverified"}
@@ -668,62 +951,177 @@ def pipeline_class(config, snapshots, restored=None):
                             - self.repair_elapsed
                             - (time.monotonic() - start)
                         )
-                        if remaining <= 0 or self.repair_calls >= config.repair_max_calls:
-                            snapshot["issues"].append({"code": "table_ocr_repair_budget_exceeded"})
-                            execution["stopReason"] = (
-                                "time_budget_exceeded" if remaining <= 0 else "call_budget_exceeded"
+
+                        def input_geometry(
+                            unit_index,
+                            unit_image,
+                            unit,
+                            *,
+                            canvas=canvas,
+                            crop=crop,
+                            x0=x0,
+                            y0=y0,
+                            x1=x1,
+                            y1=y1,
+                            scale_x=scale_x,
+                            scale_y=scale_y,
+                        ):
+                            frame = None
+                            if canvas is not None:
+                                try:
+                                    frame = framework_frame(page._backend._result, canvas)
+                                    frame.update(
+                                        status="input_pixels_matched",
+                                        inputImage=image_identity(unit_image),
+                                        processing="ruled_cell_crop_and_white_padding",
+                                        tableCropPixelBounds=[x0, y0, x1, y1],
+                                        tableCropImage=image_identity(crop),
+                                        cellPixelBox=unit.get("cellPixelBox"),
+                                        unitFingerprint=unit["fingerprint"],
+                                        unitPixelOffset=list(unit["pixelOffset"]),
+                                        unitPixelOrigin=[
+                                            x0 + unit["pixelOffset"][0],
+                                            y0 + unit["pixelOffset"][1],
+                                        ],
+                                        appliedClockwiseRotation=0,
+                                    )
+                                except Exception:
+                                    frame = None
+                            transform = {
+                                "pixelOrigin": [
+                                    x0 + unit["pixelOffset"][0],
+                                    y0 + unit["pixelOffset"][1],
+                                ],
+                                "scale": [scale_x, scale_y],
+                                "repairIndex": len(snapshot["repairs"]) - 1,
+                                "cellUnitIndex": unit_index,
+                            }
+                            return frame, transform
+
+                        if unit_index not in batch_results:
+                            indices = [unit_index]
+                            if (
+                                config.repair_batch_size == 2
+                                and config.table_ocr_repair == "ruled_cells_v2"
+                            ):
+                                for candidate_index in range(unit_index + 1, len(units)):
+                                    candidate_image, candidate = units[candidate_index]
+                                    if candidate_image is None:
+                                        continue
+                                    if candidate["fingerprint"] in finished_fingerprints:
+                                        break
+                                    if (
+                                        execution["states"][candidate_index]["status"]
+                                        != "not_attempted"
+                                    ):
+                                        continue
+                                    if candidate["psm"] == unit["psm"]:
+                                        indices.append(candidate_index)
+                                    break
+                            available = config.repair_max_images - self.repair_images
+                            indices = indices[: max(0, available)]
+                            pixel_available = (
+                                config.repair_max_input_pixels - self.repair_input_pixels
                             )
-                            incomplete = True
-                            break
-                        state.update(status="running", ocrAttempted=True)
-                        self.repair_calls += 1
-                        self.call_timeout, self.call_psm = remaining, unit["psm"]
-                        self.raw_repair_frame = None
-                        if canvas is not None:
-                            try:
-                                self.raw_repair_frame = framework_frame(
-                                    page._backend._result, canvas
+                            selected = []
+                            for index in indices:
+                                image = units[index][0]
+                                image_pixels = image.width * image.height
+                                if image_pixels > pixel_available:
+                                    break
+                                selected.append(index)
+                                pixel_available -= image_pixels
+                            reason = (
+                                "time_budget_exceeded"
+                                if remaining <= 0
+                                else "call_budget_exceeded"
+                                if self.repair_calls >= config.repair_max_calls
+                                else "image_budget_exceeded"
+                                if not indices
+                                else "input_pixel_budget_exceeded"
+                                if not selected
+                                else None
+                            )
+                            if reason:
+                                snapshot["issues"].append(
+                                    {"code": "table_ocr_repair_budget_exceeded"}
                                 )
-                                self.raw_repair_frame.update(
-                                    status="input_pixels_matched",
-                                    inputImage=image_identity(unit_image),
-                                    processing="ruled_cell_crop_and_white_padding",
-                                    tableCropPixelBounds=[x0, y0, x1, y1],
-                                    tableCropImage=image_identity(crop),
-                                    cellPixelBox=unit.get("cellPixelBox"),
-                                    unitFingerprint=unit["fingerprint"],
-                                    unitPixelOffset=list(unit["pixelOffset"]),
-                                    unitPixelOrigin=[
-                                        x0 + unit["pixelOffset"][0],
-                                        y0 + unit["pixelOffset"][1],
-                                    ],
-                                    appliedClockwiseRotation=0,
+                                execution["stopReason"] = reason
+                                incomplete = True
+                                break
+                            indices = selected
+                            self.repair_calls += 1
+                            self.repair_images += len(indices)
+                            self.repair_input_pixels += sum(
+                                units[i][0].width * units[i][0].height for i in indices
+                            )
+                            execution["attemptTotals"] = {
+                                "processAttempts": self.repair_calls,
+                                "imageAttempts": self.repair_images,
+                                "inputPixelAttempts": self.repair_input_pixels,
+                                "scope": "worker_repair_totals",
+                            }
+                            for index in indices:
+                                execution["states"][index].update(
+                                    status="running", ocrAttempted=True
                                 )
-                            except Exception:
-                                self.raw_repair_frame = None
-                        self.raw_repair_transform = {
-                            "pixelOrigin": [
-                                x0 + unit["pixelOffset"][0],
-                                y0 + unit["pixelOffset"][1],
-                            ],
-                            "scale": [scale_x, scale_y],
-                            "repairIndex": len(snapshot["repairs"]) - 1,
-                            "cellUnitIndex": unit_index,
-                        }
-                        try:
                             with tempfile.TemporaryDirectory(
                                 prefix="document-files-table-ocr-"
                             ) as directory:
-                                path = Path(directory) / "derived.png"
-                                unit_image.save(path)
-                                result = self._run_tesseract(str(path), None)
-                        finally:
-                            del (
-                                self.call_timeout,
-                                self.call_psm,
-                                self.raw_repair_transform,
-                                self.raw_repair_frame,
-                            )
+                                inputs = []
+                                for index in indices:
+                                    image, planned = units[index]
+                                    path = Path(directory) / f"unit-{index}.png"
+                                    image.save(path)
+                                    frame, transform = input_geometry(index, image, planned)
+                                    inputs.append(
+                                        {
+                                            "path": str(path),
+                                            "image": image_identity(image),
+                                            "unitFingerprint": planned["fingerprint"],
+                                            "localPdfPageNumber": page.page_no,
+                                            "transform": transform,
+                                            "pixelFrame": frame,
+                                            "languages": list(self.options.lang)
+                                            if config.repair_batch_size == 2
+                                            else [],
+                                            "psm": planned["psm"],
+                                        }
+                                    )
+                                remaining = (
+                                    config.repair_max_seconds
+                                    - self.repair_elapsed
+                                    - (time.monotonic() - start)
+                                )
+                                if remaining <= 0:
+                                    raise subprocess.TimeoutExpired(
+                                        "cell image preparation", config.repair_max_seconds
+                                    )
+                                if config.repair_batch_size == 2:
+                                    batch_results.update(
+                                        self._run_cell_image_batch(
+                                            inputs,
+                                            languages=list(self.options.lang),
+                                            psm=unit["psm"],
+                                            timeout=remaining,
+                                        )
+                                    )
+                                else:
+                                    self.call_timeout, self.call_psm = remaining, unit["psm"]
+                                    self.raw_repair_frame = inputs[0]["pixelFrame"]
+                                    self.raw_repair_transform = inputs[0]["transform"]
+                                    try:
+                                        batch_results[unit_index] = self._run_tesseract(
+                                            inputs[0]["path"], None
+                                        )
+                                    finally:
+                                        del (
+                                            self.call_timeout,
+                                            self.call_psm,
+                                            self.raw_repair_transform,
+                                            self.raw_repair_frame,
+                                        )
+                        result = batch_results.pop(unit_index)
                         offset = unit["pixelOffset"]
                         for ordinal, row in result.iterrows():
                             left, top = (

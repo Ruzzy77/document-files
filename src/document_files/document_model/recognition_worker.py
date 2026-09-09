@@ -357,6 +357,7 @@ def page_batches(
                     coordinates,
                     page.get("sourceObservations", {}).get("rawOCRPasses", []),
                     page.get("sourceObservations", {}).get("tableRepairs", []),
+                    page.get("sourceObservations", {}).get("rawOCRRuns", []),
                 )
                 page["coordinateEvidence"] = {"mapping": coordinates, "rawPassLinks": links}
                 if coordinates["status"] != "verified" or any(
@@ -567,7 +568,12 @@ def recognize(
                 ]
                 from .recognition_sources import raw_pass_fingerprint
 
-                observations["rawCaptureVersion"] = "document-files.raw-ocr.v1"
+                observations["rawCaptureVersion"] = "document-files.raw-ocr.v2"
+                observations["rawOCRRuns"] = [
+                    deepcopy(run)
+                    for snapshot in source_snapshots.values()
+                    for run in snapshot.get("rawOCRRuns", [])
+                ]
                 observations["coverage"] = (
                     "raw_word_detections_and_separate_post_merge_observations"
                 )
@@ -580,7 +586,7 @@ def recognize(
                     {
                         "page_no": page_no,
                         "captureAvailable": snapshot.get("rawCaptureVersion")
-                        == "document-files.raw-ocr.v1",
+                        == "document-files.raw-ocr.v2",
                         "passFingerprints": [
                             raw_pass_fingerprint(c) for c in snapshot.get("rawOCRPasses", [])
                         ],

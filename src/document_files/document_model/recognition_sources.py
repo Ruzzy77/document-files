@@ -8,7 +8,7 @@ from .native import bind_spans
 ORDERED_SOURCE_VERSION = "document-files.ordered-ocr-source.v2"
 
 
-def _validated_raw_words(capture):
+def _validated_raw_words(capture, payload=None):
     """Check the saved TSV and detections together, without interpreting text."""
     import csv
     import hashlib
@@ -16,18 +16,35 @@ def _validated_raw_words(capture):
 
     from .table_ocr_repair import parse_tsv
 
-    raw = capture["tsv"].encode("utf-8")
     if (
         capture.get("status") != "complete"
-        or hashlib.sha256(raw).hexdigest() != capture["tsvSha256"]
         or raw_pass_fingerprint(capture) != capture["fingerprint"]
     ):
         raise ValueError
-    words = [
-        (i, r)
-        for i, r in enumerate(csv.DictReader(io.StringIO(capture["tsv"]), delimiter="\t"))
-        if r.get("text", "").strip()
-    ]
+    if "runFingerprint" in capture:
+        from .recognition_batches import validated_batch_capture
+
+        if payload is None:
+            raise ValueError("OCR batch provenance unavailable")
+        selected = validated_batch_capture(
+            capture, payload.get("rawOCRRuns", []), payload.get("rawOCRPasses", [])
+        )
+        words = [(i, row) for i, row in selected if row.get("text", "").strip()]
+        # Re-encode only a derived parser view. Original TSV/ordinals remain in the run.
+        stream = io.StringIO()
+        writer = csv.DictWriter(stream, fieldnames=list(selected[0][1]), delimiter="\t")
+        writer.writeheader()
+        writer.writerows(row for _, row in selected)
+        raw = stream.getvalue().encode("utf-8")
+    else:
+        raw = capture["tsv"].encode("utf-8")
+        if hashlib.sha256(raw).hexdigest() != capture["tsvSha256"]:
+            raise ValueError
+        words = [
+            (i, r)
+            for i, r in enumerate(csv.DictReader(io.StringIO(capture["tsv"]), delimiter="\t"))
+            if r.get("text", "").strip()
+        ]
     detections = capture["detections"]
     if len(words) != len(detections) or any(
         d.get("ordinal") != i or d.get("raw") != r or d.get("text") != r["text"]
@@ -174,7 +191,9 @@ def _ordered_source_alignments(doc, payload, structural_ids, *, prefix):
                 render["pageBoxes"]["mediaDeclared"]
             ) != [0, 0, w, h]:
                 continue
-            computed = coordinate_links(mapping, captures, payload.get("tableRepairs", []))
+            computed = coordinate_links(
+                mapping, captures, payload.get("tableRepairs", []), payload.get("rawOCRRuns", [])
+            )
             if computed != evidence["rawPassLinks"] or len(
                 {c["fingerprint"] for c in captures}
             ) != len(captures):
@@ -191,7 +210,7 @@ def _ordered_source_alignments(doc, payload, structural_ids, *, prefix):
                 or capture["transform"].get("orientation") != 0
             ):
                 continue
-            detections = _validated_raw_words(capture)
+            detections = _validated_raw_words(capture, payload)
             groups = {}
             for di, detection in enumerate(detections):
                 raw = detection["raw"]
@@ -683,7 +702,8 @@ def import_raw_ocr_ledger(
     expected_pages = {int(p) for p in exported.get("pages", {}) if str(p).isdigit()}
     declared = payload.get("rawCapturePages", [])
     valid = (
-        payload.get("rawCaptureVersion") == "document-files.raw-ocr.v1"
+        payload.get("rawCaptureVersion")
+        in {"document-files.raw-ocr.v1", "document-files.raw-ocr.v2"}
         and isinstance(captures, list)
         and isinstance(declared, list)
         and bool(expected_pages)
@@ -700,6 +720,15 @@ def import_raw_ocr_ledger(
             i.get("code", "").startswith("recognition_raw_") for i in payload.get("issues", [])
         )
     )
+    if valid and payload.get("rawCaptureVersion") == "document-files.raw-ocr.v2":
+        runs = payload.get("rawOCRRuns", [])
+        valid = (
+            isinstance(runs, list)
+            and len({r.get("fingerprint") for r in runs}) == len(runs)
+            and all(
+                any(c.get("runFingerprint") == r.get("fingerprint") for c in captures) for r in runs
+            )
+        )
     if valid:
         valid = all(
             p.get("passFingerprints")
@@ -841,7 +870,7 @@ def import_raw_ocr_ledger(
             ):
                 raise ValueError
             seen.add((page, pass_id))
-            detections = _validated_raw_words(capture)
+            detections = _validated_raw_words(capture, payload)
             if (
                 not isinstance(capture.get("image"), dict)
                 or not isinstance(capture.get("transform"), dict)
@@ -1044,6 +1073,7 @@ def import_raw_ocr_ledger(
         "entries": ledger,
         "unsupportedStructuralText": unsupported,
         "rawOCRPasses": deepcopy(captures),
+        "rawOCRRuns": deepcopy(payload.get("rawOCRRuns", [])),
         "rawCapturePages": deepcopy(declared),
     }
     doc.provenance.setdefault("recognitionProcessingLedgers", []).append(result)
@@ -1094,7 +1124,9 @@ def import_coordinate_evidence(doc, evidence, render, payload, *, source_hash, p
             or mapping != subset_mapping(render, subset)
             or mapping["status"] != "verified"
             or evidence["rawPassLinks"]
-            != coordinate_links(mapping, captures, payload.get("tableRepairs", []))
+            != coordinate_links(
+                mapping, captures, payload.get("tableRepairs", []), payload.get("rawOCRRuns", [])
+            )
             or len({c["fingerprint"] for c in captures}) != len(captures)
             or any(link["status"] != "verified" for link in evidence["rawPassLinks"])
         ):

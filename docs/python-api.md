@@ -270,6 +270,21 @@ reason-only changes, are not progress. Exposing uncertainty can be a valid corre
 Source review, applicability validity and independent semantic approval are distinct.
 Public v1 contracts remain unchanged; these are private protocol/versioned metadata.
 
+Recognition adapter v18 supports explicit `ruled_cells_v2` file-list repair.
+Administrator `repairBudget` accepts `batchSize` (1–2), `maxImages` (1–64) and
+`maxInputPixels` (1–64,000,000), all integers excluding booleans. Defaults remain
+1 / 8 / 16,000,000; a two-image profile must opt into `batchSize: 2` and an image
+budget such as `maxImages: 16`. Existing `maxCalls: 8`, `maxSeconds: 60` and crop
+`maxPixels: 16000000` are separate limits, not multiplied by the batch size.
+
+`document-files.raw-ocr.v2` retains a complete, unmodified process TSV in
+`rawOCRRuns`. Per-image captures bind its fingerprint, original TSV row ordinal,
+input page number and exact cell/image transform. `cell-image-batch.v1` validates
+at most two images from one table/page/language/PSM. A TSV input index does not
+change the source PDF page. Incomplete or failed output remains evidence, not a
+completed or reusable observation. Prior policy identities cannot resume as this
+contract. These are internal observation records; the public result v1 is unchanged.
+
 Recognition adapter v12 records `document-files.recognition-coordinates.v1` evidence
 for captured OCR input pixels through the actual framework crop/rotation and the
 serialized single-page PDF to the original page. It rechecks raw-pass/source/page

@@ -526,7 +526,10 @@ def _visual_page_candidates(doc, render, visual, *, recognition_identity, limits
             if sorted(repair_index) != list(range(len(repair_index))):
                 continue
             computed = coordinate_links(
-                mapping, captures, [repair_index[i] for i in range(len(repair_index))]
+                mapping,
+                captures,
+                [repair_index[i] for i in range(len(repair_index))],
+                ledger.get("rawOCRRuns", []),
             )
             original_links = evidence.get("rawPassLinks", [])
             if computed != original_links:

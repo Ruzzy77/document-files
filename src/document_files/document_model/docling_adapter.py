@@ -40,15 +40,23 @@ class RecognitionConfig:
     table_ocr_repair: str = "off"
     repair_max_tables: int = 8
     repair_max_calls: int = 8
+    repair_batch_size: int = 1
+    repair_max_images: int = 8
+    repair_max_input_pixels: int = 16000000
     repair_max_pixels: int = 16000000
     repair_max_seconds: int = 60
 
     def validate(self) -> None:
         if self.table_ocr_repair not in {"off", "ruled_tables_v1", "ruled_cells_v2"}:
             raise ValueError("recognition repair policy invalid")
+        if self.repair_batch_size == 2 and self.table_ocr_repair != "ruled_cells_v2":
+            raise ValueError("cell image batching requires ruled_cells_v2")
         limits = (
             (self.repair_max_tables, 32),
             (self.repair_max_calls, 32),
+            (self.repair_batch_size, 2),
+            (self.repair_max_images, 64),
+            (self.repair_max_input_pixels, 64000000),
             (self.repair_max_pixels, 64000000),
             (self.repair_max_seconds, 300),
         )
@@ -136,7 +144,7 @@ class DoclingRecognition:
         self._identity = {
             **supplied,
             "adapter": "docling-offline-worker",
-            "adapterVersion": "17",
+            "adapterVersion": "18",
             "configuration": asdict(config),
             "modelPinning": (
                 "caller_supplied_manifest"

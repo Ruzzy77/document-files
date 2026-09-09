@@ -2231,6 +2231,93 @@ def test_cell_crop_padding_transform_requires_exact_repair_unit_membership():
             ]
             == "unverified"
         )
+    # Explicit input page 2 is not PDF subset page 2. Independent image
+    # membership retains its own crop origin and original PDF transform.
+    import hashlib
+
+    from document_files.document_model.recognition_batches import BATCH_VERSION, run_fingerprint
+
+    second_unit = deepcopy(unit)
+    second_unit["cellPixelBox"] = [v + 60 if i in (0, 2) else v for i, v in enumerate(cell_box)]
+    second_unit["pixelOffset"][0] += 60
+    second_unit["fingerprint"] = "unit-fixture-second"
+    second_image = ImageOps.expand(
+        crop.crop(second_unit["cellPixelBox"]).crop(ink_box), border=padding, fill="white"
+    )
+    repair["units"].append(second_unit)
+    captures = [deepcopy(capture), deepcopy(capture)]
+    for index, current in enumerate(captures):
+        current.update(
+            passId=f"pass-{index}",
+            status="complete",
+            tsvInputPageNumber=index + 1,
+            unitFingerprint=repair["units"][index]["fingerprint"],
+            detections=[],
+        )
+    second = captures[1]
+    second["image"] = image_identity(second_image)
+    second["transform"]["cellUnitIndex"] = 1
+    second["transform"]["pixelOrigin"][0] += 60
+    second["pixelFrame"].update(
+        inputImage=second["image"],
+        cellPixelBox=second_unit["cellPixelBox"],
+        unitPixelOffset=second_unit["pixelOffset"],
+        unitPixelOrigin=second["transform"]["pixelOrigin"],
+        unitFingerprint=second_unit["fingerprint"],
+    )
+    raw = (
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+        "1\t1\t0\t0\t0\t0\t0\t0\t37\t44\t-1\t\n"
+        "1\t2\t0\t0\t0\t0\t0\t0\t37\t44\t-1\t\n"
+    )
+    run = {
+        "version": BATCH_VERSION,
+        "page_no": 1,
+        "status": "complete",
+        "exitCode": 0,
+        "timedOut": False,
+        "processStarted": True,
+        "outputTruncated": False,
+        "psm": 7,
+        "languages": ["kor", "eng"],
+        "tsv": raw,
+        "tsvSha256": hashlib.sha256(raw.encode()).hexdigest(),
+        "inputs": [
+            {
+                k: deepcopy(c[k])
+                for k in (
+                    "tsvInputPageNumber",
+                    "image",
+                    "transform",
+                    "pixelFrame",
+                    "unitFingerprint",
+                )
+            }
+            for c in captures
+        ],
+    }
+    for item in run["inputs"]:
+        item["localPdfPageNumber"] = 1
+    run["fingerprint"] = run_fingerprint(run)
+    for current in captures:
+        current["runFingerprint"] = run["fingerprint"]
+        current["fingerprint"] = raw_pass_fingerprint(current)
+    linked = coordinate_links(mapping, captures, [repair], [run])
+    assert [item["status"] for item in linked] == ["verified", "verified"]
+    assert (
+        linked[0]["inputPixelToOriginalPageAffine"] != linked[1]["inputPixelToOriginalPageAffine"]
+    )
+    assert second["batch_page_no"] == 1 and second["tsvInputPageNumber"] == 2
+    assert all(
+        item["status"] == "unverified" for item in coordinate_links(mapping, captures, [repair])
+    )
+    second["tsvInputPageNumber"] = 1
+    second["fingerprint"] = raw_pass_fingerprint(second)
+    assert all(
+        item["status"] == "unverified"
+        for item in coordinate_links(mapping, captures, [repair], [run])
+    )
+    second_image.close()
     for image in (unit_image, crop, canvas):
         image.close()
     del parser

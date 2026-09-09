@@ -62,6 +62,67 @@ def bounded_tsv(command, *, timeout, max_bytes):
             process.wait()
 
 
+def bounded_tsv_result(command, *, timeout, max_bytes):
+    """Retain bounded raw output on failure; callers must not accept partial runs."""
+    started = time.monotonic()
+    result = {
+        "exitCode": None,
+        "timedOut": False,
+        "status": "failed",
+        "outputTruncated": False,
+        "processStarted": False,
+    }
+    with tempfile.TemporaryFile() as output:
+        process = None
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                shell=False,
+            )
+            result["processStarted"] = True
+            while True:
+                if os.fstat(output.fileno()).st_size > max_bytes:
+                    raise ValueError("OCR output budget exceeded")
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired("fixed OCR batch process", timeout)
+                try:
+                    process.wait(timeout=min(0.05, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+            if process.returncode:
+                raise subprocess.CalledProcessError(process.returncode, "fixed OCR batch process")
+            if os.fstat(output.fileno()).st_size > max_bytes:
+                raise ValueError("OCR output budget exceeded")
+            result["status"] = "returned"
+        except BaseException as error:
+            result["error"] = error
+            result["errorType"] = type(error).__name__
+            result["timedOut"] = isinstance(error, subprocess.TimeoutExpired)
+            result["status"] = (
+                "timed_out"
+                if result["timedOut"]
+                else "failed"
+                if isinstance(error, Exception)
+                else "cancelled"
+            )
+        finally:
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
+                result["exitCode"] = process.returncode
+            result["outputTruncated"] = os.fstat(output.fileno()).st_size > max_bytes
+            output.seek(0)
+            result["raw"] = output.read(max_bytes)
+            result["elapsedSeconds"] = time.monotonic() - started
+    return result
+
+
 def remove_grid(image, *, max_pixels: int):
     """Return a separate image/mask only with a verified closed axis-aligned grid.
 
