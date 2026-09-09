@@ -62,8 +62,9 @@ from .semantic_types import (
     region_output_schema,
 )
 from .table_protocol import (
+    MEANING_REVIEW_MAX_CALLS,
     MEANING_SYSTEM,
-    STAGE_MAX_CALLS,
+    STAGE_INITIAL_MAX_CALLS,
     STAGE_MAX_OUTPUT_TOKENS,
     STRUCTURE_SYSTEM,
     TABLE_PROTOCOL_VERSION,
@@ -111,10 +112,17 @@ def _table_meaning_issues(fragment):
 
 
 def _meaning_feedback(ir, fragment, inventory, extra=()):
+    uncertain = {meaning.id for meaning in ir.meanings if meaning.status == "uncertain"}
     return {
         "issues": [*extra, *[_feedback_code(i) for i in _table_meaning_issues(fragment)]],
         "baseRevision": ir.tableMeaningState.revisionSHA256,
         "acceptedResponse": meaning_response(ir, inventory),
+        "remainingSourceRanges": [
+            copy.deepcopy(item)
+            for item in fragment.meaning_review.get("ranges", [])
+            if item["role"] in {"unreviewed", "unresolved"}
+            or uncertain.intersection(item.get("meaningIds", []))
+        ],
         "instruction": (
             "Review the reported source gaps and the prior interpretation together. "
             "Correct mistaken kind, description, scope or status; split, merge or withdraw "
@@ -123,6 +131,14 @@ def _meaning_feedback(ir, fragment, inventory, extra=()):
             "Return the full replacement, not a patch. Do not change frozen structure or values."
         ),
     }
+
+
+def _table_call_available(stage, progress):
+    # A rejected initial response must not consume the one review of an accepted
+    # meaning. Both allowances remain subordinate to the document-wide budget.
+    if stage == "meaning" and progress.get("acceptedResponse"):
+        return progress["reviewAttempts"] < MEANING_REVIEW_MAX_CALLS
+    return progress["attempts"] < STAGE_INITIAL_MAX_CALLS
 
 
 def _meaning_repair_improves(before_ir, before, after_ir, after):
@@ -433,7 +449,16 @@ def extract_schema_from_stream(
                         raise ValueError
                     _restored_usage(record["usage"])
                     attempts = record.get("attempts", 0)
-                    if type(attempts) is not int or not 0 <= attempts <= STAGE_MAX_CALLS:
+                    reviews = record.get("reviewAttempts")
+                    if (
+                        type(attempts) is not int
+                        or type(reviews) is not int
+                        or not 0 <= reviews <= MEANING_REVIEW_MAX_CALLS
+                        or not 0 <= attempts - reviews <= STAGE_INITIAL_MAX_CALLS
+                        or reviews > attempts
+                        or attempts > record["usage"]["modelCalls"]
+                        or (reviews and (stage != "meaning" or not record.get("acceptedResponse")))
+                    ):
                         raise ValueError
                 if state.get("kind") == "record_table" and rid not in accepted:
                     raise ValueError
@@ -578,6 +603,7 @@ def extract_schema_from_stream(
                 record = state.get(stage, {})
                 if record.get("status") != "complete":
                     record["attempts"] = 0
+                    record["reviewAttempts"] = 0
     prior_elapsed = usage["elapsedSeconds"]
     max_calls = selected.maxModelCalls + sum(g["maxModelCalls"] for g in grants)
     max_seconds = selected.completionSeconds + sum(g["completionSeconds"] for g in grants)
@@ -782,6 +808,8 @@ def extract_schema_from_stream(
             usage["unreportedUsageCalls"] += 1
             if table_stage is not None:
                 table_stage["attempts"] = table_stage.get("attempts", 0) + 1
+                if table_stage.get("acceptedResponse"):
+                    table_stage["reviewAttempts"] += 1
                 table_stage["status"] = "running"
                 table_stage.setdefault("usage", {})["modelCalls"] = (
                     table_stage.get("usage", {}).get("modelCalls", 0) + 1
@@ -861,6 +889,7 @@ def extract_schema_from_stream(
                 {
                     "status": "pending",
                     "attempts": 0,
+                    "reviewAttempts": 0,
                     "usage": {
                         "modelCalls": 0,
                         "promptTokens": 0,
@@ -903,7 +932,7 @@ def extract_schema_from_stream(
                 if stage == "structure"
                 else meaning_payload(payload, accepted[rid], compiled[rid], inventory)
             )
-            while progress["attempts"] < STAGE_MAX_CALLS:
+            while _table_call_available(stage, progress):
                 try:
                     value = invoke(
                         system, request, contract, progress.get("feedback"), table_stage=progress

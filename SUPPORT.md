@@ -34,7 +34,7 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Current source follow-up: table meaning, visual observations and Linux compatibility
 
-Prompt v21 / planner v14 / table protocol v6 / compiler v15 require an explicit
+Prompt v23 / planner v14 / table protocol v8 / compiler v15 require an explicit
 role for every observed row not fixed by a native header declaration. OCR header
 flags remain predictions; omitted roles never become data records. Scope v7 uses
 the compiled header classification when constructing header-group candidates.
@@ -72,6 +72,15 @@ source inventory and transition history. Structure and source values cannot chan
 issue-count reduction is not a quality test. Invalid repairs and exhausted budgets
 preserve the prior accepted result. Scalar-form contracts remain unchanged.
 
+Table protocol v8 separates at most two initial meaning attempts from one review
+of an accepted meaning. Structure still permits at most two attempts. All calls
+share the unchanged document call/time budget; a failed or unchanged review does
+not trigger another attempt without an explicit grant. Repair feedback now includes
+the exact remaining source ranges, their text and hashes, not only source IDs.
+The program does not decide that a title has no further meaning or repair a wrong
+quote occurrence automatically. This scheduling change has scripted regression
+coverage; its fresh full-path model check remains pending.
+
 Two full-path development runs used 2 calls each (148.2 and 146.5 seconds) within a
 preselected 5-call / 900-second limit. Both reported complete but failed separate
 content review: the unit was classified as a note and applied to the entire record,
@@ -84,7 +93,7 @@ the pre-hardening source snapshot; exact execution source hashes are retained.
 A source-first output-order experiment then used 2 calls / 229.8 seconds and also
 reported complete, but regressed in content review: it combined the caption into a
 record-wide note and misclassified four numeric values as units. That experiment was
-reverted; prompt v21 / table protocol v6 remain current. Two human-segmented clause
+reverted to prompt v21 / table protocol v6. Two human-segmented clause
 probes, followed by a four-call sampling comparison, did not produce a profile that
 correctly handled both the unit and condition. These component diagnostics do not
 test automatic source selection or qualify a production profile.

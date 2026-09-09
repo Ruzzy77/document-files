@@ -3,6 +3,7 @@
 import copy
 import io
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -60,6 +61,8 @@ class CaptionModel:
             sources = {s["sourceRef"]: s["text"] for s in payload["meaningSources"]}
             caption = next((ref for ref, text in sources.items() if "Size uses mm." in text), None)
             feedback = payload.get("repairFeedback", {})
+            if not isinstance(feedback, dict):
+                feedback = {}  # Initial-format repair has no accepted revision.
             value = {
                 "regionId": payload["regionId"],
                 "meanings": [],
@@ -137,6 +140,11 @@ def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_cont
     assert "Correct mistaken" in feedback["instruction"]
     assert feedback["baseRevision"]
     assert "sourceQuotes" in feedback["acceptedResponse"]["meanings"][0]
+    remaining = feedback["remainingSourceRanges"]
+    assert len(remaining) == 1
+    assert remaining[0]["text"] == "Measurements; "
+    assert (remaining[0]["start"], remaining[0]["end"]) == (0, 14)
+    assert remaining[0]["role"] == "unreviewed"
     assert model.requests[1]["frozenStructure"] == model.requests[2]["frozenStructure"]
     rid = next(iter(states[-1]["accepted"]))
     before = next(
@@ -151,6 +159,118 @@ def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_cont
     assert before["result"]["data"] == result["data"]
     assert run(model, restore=states[-1])["extraction"]["status"] == "complete"
     assert len(model.requests) == 3
+
+
+class InvalidThenReview(CaptionModel):
+    """Reject a wrong occurrence, then accept meaning before reviewing the title."""
+
+    def __init__(self, *, invalid_calls=1, review_mode="fix"):
+        super().__init__()
+        self.invalid_calls = invalid_calls
+        self.review_mode = review_mode
+
+    def infer(self, request):
+        self.mode = "same" if self.meaning_calls < 2 else self.review_mode
+        response = super().infer(request)
+        if (
+            self.requests[-1]["tableStage"] == "meaning"
+            and self.meaning_calls <= self.invalid_calls
+        ):
+            value = json.loads(response.text)
+            value["meanings"][0]["sourceQuotes"][0]["occurrence"] = 1
+            return InferenceResponse(json.dumps(value), response.usage)
+        return response
+
+
+def test_initial_format_retry_leaves_one_explicit_review_inside_unchanged_document_budget():
+    model, states = InvalidThenReview(), []
+    result = run(model, states=states, maxModelCalls=5, completionSeconds=900)
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert result["extraction"]["budget"] == {"maxModelCalls": 5, "completionSeconds": 900}
+    assert len(model.requests) == 4 and model.meaning_calls == 3
+    assert model.requests[2]["repairFeedback"] == ["quote_occurrence_required_or_invalid"]
+    assert (
+        model.requests[3]["repairFeedback"]["remainingSourceRanges"][0]["text"] == "Measurements; "
+    )
+    assert all(
+        r["frozenStructure"] == model.requests[1]["frozenStructure"] for r in model.requests[2:]
+    )
+    assert result["data"] == {"rows": [{"size": "001.2300"}]}
+    progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
+    assert progress["attempts"] == 3 and progress["reviewAttempts"] == 1
+    assert progress["usage"]["modelCalls"] == 3 and len(progress["revisions"]) == 2
+    assert not states[-1]["grants"]
+    run(model, restore=states[-1], maxModelCalls=5, completionSeconds=900)
+    assert len(model.requests) == 4
+
+
+def test_two_invalid_initial_responses_do_not_receive_a_content_review_or_automatic_retry():
+    model, states = InvalidThenReview(invalid_calls=2), []
+    result = run(model, states=states, maxModelCalls=5)
+    assert result["extraction"]["status"] == "partial"
+    assert len(model.requests) == 3
+    progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
+    assert progress["attempts"] == 2 and progress["reviewAttempts"] == 0
+    assert not progress.get("acceptedResponse")
+    run(model, restore=states[-1], maxModelCalls=5)
+    assert len(model.requests) == 3
+
+
+@pytest.mark.parametrize("review_mode", ["same", "invalid", "timeout", "cancel"])
+def test_one_post_acceptance_review_stops_on_failure_or_no_progress(review_mode):
+    model, states = InvalidThenReview(review_mode=review_mode), []
+    result = run(model, states=states, maxModelCalls=5)
+    assert result["extraction"]["status"] == "partial"
+    assert len(model.requests) == 4
+    assert result["data"] == {"rows": [{"size": "001.2300"}]}
+    progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
+    assert progress["reviewAttempts"] == 1 and len(progress["revisions"]) == 1
+    run(model, restore=states[-1], maxModelCalls=5)
+    assert len(model.requests) == 4
+
+
+def test_content_review_never_exceeds_global_calls_and_grant_is_explicit():
+    model, states = InvalidThenReview(), []
+    result = run(model, states=states, maxModelCalls=3)
+    assert len(model.requests) == 3 and result["extraction"]["status"] == "partial"
+    progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
+    assert progress["reviewAttempts"] == 0 and progress["acceptedResponse"]
+    run(model, restore=states[-1], maxModelCalls=3)
+    assert len(model.requests) == 3
+    fixed = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 1})
+    assert fixed["extraction"]["status"] == "complete" and len(model.requests) == 4
+
+
+def test_elapsed_budget_stops_content_review_before_dispatch(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: now[0]))
+
+    class Slow(InvalidThenReview):
+        def infer(self, request):
+            response = super().infer(request)
+            if self.meaning_calls == 2:
+                now[0] = 901.0
+            return response
+
+    model, states = Slow(), []
+    result = run(model, states=states, maxModelCalls=5, completionSeconds=900)
+    assert len(model.requests) == 3 and result["extraction"]["status"] == "partial"
+    assert any(i["code"] == "completion_budget_exceeded" for i in result["issues"])
+    progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
+    assert progress["attempts"] == 2 and progress["reviewAttempts"] == 0
+    assert progress["acceptedResponse"]
+
+
+@pytest.mark.parametrize("attempts,reviews", [(4, 1), (3, 0), (3, 2), (2, True), (-1, 0), (0, 1)])
+def test_invalid_stage_allowance_counters_are_rejected_on_restore(attempts, reviews):
+    model, states = InvalidThenReview(), []
+    run(model, states=states, maxModelCalls=5)
+    forged = copy.deepcopy(states[-1])
+    progress = next(iter(forged["tableStages"].values()))["meaning"]
+    progress.update(attempts=attempts, reviewAttempts=reviews)
+    with pytest.raises(ValueError, match="checkpoint is incompatible"):
+        run(model, restore=forged, maxModelCalls=5)
+    assert len(model.requests) == 4
 
 
 @pytest.mark.parametrize("mode", ["drop", "rewrite", "weaken", "scope", "same", "invalid"])

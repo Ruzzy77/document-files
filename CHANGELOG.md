@@ -2,8 +2,8 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
-- Separate literal source ranges from revisable table meanings (prompt v21, planner v14,
-  table protocol v6, compiler v15, scope v7). Require explicit source review beyond
+- Separate literal source ranges from revisable table meanings (prompt v23, planner v14,
+  table protocol v8, compiler v15, scope v7). Require explicit source review beyond
   value/header reads and preserve source coverage through corrections and withdrawals.
 - Bind meaning revisions to prior content and change history; reject stale bases,
   unrecorded changes, lost reviews and incompatible checkpoints without losing values.
@@ -23,8 +23,12 @@
   at table boundaries and incomplete duplicate lines; do not rewrite text or promote
   page completeness.
 - Record bounded full-path development meaning failures despite engine completion. Revert
-  the failed source-first output-order experiment; prompt v21 / table protocol v6 remain
-  current. Clause-level sampling diagnostics are not production-profile qualification.
+  the failed source-first output-order experiment. Clause-level sampling diagnostics
+  are not production-profile qualification.
+- Separate initial meaning retries from one post-acceptance review within the existing
+  document budget. Supply exact remaining source ranges and preserve accepted content
+  on failure or no progress; reject incompatible old stage checkpoints. The new path
+  has scripted regression coverage, not yet a fresh full-model qualification.
 - Add an optional finite per-block reasoning limit for managed inference, consistently
   applied to template checks, inference and checkpoint identity. Keep the non-thinking
   default and total output ceiling; incomplete final answers remain failures.

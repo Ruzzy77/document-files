@@ -216,7 +216,7 @@ They are optional measurements, not an accuracy certificate or timeout usage rec
 
 ### Internal table stages
 
-Prompt v21 / planner v14 / table protocol v6 use a structural classification first.
+Prompt v23 / planner v14 / table protocol v8 use a structural classification first.
 Record tables compile one record definition before interpreting meanings over fixed
 IDs; scalar forms retain their binding-based path. `coverage.tableInterpretation`
 records each stage's attempts, status and usage. `structure_compiled` means retained
@@ -224,6 +224,15 @@ partial work, not complete extraction. Compiler v15 rejects broad unbounded
 parent/child scope unions while preserving explicit bounded row intersections.
 Public AnalysisJob v1, AnalysisResult v1 and extraction result contracts remain;
 private checkpoint v2 checks the changed protocol identities.
+
+Structure permits at most two attempts. Meaning permits at most two attempts to
+obtain its first accepted response, followed by at most one review of that response.
+These are stage ceilings, not extra document budget. `attempts` counts all stage
+dispatches and `reviewAttempts` counts post-acceptance dispatches; usage remains
+cumulative across explicit grants. Exhausted stages do not restart automatically.
+Repair feedback includes `remainingSourceRanges` with exact source text, offsets
+and hashes. Source reviews apply only outside direct meaning quotes in that source.
+Changing stage policy invalidates earlier protocol checkpoints, not public v1 APIs.
 
 Stage-one row decisions use `{row, role}` for every observed non-fixed row; omissions,
 duplicates and unknown rows are rejected. Only wholly native-declared header rows
