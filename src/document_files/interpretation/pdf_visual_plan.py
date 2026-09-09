@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v1"
+VERSION = "document-files.pdf-visual-review.v2"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -79,7 +79,22 @@ def _bounds(runs):
 
 
 def observation_page_fingerprint(doc, page):
-    """Bind a review to the current page observations, not mutable global status."""
+    """Bind current evidence, excluding the separate legacy whole-page projection.
+
+    Legacy pages have no geometry or observation basis and never enter the review
+    payload. Their text is already bound by the PDF hash and additive observations.
+    Keep all other nodes, including unfamiliar kinds, in the identity.
+    """
+
+    def legacy_page(node):
+        return (
+            "observationBasis" not in node
+            and node.get("sourceUnitType") == node.get("semanticRole") == "page"
+            and node.get("semantic", {}).get("basis") == "source_structure"
+            and node.get("derivation", {}).get("method") == "native_text"
+            and set(node.get("sourceStructure", {})) == {"page"}
+        )
+
     return digest(
         {
             "sourceSha256": doc.provenance.get("sourceSha256"),
@@ -87,7 +102,7 @@ def observation_page_fingerprint(doc, page):
             "nodes": {
                 k: v
                 for k, v in doc.nodes.items()
-                if v.get("sourceStructure", {}).get("page") == page
+                if v.get("sourceStructure", {}).get("page") == page and not legacy_page(v)
             },
             "tables": {k: v for k, v in doc.tables.items() if v.get("page") == page},
             "evidence": {
@@ -449,7 +464,8 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
         "page": page,
         "captureFingerprint": capture["fingerprint"],
         "pixelFingerprint": pixels["fingerprint"],
-        "grid": grid,
+        # Measurement time is diagnostic, not source evidence or model input.
+        "grid": {k: v for k, v in grid.items() if k != "diagnostics"} if grid else None,
         "pixelSize": capture["pixelSize"],
         "sources": sources,
         "units": units,
@@ -549,6 +565,7 @@ def output_schema(plan):
 
 def validate_decision(plan, decision, *, detail_bounds):
     """Reject inconsistent decisions; acceptance is processing, not OCR truth."""
+    require(plan.get("version") == VERSION, "visual_plan_version_incompatible")
     require(
         plan.get("fingerprint") == digest({k: v for k, v in plan.items() if k != "fingerprint"}),
         "visual_plan_changed",

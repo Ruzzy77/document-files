@@ -175,7 +175,7 @@ def test_interrupted_call_is_not_silently_replayed(monkeypatch):
     assert calls["model"] == 1
 
 
-@pytest.mark.parametrize("mutation", ["source", "decision", "image"])
+@pytest.mark.parametrize("mutation", ["source", "decision", "image", "version"])
 def test_changed_review_checkpoint_is_rejected_without_another_call(monkeypatch, mutation):
     doc, calls, _, _, run, _ = setup(monkeypatch)
     _, state = run()
@@ -183,8 +183,10 @@ def test_changed_review_checkpoint_is_rejected_without_another_call(monkeypatch,
         doc.nodes["cell"]["text"] = "different"
     elif mutation == "decision":
         state["pages"]["1"]["validation"]["decisionFingerprint"] = "0" * 64
-    else:
+    elif mutation == "image":
         state["pages"]["1"]["images"]["images"][1]["sourcePixelBounds"] = [0, 0, 1, 1]
+    else:
+        state["version"] = "document-files.pdf-visual-review.v1"
     with pytest.raises(ValueError, match="checkpoint is incompatible"):
         run(restore=state)
     assert calls["model"] == 1

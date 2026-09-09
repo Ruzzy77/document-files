@@ -9,6 +9,7 @@ from document_files.document_model.recognition_cell_observations import fingerpr
 from document_files.document_model.recognition_sources import page_render_fingerprint
 from document_files.interpretation.pdf_visual_apply import apply_page_reviews
 from document_files.interpretation.pdf_visual_plan import (
+    VERSION,
     digest,
     observation_page_fingerprint,
     validate_decision,
@@ -169,7 +170,7 @@ def fixture():
         "legacyAnalysis": {"reading_order": "unverified"},
     }
     plan = {
-        "version": "document-files.pdf-visual-review.v1",
+        "version": VERSION,
         "sourceSha256": sha,
         "page": 1,
         "sourceObservationFingerprint": observation_page_fingerprint(doc, 1),

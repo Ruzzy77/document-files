@@ -417,10 +417,13 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v1` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v2` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
+Version 2 excludes grid timing and the separate legacy whole-page projection from
+page identity; original PDF, additive observations and geometry remain bound.
+Version 1 plans/checkpoints are incompatible and are not automatically migrated.
 
 The model classifies source-linked pixel units and missing slots and orders observed
 blocks. The receiver rejects unsupported structural pixels, incomplete detail coverage,

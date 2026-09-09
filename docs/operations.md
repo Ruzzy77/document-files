@@ -58,7 +58,7 @@ Visual policy changes also invalidate the job profile identity. This transport a
 does not review a PDF page, resolve an empty cell or approve extraction completeness.
 
 For PDF schema extraction with an explicit vision pack, the engine runs the internal
-page-review v1 stage before semantic region planning. It reuses completed recognition,
+page-review v2 stage before semantic region planning. It reuses completed recognition,
 reproduces source-bound images, accounts for exact foreground pixels and measures
 line candidates on that same render. Every page and its full missing-slot detail must
 receive a consistent decision before blank values or region order are applied.

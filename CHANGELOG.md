@@ -2,6 +2,9 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Stabilize PDF page-review identity (v2): exclude grid measurement time and the
+  separate legacy whole-page projection, retaining original PDF and observation
+  evidence. Reject v1 plans/checkpoints rather than silently migrating decisions.
 - Add an internal PDF page-review stage for explicitly image-capable managed packs.
   Account for exact non-white pixel runs, measure line candidates on the same RGB
   render, and reject missing-source pixels, incomplete slot borders and conflicting

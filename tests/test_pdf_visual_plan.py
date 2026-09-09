@@ -137,6 +137,49 @@ def test_fingerprint_and_observation_source_changes():
         plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 1)
 
 
+@pytest.mark.parametrize("text", ["", "legacy whole-page text"])
+def test_legacy_page_projection_does_not_change_review_input(text):
+    doc, capture, pixels = example()
+    before = plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 10)
+    legacy = {
+        "sourceUnitType": "page",
+        "semanticRole": "page",
+        "sourceStructure": {"page": 1},
+        "semantic": {"basis": "source_structure"},
+        "derivation": {"method": "native_text"},
+        "text": text,
+    }
+    doc.nodes["legacy"] = deepcopy(legacy)
+    after = plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 10)
+    assert after == before
+    assert doc.nodes["legacy"] == legacy
+    # A real additive observation, or an unfamiliar page node, stays bound.
+    doc.nodes["legacy"]["observationBasis"] = "native_pdf"
+    assert plan.observation_page_fingerprint(doc, 1) != before["sourceObservationFingerprint"]
+    del doc.nodes["legacy"]["observationBasis"]
+    doc.nodes["legacy"]["derivation"]["method"] = "unfamiliar"
+    assert plan.observation_page_fingerprint(doc, 1) != before["sourceObservationFingerprint"]
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    ["pdfPageRenderCaptures", "recognitionCellPixelObservations", "recognitionCoordinateEvidence"],
+)
+def test_page_evidence_remains_bound(evidence):
+    doc, _, _ = example()
+    before = plan.observation_page_fingerprint(doc, 1)
+    doc.provenance[evidence] = [{"page": 1, "changed": True}]
+    assert plan.observation_page_fingerprint(doc, 1) != before
+
+
+def test_previous_plan_version_cannot_be_accepted_by_rehashing():
+    value = build()
+    value["version"] = "document-files.pdf-visual-review.v1"
+    value["fingerprint"] = plan.digest({k: v for k, v in value.items() if k != "fingerprint"})
+    with pytest.raises(plan.PdfVisualReviewError, match="version_incompatible"):
+        plan.validate_decision(value, answer(value), detail_bounds=None)
+
+
 @pytest.mark.parametrize(
     "budget", ["cancelled", "timeout", "comparisons", "sources", "units", "runs"]
 )
@@ -262,6 +305,24 @@ def test_same_render_grid_drives_full_slot_and_keeps_every_pixel():
     )
     with pytest.raises(plan.PdfVisualReviewError, match="detail_missing"):
         plan.validate_decision(value, decision, detail_bounds=[82, 82, 140, 140])
+
+
+def test_grid_measurement_timing_does_not_change_plan_identity(monkeypatch):
+    from document_files.interpretation import pdf_visual_grid
+
+    measure = pdf_visual_grid.measure_grid_candidates
+    elapsed = iter([0.01, 100.0])
+
+    def timed(*args, **kwargs):
+        result = measure(*args, **kwargs)
+        result["diagnostics"]["elapsedSeconds"] = next(elapsed)
+        return result
+
+    monkeypatch.setattr(pdf_visual_grid, "measure_grid_candidates", timed)
+    first, second = grid_plan(), grid_plan()
+    assert first == second
+    assert "diagnostics" not in first["grid"]
+    assert first["grid"]["grids"]
 
 
 def test_one_faint_interior_pixel_cannot_be_a_table_border_or_empty_value():

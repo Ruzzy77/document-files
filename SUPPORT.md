@@ -73,6 +73,9 @@ does not establish all-page application, semantic extraction or holdout quality.
 The engine shares page and semantic calls/time, checkpoints each attempt before
 inference, and resumes reviewed pages without another call. Unknown, failed and
 interrupted calls are not automatically retried. PNG bytes stay out of checkpoints.
+Page-review v2 excludes measured elapsed time and the separate legacy whole-page
+projection from page identity while retaining source/observation evidence. Older
+v1 plans and checkpoints are rejected; there is no automatic decision migration.
 The optional projector builder now has an explicit flag and conversion receipt v2;
 its actual final-pack and multi-platform qualification remain pending.
 
