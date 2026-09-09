@@ -392,3 +392,12 @@ link to the frame, raw TSV and detection. A narrow native-line check may report
 matching support; it does not classify or delete the original text, clear issues,
 or approve document completeness. Older recognition checkpoints are incompatible.
 The public result, CLI and MCP contracts are unchanged.
+
+Adapter v25 adds `recognitionNativeRulingConsumptions` (consumption v1 and observed
+processing ledger v5). The receiver rechecks original pixel/native evidence, an exact
+one-to-one raw OCR/source cell link, and a unique table grid with four closed native
+cell borders. A matching source keeps its original text, node, binding and table
+context but is excluded from data candidates. The affected disposition and issues
+are retained in resolution provenance. A complete returned-detection ledger does
+not establish page completeness, OCR truth or scan blankness. Prior checkpoints
+remain incompatible; public v1 contracts are unchanged.

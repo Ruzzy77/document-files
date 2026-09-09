@@ -652,6 +652,8 @@ def import_source_observations(doc, payload, exported, structural_ids, *, prefix
     raw_ledger = import_raw_ocr_ledger(
         doc, payload, exported, structural_ids, imported_refs, prefix=prefix, ordered=ordered
     )
+    consumed = consume_native_rulings(doc, payload, raw_ledger, prefix=prefix)
+    primary = [ref for ref in primary if ref not in consumed]
     doc.provenance.setdefault("recognitionSourceObservations", []).append(
         {
             "batch": prefix,
@@ -1054,7 +1056,7 @@ def import_raw_ocr_ledger(
         valid and not unresolved and not unsupported and not unverified_tables and not local_issues
     )
     result = {
-        "version": "document-files.observed-processing-ledger.v4",
+        "version": "document-files.observed-processing-ledger.v5",
         "batch": prefix,
         "scope": "returned_word_detections_and_exported_structure_only",
         "allRawOCRDetectionsPreserved": valid,
@@ -1598,3 +1600,402 @@ def import_native_ruling_observations(doc, payload, *, source_hash, page, prefix
         ]
     result["fingerprint"] = fingerprint(result)
     doc.provenance.setdefault("recognitionNativeRulingObservations", []).append(result)
+    return result
+
+
+def _native_table_ruling_support(doc, decision, *, page, prefix, source_hash, comparison_budget):
+    """Require an actual closed native grid-cell boundary, not a nearby vector mark."""
+    from collections import Counter
+
+    from .pdf_native_objects import validate_native_inventory
+    from .recognition_cell_observations import validate_cell_observation
+    from .recognition_coordinates import fingerprint
+    from .recognition_native_cells import _line_edge, _source_boxes
+
+    result = {"status": "unresolved", "comparisons": 0}
+    try:
+        native = validate_native_inventory(
+            doc.provenance.get("pdfNativeObjects", {}), source_sha256=source_hash, page=page
+        )
+        if native["status"] != "verified":
+            raise ValueError("native_inventory_unverified")
+        native_page = native["pageInventory"]
+        mappings = [
+            c["evidence"]["mapping"]
+            for c in doc.provenance.get("recognitionCoordinateEvidence", [])
+            if c.get("sourceSha256") == source_hash
+            and c.get("page") == page
+            and c.get("status") == "verified"
+        ]
+        batches = [
+            b
+            for b in doc.provenance.get("recognitionCellPixelObservations", [])
+            if b.get("sourceSha256") == source_hash
+            and b.get("page") == page
+            and b.get("batch") == prefix
+        ]
+        if len(mappings) != 1 or len(batches) != 1:
+            raise ValueError("table_geometry_channel_not_unique")
+        entries = batches[0]["observations"]
+        if len(entries) > 256:
+            raise ValueError("table_geometry_budget_exceeded")
+        counts = Counter(e["structureAssociation"].get("tableRef") for e in entries)
+        supported = []
+        window = decision["windowSourceBounds"]
+        target = decision["nativeObjectRef"]
+        for entry in entries:
+            record, association = entry["observation"], entry["structureAssociation"]
+            table_ref = association.get("tableRef")
+            if (
+                entry.get("observationStatus") != "verified"
+                or entry.get("sourceCoordinateStatus") != "verified"
+                or association.get("status") != "unique_geometry_correspondence"
+                or counts[table_ref] != 1
+            ):
+                continue
+            if (
+                record.get("fingerprint") != fingerprint(record)
+                or record.get("geometry", {}).get("status") != "verified_rectangular_grid"
+                or validate_cell_observation(
+                    record, mapping=mappings[0], source_sha256=source_hash, page=page
+                )
+                != entry.get("validation")
+                or _cell_observation_table_candidates(doc, record, page=page, prefix=prefix)
+                != [table_ref]
+            ):
+                continue
+            for slot in record["slots"]:
+                objects = native_page["objects"]
+                if len(objects) > comparison_budget - result["comparisons"]:
+                    raise ValueError("native_table_border_budget_exceeded")
+                result["comparisons"] += len(objects)
+                outer, inner = _source_boxes(record, slot, entry["validation"], native_page)
+                edges = {}
+                for obj in objects:
+                    if (
+                        obj.get("hasTransparency") is not False
+                        or obj.get("clipPathCount") != 0
+                        or obj.get("strokeColor", [])[-1:] != [255]
+                        or obj.get("lineCap") != 0
+                    ):
+                        continue
+                    edge = _line_edge(obj, outer, inner)
+                    if edge is not None:
+                        edges.setdefault(edge[0], []).append((obj["id"], edge[1:]))
+                if set(edges) != {"left", "right", "top", "bottom"} or any(
+                    len(v) != 1 for v in edges.values()
+                ):
+                    continue
+                target_edges = [name for name, values in edges.items() if values[0][0] == target]
+                if len(target_edges) != 1:
+                    continue
+                edge_name = target_edges[0]
+                if not (
+                    inner[1] <= window[1] < window[3] <= inner[3]
+                    if edge_name in {"left", "right"}
+                    else inner[0] <= window[0] < window[2] <= inner[2]
+                ):
+                    continue
+                coordinates = {name: values[0][1][0] for name, values in edges.items()}
+                closed = True
+                for name, values in edges.items():
+                    _, (_, start, end) = values[0]
+                    lo, hi = ("top", "bottom") if name in {"left", "right"} else ("left", "right")
+                    if not start <= coordinates[lo] < coordinates[hi] <= end:
+                        closed = False
+                if closed:
+                    supported.append(
+                        {
+                            "tableRef": table_ref,
+                            "slotKey": slot["slotKey"],
+                            "edge": edge_name,
+                            "observationFingerprint": record["fingerprint"],
+                            "borderObjectRefs": {
+                                name: values[0][0] for name, values in edges.items()
+                            },
+                        }
+                    )
+        if not supported or len({s["tableRef"] for s in supported}) != 1:
+            raise ValueError("target_not_unique_closed_native_table_boundary")
+        result.update(
+            status="verified",
+            tableRef=supported[0]["tableRef"],
+            slots=supported,
+            basis="unique_layout_grid_and_four_closed_native_cell_borders",
+            nativeInventoryFingerprint=doc.provenance["pdfNativeObjects"]["fingerprint"],
+        )
+    except (KeyError, TypeError, ValueError, IndexError, AttributeError, OverflowError) as error:
+        result["reason"] = str(error)
+    result["fingerprint"] = fingerprint(result)
+    return result
+
+
+def consume_native_rulings(doc, payload, ledger, *, prefix):
+    """Resolve only a freshly rechecked, unique unresolved source-cell role.
+
+    Original pixels, OCR strings, bindings and context membership are untouched.
+    The original affected dispositions/issues remain in separate provenance.
+    """
+    import math
+    from copy import deepcopy
+
+    from .recognition_coordinates import fingerprint
+
+    pages = ledger.get("processingDependencies", {}).get("pages", [])
+    if len(pages) != 1:
+        return set()
+    page = pages[0]
+    proof = import_native_ruling_observations(
+        doc, payload, source_hash=doc.provenance.get("sourceSha256"), page=page, prefix=prefix
+    )
+    if not proof or proof.get("status") != "observed":
+        return set()
+    output = {
+        "version": "document-files.native-ruling-consumption.v1",
+        "batch": prefix,
+        "sourceSha256": doc.provenance.get("sourceSha256"),
+        "page": page,
+        "rulingEvidenceFingerprint": proof["fingerprint"],
+        "decisions": [],
+        "resolvedIssues": [],
+        "comparisons": 0,
+        "maxComparisons": 65536,
+        "ocrTruthVerified": False,
+        "documentCompletenessVerified": False,
+        "rawTextBindingsAndContextPreserved": True,
+    }
+    consumed = set()
+    cells = payload.get("cells", [])
+    captures = payload.get("rawOCRPasses", [])
+    if (
+        len(cells) > 8192
+        or sum(len(c.get("detections", [])) for c in captures) > 4096
+        or ledger.get("rawOCRPasses") != captures
+    ):
+        output.update(status="unresolved", reason="consumer_input_budget_or_capture_mismatch")
+        output["fingerprint"] = fingerprint(output)
+        doc.provenance.setdefault("recognitionNativeRulingConsumptions", []).append(output)
+        return set()
+    entries = {entry["rawRef"]: entry for entry in ledger["entries"]}
+    refs = set(ledger["processingDependencies"]["sourceRefs"])
+    old_unresolved = sum(e["status"] == "unresolved" for e in ledger["entries"])
+    candidates = []
+    for capture_index, capture in enumerate(captures):
+        for index, detection in enumerate(capture.get("detections", [])):
+            candidates.append((f"{prefix}:raw:{capture_index}:{index}", capture, detection))
+    for pass_evidence in proof["passes"]:
+        if pass_evidence.get("status") != "verified_pixels_and_coordinates":
+            continue
+        for decision in pass_evidence["decisions"]:
+            if decision.get("status") != "verified_native_ruling_support":
+                continue
+            check = {
+                "rawRef": decision["rawRef"],
+                "status": "unresolved",
+                "supportDecisionFingerprint": decision["fingerprint"],
+            }
+            output["decisions"].append(check)
+            try:
+                work = (
+                    2 * len(candidates)
+                    + len(cells)
+                    + len(doc.bindings)
+                    + len(doc.relations)
+                    + len(doc.issues)
+                )
+                if work > output["maxComparisons"] - output["comparisons"]:
+                    raise ValueError("consumer_comparison_budget_exceeded")
+                output["comparisons"] += work
+                raw_ref = decision["rawRef"]
+                original_entry = entries[raw_ref]
+                if (
+                    original_entry["status"] != "unresolved"
+                    or original_entry.get("reason") != "unassigned_or_conflicting_detection"
+                ):
+                    raise ValueError("raw_disposition_not_uniquely_unassigned")
+                selected = [(c, d) for r, c, d in candidates if r == raw_ref]
+                if len(selected) != 1:
+                    raise ValueError("raw_reference_nonunique")
+                capture, detection = selected[0]
+                loc, text = detection["pageBBox"], detection["text"]
+                if (
+                    capture["sourcePass"] != "page_ocr"
+                    or capture["page_no"] != page
+                    or capture["fingerprint"] != pass_evidence["passFingerprint"]
+                    or detection.get("mappingBasis")
+                    != "pinned_upstream_pre_merge_order_text_confidence"
+                    or loc.get("coord_origin") != "TOPLEFT"
+                ):
+                    raise ValueError("raw_stage_or_mapping_unverified")
+                # A repeated raw observation cannot borrow another pass's ruling proof.
+                aliases = [
+                    r
+                    for r, c, d in candidates
+                    if c.get("page_no") == page
+                    and d.get("text") == text
+                    and d.get("pageBBox") == loc
+                ]
+                if aliases != [raw_ref]:
+                    raise ValueError("raw_to_source_membership_ambiguous")
+                matching = [
+                    (i, c)
+                    for i, c in enumerate(cells)
+                    if c.get("page_no") == page
+                    and c.get("stage") == "original_ocr"
+                    and c.get("fromOcr") is True
+                    and c.get("sourceKind") == "ocr"
+                    and c.get("raw") == c.get("text") == text
+                    and c.get("bbox") == loc
+                    and type(c.get("confidence")) in (int, float)
+                    and math.isclose(
+                        c["confidence"], detection["confidence"] / 100, rel_tol=0, abs_tol=1e-9
+                    )
+                ]
+                if len(matching) != 1:
+                    raise ValueError("source_cell_membership_nonunique")
+                index, cell = matching[0]
+                ref = f"{prefix}:source:{index}"
+                node = doc.nodes[ref]
+                if (
+                    ref not in refs
+                    or original_entry["targetRefs"] != [ref]
+                    or node.get("originalRecognitionText") != node["text"]
+                    or node["text"] != text
+                    or node.get("sourceObservationStage") != "original_ocr"
+                    or node["sourceStructure"].get("page") != page
+                    or node["sourceStructure"].get("sourceKind") != "ocr"
+                    or node.get("recognizedText") is not True
+                    or node.get("observationBasis") != "ocr"
+                    or any(
+                        node["sourceStructure"].get("bbox", {}).get(k) != loc[v]
+                        for k, v in (("left", "l"), ("top", "t"), ("right", "r"), ("bottom", "b"))
+                    )
+                    or node["sourceStructure"].get("bbox", {}).get("origin") != "TOPLEFT"
+                    or node["sourceStructure"].get("recognitionBatch") != prefix
+                    or node["sourceStructure"].get("backendCellIndex")
+                    != cell.get("backendCellIndex")
+                    or node.get("semanticInput", {}).get("role")
+                    not in {"unassigned_observation", "independent_observation"}
+                    or ref in ledger["processingDependencies"]["structuralRefs"]
+                ):
+                    raise ValueError("source_node_membership_or_role_conflict")
+                if any(
+                    b.get("candidateStatus") == "unresolved_conflict"
+                    for b in doc.bindings.values()
+                    if b["sourceRef"] == ref
+                ):
+                    raise ValueError("existing_binding_conflict")
+                if any(
+                    ref in [r.get("sourceRef"), r.get("targetRef"), *r.get("sourceRefs", [])]
+                    for r in doc.relations
+                    if r.get("kind") in {"observationConflict", "recognitionSourceSupport"}
+                ):
+                    raise ValueError("existing_structural_support_or_conflict")
+                issues = [
+                    issue
+                    for issue in doc.issues
+                    if issue.get("code") == "recognition_unassigned_content"
+                    and issue.get("sourceRef") == ref
+                ]
+                if (
+                    len(issues) != 1
+                    or issues[0].get("reason") != "observed_text_not_uniquely_assigned_to_structure"
+                ):
+                    raise ValueError("unassigned_issue_not_uniquely_scoped")
+                issue = issues[0]
+                table_support = _native_table_ruling_support(
+                    doc,
+                    decision,
+                    page=page,
+                    prefix=prefix,
+                    source_hash=output["sourceSha256"],
+                    comparison_budget=output["maxComparisons"] - output["comparisons"],
+                )
+                output["comparisons"] += table_support["comparisons"]
+                check["tableRulingSupport"] = table_support
+                if (
+                    table_support["status"] != "verified"
+                    or issue.get("candidateTableRefs") != [table_support["tableRef"]]
+                    or ref not in doc.tables[table_support["tableRef"]].get("contextNodeIds", [])
+                ):
+                    raise ValueError("native_table_boundary_relationship_unverified")
+                if ledger["processingDependencies"]["issues"].count(issue) != 1:
+                    raise ValueError("processing_dependency_not_uniquely_scoped")
+                check.update(
+                    status="native_ruling_non_data",
+                    sourceRef=ref,
+                    nativeObjectRef=decision["nativeObjectRef"],
+                    originalDisposition=deepcopy(original_entry),
+                    originalSemanticInput=deepcopy(node.get("semanticInput")),
+                    sourceCellFingerprint=fingerprint(cell),
+                    rawPassFingerprint=capture["fingerprint"],
+                )
+                check["fingerprint"] = fingerprint(check)
+                node["semanticInput"] = {
+                    "role": "context_only",
+                    "reason": "verified_native_ruling_non_data",
+                    "nativeRulingConsumptionFingerprint": check["fingerprint"],
+                }
+                original_entry.clear()
+                original_entry.update(
+                    rawRef=raw_ref,
+                    status="native_ruling_non_data",
+                    targetRefs=[ref],
+                    nativeObjectRef=decision["nativeObjectRef"],
+                    consumptionFingerprint=check["fingerprint"],
+                    truthVerified=False,
+                )
+                output["resolvedIssues"].append(
+                    {
+                        "originalIssue": deepcopy(issue),
+                        "rawRef": raw_ref,
+                        "sourceRef": ref,
+                        "consumptionFingerprint": check["fingerprint"],
+                    }
+                )
+                doc.issues.remove(issue)
+                ledger["processingDependencies"]["issues"].remove(issue)
+                consumed.add(ref)
+            except (
+                KeyError,
+                ValueError,
+                TypeError,
+                IndexError,
+                AttributeError,
+                OverflowError,
+            ) as error:
+                check.update(reason=str(error))
+    if consumed:
+        ledger["version"] = "document-files.observed-processing-ledger.v5"
+        unresolved = sum(e["status"] == "unresolved" for e in ledger["entries"])
+        complete = (
+            ledger["allRawOCRDetectionsPreserved"]
+            and not unresolved
+            and not ledger["unsupportedStructuralText"]
+            and not ledger["unverifiedTableExtents"]
+            and not ledger["processingDependencies"]["issues"]
+        )
+        ledger["observedProcessingCoverage"] = "complete" if complete else "partial"
+        ledger["nativeRulingConsumptionVersion"] = output["version"]
+        for issue in list(doc.issues):
+            if (
+                issue.get("code") == "recognition_observed_processing_partial"
+                and issue.get("recognitionBatch") == prefix
+                and issue.get("unresolvedDetections") == old_unresolved
+                and issue.get("unsupportedStructuralNodes")
+                == len(ledger["unsupportedStructuralText"])
+                and issue.get("rawInventoryVerified") is ledger["allRawOCRDetectionsPreserved"]
+            ):
+                output["resolvedIssues"].append(
+                    {
+                        "originalIssue": deepcopy(issue),
+                        "remainingUnresolvedDetections": unresolved,
+                        "scope": "this_batch_returned_detections_only",
+                    }
+                )
+                doc.issues.remove(issue)
+                if not complete:
+                    doc.issues.append({**issue, "unresolvedDetections": unresolved})
+    output["fingerprint"] = fingerprint(output)
+    doc.provenance.setdefault("recognitionNativeRulingConsumptions", []).append(output)
+    return consumed

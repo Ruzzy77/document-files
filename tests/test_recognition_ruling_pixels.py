@@ -251,7 +251,9 @@ def test_receiver_dataflow_preserves_raw_nodes_bindings_and_issues(monkeypatch):
         "validate_native_inventory",
         lambda *a, **k: {"status": "verified", "pageInventory": page},
     )
-    monkeypatch.setattr(recognition_coordinates, "coordinate_links", lambda *a: [link])
+    monkeypatch.setattr(
+        recognition_coordinates, "coordinate_links", lambda *a: [deepcopy(link) for _ in a[1]]
+    )
     original = deepcopy((doc.nodes, doc.bindings, doc.issues, doc.coverage, payload))
     import_native_ruling_observations(doc, payload, source_hash="a" * 64, page=1, prefix="p1")
     decision = doc.provenance["recognitionNativeRulingObservations"][0]["passes"][0]["decisions"][0]
@@ -375,3 +377,436 @@ def test_old_four_side_profile_or_tampered_axis_is_rejected():
     original["fingerprint"] = fingerprint(original)
     with pytest.raises(ValueError, match="pixel_window_geometry_mismatch"):
         rp.validate_ruling_windows(original, capture)
+
+
+def consumption_fixture(monkeypatch):
+    from document_files.document_model import pdf_native_objects, recognition_coordinates
+    from document_files.document_model.model import ObservationDocument
+    from document_files.document_model.recognition_sources import raw_pass_fingerprint
+
+    _, _, capture, page, link, record, _, _ = measured()
+    capture.update(page_no=1, sourcePass="page_ocr", passId="p0", rulingPixelObservation=record)
+    detection = capture["detections"][0]
+    loc = {"l": 48.0, "t": 40.0, "r": 52.0, "b": 60.0, "coord_origin": "TOPLEFT"}
+    detection.update(pageBBox=loc, mappingBasis="pinned_upstream_pre_merge_order_text_confidence")
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    cell = {
+        "page_no": 1,
+        "stage": "original_ocr",
+        "fromOcr": True,
+        "sourceKind": "ocr",
+        "raw": "I",
+        "text": "I",
+        "bbox": loc,
+        "confidence": 0.9,
+        "backendCellIndex": 0,
+    }
+    payload = {"rawOCRPasses": [capture], "cells": [cell]}
+    ref = "p1:source:0"
+    issue = {
+        "code": "recognition_unassigned_content",
+        "sourceRef": ref,
+        "candidateTableRefs": ["table"],
+        "reason": "observed_text_not_uniquely_assigned_to_structure",
+    }
+    partial = {
+        "code": "recognition_observed_processing_partial",
+        "recognitionBatch": "p1",
+        "unresolvedDetections": 1,
+        "unsupportedStructuralNodes": 0,
+        "rawInventoryVerified": True,
+    }
+    doc = ObservationDocument(
+        nodes={
+            ref: {
+                "text": "I",
+                "originalRecognitionText": "I",
+                "recognizedText": True,
+                "observationBasis": "ocr",
+                "sourceObservationStage": "original_ocr",
+                "semanticInput": {
+                    "role": "unassigned_observation",
+                    "candidateTableRefs": ["table"],
+                },
+                "sourceStructure": {
+                    "page": 1,
+                    "recognitionBatch": "p1",
+                    "backendCellIndex": 0,
+                    "sourceKind": "ocr",
+                    "bbox": {
+                        "left": 48.0,
+                        "top": 40.0,
+                        "right": 52.0,
+                        "bottom": 60.0,
+                        "origin": "TOPLEFT",
+                    },
+                },
+            }
+        },
+        bindings={"b": {"sourceRef": ref, "path": "/text"}},
+        tables={"table": {"id": "table", "contextNodeIds": [ref], "cells": []}},
+        issues=[issue, partial, {"code": "recognition_content_completeness_unverified"}],
+        coverage={"recognitionContentCompleteness": "unverified"},
+    )
+    doc.provenance["sourceSha256"] = "a" * 64
+    mapping = {"sourceSha256": "a" * 64, "originalPageNumber": 1, "fingerprint": "mapping"}
+    doc.provenance["recognitionCoordinateEvidence"] = [
+        {
+            "sourceSha256": "a" * 64,
+            "page": 1,
+            "status": "verified",
+            "evidence": {"mapping": mapping},
+        }
+    ]
+    monkeypatch.setattr(
+        pdf_native_objects,
+        "validate_native_inventory",
+        lambda *a, **k: {"status": "verified", "pageInventory": page},
+    )
+    monkeypatch.setattr(
+        recognition_coordinates, "coordinate_links", lambda *a: [deepcopy(link) for _ in a[1]]
+    )
+    ledger = {
+        "version": "document-files.observed-processing-ledger.v5",
+        "batch": "p1",
+        "processingDependencies": {
+            "pages": [1],
+            "sourceRefs": [ref],
+            "structuralRefs": [],
+            "issues": [deepcopy(issue)],
+        },
+        "entries": [
+            {
+                "rawRef": "p1:raw:0:0",
+                "status": "unresolved",
+                "targetRefs": [ref],
+                "reason": "unassigned_or_conflicting_detection",
+            }
+        ],
+        "allRawOCRDetectionsPreserved": True,
+        "observedProcessingCoverage": "partial",
+        "unsupportedStructuralText": [],
+        "unverifiedTableExtents": [],
+        "rawOCRPasses": deepcopy(payload["rawOCRPasses"]),
+    }
+    from document_files.document_model import recognition_sources
+
+    monkeypatch.setattr(
+        recognition_sources,
+        "_native_table_ruling_support",
+        lambda *a, **k: {
+            "status": "verified",
+            "tableRef": "table",
+            "comparisons": 4,
+            "basis": "synthetic_table_boundary_contract_only",
+        },
+    )
+    return doc, payload, ledger, ref
+
+
+def test_consumption_preserves_raw_bindings_context_and_global_partial(monkeypatch):
+    from document_files.document_model.recognition_sources import consume_native_rulings
+
+    doc, payload, ledger, ref = consumption_fixture(monkeypatch)
+    original = deepcopy((payload, doc.bindings, doc.tables, doc.coverage))
+    consumed = consume_native_rulings(doc, payload, ledger, prefix="p1")
+    assert consumed == {ref}
+    assert doc.nodes[ref]["text"] == doc.nodes[ref]["originalRecognitionText"] == "I"
+    assert doc.nodes[ref]["semanticInput"]["role"] == "context_only"
+    assert (payload, doc.bindings, doc.tables, doc.coverage) == original
+    assert ledger["entries"][0]["status"] == "native_ruling_non_data"
+    assert ledger["observedProcessingCoverage"] == "complete"  # Only returned-word processing.
+    assert doc.issues == [{"code": "recognition_content_completeness_unverified"}]
+    result = doc.provenance["recognitionNativeRulingConsumptions"][0]
+    assert len(result["resolvedIssues"]) == 2
+    assert result["decisions"][0]["originalDisposition"]["status"] == "unresolved"
+    assert result["documentCompletenessVerified"] is False
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "duplicate_cell",
+        "duplicate_raw",
+        "conflict",
+        "support",
+        "node_text",
+        "node_box",
+        "stage",
+        "raw_mutation",
+        "foreign_source",
+        "forged_provenance",
+    ],
+)
+def test_consumption_rejects_ambiguous_changed_or_conflicting_membership(monkeypatch, change):
+    from document_files.document_model.recognition_sources import consume_native_rulings
+
+    doc, payload, ledger, ref = consumption_fixture(monkeypatch)
+    if change == "duplicate_cell":
+        payload["cells"].append(deepcopy(payload["cells"][0]))
+    elif change == "duplicate_raw":
+        payload["rawOCRPasses"].append(deepcopy(payload["rawOCRPasses"][0]))
+        ledger["rawOCRPasses"] = deepcopy(payload["rawOCRPasses"])
+    elif change == "conflict":
+        doc.bindings["b"]["candidateStatus"] = "unresolved_conflict"
+    elif change == "support":
+        doc.relations.append(
+            {"kind": "recognitionSourceSupport", "sourceRef": ref, "targetRef": "structural"}
+        )
+    elif change == "node_text":
+        doc.nodes[ref]["text"] = "different"
+    elif change == "node_box":
+        doc.nodes[ref]["sourceStructure"]["bbox"]["left"] = 47
+    elif change == "stage":
+        payload["cells"][0]["stage"] = "derived_ocr"
+    elif change == "raw_mutation":
+        payload["rawOCRPasses"][0]["tsv"] += "different"
+    elif change == "foreign_source":
+        doc.provenance["sourceSha256"] = "b" * 64
+    else:
+        doc.provenance["recognitionNativeRulingObservations"] = [
+            {"status": "verified", "rawRef": "p1:raw:0:0"}
+        ]
+        payload["rawOCRPasses"][0].pop("rulingPixelObservation")
+    before = deepcopy((doc.nodes, doc.bindings, doc.issues, ledger))
+    assert consume_native_rulings(doc, payload, ledger, prefix="p1") == set()
+    assert (doc.nodes, doc.bindings, doc.issues, ledger) == before
+
+
+def test_consumption_does_not_clear_other_raw_or_page_dependencies(monkeypatch):
+    from document_files.document_model.recognition_sources import consume_native_rulings
+
+    doc, payload, ledger, ref = consumption_fixture(monkeypatch)
+    ledger["entries"].append({"rawRef": "other", "status": "unresolved", "reason": "unrelated"})
+    doc.issues[1]["unresolvedDetections"] = 2
+    other = {"code": "recognition_table_cells_unobserved", "tableRef": "scan", "count": 1}
+    ledger["processingDependencies"]["issues"].append(deepcopy(other))
+    doc.issues.append(deepcopy(other))
+    page2 = {
+        "code": "recognition_observed_processing_partial",
+        "recognitionBatch": "p2",
+        "unresolvedDetections": 1,
+    }
+    doc.issues.append(deepcopy(page2))
+    assert consume_native_rulings(doc, payload, ledger, prefix="p1") == {ref}
+    assert ledger["observedProcessingCoverage"] == "partial"
+    assert ledger["entries"][1]["status"] == "unresolved"
+    assert other in doc.issues and page2 in doc.issues
+    assert (
+        next(i for i in doc.issues if i.get("recognitionBatch") == "p1")["unresolvedDetections"]
+        == 1
+    )
+
+
+def test_source_import_excludes_only_proven_nondata_before_final_projection(monkeypatch):
+    from document_files.document_model.observe import _regions
+    from document_files.document_model.pdf import _semantic_candidates
+    from document_files.document_model.recognition_sources import (
+        import_source_observations,
+        raw_pass_fingerprint,
+    )
+
+    doc, payload, _, ref = consumption_fixture(monkeypatch)
+    doc.nodes.clear()
+    doc.bindings.clear()
+    doc.issues = [{"code": "recognition_content_completeness_unverified"}]
+    table = doc.tables["table"]
+    table.update(
+        page=1,
+        locator={"bbox": {"left": 0, "top": 0, "right": 100, "bottom": 100, "origin": "TOPLEFT"}},
+        declaredRowCount=1,
+        declaredColCount=1,
+    )
+    table["contextNodeIds"] = []
+    capture = payload["rawOCRPasses"][0]
+    capture["transform"] = {
+        "scale": 1,
+        "orientation": 0,
+        "crop": {"l": 0, "t": 0, "r": 100, "b": 100, "coord_origin": "TOPLEFT"},
+    }
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    payload.update(
+        version="document-files.recognition-source-observations.v1",
+        rawCaptureVersion="document-files.raw-ocr.v1",
+        rawCapturePages=[
+            {"page_no": 1, "captureAvailable": True, "passFingerprints": [capture["fingerprint"]]}
+        ],
+    )
+    exported = {"pages": {"1": {"size": {"height": 100}}}, "texts": []}
+    primary = import_source_observations(doc, payload, exported, [], prefix="p1")
+    assert primary == []
+    preferred = _semantic_candidates(doc, [], primary, {})
+    assert doc.nodes[ref]["semanticInput"]["role"] == "context_only"
+    _regions(doc, preferred)
+    assert ref in table["contextNodeIds"]
+    assert doc.bindings and all(b["sourceRef"] == ref for b in doc.bindings.values())
+    assert all(not r["bindingIds"] and ref not in r["nodeIds"] for r in doc.regions)
+    assert doc.provenance["recognitionSourceObservations"][0]["unassignedCandidateCount"] == 0
+    assert (
+        doc.provenance["recognitionProcessingLedgers"][0]["entries"][0]["status"]
+        == "native_ruling_non_data"
+    )
+
+
+def test_consumer_cell_budget_cannot_be_bypassed(monkeypatch):
+    from document_files.document_model.recognition_sources import consume_native_rulings
+
+    doc, payload, ledger, _ = consumption_fixture(monkeypatch)
+    payload["cells"] *= 8193
+    before = deepcopy((doc.nodes, doc.bindings, doc.issues, ledger))
+    assert consume_native_rulings(doc, payload, ledger, prefix="p1") == set()
+    assert (doc.nodes, doc.bindings, doc.issues, ledger) == before
+    assert (
+        doc.provenance["recognitionNativeRulingConsumptions"][-1]["reason"]
+        == "consumer_input_budget_or_capture_mismatch"
+    )
+
+
+def table_boundary_fixture(monkeypatch):
+    from document_files.document_model import (
+        pdf_native_objects,
+        recognition_cell_observations,
+        recognition_sources,
+    )
+    from document_files.document_model.model import ObservationDocument
+
+    _, _, _, page, _, _, _, _ = measured()
+    page.update(rotation=0, coordinateOrigin="TOPLEFT")
+    target = page["objects"][0]
+    target["stroke"] = True
+    for name, segment in [
+        ("left", [20, 20, 20, 80]),
+        ("top", [20, 20, 50, 20]),
+        ("bottom", [20, 80, 50, 80]),
+    ]:
+        obj = deepcopy(target)
+        obj.update(id=name, segments=[segment])
+        page["objects"].append(obj)
+    slot = {
+        "fullPixelBox": [19, 19, 51, 81],
+        "interiorPixelBox": [21, 21, 49, 79],
+        "slotKey": "slot",
+    }
+    record = {
+        "sourceFrame": {"pageSize": [100, 100]},
+        "geometry": {"status": "verified_rectangular_grid"},
+        "slots": [slot],
+    }
+    record["fingerprint"] = fingerprint(record)
+    validation = {"status": "verified", "canvasPixelToOriginalPageAffine": [1, 0, 0, -1, 0, 100]}
+    entry = {
+        "observationStatus": "verified",
+        "sourceCoordinateStatus": "verified",
+        "observation": record,
+        "validation": validation,
+        "structureAssociation": {"status": "unique_geometry_correspondence", "tableRef": "table"},
+    }
+    doc = ObservationDocument(
+        provenance={
+            "pdfNativeObjects": {"fingerprint": "inventory"},
+            "recognitionCoordinateEvidence": [
+                {
+                    "sourceSha256": "a" * 64,
+                    "page": 1,
+                    "status": "verified",
+                    "evidence": {"mapping": {}},
+                }
+            ],
+            "recognitionCellPixelObservations": [
+                {"sourceSha256": "a" * 64, "page": 1, "batch": "p1", "observations": [entry]}
+            ],
+        }
+    )
+    # Native inventory and source-frame validators have separate direct contracts;
+    # these tests exercise actual line-edge, closure, uniqueness and consumer wiring.
+    monkeypatch.setattr(
+        pdf_native_objects,
+        "validate_native_inventory",
+        lambda *a, **k: {"status": "verified", "pageInventory": page},
+    )
+    monkeypatch.setattr(
+        recognition_cell_observations, "validate_cell_observation", lambda *a, **k: validation
+    )
+    monkeypatch.setattr(
+        recognition_sources, "_cell_observation_table_candidates", lambda *a, **k: ["table"]
+    )
+    decision = {"nativeObjectRef": "native-line", "windowSourceBounds": [48, 24, 52, 76]}
+    return doc, decision, page, record, entry
+
+
+def test_native_stroke_must_form_a_real_closed_cell_boundary(monkeypatch):
+    from document_files.document_model.recognition_sources import _native_table_ruling_support
+
+    doc, decision, _, _, _ = table_boundary_fixture(monkeypatch)
+    result = _native_table_ruling_support(
+        doc, decision, page=1, prefix="p1", source_hash="a" * 64, comparison_budget=100
+    )
+    assert result["status"] == "verified"
+    assert result["slots"][0]["edge"] == "right"
+    assert set(result["slots"][0]["borderObjectRefs"]) == {"left", "right", "top", "bottom"}
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "interior_mark",
+        "missing_edge",
+        "gap",
+        "duplicate_edge",
+        "wrong_grid",
+        "ambiguous_table",
+        "unsupported_grid",
+        "budget",
+        "foreign_page",
+    ],
+)
+def test_native_table_relationship_is_not_inferred_from_context_overlap(monkeypatch, change):
+    from document_files.document_model.recognition_sources import _native_table_ruling_support
+
+    doc, decision, page, record, entry = table_boundary_fixture(monkeypatch)
+    budget = 100
+    source_page = 1
+    if change == "interior_mark":
+        obj = deepcopy(page["objects"][0])
+        obj.update(id="mark", segments=[[35, 25, 35, 75]])
+        page["objects"].append(obj)
+        decision["nativeObjectRef"] = "mark"
+    elif change == "missing_edge":
+        page["objects"].pop()
+    elif change == "gap":
+        page["objects"][1]["segments"] = [[20, 21, 20, 79]]
+    elif change == "duplicate_edge":
+        page["objects"].append(deepcopy(page["objects"][1]))
+    elif change == "wrong_grid":
+        record["slots"][0]["fullPixelBox"][2] = 61
+        record["slots"][0]["interiorPixelBox"][2] = 59
+        record["fingerprint"] = fingerprint(record)
+    elif change == "ambiguous_table":
+        doc.provenance["recognitionCellPixelObservations"][0]["observations"].append(
+            deepcopy(entry)
+        )
+    elif change == "unsupported_grid":
+        record["geometry"]["status"] = "partial"
+        record["fingerprint"] = fingerprint(record)
+    elif change == "budget":
+        budget = 0
+    else:
+        source_page = 2
+    result = _native_table_ruling_support(
+        doc, decision, page=source_page, prefix="p1", source_hash="a" * 64, comparison_budget=budget
+    )
+    assert result["status"] == "unresolved"
+
+
+def test_consumer_rejects_pixel_proof_without_table_boundary_support(monkeypatch):
+    from document_files.document_model import recognition_sources
+
+    doc, payload, ledger, _ = consumption_fixture(monkeypatch)
+    monkeypatch.setattr(
+        recognition_sources,
+        "_native_table_ruling_support",
+        lambda *a, **k: {"status": "unresolved", "comparisons": 4},
+    )
+    before = deepcopy((doc.nodes, doc.bindings, doc.issues, ledger))
+    assert recognition_sources.consume_native_rulings(doc, payload, ledger, prefix="p1") == set()
+    assert (doc.nodes, doc.bindings, doc.issues, ledger) == before

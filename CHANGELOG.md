@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Consume a native ruling only after rechecking its captured pixels, unique original
+  OCR source membership and closed native table-cell borders (adapter v25, processing
+  ledger v5, consumption v1). Preserve text, bindings and table context; exclude only
+  that source from data candidates and retain the exact resolved issues as evidence.
+  Scan, OCR truth and global completeness remain separate unresolved checks.
 - Compare reopened file handles consistently when checking Linux-stage input
   mutation. Preserve all identity/time checks; adapt only synthetic Windows tests
   for POSIX modes and a single-child pipe boundary. Actual target CI remains required.

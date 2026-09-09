@@ -306,9 +306,9 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After adapter v24 and the offline-stage assembler, core regression passed
-**1,560 tests, with 212 skipped and 12 subtests**; Ruff and formatting checks passed.
-The separate recognition-runtime overlay passed **399 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
+After adapter v25 and the stage file-handle fix, core regression passed
+**1,593 tests, with 212 skipped and 12 subtests**; Ruff and formatting checks passed.
+The separate recognition-runtime overlay passed **424 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
 
@@ -749,3 +749,16 @@ or specific processing throughput is implied by the OSS package.
 Report ordinary issues through the repository issue tracker using versions,
 platform and a minimal public or synthetic example. Report security issues through
 SECURITY.md. A source document need not and should not be shared by default.
+
+Adapter v25 consumes only an exact original OCR source backed by freshly checked
+pixels and a closed native table-cell boundary. A consumer-only replay of saved v24
+development observations removed one source from data candidates and retained its
+text, raw TSV, node, binding and table context. Two affected issues were retained
+with their resolutions; page 2 and global partial status were unchanged. This replay
+performed no OCR, native parsing, rendering or model calls and does not replace a
+whole-product or independent quality run.
+
+The f68fe0f Windows regression failed in 49 Linux-stage synthetic tests. The follow-up
+uses consistent reopened-handle metadata for mutation checks and adapts only the
+synthetic POSIX mode/pipe boundary on Windows. All 86 related tests passed locally;
+actual Windows CI is being rerun. Target support and production guards were not relaxed.

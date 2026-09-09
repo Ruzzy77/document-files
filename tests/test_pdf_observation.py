@@ -1312,7 +1312,7 @@ def test_raw_processing_coverage_does_not_depend_on_other_pages_or_aggregate_iss
     doc.issues.extend(deepcopy(preserved))
     import_source_observations(doc, payload, source, ids, prefix="page1")
     ledger = doc.provenance["recognitionProcessingLedgers"][0]
-    assert ledger["version"] == "document-files.observed-processing-ledger.v4"
+    assert ledger["version"] == "document-files.observed-processing-ledger.v5"
     assert ledger["observedProcessingCoverage"] == "complete"
     assert ledger["processingDependencies"]["issues"] == []
     assert ledger["processingDependencies"]["pages"] == [1]
@@ -2996,7 +2996,7 @@ def test_exact_single_raw_line_resolves_repeated_tokens_without_rewriting_or_glo
             == "source_overlap_not_independent"
         )
     ledger = doc.provenance["recognitionProcessingLedgers"][0]
-    assert ledger["version"] == "document-files.observed-processing-ledger.v4"
+    assert ledger["version"] == "document-files.observed-processing-ledger.v5"
     assert ledger["unsupportedStructuralText"] == []
     assert all(e["status"] == "structural_observation" for e in ledger["entries"])
     assert ledger["observedProcessingCoverage"] == "partial"  # actual other local failure remains
