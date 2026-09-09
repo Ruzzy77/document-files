@@ -1,0 +1,64 @@
+name: Native recognition dependency candidates
+on:
+  push:
+    paths: ['scripts/build_recognition_native.py', 'scripts/recognition-native-sources.json', '.github/workflows/recognition-native.yml']
+  pull_request:
+    paths: ['scripts/build_recognition_native.py', 'scripts/recognition-native-sources.json', 'tests/test_recognition_native_builder.py', '.github/workflows/recognition-native.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.10.4'
+      - run: uv sync --frozen --python 3.12
+      - run: uv run --frozen python -m pytest -q -W error tests/test_recognition_native_builder.py
+  native:
+    # Narrow builder/pin pushes bootstrap a workflow not yet on the default branch.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    needs: contracts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x86_64
+          - os: windows-2022
+            target: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Linux native build and relocated discovery
+        if: runner.os == 'Linux'
+        run: >-
+          python3 scripts/build_recognition_native.py --target linux-x86_64
+          --work native-work --cache native-inputs --download --with-tessdata --jobs 4
+      - name: Windows native build and relocated discovery
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+          where cl || exit /b 1
+          where dumpbin || exit /b 1
+          py -3.12 scripts/build_recognition_native.py --target windows-x86_64 --work native-work --cache native-inputs --download --with-tessdata --jobs 4
+      - name: Preserve native evidence, including failures (not redistributable binaries)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: recognition-native-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            native-work/native-candidate.json
+            native-work/commands.json
+            native-work/logs/
+            native-work/candidate/licenses/
+          if-no-files-found: warn
+          retention-days: 14
+      # No native binary is uploaded until compiler runtime redistribution is reviewed.
+      # Not a runtime pack or release attestation. Static compiler runtime notices,
+      # baseline OS qualification, Python/wheels and actual OCR remain separate.
