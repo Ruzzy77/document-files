@@ -3,6 +3,8 @@
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
 from document_files.document_model.docling_adapter import (
     DoclingRecognition,
     RecognitionConfig,
@@ -445,6 +447,10 @@ def test_page_batches_release_framework_scope_and_remap_original_pages(tmp_path)
     assert frames[1]["pageRender"]["page_no"] == 2
     assert frames[1]["pageRender"]["sourceSha256"] == hashlib.sha256(content).hexdigest()
     assert frames[1]["pageRender"]["status"] == "captured"
+    assert frames[1]["coordinateEvidence"]["mapping"]["status"] == "verified"
+    assert frames[1]["coordinateEvidence"]["mapping"]["originalPageNumber"] == 2
+    assert frames[1]["coordinateEvidence"]["mapping"]["subsetPageNumber"] == 1
+    assert frames[1]["coordinateEvidence"]["mapping"]["subsetRender"]["page_no"] == 1
     assert frames[1]["sourceObservations"]["cells"][0] == {
         "page_no": 2,
         "batch_page_no": 1,
@@ -1961,3 +1967,405 @@ def test_render_budget_failure_cannot_be_checkpointed_as_complete_conversion(mon
     assert any(
         i["code"] == "recognition_page_render_pixel_budget_exceeded" for i in result["issues"]
     )
+
+
+def coordinate_parser_fixture(rotation=0):
+    """Real pinned parsers over synthetic geometry; not OCR quality evidence."""
+    import hashlib
+    import io
+
+    import pypdfium2 as pdfium
+
+    parser_module = pytest.importorskip("docling_parse.pdf_parser")
+    from reportlab.pdfgen import canvas
+
+    from document_files.document_model.recognition_coordinates import subset_mapping
+    from document_files.document_model.recognition_worker import capture_full_page_render
+
+    drawing = io.BytesIO()
+    pdf = canvas.Canvas(drawing, pagesize=(120, 80))
+    pdf.rect(30, 55, 4, 6, stroke=0, fill=1)
+    pdf.rect(60, 42, 8, 3, stroke=0, fill=1)
+    pdf.save()
+    original = pdfium.PdfDocument(drawing.getvalue())
+    page = original[0]
+    page.set_cropbox(10.25, 15.5, 99.75, 70.25)
+    page.set_rotation(rotation)
+    page.close()
+    content = io.BytesIO()
+    original.save(content)
+    original.init_forms()
+    source = capture_full_page_render(original, 0, hashlib.sha256(content.getvalue()).hexdigest())
+    subset = pdfium.PdfDocument.new()
+    subset.import_pages(original, pages=[0])
+    serialized = io.BytesIO()
+    subset.save(serialized)
+    subset.close()
+    original.close()
+    data = serialized.getvalue()
+    with pdfium.PdfDocument(data) as reopened:
+        reopened.init_forms()
+        captured = capture_full_page_render(reopened, 0, hashlib.sha256(data).hexdigest())
+    render_config = parser_module.RenderConfig()
+    render_config.scale = 2.0
+    parser = parser_module.DoclingThreadedPdfParser(
+        parser_config=parser_module.ThreadedPdfParserConfig(render_config=render_config)
+    )
+    parser.load(io.BytesIO(data))
+    results = list(parser.iterate_results())
+    assert len(results) == 1
+    return parser, results[0], source, subset_mapping(source, captured)
+
+
+def coordinate_ocr_capture(result, mapping, *, orientation=0, origin="TOPLEFT"):
+    from types import SimpleNamespace
+
+    from docling_core.types.doc import BoundingBox, CoordOrigin
+
+    from document_files.document_model.recognition_coordinates import (
+        bind_ocr_frame,
+        capture_framework_crops,
+        image_identity,
+    )
+    from document_files.document_model.recognition_sources import raw_pass_fingerprint
+
+    class Observer:
+        raw_coordinate_image = None
+        raw_pixel_frame = None
+
+        def _release_coordinate_image(self):
+            if self.raw_coordinate_image is not None:
+                self.raw_coordinate_image.close()
+            self.raw_coordinate_image = self.raw_pixel_frame = None
+
+    observer = Observer()
+    page = SimpleNamespace(_backend=SimpleNamespace(_result=result))
+    request = BoundingBox(l=1.17, t=2.31, r=31.49, b=27.18, coord_origin=CoordOrigin.TOPLEFT)
+    if origin == "BOTTOMLEFT":
+        request = request.to_bottom_left_origin(page_height=result.page_height)
+    with capture_framework_crops(page, observer):
+        cropped = result.get_image(scale=1.37, cropbox=request).convert("RGB")
+        transformed = cropped.rotate(-orientation, expand=True)
+        identity = image_identity(transformed)
+        frame = bind_ocr_frame(
+            observer.raw_pixel_frame, observer.raw_coordinate_image, identity, orientation
+        )
+        transformed.close()
+        cropped.close()
+    assert observer.raw_coordinate_image is None
+    assert "_crop_image" not in result.__dict__
+    capture = {
+        "passId": "pass-0",
+        "page_no": mapping["originalPageNumber"],
+        "batch_page_no": 1,
+        "sourcePass": "page_ocr",
+        "pixelFrame": frame,
+        "image": identity,
+        "transform": {"orientation": orientation},
+        "detections": [],
+    }
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    return capture
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+@pytest.mark.parametrize("orientation", [0, 90, 180, 270])
+def test_actual_framework_crop_and_rotated_input_link_to_original_pdf(rotation, orientation):
+    from document_files.document_model.recognition_coordinates import coordinate_links
+
+    parser, result, source, mapping = coordinate_parser_fixture(rotation)
+    assert mapping["status"] == "verified"
+    capture = coordinate_ocr_capture(result, mapping, orientation=orientation, origin="BOTTOMLEFT")
+    frame = capture["pixelFrame"]
+    link = coordinate_links(mapping, [capture])[0]
+    assert link["status"] == "verified"
+    assert link["ocrTruthVerified"] is False and link["contentCoverageVerified"] is False
+    # Check measured source matrix independently at an interior input point. The
+    # requested crop origin is NOT used: its actual rounded pixel origin is.
+    px, py = 3, 4
+    width, height = frame["cropImage"]["size"]
+    unrotated = {
+        0: (px, py),
+        90: (py, height - px),
+        180: (width - px, height - py),
+        270: (width - py, px),
+    }[orientation]
+    x0, y0, _, _ = frame["cropPixelBounds"]
+    cw, ch = frame["canvas"]["size"]
+    x = (x0 + unrotated[0]) * source["pixelSize"][0] / cw
+    y = (y0 + unrotated[1]) * source["pixelSize"][1] / ch
+    a, b, c, d, e, f = source["renderCoordinates"]["pixelToPageAffine"]
+    expected = [a * x + c * y + e, b * x + d * y + f]
+    a, b, c, d, e, f = link["inputPixelToOriginalPageAffine"]
+    assert [a * px + c * py + e, b * px + d * py + f] == pytest.approx(expected)
+    assert frame["cropPixelBounds"][0] != frame["requestedCropTopLeft"][0] * cw / result.page_width
+    del parser
+
+
+def test_coordinate_import_rejects_page_source_fingerprint_and_crop_mismatch():
+    from copy import deepcopy
+
+    from document_files.document_model.recognition_coordinates import coordinate_links
+    from document_files.document_model.recognition_sources import (
+        import_coordinate_evidence,
+        raw_pass_fingerprint,
+    )
+
+    parser, result, source, mapping = coordinate_parser_fixture()
+    capture = coordinate_ocr_capture(result, mapping)
+    evidence = {"mapping": mapping, "rawPassLinks": coordinate_links(mapping, [capture])}
+    for change in ("none", "source", "page", "fingerprint", "bbox", "origin", "size", "pixels"):
+        item = deepcopy(capture)
+        if change == "source":
+            item["pixelFrame"]["documentKey"] = "key=" + "0" * 64
+        if change == "page":
+            item["pixelFrame"]["localPageNumber"] = 2
+        if change == "fingerprint":
+            item["fingerprint"] = "0" * 64
+        if change == "bbox":
+            item["pixelFrame"]["cropPixelBounds"][0] += 1
+        if change == "origin":
+            item["pixelFrame"]["normalizedCropBox"][0] += 1
+        if change == "size":
+            item["pixelFrame"]["canvas"]["size"][0] += 1
+        if change == "pixels":
+            item["image"]["sha256"] = "0" * 64
+        if change != "fingerprint":
+            item["fingerprint"] = raw_pass_fingerprint(item)
+        link = coordinate_links(mapping, [item])[0]
+        assert (link["status"] == "verified") == (change == "none")
+        doc = ObservationDocument()
+        import_coordinate_evidence(
+            doc,
+            evidence,
+            source,
+            {"rawOCRPasses": [item]},
+            source_hash=source["sourceSha256"],
+            page=1,
+        )
+        assert (doc.provenance["recognitionCoordinateEvidence"][0]["status"] == "verified") == (
+            change == "none"
+        )
+    del parser
+
+
+def test_cell_crop_padding_transform_requires_exact_repair_unit_membership():
+    from PIL import ImageOps
+
+    from document_files.document_model.recognition_coordinates import (
+        coordinate_links,
+        framework_frame,
+        image_identity,
+    )
+    from document_files.document_model.recognition_sources import raw_pass_fingerprint
+
+    parser, result, _, mapping = coordinate_parser_fixture(90)
+    canvas = result.get_image(scale=4.17).convert("RGB")
+    frame = framework_frame(result, canvas)
+    tx, ty, tr, tb = 10, 11, canvas.width - 12, canvas.height - 13
+    crop = canvas.crop((tx, ty, tr, tb))
+    cell_box = [15, 16, 55, 59]
+    ink_box = [2, 3, 19, 27]
+    padding = 10
+    offset = [cell_box[0] + ink_box[0] - padding, cell_box[1] + ink_box[1] - padding]
+    unit_image = ImageOps.expand(crop.crop(cell_box).crop(ink_box), border=padding, fill="white")
+    # Geometry-contract fixture, not a claim that ink/blank classification is true.
+    unit = {
+        "cellPixelBox": cell_box,
+        "inkCrop": ink_box,
+        "padding": padding,
+        "pixelOffset": offset,
+        "fingerprint": "unit-fixture",
+    }
+    repair = {
+        "policy": "ruled_cells_v2",
+        "page_no": 1,
+        "units": [unit],
+        "sourcePixelsSha256": image_identity(crop)["sha256"],
+        "transform": {"cropPixelOrigin": [tx, ty], "canvasPixels": list(canvas.size)},
+    }
+    frame.update(
+        status="input_pixels_matched",
+        inputImage=image_identity(unit_image),
+        processing="ruled_cell_crop_and_white_padding",
+        tableCropPixelBounds=[tx, ty, tr, tb],
+        tableCropImage=image_identity(crop),
+        cellPixelBox=cell_box,
+        unitPixelOffset=offset,
+        unitPixelOrigin=[tx + offset[0], ty + offset[1]],
+        unitFingerprint=unit["fingerprint"],
+        appliedClockwiseRotation=0,
+    )
+    capture = {
+        "passId": "pass-0",
+        "page_no": 1,
+        "batch_page_no": 1,
+        "sourcePass": "table_repair",
+        "pixelFrame": frame,
+        "image": image_identity(unit_image),
+        "transform": {
+            "repairIndex": 0,
+            "cellUnitIndex": 0,
+            "pixelOrigin": frame["unitPixelOrigin"],
+        },
+    }
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    link = coordinate_links(mapping, [capture], [repair])[0]
+    assert link["status"] == "verified"
+    assert link["sourceSupportedInputPixelBounds"] == [10, 10, 27, 34]
+    assert link["syntheticPaddingIsSourceContent"] is False
+    for field in ("unit", "origin", "pixels", "page", "missing"):
+        changed = deepcopy(repair)
+        if field == "unit":
+            changed["units"][0]["fingerprint"] = "wrong"
+        if field == "origin":
+            changed["transform"]["cropPixelOrigin"][0] += 1
+        if field == "pixels":
+            changed["sourcePixelsSha256"] = "0" * 64
+        if field == "page":
+            changed["page_no"] = 2
+        assert (
+            coordinate_links(mapping, [capture], [] if field == "missing" else [changed])[0][
+                "status"
+            ]
+            == "unverified"
+        )
+    for image in (unit_image, crop, canvas):
+        image.close()
+    del parser
+
+
+def test_crop_observer_restores_instance_and_releases_pixels_after_exception():
+    from types import SimpleNamespace
+
+    from document_files.document_model.recognition_coordinates import capture_framework_crops
+
+    parser, result, _, _ = coordinate_parser_fixture()
+    released = []
+    observer = SimpleNamespace(_release_coordinate_image=lambda: released.append(True))
+    page = SimpleNamespace(_backend=SimpleNamespace(_result=result))
+    with pytest.raises(RuntimeError, match="cancelled"), capture_framework_crops(page, observer):
+        assert "_crop_image" in result.__dict__
+        raise RuntimeError("cancelled")
+    assert "_crop_image" not in result.__dict__ and released == [True]
+    del parser
+
+
+def test_invalid_single_page_locator_is_preserved_not_silently_remapped():
+    from document_files.document_model.recognition_worker import page_batches
+
+    content, _ = full_page_render_fixture()
+    invalid = {"pages": {"1": {"page_no": 1}, "2": {"page_no": 2}}, "texts": [], "tables": []}
+    result = page_batches(
+        content,
+        RecognitionConfig("/unused", "/unused", "/unused"),
+        lambda _: (deepcopy(invalid), "complete"),
+    )
+    page = result["pageResults"][0]
+    assert page["document"] == invalid
+    assert page["localPageMappingValid"] is False
+    assert page["coordinateEvidence"]["mapping"]["status"] == "unverified"
+    assert page["status"] == "partial" and result["completedPages"] == []
+    assert any(i["code"] == "recognition_local_page_mapping_invalid" for i in result["issues"])
+
+
+def malformed_coordinate_dimensions_fixture():
+    """Malformed JSON contract only; no OCR or parser execution is involved."""
+    from document_files.document_model.recognition_coordinates import VERSION, subset_mapping
+    from document_files.document_model.recognition_sources import (
+        page_render_fingerprint,
+        raw_pass_fingerprint,
+    )
+
+    render = {
+        "sourceSha256": "a" * 64,
+        "page_no": 1,
+        "status": "captured",
+        "profile": {},
+        "pixelSize": [120, 80],
+        "pixelSha256": "b" * 64,
+        "intrinsicRotation": 0,
+        "pageBoxes": {
+            "mediaDeclared": [0, 0, 120, 80],
+            "cropDeclared": [0, 0, 120, 80],
+            "effective": [0, 0, 120, 80],
+        },
+        "pageSizeCanvasUnits": [0, 80],
+        "renderCoordinates": {"pixelToPageAffine": [1, 0, 0, -1, 0, 80]},
+    }
+    render["fingerprint"] = page_render_fingerprint(render)
+    subset = deepcopy(render)
+    subset["sourceSha256"] = "c" * 64
+    subset["fingerprint"] = page_render_fingerprint(subset)
+    mapping = subset_mapping(render, subset)
+    identity = {"sha256": "d" * 64, "size": [1, 1], "mode": "RGB"}
+    frame = {
+        "version": VERSION,
+        "backend": "ThreadedDoclingParsePageBackend",
+        "documentKey": "key=" + subset["sourceSha256"],
+        "localPageNumber": 1,
+        "boundaryType": "crop_box",
+        "normalizedAngle": 0,
+        "normalizedMediaBox": [0, 0, 120, 80],
+        "normalizedCropBox": [0, 0, 120, 80],
+        "pageSize": [0, 80],
+        "canvas": {"size": [120, 80]},
+        "pixelCoordinateOrigin": "TOPLEFT",
+        "requestedCropTopLeft": [1, 1, 2, 2],
+        "cropPixelBounds": [1, 1, 2, 2],
+        "rounding": "python_round_then_clamp",
+        "status": "input_pixels_matched",
+        "inputImage": identity,
+    }
+    capture = {"page_no": 1, "pixelFrame": frame, "image": identity}
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    return render, {"mapping": mapping, "rawPassLinks": []}, {"rawOCRPasses": [capture]}
+
+
+def test_malformed_zero_page_dimension_preserves_unverified_evidence_and_existing_issue():
+    from document_files.document_model.recognition_sources import import_coordinate_evidence
+
+    render, evidence, payload = malformed_coordinate_dimensions_fixture()
+    supplied = deepcopy((render, evidence, payload))
+    doc = ObservationDocument()
+    doc.issue("recognition_content_completeness_unverified")
+    original_issue = deepcopy(doc.issues[0])
+    # Before the guard this escaped as ZeroDivisionError, with no saved evidence.
+    import_coordinate_evidence(doc, evidence, render, payload, source_hash="a" * 64, page=1)
+    saved = doc.provenance["recognitionCoordinateEvidence"][0]
+    assert saved["status"] == "unverified" and saved["evidence"] == evidence
+    assert saved["validationErrorType"] == "ValueError"
+    assert doc.issues[0] == original_issue
+    assert doc.issues[-1]["code"] == "recognition_source_coordinates_unverified"
+    assert (render, evidence, payload) == supplied
+
+
+def test_coordinate_crop_denominators_require_finite_positive_page_dimensions():
+    from document_files.document_model.recognition_coordinates import _frame_to_page
+
+    _, evidence, payload = malformed_coordinate_dimensions_fixture()
+    for axis in (0, 1):
+        for value in (0, -1, True, float("inf"), float("nan")):
+            frame = deepcopy(payload["rawOCRPasses"][0]["pixelFrame"])
+            frame["pageSize"] = [120, 80]
+            frame["pageSize"][axis] = value
+            with pytest.raises(ValueError, match="invalid framework page dimensions"):
+                _frame_to_page(frame, evidence["mapping"])
+
+
+def test_coordinate_import_boundary_preserves_unexpected_division_failure(monkeypatch):
+    from document_files.document_model import recognition_coordinates
+    from document_files.document_model.recognition_sources import import_coordinate_evidence
+
+    render, evidence, payload = malformed_coordinate_dimensions_fixture()
+
+    def fail(*_args):
+        raise ZeroDivisionError("division by zero")
+
+    monkeypatch.setattr(recognition_coordinates, "coordinate_links", fail)
+    doc = ObservationDocument()
+    import_coordinate_evidence(doc, evidence, render, payload, source_hash="a" * 64, page=1)
+    saved = doc.provenance["recognitionCoordinateEvidence"][0]
+    assert saved["status"] == "unverified" and saved["evidence"] == evidence
+    assert saved["validationErrorType"] == "ZeroDivisionError"
+    assert doc.issues[-1]["code"] == "recognition_source_coordinates_unverified"

@@ -260,6 +260,16 @@ def page_batches(
                 if before_page:
                     before_page(index + 1)
                 page_render = capture_full_page_render(document, index, source_hash)
+                # Reopen exactly the bytes supplied to the framework. A pre-save
+                # subset handle cannot prove this serialized page's identity.
+                from .recognition_coordinates import coordinate_links, subset_mapping
+
+                with pdfium.PdfDocument(page_content) as serialized:
+                    serialized.init_forms()
+                    subset_render = capture_full_page_render(
+                        serialized, 0, hashlib.sha256(page_content).hexdigest()
+                    )
+                coordinates = subset_mapping(page_render, subset_render)
                 if time.monotonic() - started >= config.timeout_seconds:
                     issues.append({"code": "recognition_timeout"})
                     break
@@ -268,16 +278,60 @@ def page_batches(
                     status = "partial"
                     issues.extend({**issue, "page": index + 1} for issue in page_render["issues"])
 
+                def local_pages_valid(value):
+                    if isinstance(value, dict):
+                        for key, item in value.items():
+                            if key == "page_no":
+                                if type(item) is not int or item != 1:
+                                    return False
+                            elif key == "pages" and isinstance(item, dict):
+                                if set(item) not in ({"1"}, {1}) or not all(
+                                    local_pages_valid(v) for v in item.values()
+                                ):
+                                    return False
+                            elif key == "unavailablePages":
+                                if not isinstance(item, list) or any(
+                                    type(v) is not int or v != 1 for v in item
+                                ):
+                                    return False
+                            elif not local_pages_valid(item):
+                                return False
+                    elif isinstance(value, list):
+                        return all(local_pages_valid(v) for v in value)
+                    return True
+
+                valid_local_pages = all(
+                    local_pages_valid(value) for value in [exported, *observations]
+                )
+                if not valid_local_pages:
+                    # Preserve the invalid local locations in the failed result;
+                    # never repair a page-2 locator by relabelling it as page 1.
+                    issues.append(
+                        {"code": "recognition_local_page_mapping_invalid", "page": index + 1}
+                    )
+                    status = "partial"
+                    coordinates["status"] = "unverified"
+                    from .recognition_coordinates import fingerprint
+
+                    coordinates["fingerprint"] = fingerprint(coordinates)
+
                 # A single-page conversion numbers its page 1. Preserve its local
                 # location and remap every page locator into the original PDF.
-                def remap(value, index=index):
+                def remap(value, index=index, valid_local_pages=valid_local_pages):
+                    if not valid_local_pages:
+                        return value
                     if isinstance(value, dict):
                         for key, item in list(value.items()):
-                            if key == "page_no" and type(item) is int:
+                            if key == "page_no" and type(item) is int and item == 1:
                                 value["batch_page_no"] = item
                                 value[key] = index + 1
+                            elif key == "unavailablePages" and isinstance(item, list):
+                                value[key] = [index + 1 for _ in item]
                             elif key == "pages" and isinstance(item, dict):
-                                value[key] = {str(index + 1): remap(v) for v in item.values()}
+                                value[key] = {
+                                    str(index + 1) if str(k) == "1" else str(k): remap(v)
+                                    for k, v in item.items()
+                                }
                             else:
                                 value[key] = remap(item)
                     elif isinstance(value, list):
@@ -290,9 +344,23 @@ def page_batches(
                     "sourceSha256": source_hash,
                     "document": remap(exported),
                     "pageRender": page_render,
+                    "localPageMappingValid": valid_local_pages,
                 }
                 if observations:
                     page["sourceObservations"] = remap(observations[0])
+                links = coordinate_links(
+                    coordinates,
+                    page.get("sourceObservations", {}).get("rawOCRPasses", []),
+                    page.get("sourceObservations", {}).get("tableRepairs", []),
+                )
+                page["coordinateEvidence"] = {"mapping": coordinates, "rawPassLinks": links}
+                if coordinates["status"] != "verified" or any(
+                    link["status"] != "verified" for link in links
+                ):
+                    page["status"] = status = "partial"
+                    issues.append(
+                        {"code": "recognition_source_coordinates_unverified", "page": index + 1}
+                    )
                 encoded_size = len(json.dumps(page, ensure_ascii=False, allow_nan=False).encode())
                 if total_bytes + encoded_size > config.max_output_bytes - 4096:
                     issues.append({"code": "recognition_output_budget_exceeded"})

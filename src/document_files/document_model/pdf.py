@@ -619,12 +619,23 @@ def observe_pdf(doc: ObservationDocument, content: bytes, *, recognition=None) -
                 type(page) is not int
                 or page < 1
                 or page_result.get("sourceSha256") != source_hash
+                or page_result.get("localPageMappingValid") is False
                 or not isinstance(page_result.get("document"), dict)
             ):
                 doc.issue("recognition_page_checkpoint_invalid")
                 continue
             import_page_render(
                 doc, page_result.get("pageRender"), source_hash=source_hash, page=page
+            )
+            from .recognition_sources import import_coordinate_evidence
+
+            import_coordinate_evidence(
+                doc,
+                page_result.get("coordinateEvidence"),
+                page_result.get("pageRender"),
+                page_result.get("sourceObservations", {}),
+                source_hash=source_hash,
+                page=page,
             )
             prefix = f"docling:page:{page}"
             page_ids = import_docling(doc, page_result["document"], prefix=prefix)

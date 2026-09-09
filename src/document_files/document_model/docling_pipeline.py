@@ -13,6 +13,12 @@ import time
 from copy import deepcopy
 from pathlib import Path
 
+from .recognition_coordinates import (
+    bind_ocr_frame,
+    capture_framework_crops,
+    framework_frame,
+    image_identity,
+)
 from .table_ocr_repair import (
     bounded_tsv,
     box_overlap,
@@ -59,6 +65,13 @@ def pipeline_class(config, snapshots, restored=None):
         repair_tables = 0
         repair_elapsed = 0.0
         orientation = None
+
+        def _release_coordinate_image(self):
+            image = getattr(self, "raw_coordinate_image", None)
+            if image is not None:
+                image.close()
+            self.raw_coordinate_image = None
+            self.raw_pixel_frame = None
 
         def _perform_osd(self, filename):
             self.orientation = None
@@ -148,6 +161,19 @@ def pipeline_class(config, snapshots, restored=None):
                 "status": "failed",
                 "detections": [],
             }
+            if repair_transform:
+                frame = getattr(self, "raw_repair_frame", None)
+                if frame is not None and frame.get("inputImage") == image_identity:
+                    capture["pixelFrame"] = deepcopy(frame)
+            else:
+                frame = bind_ocr_frame(
+                    getattr(self, "raw_pixel_frame", None),
+                    getattr(self, "raw_coordinate_image", None),
+                    image_identity,
+                    capture["transform"]["orientation"],
+                )
+                if frame is not None:
+                    capture["pixelFrame"] = frame
             self.raw_passes.append(capture)
             try:
                 raw = bounded_tsv(
@@ -224,49 +250,51 @@ def pipeline_class(config, snapshots, restored=None):
 
         def __call__(self, conv_res, page_batch):
             for source_page in page_batch:
-                self.orientation = None
-                self.raw_passes, self.raw_capture_issues = [], []
-                self.raw_page_no = source_page.page_no
-                self.raw_transform_seen = False
-                self.raw_rectangles = []
-                for page in super().__call__(conv_res, [source_page]):
-                    original = list(page.cells)
-                    if not self.raw_transform_seen or len(self.raw_rectangles) != len(
-                        self.raw_passes
-                    ):
-                        self.raw_capture_issues.append(
-                            {"code": "recognition_raw_page_capture_incomplete"}
-                        )
-                    snapshot = {
-                        "original": [record(c, stage="original_ocr") for c in original],
-                        "supplemental": [],
-                        "repairs": [],
-                        "issues": self.raw_capture_issues,
-                        "rawOCRPasses": self.raw_passes,
-                        "rawCaptureVersion": "document-files.raw-ocr.v1",
-                    }
-                    snapshot["originalOCRFingerprint"] = hashlib.sha256(
-                        json.dumps(
-                            [
-                                {k: c[k] for k in ("text", "raw", "fromOcr", "bbox")}
-                                for c in snapshot["original"]
-                            ],
-                            sort_keys=True,
-                            ensure_ascii=False,
-                        ).encode()
-                    ).hexdigest()
-                    snapshots[page.page_no] = snapshot
-                    if config.table_ocr_repair not in {"ruled_tables_v1", "ruled_cells_v2"}:
-                        yield page
-                        continue
-                    try:
-                        self.repair(page, original, snapshot)
-                    except subprocess.TimeoutExpired:
-                        snapshot["issues"].append({"code": "table_ocr_repair_timeout"})
-                    except Exception:
-                        snapshot["issues"].append({"code": "table_ocr_repair_failed"})
-                    self.apply_structure_view(page, snapshot)
+                with capture_framework_crops(source_page, self):
+                    yield from self._captured_page(conv_res, source_page)
+
+        def _captured_page(self, conv_res, source_page):
+            self.orientation = None
+            self.raw_passes, self.raw_capture_issues = [], []
+            self.raw_page_no = source_page.page_no
+            self.raw_transform_seen = False
+            self.raw_rectangles = []
+            for page in super().__call__(conv_res, [source_page]):
+                original = list(page.cells)
+                if not self.raw_transform_seen or len(self.raw_rectangles) != len(self.raw_passes):
+                    self.raw_capture_issues.append(
+                        {"code": "recognition_raw_page_capture_incomplete"}
+                    )
+                snapshot = {
+                    "original": [record(c, stage="original_ocr") for c in original],
+                    "supplemental": [],
+                    "repairs": [],
+                    "issues": self.raw_capture_issues,
+                    "rawOCRPasses": self.raw_passes,
+                    "rawCaptureVersion": "document-files.raw-ocr.v1",
+                }
+                snapshot["originalOCRFingerprint"] = hashlib.sha256(
+                    json.dumps(
+                        [
+                            {k: c[k] for k in ("text", "raw", "fromOcr", "bbox")}
+                            for c in snapshot["original"]
+                        ],
+                        sort_keys=True,
+                        ensure_ascii=False,
+                    ).encode()
+                ).hexdigest()
+                snapshots[page.page_no] = snapshot
+                if config.table_ocr_repair not in {"ruled_tables_v1", "ruled_cells_v2"}:
                     yield page
+                    continue
+                try:
+                    self.repair(page, original, snapshot)
+                except subprocess.TimeoutExpired:
+                    snapshot["issues"].append({"code": "table_ocr_repair_timeout"})
+                except Exception:
+                    snapshot["issues"].append({"code": "table_ocr_repair_failed"})
+                self.apply_structure_view(page, snapshot)
+                yield page
 
         def apply_structure_view(self, page, snapshot):
             if config.table_ocr_repair != "ruled_cells_v2" or page.parsed_page is None:
@@ -615,6 +643,29 @@ def pipeline_class(config, snapshots, restored=None):
                             break
                         self.repair_calls += 1
                         self.call_timeout, self.call_psm = remaining, unit["psm"]
+                        self.raw_repair_frame = None
+                        if canvas is not None:
+                            try:
+                                self.raw_repair_frame = framework_frame(
+                                    page._backend._result, canvas
+                                )
+                                self.raw_repair_frame.update(
+                                    status="input_pixels_matched",
+                                    inputImage=image_identity(unit_image),
+                                    processing="ruled_cell_crop_and_white_padding",
+                                    tableCropPixelBounds=[x0, y0, x1, y1],
+                                    tableCropImage=image_identity(crop),
+                                    cellPixelBox=unit.get("cellPixelBox"),
+                                    unitFingerprint=unit["fingerprint"],
+                                    unitPixelOffset=list(unit["pixelOffset"]),
+                                    unitPixelOrigin=[
+                                        x0 + unit["pixelOffset"][0],
+                                        y0 + unit["pixelOffset"][1],
+                                    ],
+                                    appliedClockwiseRotation=0,
+                                )
+                            except Exception:
+                                self.raw_repair_frame = None
                         self.raw_repair_transform = {
                             "pixelOrigin": [
                                 x0 + unit["pixelOffset"][0],
@@ -632,7 +683,12 @@ def pipeline_class(config, snapshots, restored=None):
                                 unit_image.save(path)
                                 result = self._run_tesseract(str(path), None)
                         finally:
-                            del self.call_timeout, self.call_psm, self.raw_repair_transform
+                            del (
+                                self.call_timeout,
+                                self.call_psm,
+                                self.raw_repair_transform,
+                                self.raw_repair_frame,
+                            )
                         offset = unit["pixelOffset"]
                         for ordinal, row in result.iterrows():
                             left, top = (

@@ -680,3 +680,57 @@ def page_render_fingerprint(record):
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
+
+
+def import_coordinate_evidence(doc, evidence, render, payload, *, source_hash, page):
+    """Recheck immutable source/page/pass links; never replace original OCR bboxes."""
+    from copy import deepcopy
+
+    from .recognition_coordinates import coordinate_links, subset_mapping
+
+    status = "unverified"
+    validation_error = None
+    try:
+        mapping = evidence["mapping"]
+        subset = mapping["subsetRender"]
+        captures = payload.get("rawOCRPasses", [])
+        if (
+            render["sourceSha256"] != source_hash
+            or render["page_no"] != page
+            or render["fingerprint"] != page_render_fingerprint(render)
+            or subset["fingerprint"] != page_render_fingerprint(subset)
+            or mapping != subset_mapping(render, subset)
+            or mapping["status"] != "verified"
+            or evidence["rawPassLinks"]
+            != coordinate_links(mapping, captures, payload.get("tableRepairs", []))
+            or len({c["fingerprint"] for c in captures}) != len(captures)
+            or any(link["status"] != "verified" for link in evidence["rawPassLinks"])
+        ):
+            raise ValueError
+        status = "verified"
+    except (
+        TypeError,
+        KeyError,
+        ValueError,
+        AttributeError,
+        OverflowError,
+        ZeroDivisionError,
+    ) as exc:
+        # Retain the supplied evidence and pre-existing issues; no exception text
+        # is copied because it can contain document-controlled values.
+        validation_error = type(exc).__name__
+    doc.provenance.setdefault("recognitionCoordinateEvidence", []).append(
+        {
+            "sourceSha256": source_hash,
+            "page": page,
+            "status": status,
+            "evidence": deepcopy(evidence),
+            **({"validationErrorType": validation_error} if validation_error else {}),
+            "scope": "captured_input_pixels_to_original_pdf_coordinates_only",
+            "recognitionStructureCoordinatesVerified": False,
+            "contentCoverageVerified": False,
+            "ocrTruthVerified": False,
+        }
+    )
+    if status != "verified":
+        doc.issue("recognition_source_coordinates_unverified", page=page)
