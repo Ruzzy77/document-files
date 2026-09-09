@@ -85,10 +85,26 @@ and supplies a unique overlapping exact-text native line's observed bounds, with
 padding or changing the original source. Rebuilding from saved PNGs preserves all
 74,892 page-1 and 84,206 page-2 foreground pixels; this is not a new model approval.
 V1/v2 checkpoints are not automatically migrated to v3.
+The changed page-1 request was then accepted in 104.66 seconds. With the explicitly
+revalidated saved page-2 decision, the product applied both page reviews and retained
+the six original issues as resolution evidence. Each table has 12 observed cells;
+all prior text, locations and bindings are unchanged. The first table compiled two
+rows, including `12.50`, `7.25`, zero and the empty Note value. The run remains partial:
+the next meaning request was 19,014 characters against the 16,000-character model
+input limit, so no meaning call occurred. This continuation used three new calls in
+262.07 seconds; prior work/failure remains charged (five calls, 522.37 seconds at the
+checkpoint). Saved-stage reuse is not a final candidate or independent quality run.
 The optional projector builder now has an explicit flag and conversion receipt v2;
 its actual final-pack and multi-platform qualification remain pending.
 
 ### Linux ARM64 addition
+
+An additional 31 notice files (310,088 bytes) are prepared separately for audited
+Python/PBS components and referenced Debian common-license texts. Their original
+wheel/runtime/source archive or signed-package identities are recorded. These
+overlays have not changed the installed stage. Per-file license applicability,
+corresponding-source delivery, mixed model and Qt/FFmpeg obligations, and the formal
+ARM stage audit remain release requirements.
 
 Linux ARM64 (`linux-aarch64`) is now a fifth release target; the four existing targets
 remain required. Core/PBS, CPU runtime and native recognition builders have native

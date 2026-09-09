@@ -2,6 +2,9 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Preserve an installer's original error if process-group cleanup is denied.
+  Record each cleanup step, try only a still-live owned child as fallback, and
+  refuse successful assembly when cleanup or its receipt is unconfirmed.
 - Constrain PDF review arrays to the actual inventory (v3), with no dummy slot for
   empty inventories. Offer unique, overlapping exact-text native line geometry as
   an additional candidate; retain original bounds, pixel runs and unknown decisions.

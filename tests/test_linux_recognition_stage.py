@@ -535,7 +535,13 @@ def test_supervisor_real_synthetic_child(tool, tmp_path, behavior, error, monkey
     assert (tmp_path / "log").stat().st_size <= 100
     process = json.loads((tmp_path / "log.process.json").read_text())
     assert process["attempts"] == 1 and process["exitCode"] is not None
-    assert process["processGroupAbsent"]
+    assert process["cleanupSteps"]["stdoutClose"] == "closed"
+    assert process["originalError"]["code"] == error
+    if not process["processGroupAbsent"]:
+        assert process["cleanupConfirmed"] is False
+        assert process["cleanupSteps"]["groupProbe"] in {"present", "failed"}
+        if process["cleanupSteps"]["groupProbe"] == "failed":
+            assert any(e["stage"] == "groupProbe" for e in process["cleanupErrors"])
 
 
 def test_python_elf_machine_must_match(tool, setup):
@@ -1090,3 +1096,131 @@ def test_installer_cannot_change_pbs_mode(mocked, setup, monkeypatch):
     monkeypatch.setattr(mocked, "run_pip", mutate)
     with pytest.raises(mocked.AssemblyError, match="final_stage_changed"):
         execute(mocked, setup)
+
+
+@pytest.mark.parametrize(
+    "primary,kill_error,wait_error,probe_error,group_present,child_error,expected",
+    [
+        (False, False, False, False, False, False, None),
+        (True, False, False, False, False, False, "pip_log_budget"),
+        (True, True, False, True, False, False, "pip_log_budget"),
+        (True, True, False, True, False, True, "pip_log_budget"),
+        (False, True, False, False, False, False, "pip_cleanup_unconfirmed"),
+        (False, False, True, False, False, False, "pip_cleanup_unconfirmed"),
+        (True, False, True, False, False, False, "pip_log_budget"),
+        (False, False, False, True, False, False, "pip_cleanup_unconfirmed"),
+        (False, False, False, False, True, False, "pip_cleanup_unconfirmed"),
+    ],
+)
+def test_supervisor_cleanup_failures_preserve_primary_and_all_steps(
+    tool,
+    tmp_path,
+    monkeypatch,
+    primary,
+    kill_error,
+    wait_error,
+    probe_error,
+    group_present,
+    child_error,
+    expected,
+):
+    events = []
+    process = SimpleNamespace(pid=123456, returncode=None)
+    waits = 0
+
+    def wait(*, timeout):
+        nonlocal waits
+        waits += 1
+        cleanup = primary or waits == 2
+        events.append("cleanup_wait" if cleanup else "execution_wait")
+        if cleanup:
+            assert timeout == 5
+            if wait_error:
+                raise OSError(5, "synthetic wait failure")
+        process.returncode = -9 if primary else 0
+        return process.returncode
+
+    def close():
+        events.append("stdout_close")
+
+    def poll():
+        events.append("owned_poll")
+        return process.returncode
+
+    def kill():
+        events.append("owned_kill")
+        if child_error:
+            raise PermissionError(1, "synthetic child signal denial")
+
+    process.wait, process.poll, process.kill = wait, poll, kill
+    process.stdout = SimpleNamespace(close=close)
+
+    class Selector:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def register(self, *args):
+            pass
+
+        def get_map(self):
+            return {1: True} if primary else {}
+
+        def select(self, timeout):
+            return [(SimpleNamespace(fd=321), None)]
+
+    def group_signal(pid, sig):
+        assert pid == process.pid  # No other PID or group may be selected.
+        if sig:
+            assert sig == tool.signal.SIGKILL
+            events.append("group_kill")
+            if kill_error:
+                raise PermissionError(1, "synthetic group signal denial")
+        else:
+            events.append("group_probe")
+            if probe_error:
+                raise PermissionError(1, "synthetic group probe denial")
+            if not group_present:
+                raise ProcessLookupError(pid)
+
+    monkeypatch.setattr(tool.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(tool.selectors, "DefaultSelector", Selector)
+    monkeypatch.setattr(tool.os, "killpg", group_signal, raising=False)
+    monkeypatch.setattr(tool.signal, "SIGKILL", 9, raising=False)
+    monkeypatch.setattr(tool.os, "read", lambda fd, amount: b"x" * 101)
+    limits = dict(zip(tool.LIMITS, [1000000, 1000, 1000000, 1000, 1000000, 1, 100], strict=True))
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+
+    def call():
+        return tool.run_pip(
+            ["never-executed"], {"TMPDIR": str(temporary)}, tmp_path / "log", tool.Budget(limits)
+        )
+
+    if expected:
+        with pytest.raises(tool.AssemblyError, match=expected):
+            call()
+    else:
+        assert call() == {"exitCode": 0, "logBytes": 0, "attempts": 1}
+    receipt = json.loads((tmp_path / "log.process.json").read_text())
+    assert events.index("group_kill") < events.index("cleanup_wait")
+    assert events.index("cleanup_wait") < events.index("stdout_close") < events.index("group_probe")
+    assert receipt["cleanupSteps"]["stdoutClose"] == "closed"
+    assert receipt["processGroupAbsent"] is (not probe_error and not group_present)
+    assert receipt["cleanupConfirmed"] is not (
+        kill_error or wait_error or probe_error or group_present
+    )
+    assert receipt["originalError"] == (
+        {"type": "AssemblyError", "code": "pip_log_budget"} if primary else None
+    )
+    stages = {e["stage"] for e in receipt["cleanupErrors"]}
+    assert ("groupKill" in stages) is kill_error
+    assert ("wait" in stages) is wait_error
+    assert ("groupProbe" in stages) is probe_error
+    if kill_error and primary:
+        assert "owned_kill" in events
+        assert receipt["cleanupSteps"]["ownedChildKill"] == ("failed" if child_error else "sent")
+    else:
+        assert "owned_kill" not in events

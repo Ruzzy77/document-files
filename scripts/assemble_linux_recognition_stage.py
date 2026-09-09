@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import base64
 import configparser
-import contextlib
 import csv
 import hashlib
 import io
@@ -602,7 +601,7 @@ def run_pip(command, env, log, budget):
     )
     total = 0
     started = time.monotonic()
-    cleanup_sent = False
+    original_error = original_traceback = result = None
     try:
         with selectors.DefaultSelector() as selector, log.open("xb") as output:
             selector.register(process.stdout, selectors.EVENT_READ)
@@ -638,36 +637,121 @@ def run_pip(command, env, log, budget):
                 timeout=max(0.01, budget.limits["maxSeconds"] - (time.monotonic() - budget.started))
             )
             require(code == 0, "pip_failed:" + str(code))
-            return {"exitCode": code, "logBytes": total, "attempts": 1}
-    finally:
-        # Kill the original session's entire group even if its leader already exited.
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
-            cleanup_sent = True
+            result = {"exitCode": code, "logBytes": total, "attempts": 1}
+    except BaseException as exc:
+        original_error, original_traceback = exc, exc.__traceback__
+
+    # Each cleanup boundary is independent: denied group signalling must not hide
+    # the original failure, skip reaping/closing, or manufacture group absence.
+    cleanup_errors = []
+    cleanup = {
+        "groupKill": "not_attempted",
+        "ownedChildPoll": "not_needed",
+        "ownedChildKill": "not_needed",
+        "wait": "not_attempted",
+        "stdoutClose": "not_attempted",
+        "groupProbe": "not_attempted",
+    }
+
+    def failed(stage, error):
+        cleanup[stage] = "failed"
+        cleanup_errors.append(
+            {"stage": stage, "type": type(error).__name__, "errno": getattr(error, "errno", None)}
+        )
+
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+        cleanup["groupKill"] = "sent"
+    except ProcessLookupError:
+        cleanup["groupKill"] = "absent"
+    except (Exception, KeyboardInterrupt) as exc:
+        failed("groupKill", exc)
+        # This Popen child is the only fallback target. Its exit never proves
+        # that the original process group (which may own descendants) is absent.
         try:
-            process.wait(timeout=5)
-        finally:
-            process.stdout.close()
-            absent = False
-            try:
-                os.killpg(process.pid, 0)
-            except ProcessLookupError:
-                absent = True
-            write_json(
-                log.with_suffix(".process.json"),
-                {
-                    "attempts": 1,
-                    "pid": process.pid,
-                    "exitCode": process.returncode,
-                    "elapsedSeconds": time.monotonic() - started,
-                    "logBytesObserved": total,
-                    "logBytesPreserved": min(total, budget.limits["maxLogBytes"]),
-                    "processGroupKillSent": cleanup_sent,
-                    "processGroupAbsent": absent,
-                    "cleanupWaitSecondsMaximum": 5,
-                    "networkIsolationVerified": False,
-                },
+            alive = process.poll() is None
+            cleanup["ownedChildPoll"] = "alive" if alive else "exited"
+            if alive:
+                try:
+                    process.kill()
+                    cleanup["ownedChildKill"] = "sent"
+                except ProcessLookupError:
+                    cleanup["ownedChildKill"] = "absent"
+                except (Exception, KeyboardInterrupt) as child_error:
+                    failed("ownedChildKill", child_error)
+        except (Exception, KeyboardInterrupt) as poll_error:
+            failed("ownedChildPoll", poll_error)
+    try:
+        process.wait(timeout=5)
+        cleanup["wait"] = "completed"
+    except (Exception, KeyboardInterrupt) as exc:
+        failed("wait", exc)
+    try:
+        process.stdout.close()
+        cleanup["stdoutClose"] = "closed"
+    except (Exception, KeyboardInterrupt) as exc:
+        failed("stdoutClose", exc)
+    try:
+        os.killpg(process.pid, 0)
+        cleanup["groupProbe"] = "present"
+    except ProcessLookupError:
+        cleanup["groupProbe"] = "absent"
+    except (Exception, KeyboardInterrupt) as exc:
+        failed("groupProbe", exc)
+    confirmed = (
+        not cleanup_errors
+        and cleanup["wait"] == "completed"
+        and cleanup["stdoutClose"] == "closed"
+        and cleanup["groupProbe"] == "absent"
+    )
+    receipt = {
+        "attempts": 1,
+        "pid": process.pid,
+        "exitCode": process.returncode,
+        "elapsedSeconds": time.monotonic() - started,
+        "logBytesObserved": total,
+        "logBytesPreserved": min(total, budget.limits["maxLogBytes"]),
+        "processGroupKillSent": cleanup["groupKill"] == "sent",
+        "processGroupAbsent": cleanup["groupProbe"] == "absent",
+        "cleanupWaitSecondsMaximum": 5,
+        "cleanupConfirmed": confirmed,
+        "cleanupSteps": cleanup,
+        "cleanupErrors": cleanup_errors,
+        "originalError": (
+            {
+                "type": type(original_error).__name__,
+                "code": str(original_error) if isinstance(original_error, AssemblyError) else None,
+            }
+            if original_error is not None
+            else None
+        ),
+        "networkIsolationVerified": False,
+    }
+    receipt_error = None
+    try:
+        write_json(log.with_suffix(".process.json"), receipt)
+    except (Exception, KeyboardInterrupt) as exc:
+        receipt_error = exc
+    if original_error is not None:
+        if not confirmed or receipt_error is not None:
+            original_error.add_note(
+                "pip cleanup evidence: "
+                + json.dumps(
+                    {
+                        "cleanupConfirmed": confirmed,
+                        "cleanupErrors": cleanup_errors,
+                        "receiptWriteError": type(receipt_error).__name__
+                        if receipt_error
+                        else None,
+                    },
+                    sort_keys=True,
+                )
             )
+        raise original_error.with_traceback(original_traceback)
+    if receipt_error is not None:
+        raise AssemblyError("pip_cleanup_receipt_failed") from receipt_error
+    require(confirmed, "pip_cleanup_unconfirmed")
+    return result
 
 
 def preserve_wheel_scripts(target, expected, wheelhouse, wheels, budget):
