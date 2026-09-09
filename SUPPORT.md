@@ -306,9 +306,9 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After adapter v23, local-copy rechecking and the pinned Qt header policy, core regression passed
-**1,435 tests, with 211 skipped and 12 subtests**; Ruff and formatting checks passed.
-The separate recognition-runtime overlay passed **360 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
+After adapter v24 and the offline-stage assembler, core regression passed
+**1,554 tests, with 212 skipped and 12 subtests**; Ruff and formatting checks passed.
+The separate recognition-runtime overlay passed **399 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
 
@@ -345,6 +345,15 @@ shifted after insertion. Only the matching missing-cell issue was resolved, with
 original record retained. The scan remained unresolved and all six remaining issues
 were preserved. Overall status is still partial. This is not
 whole-page completeness or independent quality approval.
+
+Adapter v24 then returned one clean-source whole-path observation in 8.19 seconds
+(8.91 seconds including supervision), with exit 0 and confirmed known-process cleanup.
+A 2,752-pixel window linked the unassigned native-page pipe detection to one original
+vertical stroke: continuous identical profiles, gray edge pixels and white side
+background were preserved. All values, tables, bindings, six issues and partial
+coverage remained unchanged. Per-run timing and capture identities changed their
+associated fingerprints. The native blank remained proved and the scan remained unresolved.
+This is supporting evidence only: the original detection is not yet reclassified.
 
 The 117 acquired ARM inputs were independently rehashed and inspected without installation.
 Selected ELF files matched AArch64, but OpenCV's GUI dependencies, an empty Qt interpreter

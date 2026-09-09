@@ -38,6 +38,10 @@
   four unique closed native borders and a fully observed opaque-white interior.
   Preserve original values and resolved issue evidence; scans, ambiguous content and
   global completeness remain unverified.
+- Add a separate hash-pinned Linux recognition-stage assembler. Check offline inputs
+  before executing the selected PBS runtime, preserve source files and archive-link
+  provenance, validate installed bytes/RECORD, and keep original auxiliary scripts
+  without temporary installation paths. Assembly is not pack or release approval.
 - Add bounded Linux recognition-input checking/acquisition with explicit inventory
   hashes, official origins, local-byte verification and owned-worker cleanup. Default
   inspection is offline; this does not assemble or approve a recognition stage.

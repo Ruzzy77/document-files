@@ -134,3 +134,15 @@ bind its actual artifacts to independent reviews and installed execution evidenc
 and publish those same bytes. Development results and historical candidate bundles
 cannot be substituted for the new candidate. ChatGPT capability limitations are
 recorded per feature; explicit AI unavailability is never an AI quality pass.
+
+## Preparing a Linux recognition stage
+
+`scripts/assemble_linux_recognition_stage.py` accepts an explicit hashed input
+inventory and a new output directory. `--check-only` checks source archives and
+wheels without executing their code. Actual assembly must run on the matching
+Linux architecture under separately enforced network, memory and process limits.
+It uses only the selected offline wheels, records copied/derived file origins and
+keeps failures without promoting them. Installed temporary console entry points
+are not shipped; original auxiliary CLI sources are retained with execution support
+explicitly unverified. A completed assembly remains unapproved until the existing
+pack verifier, relocation, full processing, notices and release gates pass.
