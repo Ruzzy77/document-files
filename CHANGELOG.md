@@ -14,6 +14,11 @@
 - Reject bundled Linux ELF `ld-linux*.so` files, including hash-renamed copies, during
   recognition-stage verification. System loader references remain allowed; other
   loader aliases and redistribution conditions still need independent review.
+- Record Linux ELF header policy v2. Permit only the byte-pinned original ARM QtCore
+  shared library's empty PT_INTERP metadata, with explicit role, SONAME, ELF type,
+  entry and non-PIE checks. Default/executable paths remain strict; stage declarations
+  cannot relabel an executable to bypass them. Preserve the original binary, ABI
+  ceilings and loader rejection; this policy is not full-stage execution approval.
 - Add an explicit, hash-pinned ARM torchvision derivative recipe. Restore five codec
   references to the system loader in a new build-tagged wheel, preserve the original
   input and licenses, and regenerate RECORD with a derivation receipt. This is not

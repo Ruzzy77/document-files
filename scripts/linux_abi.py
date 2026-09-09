@@ -58,10 +58,78 @@ TARGETS = {
 }
 
 
-def inspect_header(binary, target="linux-x86_64"):
-    """Read ELF64 LE geometry and PT_INTERP without executing the input."""
+ELF_HEADER_POLICY = "document-files.linux-elf-header.v2"
+_QTCORE_ARM_SHA256 = "343add4a6603a7982bd9871255ecca7d4071af4bdece461378923959744f0378"
+_QTCORE_ARM_SONAME = "libQt5Core-fd04ed63.so.5.15.19"
+_QTCORE_ARM_ENTRYPOINT = 926912  # Preserve the actual upstream DSO entry; not a PIE flag.
+
+
+def _pinned_shared_interp(stream, size, entries, binary, target, role, kind, entrypoint):
+    """One byte-pinned upstream DSO anomaly, not a general empty-interpreter rule."""
+    if (
+        role != "shared-library"
+        or target != "linux-aarch64"
+        or kind != 3
+        or entrypoint != _QTCORE_ARM_ENTRYPOINT
+        or sha(binary) != _QTCORE_ARM_SHA256
+    ):
+        raise ValueError("Invalid ELF interpreter range: unapproved shared-library identity")
+    dynamic = [entry for entry in entries if entry[0] == 2]
+    if len(dynamic) != 1:
+        raise ValueError("Pinned shared library requires one dynamic table")
+    offset, length = dynamic[0][2], dynamic[0][5]
+    if not 16 <= length <= 65536 or length % 16 or offset + length > size:
+        raise ValueError("Invalid shared-library dynamic table")
+    stream.seek(offset)
+    tags = {}
+    terminated = False
+    for tag, value in struct.iter_unpack("<qQ", stream.read(length)):
+        if tag == 0:
+            terminated = True
+            break
+        if tag in (5, 10, 14, 0x6FFFFFFB):  # STRTAB, STRSZ, SONAME, FLAGS_1
+            if tag in tags:
+                raise ValueError("Duplicate shared-library dynamic tag")
+            tags[tag] = value
+    if not terminated or not {5, 10, 14} <= tags.keys():
+        raise ValueError("Incomplete shared-library dynamic identity")
+    if tags.get(0x6FFFFFFB, 0) & 0x08000000:  # DF_1_PIE
+        raise ValueError("PIE cannot use the shared-library interpreter policy")
+    if not 0 < tags[10] <= 16 * 1024**2 or tags[14] >= tags[10]:
+        raise ValueError("Invalid shared-library string table")
+    locations = [
+        entry[2] + tags[5] - entry[3]
+        for entry in entries
+        if entry[0] == 1 and entry[3] <= tags[5] and tags[5] + tags[10] <= entry[3] + entry[5]
+    ]
+    if len(locations) != 1 or locations[0] + tags[10] > size:
+        raise ValueError("Unmapped shared-library string table")
+    stream.seek(locations[0] + tags[14])
+    raw = stream.read(min(256, tags[10] - tags[14]))
+    if b"\0" not in raw or raw.split(b"\0", 1)[0] != _QTCORE_ARM_SONAME.encode():
+        raise ValueError("Pinned shared-library SONAME mismatch")
+    if sha(binary) != _QTCORE_ARM_SHA256:
+        raise ValueError("Binary changed during shared-library identity inspection")
+    return {
+        "rule": "opencv-qtcore-arm-5.15.19-pinned-empty-pt-interp",
+        "sha256": _QTCORE_ARM_SHA256,
+        "soname": _QTCORE_ARM_SONAME,
+        "elfType": "ET_DYN",
+        "entrypoint": entrypoint,
+        "df1Pie": False,
+        "rawInterpreterHex": "00",
+        "rawInterpreterSize": 1,
+        "meaning": "empty upstream shared-library metadata, not an executable loader",
+        "runtimeQualification": False,
+    }
+
+
+def inspect_header(binary, target="linux-x86_64", *, role=None):
+    """Inspect ELF geometry; unspecified/executable roles retain strict PT_INTERP."""
     if target not in TARGETS:
         raise ValueError("Unsupported Linux target")
+    if role not in (None, "executable", "shared-library"):
+        raise ValueError("Unsupported native ELF role")
     binary = Path(binary)
     if binary.is_symlink() or not binary.is_file():
         raise ValueError("Expected regular ELF input")
@@ -71,7 +139,7 @@ def inspect_header(binary, target="linux-x86_64"):
         if len(header) != 64 or header[:7] != b"\x7fELF\x02\x01\x01":
             raise ValueError("Expected ELF64 little-endian version 1")
         kind, machine, version = struct.unpack_from("<HHI", header, 16)
-        offset = struct.unpack_from("<Q", header, 32)[0]
+        entrypoint, offset = struct.unpack_from("<QQ", header, 24)
         ehsize, entsize, count = struct.unpack_from("<HHH", header, 52)
         if kind not in (2, 3) or machine != TARGETS[target]["machine"] or version != 1:
             raise ValueError("ELF target mismatch")
@@ -79,26 +147,41 @@ def inspect_header(binary, target="linux-x86_64"):
             raise ValueError("Invalid ELF program header")
         if offset + count * entsize > size:
             raise ValueError("Truncated ELF program headers")
-        interpreter = None
+        entries = []
         for index in range(count):
             stream.seek(offset + index * entsize)
-            entry = stream.read(56)
-            if struct.unpack_from("<I", entry)[0] != 3:
+            entries.append(struct.unpack("<IIQQQQQQ", stream.read(56)))
+        interpreter = None
+        interpreter_seen = False
+        decision = None
+        for entry in entries:
+            if entry[0] != 3:
                 continue
-            start, length = (
-                struct.unpack_from("<Q", entry, 8)[0],
-                struct.unpack_from("<Q", entry, 32)[0],
-            )
-            if interpreter is not None or not 2 <= length <= 256 or start + length > size:
+            start, length = entry[2], entry[5]
+            if interpreter_seen or not 1 <= length <= 256 or start + length > size:
                 raise ValueError("Invalid ELF interpreter range")
+            interpreter_seen = True
             stream.seek(start)
             raw = stream.read(length)
+            if raw == b"\0":
+                decision = _pinned_shared_interp(
+                    stream, size, entries, binary, target, role, kind, entrypoint
+                )
+                continue
             if not raw.endswith(b"\0") or b"\0" in raw[:-1]:
                 raise ValueError("Invalid ELF interpreter")
             interpreter = raw[:-1].decode("ascii")
             if interpreter != TARGETS[target]["loader"]:
                 raise ValueError("Foreign Linux interpreter")
-    return {"target": target, "machine": machine, "elfClass": 64, "interpreter": interpreter}
+    return {
+        "target": target,
+        "machine": machine,
+        "elfClass": 64,
+        "interpreter": interpreter,
+        "headerPolicyVersion": ELF_HEADER_POLICY,
+        "nativeRole": role or "unspecified",
+        "interpreterDecision": decision,
+    }
 
 
 def require_host(target):
@@ -112,7 +195,7 @@ def require_host(target):
         raise ValueError("Linux startup requires matching native host target")
 
 
-def audit(binary, evidence, target="linux-x86_64"):
+def audit(binary, evidence, target="linux-x86_64", *, role=None):
     binary, evidence = Path(binary), Path(evidence)
     if binary.is_symlink() or not binary.is_file():
         raise ValueError("ABI input must be a regular binary")
@@ -120,7 +203,7 @@ def audit(binary, evidence, target="linux-x86_64"):
         if stream.read(4) != b"\x7fELF":
             raise ValueError("ABI input is not ELF")
     before = sha(binary)
-    header = inspect_header(binary, target)
+    header = inspect_header(binary, target, role=role)
     result = subprocess.run(
         ["readelf", "--version-info", "--wide", str(binary)],
         capture_output=True,

@@ -259,3 +259,108 @@ def test_arm_cannot_relax_bookworm_abi(tmp_path, monkeypatch):
     )
     with pytest.raises(ValueError, match="Bookworm ABI exceeded"):
         abi.audit(path, tmp_path / "raw", target="linux-aarch64")
+
+
+def pinned_shape(*, soname=None, flags=0, entrypoint=926912, kind=3, interpreter=b"\0"):
+    """Synthetic geometry only; these bytes do not match or qualify upstream Qt."""
+    data = bytearray(640)
+    data[:7] = b"\x7fELF\x02\x01\x01"
+    struct.pack_into("<HHIQQ", data, 16, kind, 183, 1, entrypoint, 64)
+    struct.pack_into("<HHH", data, 52, 64, 56, 3)
+    struct.pack_into("<IIQQQQQQ", data, 64, 1, 4, 0, 0, 0, 640, 640, 4096)
+    struct.pack_into("<IIQQQQQQ", data, 120, 3, 4, 300, 0, 0, len(interpreter), 1, 1)
+    struct.pack_into("<IIQQQQQQ", data, 176, 2, 4, 320, 320, 320, 80, 80, 8)
+    data[300 : 300 + len(interpreter)] = interpreter
+    for i, (tag, value) in enumerate(((5, 448), (10, 96), (14, 1), (0x6FFFFFFB, flags), (0, 0))):
+        struct.pack_into("<qQ", data, 320 + i * 16, tag, value)
+    value = (soname or abi._QTCORE_ARM_SONAME).encode() + b"\0"
+    data[449 : 449 + len(value)] = value
+    return bytes(data)
+
+
+def pin_synthetic_hash(monkeypatch, binary):
+    """Test structural conjuncts independently; never claim this as a real hash check."""
+    original = abi.sha
+    monkeypatch.setattr(
+        abi, "sha", lambda path: abi._QTCORE_ARM_SHA256 if Path(path) == binary else original(path)
+    )
+
+
+def test_synthetic_shape_without_real_hash_is_never_exempt(tmp_path):
+    path = tmp_path / abi._QTCORE_ARM_SONAME
+    path.write_bytes(pinned_shape())
+    with pytest.raises(ValueError, match="unapproved shared-library identity"):
+        abi.inspect_header(path, "linux-aarch64", role="shared-library")
+
+
+def test_explicit_shared_role_records_narrow_policy_with_mocked_hash(tmp_path, monkeypatch):
+    path = tmp_path / "binary"
+    path.write_bytes(pinned_shape())
+    pin_synthetic_hash(monkeypatch, path)
+    result = abi.inspect_header(path, "linux-aarch64", role="shared-library")
+    assert result["headerPolicyVersion"] == "document-files.linux-elf-header.v2"
+    assert result["interpreter"] is None
+    assert result["nativeRole"] == "shared-library"
+    assert result["interpreterDecision"]["entrypoint"] == 926912
+    assert result["interpreterDecision"]["df1Pie"] is False
+    assert result["interpreterDecision"]["runtimeQualification"] is False
+
+
+@pytest.mark.parametrize("role", [None, "executable", True, "library"])
+def test_pinned_shape_still_rejects_wrong_or_implicit_role(tmp_path, monkeypatch, role):
+    path = tmp_path / "binary"
+    path.write_bytes(pinned_shape())
+    pin_synthetic_hash(monkeypatch, path)
+    with pytest.raises(ValueError):
+        abi.inspect_header(path, "linux-aarch64", role=role)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"soname": "libQt5Core-wrong.so.5.15.19"},
+        {"flags": 0x08000000},
+        {"entrypoint": 0},
+        {"kind": 2},
+        {"interpreter": b"\0\0"},
+        {"interpreter": b"x"},
+        {"interpreter": b"/wrong/loader\0"},
+    ],
+)
+def test_wrong_structure_is_rejected_even_when_hash_check_is_mocked(tmp_path, monkeypatch, changes):
+    path = tmp_path / "binary"
+    path.write_bytes(pinned_shape(**changes))
+    pin_synthetic_hash(monkeypatch, path)
+    with pytest.raises(ValueError):
+        abi.inspect_header(path, "linux-aarch64", role="shared-library")
+
+
+def test_wrong_target_and_duplicate_interp_are_not_shared_library_exceptions(tmp_path, monkeypatch):
+    path = tmp_path / "binary"
+    data = bytearray(pinned_shape())
+    path.write_bytes(data)
+    pin_synthetic_hash(monkeypatch, path)
+    with pytest.raises(ValueError, match="target mismatch"):
+        abi.inspect_header(path, "linux-x86_64", role="shared-library")
+    struct.pack_into("<H", data, 56, 4)
+    struct.pack_into("<IIQQQQQQ", data, 232, 3, 4, 300, 0, 0, 1, 1, 1)
+    path.write_bytes(data)
+    with pytest.raises(ValueError, match="interpreter range"):
+        abi.inspect_header(path, "linux-aarch64", role="shared-library")
+
+
+def test_shared_interp_policy_keeps_version_requirements_and_hash_stability(tmp_path, monkeypatch):
+    path = tmp_path / "binary"
+    path.write_bytes(pinned_shape())
+    pin_synthetic_hash(monkeypatch, path)
+    monkeypatch.setattr(
+        abi.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, NEEDS.replace("2.35", "2.38"), ""),
+    )
+    with pytest.raises(ValueError, match="Bookworm ABI exceeded"):
+        abi.audit(path, tmp_path / "raw", target="linux-aarch64", role="shared-library")
+    hashes = iter([abi._QTCORE_ARM_SHA256, "0" * 64])
+    monkeypatch.setattr(abi, "sha", lambda p: next(hashes))
+    with pytest.raises(ValueError, match="changed during shared-library"):
+        abi.inspect_header(path, "linux-aarch64", role="shared-library")

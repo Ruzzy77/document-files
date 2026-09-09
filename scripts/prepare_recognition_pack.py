@@ -229,13 +229,16 @@ def verify_arm_cpu_wheel(stage, files, sources, wheel_origins, provenance):
             raise PackError("recognition_missing_torch_cpu_evidence")
 
 
-def verify_linkage(stage: Path, files: dict, audit_path: Path, audit: dict, target: str) -> None:
+def verify_linkage(
+    stage: Path, files: dict, audit_path: Path, audit: dict, target: str, *, executables=()
+) -> dict:
     evidence = load(verified_file(audit_path.parent, audit["nativeLinkage"]))
     if evidence.get("schemaVersion") != "document-files.recognition-native-linkage.v1" or (
         evidence.get("platform") != target
     ):
         raise PackError("recognition_wrong_linkage_target")
     binaries = {}
+    headers = []
     for name in files:
         targets = binary_targets(stage / name)
         if targets:
@@ -247,7 +250,13 @@ def verify_linkage(stage: Path, files: dict, audit_path: Path, audit: dict, targ
                 from linux_abi import inspect_header
 
                 try:
-                    inspect_header(stage / name, target)
+                    role = files[name].get("nativeRole")
+                    if name in executables:
+                        if role not in (None, "executable"):
+                            raise ValueError("Executable declared as shared library")
+                        role = "executable"
+                    header = inspect_header(stage / name, target, role=role)
+                    headers.append({"path": name, **header})
                 except ValueError as exc:
                     raise PackError("recognition_foreign_native_binary") from exc
                 # Linux stages use the system glibc loader, not a bundled copy.
@@ -293,6 +302,8 @@ def verify_linkage(stage: Path, files: dict, audit_path: Path, audit: dict, targ
                     raise PackError("recognition_unbundled_native_dependency")
             else:
                 raise PackError("recognition_unknown_native_dependency")
+
+    return {"elfHeaders": headers}
 
 
 def verify_stage(
@@ -452,7 +463,9 @@ def verify_stage(
         verify_arm_cpu_wheel(
             stage, files, sources, wheel_origins, declaration["provenance"]["sources"]
         )
-    verify_linkage(stage, files, audit_path, audit, target)
+    linkage = verify_linkage(
+        stage, files, audit_path, audit, target, executables=declaration.get("executables", [])
+    )
     receipt = {
         "schemaVersion": "document-files.recognition-stage-verification.v1",
         "auditSha256": audit_sha256,
@@ -461,6 +474,7 @@ def verify_stage(
         "filesVerified": len(files),
         "upstreamArtifactsVerified": len(audited_sources),
         "executionVerified": False,
+        "nativeHeaderEvidence": linkage,
         "modelQuality": "not-assessed",
         "checks": [
             "exact-stage-bytes",

@@ -306,8 +306,8 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After adapter v23 and local-copy rechecking, core regression passed
-**1,418 tests, with 211 skipped and 12 subtests**; Ruff and formatting checks passed.
+After adapter v23, local-copy rechecking and the pinned Qt header policy, core regression passed
+**1,435 tests, with 211 skipped and 12 subtests**; Ruff and formatting checks passed.
 The separate recognition-runtime overlay passed **360 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
@@ -337,26 +337,46 @@ source/native font-byte and glyph-outline checks before native blank decisions. 
 fresh run completed in 6.85 seconds but retained all seven issues: font bytes matched,
 while eight PDFium text projections included trailing spaces absent from source Tj.
 Adapter v23 separates literal source characters from explicitly verified generated
-spacing without trimming real text. Actual document blank decisions still require a
-fresh whole-path check; unsupported fonts and mapping/geometry remain unresolved. This is not
+spacing without trimming real text. In a fresh clean-source v23 whole-path run, the
+native Note cell was proved empty in 6.94 seconds of observation (7.47 seconds with
+supervision). All 109 prior nodes, 357 binding definitions and their label/region
+relationships were preserved; one blank node/binding was added. Per-run binding keys
+shifted after insertion. Only the matching missing-cell issue was resolved, with its
+original record retained. The scan remained unresolved and all six remaining issues
+were preserved. Overall status is still partial. This is not
 whole-page completeness or independent quality approval.
 
 The 117 acquired ARM inputs were independently rehashed and inspected without installation.
 Selected ELF files matched AArch64, but OpenCV's GUI dependencies, an empty Qt interpreter
-entry, torchvision's bundled loader and several bundled-library notices remain unresolved.
+entry and several bundled-library notices required follow-up; the explicit torchvision
+derivative and its successful component probe are described above.
 A pinned-source ANTLR 4.9.3 pure Python wheel was built once offline in a fresh isolated
 environment; its 56 source files were preserved byte-for-byte. These are input-preparation
 results, not complete recognition-stage, redistribution or target-execution approval.
 The stage verifier now rejects bundled ELF loader names `ld-linux*.so`, including the
 actual hash-renamed torchvision member. This is not detection of every arbitrarily
-renamed loader. Qt's empty interpreter still fails the existing check. Neither file
-was silently removed or replaced.
+renamed loader. Header policy v2 allows the original ARM QtCore's one-byte empty
+interpreter metadata only with its exact hash, SONAME, ELF type/entry/non-PIE checks
+and an explicit shared-library role. Unspecified and executable roles still reject
+it, and declared executables cannot be relabelled as libraries. The receipt records
+this decision separately from execution qualification. Neither original file was
+silently removed or replaced; the existing ABI limits remain unchanged.
 
 The ARM native delivery archive was finally recovered with its exact API SHA and
 statically reviewed against source 25e6cd8. Its 78 delivery files, 15 candidate files,
 source notices, ARM ELF/loader and recorded Bookworm startup matched. Original failed
 transfers remain failed records. No local native execution, fresh container inspection,
 full recognition-stage approval or redistribution approval followed this review.
+
+Signed Bookworm metadata was linked to 61 downloaded Debian packages, all matching
+size and SHA. Static inspection retained their native file inventories and notice
+paths without installing them. An isolated Spark-A base-image inventory found 32
+matching package versions, 27 missing package names and two older versions. A separate
+exact two-file QtCore/PCRE2 loading probe returned Qt 5.15.19, with the original unusual
+interpreter metadata unchanged; required mappings and the unique system loader matched
+observed hashes. Both probes exited cleanly and removed their owned containers. These
+checks do not approve full OpenCV execution, portable-stage placement, corresponding
+sources or redistribution terms.
 
 ### Earlier release-preparation history
 

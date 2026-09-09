@@ -570,3 +570,45 @@ def test_qt_empty_interpreter_is_not_exempted(fixture, target):
     f["add"](path, bytes(data), f["runtime"])
     with pytest.raises(tool.PackError, match="^recognition_foreign_native_binary$"):
         f["verify"]()
+
+
+def test_stage_passes_only_explicit_native_role_and_keeps_policy_evidence(fixture, monkeypatch):
+    import linux_abi
+
+    _, create = fixture
+    f = create("linux-aarch64")
+    library = "python/lib/libcodec.so.1"
+    f["add"](library, native("linux-aarch64"), f["runtime"])
+    f["rows"][library]["nativeRole"] = "shared-library"
+    f["linkage"]["binaries"].append(
+        {
+            "path": library,
+            "sha256": f["rows"][library]["sha256"],
+            "tool": "synthetic-test-only",
+            "rawEvidence": f["raw_ref"],
+            "dependencies": [],
+        }
+    )
+    original = linux_abi.inspect_header
+    roles = []
+
+    def inspect(path, target, *, role=None):
+        roles.append((Path(path).name, role))
+        return original(path, target, role=role)
+
+    monkeypatch.setattr(linux_abi, "inspect_header", inspect)
+    _, report = f["verify"]()
+    assert ("libcodec.so.1", "shared-library") in roles
+    assert all(role != "shared-library" for name, role in roles if name != "libcodec.so.1")
+    header = next(x for x in report["nativeHeaderEvidence"]["elfHeaders"] if x["path"] == library)
+    assert header["headerPolicyVersion"] == linux_abi.ELF_HEADER_POLICY
+    assert header["nativeRole"] == "shared-library"
+    assert header["interpreterDecision"] is None
+
+
+def test_declared_executable_cannot_be_relabelled_shared_library(fixture):
+    tool, create = fixture
+    f = create("linux-aarch64")
+    f["rows"]["python/bin/python"]["nativeRole"] = "shared-library"
+    with pytest.raises(tool.PackError, match="recognition_foreign_native_binary"):
+        f["verify"]()
