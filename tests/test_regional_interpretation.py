@@ -806,6 +806,8 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
                         "explanation": "Explicit length unit statement applies to Length.",
                     }
                 )
+            if payload.get("tableStage") == "meaning":
+                return json.dumps({"regionId": payload["regionId"]})
             answer = {
                 "regionId": payload["regionId"],
                 "dispositions": [
@@ -833,8 +835,10 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
                 if isinstance(cells, dict):
                     cells = [dict(zip(cells["columns"], row, strict=True)) for row in cells["rows"]]
                 header = next(c["sourceRef"] for c in cells if c["row"] == 0)
-                answer["repeats"] = [
-                    {
+                answer = {
+                    "regionId": payload["regionId"],
+                    "tableKind": "record_table",
+                    "record": {
                         "id": "measurements",
                         "key": "measurements",
                         "label": "Measurements",
@@ -853,8 +857,8 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
                                 "valueType": "decimal",
                             }
                         ],
-                    }
-                ]
+                    },
+                }
             return json.dumps(answer)
 
     states, model = [], ScopedModel()
@@ -867,7 +871,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
     assert result["semanticDetails"][0]["scope"] == [
         {"space": "data", "path": "/measurements/0/length"}
     ]
-    assert model.calls == 3
+    assert model.calls == 4
     before = model.calls
     resumed = extract_schema_from_stream(job, io.BytesIO(content), restore=states[-1], **kwargs)
     assert model.calls == before
@@ -1093,22 +1097,17 @@ def test_declared_header_cell_bound_as_value_is_flagged_not_silently_accepted():
     assert compiled.data == {"name_header": "Name"}
 
 
-def test_redundant_cell_fields_are_dropped_without_a_repair_call():
+def test_redundant_cell_fields_are_dropped_by_compiler_for_existing_ir():
     model = RedundantFieldsThenRepeatModel()
-    job = AnalysisJob(
-        job_id="headers", input=AnalysisInput.from_bytes(HEADER_TABLE, format_id="html")
-    )
-    result = extract_schema_from_stream(
-        job,
-        io.BytesIO(HEADER_TABLE),
-        options=ExtractionOptions(reconstructionContext=False, maxModelCalls=2),
-        model_client=model,
-    )
-    assert model.calls == 1
-    assert result["extraction"]["status"] == "complete", result["issues"]
-    assert result["data"] == {"rows": [{"name": "A", "amount": "1"}, {"name": "B", "amount": "2"}]}
-    ledger = {d["sourceRef"]: d for d in result["coverage"]["semanticAccounting"]}
-    assert sorted(len(d.get("redundantFieldIds", [])) for d in ledger.values()) == [
+    doc = observe_document(HEADER_TABLE, "html", {})
+    region = next(r for r in prepare_regions(doc, context_chars=16000) if r.get("tableRef"))
+    from document_files.interpretation.regions import region_payload
+
+    response = model.complete([{"content": json.dumps(region_payload(doc, region))}], timeout=1)
+    fragment = compile_region(RegionInterpretation.model_validate_json(response), doc, region)
+    assert fragment.data == {"rows": [{"name": "A", "amount": "1"}, {"name": "B", "amount": "2"}]}
+    assert not fragment.issues
+    assert sorted(len(d.get("redundantFieldIds", [])) for d in fragment.dispositions) == [
         0,
         0,
         1,
@@ -1465,7 +1464,7 @@ def test_undeclared_first_row_is_retained_as_context_not_invented_header_on_late
         "<table>"
         + "".join(
             "<tr>" + "".join(f"<td>Record {r} column {c}</td>" for c in range(4)) + "</tr>"
-            for r in range(15)
+            for r in range(40)
         )
         + "</table>"
     ).encode()

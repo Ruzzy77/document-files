@@ -199,6 +199,17 @@ Server timing keys follow the pinned
 [llama.cpp timing response](https://github.com/ggml-org/llama.cpp/blob/9dcf84e5ae2718947188b539aab8b9c2b15d3ba1/tools/server/README.md#post-v1chatcompletions-openai-compatible-chat-completions-api).
 They are optional measurements, not an accuracy certificate or timeout usage receipt.
 
+### Internal table stages
+
+Prompt v16 / planner v10 / table protocol v2 use a structural classification first.
+Record tables compile one record definition before interpreting meanings over fixed
+IDs; scalar forms retain their binding-based path. `coverage.tableInterpretation`
+records each stage's attempts, status and usage. `structure_compiled` means retained
+partial work, not complete extraction. Compiler v13 rejects broad unbounded
+parent/child scope unions while preserving explicit bounded row intersections.
+Public AnalysisJob v1, AnalysisResult v1 and extraction result contracts remain;
+private checkpoint v2 checks the changed protocol identities.
+
 ### Internal input compaction
 
 Prompt v11, planner v6 and compiler v6 additionally treat declared header cells as

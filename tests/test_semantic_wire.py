@@ -119,7 +119,7 @@ def test_sliced_native_headers_stay_context_instead_of_becoming_data_regions():
         b"<tr><th>Length</th><th>Width</th></tr>"
         + b"".join(
             b"<tr><td>" + str(row).encode() + b"</td><td>" + b"1" * 120 + b"</td><td>3.00</td></tr>"
-            for row in range(16)
+            for row in range(40)
         )
         + b"</table>"
     )
@@ -213,7 +213,11 @@ def test_planned_table_size_matches_actual_compact_payload():
     import json
 
     from document_files.interpretation.regions import region_payload
-    from document_files.interpretation.semantic_prompts import SYSTEM
+    from document_files.interpretation.table_protocol import (
+        STRUCTURE_SYSTEM,
+        structure_payload,
+        structure_schema,
+    )
 
     doc = observe_document(
         b"<table><tr><th>ID</th><th>Amount</th></tr>"
@@ -227,11 +231,12 @@ def test_planned_table_size_matches_actual_compact_payload():
         if not region.get("tableRef"):
             continue
         request = {
-            **region_payload(doc, region),
-            **metadata,
-            "outputContract": region_output_schema(doc, region, {}),
+            **structure_payload({**region_payload(doc, region), **metadata}),
+            "outputContract": structure_schema(doc, region, {}),
         }
-        actual = len(SYSTEM) + len(json.dumps(request, ensure_ascii=False, separators=(",", ":")))
+        actual = len(STRUCTURE_SYSTEM) + len(
+            json.dumps(request, ensure_ascii=False, separators=(",", ":"))
+        )
         assert region["requestChars"] == actual
         assert region["withinContextBudget"] == (actual <= 16000)
 
@@ -280,7 +285,7 @@ def test_sliced_table_reads_its_caption_with_the_first_slice_only():
         b"<tr><th>Length</th><th>Width</th></tr>"
         + b"".join(
             b"<tr><td>" + str(row).encode() + b"</td><td>" + b"1" * 120 + b"</td><td>3.00</td></tr>"
-            for row in range(8)
+            for row in range(40)
         )
         + b"</table>"
     )

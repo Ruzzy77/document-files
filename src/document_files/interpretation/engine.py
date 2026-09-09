@@ -57,10 +57,24 @@ from .semantic_types import (
     SEMANTIC_VERSION,
     DocumentIntegration,
     RegionInterpretation,
+    _compact_contract,
     region_output_schema,
 )
+from .table_protocol import (
+    MEANING_SYSTEM,
+    STAGE_MAX_CALLS,
+    STAGE_MAX_OUTPUT_TOKENS,
+    STRUCTURE_SYSTEM,
+    TABLE_PROTOCOL_VERSION,
+    meaning_ir,
+    meaning_payload,
+    meaning_schema,
+    structural_ir,
+    structure_payload,
+    structure_schema,
+)
 
-CHECKPOINT_VERSION = "document-files.regional-checkpoint.v1"
+CHECKPOINT_VERSION = "document-files.regional-checkpoint.v2"
 
 
 def _feedback_code(issue):
@@ -248,12 +262,14 @@ def extract_schema_from_stream(
         "promptVersion": PROMPT_VERSION,
         "compilerVersion": COMPILER_VERSION,
         "scopeVersion": SCOPE_VERSION,
+        "tableProtocolVersion": TABLE_PROTOCOL_VERSION,
         "regionPlanVersion": REGION_PLAN_VERSION,
         "model": model_identity,
     }
     accepted, decisions, failures = {}, {}, {}
     repair_diagnostics = {}
     scope_decisions = {}
+    table_states = {}
     usage = {
         "modelCalls": 0,
         "elapsedSeconds": 0.0,
@@ -308,6 +324,33 @@ def extract_schema_from_stream(
             }
             decisions = dict(restore["decisions"])
             scope_decisions = copy.deepcopy(restore.get("scopeDecisions", {}))
+            table_states = copy.deepcopy(restore["tableStages"])
+            if not isinstance(table_states, dict):
+                raise ValueError
+            for rid, state in table_states.items():
+                if not isinstance(state, dict):
+                    raise ValueError
+                if rid not in {r["id"] for r in regions if r.get("tableRef")}:
+                    raise ValueError
+                if state.get("kind") not in {None, "record_table", "scalar_form", "unresolved"}:
+                    raise ValueError
+                for stage in ("structure", "meaning"):
+                    record = state.get(stage, {})
+                    if not isinstance(record, dict):
+                        raise ValueError
+                    if record.get("status", "pending") not in {
+                        "pending",
+                        "running",
+                        "complete",
+                        "failed",
+                    }:
+                        raise ValueError
+                    _restored_usage(record["usage"])
+                    attempts = record.get("attempts", 0)
+                    if type(attempts) is not int or not 0 <= attempts <= STAGE_MAX_CALLS:
+                        raise ValueError
+                if state.get("kind") == "record_table" and rid not in accepted:
+                    raise ValueError
             failures = dict(restore["failures"])
             repair_diagnostics = copy.deepcopy(restore.get("repairDiagnostics", {}))
             if not isinstance(repair_diagnostics, dict) or any(
@@ -443,6 +486,12 @@ def extract_schema_from_stream(
             result["issues"] = list(observation.issues)
             save_recognition(recognition_state, result)
             return result
+    if additional_budget is not None and grant["maxModelCalls"] > 0:
+        for state in table_states.values():
+            for stage in ("structure", "meaning"):
+                record = state.get(stage, {})
+                if record.get("status") != "complete":
+                    record["attempts"] = 0
     prior_elapsed = usage["elapsedSeconds"]
     max_calls = selected.maxModelCalls + sum(g["maxModelCalls"] for g in grants)
     max_seconds = selected.completionSeconds + sum(g["completionSeconds"] for g in grants)
@@ -517,13 +566,21 @@ def extract_schema_from_stream(
         result["coverage"]["regions"] = [
             {
                 "id": r["id"],
-                "status": "interpreted" if r["id"] in compiled else "pending",
+                "status": (
+                    "structure_compiled"
+                    if table_states.get(r["id"], {}).get("kind") == "record_table"
+                    and table_states[r["id"]].get("meaning", {}).get("status") != "complete"
+                    else "interpreted"
+                    if r["id"] in compiled
+                    else "pending"
+                ),
                 "nodeIds": r["nodeIds"],
                 "inputChars": r["inputChars"],
                 **({"nodeViews": r["nodeViews"]} if r.get("nodeViews") else {}),
             }
             for r in regions
         ]
+        result["coverage"]["tableInterpretation"] = copy.deepcopy(table_states)
         result["coverage"].update(_node_read_coverage(regions, compiled))
         result["coverage"]["unprocessedRegions"] = [
             r["id"] for r in regions if r["id"] not in compiled
@@ -551,10 +608,19 @@ def extract_schema_from_stream(
         )
         result["provenance"]["model"] = client.identity if client else None
         result["provenance"]["scopeIntegrationVersion"] = SCOPE_VERSION
+        result["provenance"]["tableProtocolVersion"] = TABLE_PROTOCOL_VERSION
         complete = (
             any(c.has_data for c in compiled.values())
             and bool(compiled)
             and len(compiled) == len(regions)
+            and all(
+                state.get("kind") == "scalar_form"
+                or (
+                    state.get("kind") == "record_table"
+                    and state.get("meaning", {}).get("status") == "complete"
+                )
+                for state in table_states.values()
+            )
             and not result["issues"]
             and not errors
         )
@@ -573,6 +639,7 @@ def extract_schema_from_stream(
                         "accepted": {key: value.model_dump() for key, value in accepted.items()},
                         "decisions": decisions,
                         "scopeDecisions": scope_decisions,
+                        "tableStages": table_states,
                         "failures": failures,
                         "repairDiagnostics": repair_diagnostics,
                         "usage": usage,
@@ -585,7 +652,7 @@ def extract_schema_from_stream(
     def remaining():
         return max_seconds - prior_elapsed - (time.monotonic() - started)
 
-    def invoke(system, payload, contract, feedback=None):
+    def invoke(system, payload, contract, feedback=None, *, table_stage=None):
         if cancelled and cancelled():
             raise ModelError("ai_cancelled")
         if usage["modelCalls"] >= max_calls:
@@ -606,40 +673,70 @@ def extract_schema_from_stream(
             selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
         ):
             raise ModelError("region_context_budget_exceeded")
-        usage["modelCalls"] += 1
-        usage["unreportedUsageCalls"] += 1
-        save("interpreting")
-        if hasattr(client, "infer"):
-            result["extraction"].pop("lastInferenceDiagnostics", None)
-            try:
-                response = client.infer(
-                    InferenceRequest(
-                        messages=messages,
-                        output_schema=contract,
-                        max_output_tokens=getattr(client, "max_output_tokens", None) or 8192,
-                        timeout=timeout,
-                        cancelled=cancelled,
-                    )
+        stage_started = time.monotonic()
+        stage_before = dict(usage)
+        try:
+            usage["modelCalls"] += 1
+            usage["unreportedUsageCalls"] += 1
+            if table_stage is not None:
+                table_stage["attempts"] = table_stage.get("attempts", 0) + 1
+                table_stage["status"] = "running"
+                table_stage.setdefault("usage", {})["modelCalls"] = (
+                    table_stage.get("usage", {}).get("modelCalls", 0) + 1
                 )
-            finally:
-                if isinstance(client, ManagedPackClient):
-                    result["extraction"]["lastInferenceDiagnostics"] = client.last_diagnostics
-            if all(
-                type(response.usage.get(key)) is int and response.usage[key] >= 0
-                for key in ("prompt_tokens", "completion_tokens")
-            ):
-                usage["unreportedUsageCalls"] -= 1
-            for src, dest in (
-                ("prompt_tokens", "promptTokens"),
-                ("completion_tokens", "completionTokens"),
-            ):
-                count = response.usage.get(src, 0)
-                if type(count) is int and count >= 0:
-                    usage[dest] += count
-            if response.finish_reason != "stop":
-                raise ModelError("ai_response_incomplete")
-            return decode(response.text)
-        return decode(client.complete(messages, timeout=timeout))
+                table_stage["usage"]["unreportedUsageCalls"] += 1
+            save("interpreting")
+            if hasattr(client, "infer"):
+                result["extraction"].pop("lastInferenceDiagnostics", None)
+                try:
+                    response = client.infer(
+                        InferenceRequest(
+                            messages=messages,
+                            output_schema=contract,
+                            max_output_tokens=(
+                                min(
+                                    getattr(client, "max_output_tokens", None) or 8192,
+                                    STAGE_MAX_OUTPUT_TOKENS,
+                                )
+                                if table_stage is not None
+                                else getattr(client, "max_output_tokens", None) or 8192
+                            ),
+                            timeout=timeout,
+                            cancelled=cancelled,
+                        )
+                    )
+                finally:
+                    if isinstance(client, ManagedPackClient):
+                        result["extraction"]["lastInferenceDiagnostics"] = client.last_diagnostics
+                if all(
+                    type(response.usage.get(key)) is int and response.usage[key] >= 0
+                    for key in ("prompt_tokens", "completion_tokens")
+                ):
+                    usage["unreportedUsageCalls"] -= 1
+                for src, dest in (
+                    ("prompt_tokens", "promptTokens"),
+                    ("completion_tokens", "completionTokens"),
+                ):
+                    count = response.usage.get(src, 0)
+                    if type(count) is int and count >= 0:
+                        usage[dest] += count
+                if response.finish_reason != "stop":
+                    raise ModelError("ai_response_incomplete")
+                return decode(response.text)
+            return decode(client.complete(messages, timeout=timeout))
+        finally:
+            if table_stage is not None:
+                stage_usage = table_stage.setdefault("usage", {})
+                for key in ("promptTokens", "completionTokens", "unreportedUsageCalls"):
+                    stage_usage[key] = (
+                        stage_usage.get(key, 0)
+                        + usage[key]
+                        - stage_before[key]
+                        - (1 if key == "unreportedUsageCalls" else 0)
+                    )
+                stage_usage["elapsedSeconds"] = stage_usage.get("elapsedSeconds", 0.0) + max(
+                    0.0, time.monotonic() - stage_started
+                )
 
     save("observed" if not accepted else "interpreting")
     if not client:
@@ -653,9 +750,128 @@ def extract_schema_from_stream(
     def local_issues(fragment):
         return [i for i in fragment.issues if i.get("code") != "semantic_scope_unresolved"]
 
+    def interpret_table(region, payload):
+        rid = region["id"]
+        state = table_states.setdefault(rid, {})
+        for stage in ("structure", "meaning"):
+            progress = state.setdefault(
+                stage,
+                {
+                    "status": "pending",
+                    "attempts": 0,
+                    "usage": {
+                        "modelCalls": 0,
+                        "promptTokens": 0,
+                        "completionTokens": 0,
+                        "elapsedSeconds": 0.0,
+                        "unreportedUsageCalls": 0,
+                    },
+                },
+            )
+        for stage in ("structure", "meaning"):
+            progress = state[stage]
+            if progress["status"] == "complete":
+                if stage == "structure" and state["kind"] != "record_table":
+                    if state["kind"] == "unresolved":
+                        issue("table_kind_unresolved", regionId=rid)
+                    return state["kind"] != "scalar_form"
+                continue
+            if stage == "meaning" and state.get("kind") != "record_table":
+                return True
+            system = STRUCTURE_SYSTEM if stage == "structure" else MEANING_SYSTEM
+            contract = (
+                structure_schema(observation, region, catalog)
+                if stage == "structure"
+                else meaning_schema(observation, region, accepted[rid], catalog)
+            )
+            request = (
+                structure_payload(payload)
+                if stage == "structure"
+                else meaning_payload(payload, accepted[rid], compiled[rid])
+            )
+            while progress["attempts"] < STAGE_MAX_CALLS:
+                try:
+                    value = invoke(
+                        system, request, contract, progress.get("feedback"), table_stage=progress
+                    )
+                    if stage == "structure":
+                        decision, candidate = structural_ir(value, observation, region)
+                        if candidate is None:
+                            state["kind"] = decision.tableKind
+                            progress["status"] = "complete"
+                            if decision.tableKind == "unresolved":
+                                issue("table_kind_unresolved", regionId=rid)
+                            save("interpreting")
+                            return decision.tableKind != "scalar_form"
+                    else:
+                        candidate = meaning_ir(value, accepted[rid])
+                    fragment = compile_region(
+                        candidate, observation, region, target_schema=selected.targetSchema
+                    )
+                    if stage == "structure":
+                        structural_errors = sorted(
+                            {
+                                i["code"]
+                                for i in fragment.issues
+                                if i["code"]
+                                in {
+                                    "column_definition_not_above_column",
+                                    "column_leaf_header_missing",
+                                    "table_rows_outside_repeat",
+                                    "header_cell_bound_as_value",
+                                }
+                            }
+                        )
+                        if structural_errors:
+                            raise CompileError(",".join(structural_errors))
+                    # Meaning can add assertions/accounting, never change committed cells.
+                    if stage == "meaning" and (
+                        fragment.data != compiled[rid].data
+                        or fragment.consumed_bindings != compiled[rid].consumed_bindings
+                    ):
+                        raise CompileError("table_meaning_changed_structure")
+                    accepted[rid], compiled[rid] = candidate, fragment
+                    if stage == "structure":
+                        state["kind"] = "record_table"
+                    progress["status"] = "complete"
+                    progress.pop("feedback", None)
+                    issues[:] = [
+                        i
+                        for i in issues
+                        if not (
+                            i.get("code") == "table_stage_invalid"
+                            and i.get("regionId") == rid
+                            and i.get("tableStage") == stage
+                        )
+                    ]
+                    save("interpreting")
+                    break
+                except ModelError:
+                    progress["status"] = "failed"
+                    raise
+                except (ValidationError, CompileError, ValueError, TypeError, KeyError) as exc:
+                    # No values or arbitrary model member names in persisted feedback.
+                    feedback = (
+                        str(exc) if isinstance(exc, CompileError) else "invalid_table_contract"
+                    )
+                    progress.update(status="failed", feedback=[feedback])
+                    issue("table_stage_invalid", regionId=rid, tableStage=stage, errors=[feedback])
+                    save("interpreting")
+            if progress["status"] != "complete":
+                return True
+        return True
+
     for region in regions:
         rid = region["id"]
-        if rid in compiled and not local_issues(compiled[rid]):
+        if (
+            rid in compiled
+            and not local_issues(compiled[rid])
+            and (
+                not region.get("tableRef")
+                or table_states.get(rid, {}).get("kind") == "scalar_form"
+                or table_states.get(rid, {}).get("meaning", {}).get("status") == "complete"
+            )
+        ):
             continue
         if not region["withinContextBudget"]:
             issue(
@@ -695,6 +911,21 @@ def extract_schema_from_stream(
                         ),
                     }
                     break
+        if region.get("tableRef"):
+            try:
+                if interpret_table(region, payload):
+                    continue
+                payload["tableKind"] = "scalar_form"
+                candidate_schema["properties"]["repeats"] = {
+                    "type": "array",
+                    "maxItems": 0,
+                    "items": {},
+                }
+                candidate_schema = _compact_contract(candidate_schema)
+            except ModelError as exc:
+                issue(exc.code, regionId=rid)
+                save("paused")
+                return result
         feedback = (
             [i["code"] for i in compiled[rid].issues[:20]]
             if rid in compiled
@@ -715,6 +946,8 @@ def extract_schema_from_stream(
                     break
                 last_response = response_hash
                 candidate = RegionInterpretation.model_validate(value)
+                if payload.get("tableKind") == "scalar_form" and candidate.repeats:
+                    raise CompileError("scalar_form_cannot_regenerate_records")
                 fragment = compile_region(
                     candidate, observation, region, target_schema=selected.targetSchema
                 )

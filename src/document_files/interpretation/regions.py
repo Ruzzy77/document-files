@@ -6,11 +6,10 @@ import copy
 import json
 
 from .compiler import preferred_binding
-from .semantic_prompts import SYSTEM
-from .semantic_types import region_output_schema
+from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v9"
+REGION_PLAN_VERSION = "document-files.region-plan.v10"
 
 
 def _encoded(value):
@@ -379,16 +378,14 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
     metadata = request_metadata or {"intent": "discover", "targetHandles": {}}
 
     def table_request_chars(region):
-        # The wire schema varies with references and table bounds. A fixed
-        # 12k reserve used to reject even a tiny row that actually fits.
+        # Plan the actual structure decision, not the retired all-in-one record
+        # response. Meaning/scalar requests are checked against the same hard
+        # input limit when dispatched; failed meaning retains frozen structure.
         request = {
-            **payload(observation, region),
-            **metadata,
-            "outputContract": region_output_schema(
-                observation, region, metadata.get("targetHandles")
-            ),
+            **structure_payload({**payload(observation, region), **metadata}),
+            "outputContract": structure_schema(observation, region, metadata.get("targetHandles")),
         }
-        return len(SYSTEM) + len(_encoded(request))
+        return len(STRUCTURE_SYSTEM) + len(_encoded(request))
 
     def table_fits(region):
         # Final generated region IDs can differ from source IDs.

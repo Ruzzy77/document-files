@@ -49,27 +49,41 @@ The subsequent fresh v5 full-product-path development run completed in 3 calls /
 245 seconds and independently matched exact rows, precision, header provenance and
 both scopes. None of these runs is independent holdout or 16 GiB qualification.
 
-The saved-recognition scan development run then returned partial after 6 calls /
-359 seconds, exposing oversized repeated observation metadata and unresolved table
-continuations. Its text-recognition success does not establish semantic extraction
-success; affected-stage compaction and continuation handling are under correction.
+The saved-recognition scan returned partial after 6 calls / 359 seconds. Model-only
+metadata compaction (prompt v14 / planner v9) removed input overflow: 10 regions,
+none oversized, instead of 18 regions with 15 oversized inputs. The actual rerun
+still failed after 2 calls / 373 seconds because the model emitted repeated copies
+of the same records until the output limit. Source observations were not truncated.
 
-Prompt v14 / planner v9 now compact only model-facing audit metadata, retain
-unclassified leading-row context across slices, and bound continuation inputs to
-compiled table candidates. The saved scan observation now plans 10 regions without
-input-budget overflow (previously 18 regions and 15 oversized inputs). Its original
-source observations and unobserved-cell issues remain intact; actual rerun is pending.
+Prompt v16 / planner v10 / table protocol v2 now separate one record-structure
+decision from meaning over its frozen compiled values. Label/value forms use the
+existing scalar path. Stage attempts and usage are checkpointed; each stage permits
+at most two calls within the unchanged total budget. Cancellation, invalid meaning
+or budget exhaustion preserves a compiled structure, not a complete extraction.
+Header-only rows and shifted data-row references are rejected before freezing.
+Compiler v13 leaves unbounded parent/child meaning scopes unresolved instead of
+silently broadening column assertions; explicitly bounded row intersections remain.
 
-The current PDF pipeline also unconditionally marks recognition content completeness
-unverified. Under the current completion rules, no recognition-backed PDF can yet
-meet the release gate's complete requirement. This is a separate release blocker,
-not something a smaller prompt or a successful OCR conversion resolves. Do not
-remove the limitation or relabel partial results merely to satisfy qualification.
+A fresh two-stage merged-header run used 2 calls / 113 seconds but incorrectly froze
+an extra header record. After structural checks, a bounded 5-call / 258-second run
+preserved exactly two source records and precision. It still failed semantic review:
+the unit scope was unresolved after an invalid broad selection, and caption accounting
+was incomplete. The previous single-stage development pass does not qualify this new
+protocol. Do not increase a failed run's budget automatically or call it a quality pass.
 
-Current core regression: **593 passed, 8 skipped, 12 subtests passed**; full Ruff passes.
-The separate recognition-runtime test overlay passed 43 PDF/OCR tests; exact final
-recognition bundles and Windows execution remain unqualified. Eleven input/specification
-cases covering nine formats are prepared but have not undergone final model evaluation.
+Recognition adapter v10 retains original raw OCR detections and a bidirectional
+processing ledger, separate native-text support, and a source-bound full-visible-page
+render fingerprint. The actual applied rotation is distinct from an unknown orientation
+observation. Render coverage, OCR truth and semantic completeness are different claims.
+Missing cells, conflicts and unclassified visual content remain unresolved; no original
+issue has been removed. Full visual-content and reading-order accounting is unfinished.
+The current blanket recognition-completeness issue still blocks every recognition-backed
+PDF from the complete-only release gate. This remains a release blocker.
+
+Current core regression: **685 passed, 10 skipped, 12 subtests passed**; full Ruff passes.
+The separate recognition-runtime test overlay passed 60 PDF/OCR tests; exact final
+recognition bundles remain unqualified. Eleven input/specification cases covering nine
+formats are prepared but have not undergone final model evaluation.
 
 Evaluation v2 retains independently prepared per-case review specifications outside
 model input. A separate review receipt binds the immutable inference report and
@@ -79,7 +93,15 @@ Fresh-output builds and exact-byte promotion are implemented. Large packs use
 explicit split/join transport without changing their reconstructed ZIP identity.
 These tools do not supply missing platform, client or model-quality evidence.
 
-CI has a CPU isolation preflight and a pinned CPU runtime builder. The existing
+Actual CI passed the Linux 16 GiB / four-CPU, swap-free, network-isolated preflight
+and all four pinned CPU runtime builds. The preflight ran only a small synthetic
+allocation, not OCR or inference. Linux, Windows and Apple Silicon portable core builds and
+Python-free CLI/MCP smoke passed on an intermediate commit; this is not final-candidate
+or installed-client qualification. Linux native recognition dependencies built and
+passed relocated startup/language discovery; Windows build correction awaits rerun.
+Compiler runtime notices are collected but redistribution review remains pending.
+The built Linux CPU runtime requires glibc 2.38: the earlier bookworm preflight image
+is not a compatible full-inference image. Final image/pack compatibility must be checked. The existing
 Apple Silicon development pack remains selected for development runs; new runtime
 packs must be paired with explicitly compatible model manifests before inference.
 The x64 source-built runtime declares AVX2/FMA/F16C/BMI2 requirements, not generic x64.

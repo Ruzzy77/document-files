@@ -211,8 +211,8 @@ def test_row_views_retain_cells_spanning_from_prior_rows():
     doc = ObservationDocument()
     shared = doc.node("shared", "Batch A")
     bind_spans(doc, shared)
-    cells = [{"sourceRef": shared, "row": 0, "col": 0, "rowSpan": 16, "colSpan": 1}]
-    for row in range(16):
+    cells = [{"sourceRef": shared, "row": 0, "col": 0, "rowSpan": 32, "colSpan": 1}]
+    for row in range(32):
         node = doc.node(f"cell:{row}", f"{row} " + "x" * 350)
         bind_spans(doc, node)
         cells.append({"sourceRef": node, "row": row, "col": 1, "rowSpan": 1, "colSpan": 1})
@@ -220,7 +220,7 @@ def test_row_views_retain_cells_spanning_from_prior_rows():
         "id": "t",
         "basis": "native_structure",
         "cells": cells,
-        "rowCount": 16,
+        "rowCount": 32,
         "colCount": 2,
     }
     doc.regions = [

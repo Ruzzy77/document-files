@@ -10,7 +10,7 @@ from pydantic import Field
 from ..result_types import Contract
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v12"
+COMPILER_VERSION = "document-files.result-compiler.v13"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -102,7 +102,7 @@ class RegionInterpretation(Contract):
     unresolved: list[str] = Field(default_factory=list, max_length=100)
 
 
-def region_output_schema(observation, region, target_handles=None):
+def region_output_schema(observation, region, target_handles=None, *, compact=True):
     """Constrain model references to issued candidates, not unrestricted strings.
 
     This is a private per-request grammar contract. The compiler still validates
@@ -151,7 +151,7 @@ def region_output_schema(observation, region, target_handles=None):
         schema["properties"]["repeats"]["maxItems"] = 0
     if not bindings:
         schema["properties"]["excludedBindings"]["maxItems"] = 0
-    return _compact_contract(schema)
+    return _compact_contract(schema) if compact else schema
 
 
 def _compact_contract(schema):

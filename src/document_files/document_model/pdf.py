@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import math
+import re
 from copy import deepcopy
 from importlib.metadata import PackageNotFoundError, version
 
@@ -470,14 +472,136 @@ def _semantic_candidates(doc, native_ids, recognized_ids, comparisons):
     return primary_native + selected
 
 
+def import_page_render(doc, record, *, source_hash, page):
+    """Check source/page integrity of a capture, not the completeness of its content."""
+    from .recognition_sources import page_render_fingerprint
+
+    binding = "invalid"
+    try:
+        if (
+            not isinstance(record, dict)
+            or record.get("version") != "document-files.full-page-render.v1"
+            or record.get("sourceSha256") != source_hash
+            or type(record.get("page_no")) is not int
+            or record["page_no"] != page
+            or record.get("fingerprint") != page_render_fingerprint(record)
+            or record.get("scope") != "full_displayed_page_media_crop_intersection"
+            or record.get("visualContentCoverage") != "not_assessed"
+            or record.get("ocrTruthVerified") is not False
+        ):
+            raise ValueError
+        if record.get("status") == "captured":
+            width, height = record["pixelSize"]
+            profile = record["profile"]
+            canvas_width, canvas_height = record["pageSizeCanvasUnits"]
+            scale = profile["scale"]
+            if not all(
+                type(v) in (int, float) and math.isfinite(v) and v > 0
+                for v in (canvas_width, canvas_height, scale)
+            ):
+                raise ValueError
+            if (
+                not all(type(v) is int and v > 0 for v in (width, height))
+                or record["processedPixelBounds"] != [0, 0, width, height]
+                or record["plannedPixelSize"] != [width, height]
+                or [math.ceil(canvas_width * scale), math.ceil(canvas_height * scale)]
+                != [width, height]
+                or type(profile.get("maxPixels")) is not int
+                or width * height > profile["maxPixels"]
+                or record.get("intrinsicRotation") not in (0, 90, 180, 270)
+                or profile["crop"] != [0, 0, 0, 0]
+                or profile["additionalRotation"] != 0
+                or profile["pixelMode"] != "RGB"
+                or not re.fullmatch(r"[0-9a-f]{64}", record.get("pixelSha256", ""))
+                or record.get("issues")
+            ):
+                raise ValueError
+            binding = "source_page_matched"
+        elif record.get("status") == "failed":
+            binding = "source_page_matched_failed_capture"
+        else:
+            raise ValueError
+    except (TypeError, ValueError, KeyError, OverflowError):
+        pass
+    doc.provenance.setdefault("pdfPageRenderCaptures", []).append(
+        {
+            "sourceSha256": source_hash,
+            "page": page,
+            "bindingStatus": binding,
+            "capture": deepcopy(record),
+            "contentCoverageVerified": False,
+        }
+    )
+    if binding != "source_page_matched":
+        doc.issue(
+            "recognition_page_render_unavailable"
+            if record is None
+            else "recognition_page_render_unverified",
+            page=page,
+        )
+
+
+def _pdf_channel_evidence(doc, source_hash, native_issues):
+    """Keep channel limitations visible until a sufficient replacement proof exists."""
+
+    def channel(issue):
+        code = issue["code"]
+        if code.startswith("native_recognition_"):
+            return "cross_channel_alignment"
+        if issue in native_issues:
+            return "native_pdf"
+        if code.startswith("recognition_page_render_"):
+            return "full_page_render"
+        return "layout_recognition"
+
+    records = doc.provenance.get("pdfPageRenderCaptures", [])
+    observed_pages = [r["page"] for r in records if r["bindingStatus"] == "source_page_matched"]
+    expected_count = doc.provenance.get("pdfium", {}).get("pageCount")
+    all_captured = (
+        type(expected_count) is int
+        and expected_count > 0
+        and len(records) == len(observed_pages) == expected_count
+        and set(observed_pages) == set(range(1, expected_count + 1))
+    )
+    doc.coverage["recognitionPageRendering"] = "captured" if all_captured else "partial"
+    doc.provenance["pdfObservationChannels"] = {
+        "version": "document-files.pdf-channel-evidence.v1",
+        "sourceSha256": source_hash,
+        "renderedPages": observed_pages,
+        "expectedPageCount": expected_count,
+        "fullDisplayedPageCapture": "captured" if all_captured else "partial",
+        "visualContentCoverage": "not_assessed",
+        "readingOrderCoverage": "not_assessed",
+        "ocrTruthVerified": False,
+        "issueDispositions": [
+            {
+                "issue": deepcopy(issue),
+                "channel": channel(issue),
+                "status": "unresolved",
+                "issueFingerprint": hashlib.sha256(
+                    json.dumps(
+                        issue, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+                    ).encode()
+                ).hexdigest(),
+                "resolutionEvidence": [],
+            }
+            for issue in doc.issues
+        ],
+    }
+
+
 def observe_pdf(doc: ObservationDocument, content: bytes, *, recognition=None) -> list[str]:
+    source_hash = hashlib.sha256(content).hexdigest()
+    first_native_issue = len(doc.issues)
     try:
         native_ids = _native_pdf(doc, content)
     except Exception:
         doc.issue("pdf_native_observation_failed")
         native_ids = []
+    native_issues = deepcopy(doc.issues[first_native_issue:])
     if recognition is None:
         doc.issue("pdf_layout_recognition_unavailable")
+        _pdf_channel_evidence(doc, source_hash, native_issues)
         return native_ids
     try:
         result = recognition.observe(content)
@@ -499,6 +623,9 @@ def observe_pdf(doc: ObservationDocument, content: bytes, *, recognition=None) -
             ):
                 doc.issue("recognition_page_checkpoint_invalid")
                 continue
+            import_page_render(
+                doc, page_result.get("pageRender"), source_hash=source_hash, page=page
+            )
             prefix = f"docling:page:{page}"
             page_ids = import_docling(doc, page_result["document"], prefix=prefix)
             source_ids = import_source_observations(
@@ -544,3 +671,5 @@ def observe_pdf(doc: ObservationDocument, content: bytes, *, recognition=None) -
     except Exception:
         doc.issue("pdf_layout_recognition_failed")
         return native_ids
+    finally:
+        _pdf_channel_evidence(doc, source_hash, native_issues)

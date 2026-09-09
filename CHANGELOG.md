@@ -2,6 +2,22 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Split record-table structure and meaning into finite checkpointed stages; preserve
+  compiled values on meaning failure and reject incompatible old checkpoints
+  (prompt v16, planner v10, table protocol v2, checkpoint v2).
+- Reject declared-header records and displaced data-row references before freezing;
+  keep conflicting unbounded parent/child meaning scopes unresolved (compiler v13).
+- Capture original raw OCR detections, separate exact native-text support, and record
+  bidirectional source/structure accounting and actual rotation provenance.
+- Fingerprint full visible PDF page renders and retain channel-specific unresolved
+  issues (recognition adapter v10); visual completeness is not yet verified.
+- Add a bounded installed-HTTP lifecycle runner requiring actual core/source/pack
+  identities, with cancellation/restart/budget evidence kept separate from qualification.
+- Add pinned Linux/Windows native recognition dependency builds, relocated startup
+  checks and actual compiler-runtime notice collection; no automatic redistribution.
+- Link actual container image IDs to the measured run and exact recorder receipt;
+  fix Windows-specific test isolation and validate original ZIP entry names.
+
 - Compact only model-facing observation metadata, retain unclassified leading rows
   across table slices, and bound continuation requests to compiled candidate pairs
   (prompt v14, planner v9); full source observations remain unchanged.

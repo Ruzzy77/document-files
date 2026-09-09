@@ -442,6 +442,9 @@ def test_page_batches_release_framework_scope_and_remap_original_pages(tmp_path)
     assert result["pageResults"] == []
     assert frames[1]["document"]["texts"][0]["prov"][0] == {"page_no": 2, "batch_page_no": 1}
     assert list(frames[1]["document"]["pages"]) == ["2"]
+    assert frames[1]["pageRender"]["page_no"] == 2
+    assert frames[1]["pageRender"]["sourceSha256"] == hashlib.sha256(content).hexdigest()
+    assert frames[1]["pageRender"]["status"] == "captured"
     assert frames[1]["sourceObservations"]["cells"][0] == {
         "page_no": 2,
         "batch_page_no": 1,
@@ -1206,3 +1209,585 @@ def test_ruling_candidate_preserves_ocr_and_blocks_present_binding():
     assert node["structureViewSelection"] == selection
     assert node["semanticInput"]["role"] == "context_only"
     assert all(b["candidateStatus"] == "unresolved_conflict" for b in doc.bindings.values())
+
+
+def raw_ledger_fixture(text="001.20"):
+    """Synthetic contract evidence only; this is never OCR quality evidence."""
+    import csv
+    import hashlib
+    import io
+
+    from document_files.document_model.recognition_sources import raw_pass_fingerprint
+
+    tsv = "left\ttop\twidth\theight\tconf\ttext\n10\t20\t30\t10\t90\t" + text + "\n"
+    raw_row = next(csv.DictReader(io.StringIO(tsv), delimiter="\t"))
+    bounds = {"l": 10, "t": 20, "r": 40, "b": 30, "coord_origin": "TOPLEFT"}
+    capture = {
+        "passId": "pass-0",
+        "page_no": 1,
+        "sourcePass": "page_ocr",
+        "status": "complete",
+        "tsv": tsv,
+        "tsvSha256": hashlib.sha256(tsv.encode()).hexdigest(),
+        "image": {"sha256": "1" * 64, "size": [600, 800], "mode": "RGB"},
+        "transform": {
+            "scale": 1,
+            "orientation": 0,
+            "crop": {"l": 0, "t": 0, "r": 600, "b": 800, "coord_origin": "TOPLEFT"},
+        },
+        "detections": [
+            {
+                "ordinal": 0,
+                "text": text,
+                "raw": raw_row,
+                "accepted": True,
+                "confidence": 90.0,
+                "imageBBox": {"left": 10, "top": 20, "width": 30, "height": 10},
+                "pageBBox": bounds,
+                "mappingBasis": "pinned_upstream_pre_merge_order_text_confidence",
+            }
+        ],
+    }
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    payload = {
+        "version": "document-files.recognition-source-observations.v1",
+        "cells": [],
+        "rawCaptureVersion": "document-files.raw-ocr.v1",
+        "rawOCRPasses": [capture],
+        "rawCapturePages": [
+            {"page_no": 1, "captureAvailable": True, "passFingerprints": [capture["fingerprint"]]}
+        ],
+    }
+    doc = ObservationDocument()
+    target = doc.node(
+        "structural",
+        text,
+        role="recognized_text",
+        locator={
+            "page": 1,
+            "bbox": {"left": 10, "top": 20, "right": 40, "bottom": 30, "origin": "TOPLEFT"},
+        },
+    )
+    return doc, payload, {"pages": {"1": {"size": {"height": 800}}}}, [target]
+
+
+def test_raw_detection_ledger_conserves_lexemes_without_claiming_ocr_truth():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, source, ids = raw_ledger_fixture()
+    before = deepcopy(payload)
+    import_source_observations(doc, payload, source, ids, prefix="page1")
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert payload == before
+    assert ledger["allRawOCRDetectionsPreserved"] is True
+    assert ledger["observedProcessingCoverage"] == "complete"
+    assert ledger["ocrTruthVerified"] is False
+    assert ledger["pageContentCompletenessVerified"] is False
+    assert ledger["rawOCRPasses"][0]["detections"][0]["text"] == "001.20"
+    assert ledger["entries"][0]["targetRefs"] == ids
+    assert "recognitionContentCompleteness" not in doc.coverage
+    payload["rawOCRPasses"][0]["detections"][0]["text"] = "changed"
+    assert ledger["rawOCRPasses"][0]["detections"][0]["text"] == "001.20"
+
+
+def test_raw_ledger_loss_tampering_and_missing_pass_are_not_verified():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    mutations = [
+        lambda p: p["rawOCRPasses"][0]["detections"].clear(),
+        lambda p: p["rawOCRPasses"].clear(),
+        lambda p: p["rawOCRPasses"].append(deepcopy(p["rawOCRPasses"][0])),
+        lambda p: p["rawOCRPasses"][0].update(tsvSha256="0" * 64),
+        lambda p: p["rawCapturePages"].clear(),
+        lambda p: p.update(issues=[{"code": "recognition_raw_capture_failed"}]),
+    ]
+    for mutate in mutations:
+        doc, payload, source, ids = raw_ledger_fixture()
+        mutate(payload)
+        import_source_observations(doc, payload, source, ids, prefix="page1")
+        ledger = doc.provenance["recognitionProcessingLedgers"][0]
+        assert ledger["allRawOCRDetectionsPreserved"] is False
+        assert ledger["observedProcessingCoverage"] == "partial"
+        assert any(i["code"] == "recognition_observed_processing_partial" for i in doc.issues)
+
+
+def test_raw_ledger_missing_or_ambiguous_structure_remains_partial():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    for change in ("missing", "ambiguous", "unsupported_suffix", "budget"):
+        doc, payload, source, ids = raw_ledger_fixture()
+        if change == "missing":
+            doc.nodes[ids[0]]["text"] = "different"
+        elif change == "ambiguous":
+            doc.nodes["other"] = {**deepcopy(doc.nodes[ids[0]]), "id": "other"}
+            ids.append("other")
+        elif change == "unsupported_suffix":
+            doc.nodes[ids[0]]["text"] += " invented"
+        else:
+            payload["issues"] = [{"code": "table_ocr_repair_budget_exceeded"}]
+        import_source_observations(doc, payload, source, ids, prefix="page1")
+        ledger = doc.provenance["recognitionProcessingLedgers"][0]
+        assert ledger["allRawOCRDetectionsPreserved"] is True
+        assert ledger["observedProcessingCoverage"] == "partial"
+        if change == "unsupported_suffix":
+            assert ledger["unsupportedStructuralText"][0]["unaccountedCharacterCount"] == 8
+
+
+def test_raw_capture_fingerprint_survives_original_page_remapping():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, source, ids = raw_ledger_fixture()
+    payload["rawOCRPasses"][0].update(page_no=2, batch_page_no=1)
+    payload["rawCapturePages"][0].update(page_no=2, batch_page_no=1)
+    source["pages"]["2"] = source["pages"].pop("1")
+    doc.nodes[ids[0]]["sourceStructure"]["page"] = 2
+    import_source_observations(doc, payload, source, ids, prefix="page2")
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert ledger["allRawOCRDetectionsPreserved"] is True
+    assert ledger["entries"][0]["status"] == "structural_observation"
+
+
+def test_raw_ledger_missing_transform_and_table_holes_are_not_complete():
+    from document_files.document_model.recognition_sources import (
+        import_source_observations,
+        raw_pass_fingerprint,
+    )
+
+    doc, payload, source, ids = raw_ledger_fixture()
+    capture = payload["rawOCRPasses"][0]
+    del capture["detections"][0]["pageBBox"]
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    payload["rawCapturePages"][0]["passFingerprints"] = [capture["fingerprint"]]
+    import_source_observations(doc, payload, source, ids, prefix="page1")
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert ledger["allRawOCRDetectionsPreserved"] is True
+    assert ledger["entries"][0]["reason"] == "page_transform_unresolved"
+    assert ledger["observedProcessingCoverage"] == "partial"
+    doc, payload, source, ids = raw_ledger_fixture()
+    doc.tables["table"] = {"id": "table", "cells": [{"sourceRef": ids[0]}]}
+    import_source_observations(doc, payload, source, ids, prefix="page1")
+    assert doc.provenance["recognitionProcessingLedgers"][0]["unverifiedTableExtents"] == ["table"]
+    assert (
+        doc.provenance["recognitionProcessingLedgers"][0]["observedProcessingCoverage"] == "partial"
+    )
+
+
+def test_docling_overlapping_cells_are_not_silently_set_deduplicated():
+    source = exported()
+    source["tables"][0]["data"].update(num_rows=2, num_cols=2)
+    source["tables"][0]["data"]["table_cells"].append(
+        deepcopy(source["tables"][0]["data"]["table_cells"][0])
+    )
+    doc = ObservationDocument()
+    import_docling(doc, source)
+    assert any(i["code"] == "recognition_table_cells_overlap" for i in doc.issues)
+    assert any(i["code"] == "recognition_table_cells_unobserved" for i in doc.issues)
+
+
+def test_raw_tsv_capture_precedes_dataframe_and_merge_with_exact_pixel_transform(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    from types import SimpleNamespace
+
+    import pytest
+
+    pytest.importorskip("docling")
+    from docling_core.types.doc import BoundingBox, CoordOrigin
+    from docling_core.types.doc.page import BoundingRectangle, TextCell
+    from PIL import Image
+
+    from document_files.document_model import docling_pipeline
+
+    cls = docling_pipeline.pipeline_class(
+        RecognitionConfig("/models", "/ocr", "/data"), {}
+    )._product_ocr_type
+    model = cls.__new__(cls)
+    model.options = SimpleNamespace(lang=["kor", "eng"], psm=3)
+    model._safe_tesseract_cmd, model._safe_tessdata_path = "/ocr", "/data"
+    model.scale, model.orientation = 3, None
+    model.raw_rectangles = [{"l": 100, "t": 200, "r": 300, "b": 400, "coord_origin": "TOPLEFT"}]
+    path = tmp_path / "crop.png"
+    Image.new("RGB", (60, 30), "white").save(path)
+    raw = (
+        b"left\ttop\twidth\theight\tconf\ttext\n3\t6\t30\t9\t90\t001.20\n4\t7\t0\t9\t70\tINVALID\n"
+    )
+    monkeypatch.setattr(docling_pipeline, "bounded_tsv", lambda *a, **k: raw)
+    result = model._run_tesseract(str(path), None)
+    assert list(result["text"]) == ["001.20"]
+    capture = model.raw_passes[0]
+    assert capture["transform"]["orientation"] == 0
+    assert capture["transform"]["orientationObservation"] is None
+    assert capture["transform"]["orientationBasis"] == "upstream_no_rotation_fallback"
+    assert model.orientation is None  # Repair policy still sees an unknown orientation.
+    assert capture["tsv"].encode() == raw
+    assert capture["tsvSha256"] == hashlib.sha256(raw).hexdigest()
+    assert [d["text"] for d in capture["detections"]] == ["001.20", "INVALID"]
+    assert capture["detections"][1]["accepted"] is False
+    cell = TextCell(
+        index=0,
+        text="001.20",
+        orig="001.20",
+        from_ocr=True,
+        confidence=0.9,
+        rect=BoundingRectangle.from_bounding_box(
+            BoundingBox(l=101, t=202, r=111, b=205, coord_origin=CoordOrigin.TOPLEFT)
+        ),
+    )
+    monkeypatch.setattr(cls.__bases__[0], "post_process_cells", lambda *a: None)
+    model.post_process_cells([cell], None, None)
+    assert capture["detections"][0]["pageBBox"]["l"] == 101
+    model.raw_repair_transform = {
+        "pixelOrigin": [300, 600],
+        "scale": [3, 3],
+        "cellUnitIndex": 0,
+        "repairIndex": 0,
+    }
+    model._run_tesseract(str(path), None)
+    assert model.raw_passes[1]["detections"][0]["pageBBox"]["t"] == 202
+    assert model.raw_passes[1]["sourcePass"] == "table_repair"
+
+
+def test_empty_raw_capture_is_not_page_content_completeness():
+    import hashlib
+
+    from document_files.document_model.recognition_sources import (
+        import_source_observations,
+        raw_pass_fingerprint,
+    )
+
+    doc, payload, source, ids = raw_ledger_fixture()
+    capture = payload["rawOCRPasses"][0]
+    capture["tsv"] = capture["tsv"].splitlines()[0] + "\n"
+    capture["tsvSha256"] = hashlib.sha256(capture["tsv"].encode()).hexdigest()
+    capture["detections"] = []
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    payload["rawCapturePages"][0]["passFingerprints"] = [capture["fingerprint"]]
+    import_source_observations(doc, payload, source, ids, prefix="page1")
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert ledger["allRawOCRDetectionsPreserved"] is True
+    assert ledger["unsupportedStructuralText"]
+    assert ledger["observedProcessingCoverage"] == "partial"
+    assert ledger["pageContentCompletenessVerified"] is False
+
+
+def test_raw_ledger_checks_rotation_and_rejects_inconsistent_page_transform():
+    from document_files.document_model.recognition_sources import (
+        import_source_observations,
+        raw_pass_fingerprint,
+    )
+
+    for wrong in (False, True):
+        doc, payload, source, ids = raw_ledger_fixture()
+        capture = payload["rawOCRPasses"][0]
+        capture["transform"]["orientation"] = 90
+        bounds = {"l": 20, "t": 560, "r": 30, "b": 590, "coord_origin": "TOPLEFT"}
+        capture["detections"][0]["pageBBox"] = bounds
+        doc.nodes[ids[0]]["sourceStructure"]["bbox"] = {
+            "left": 20,
+            "top": 560,
+            "right": 30,
+            "bottom": 590,
+            "origin": "TOPLEFT",
+        }
+        if wrong:
+            capture["transform"]["scale"] = 2
+        capture["fingerprint"] = raw_pass_fingerprint(capture)
+        payload["rawCapturePages"][0]["passFingerprints"] = [capture["fingerprint"]]
+        import_source_observations(doc, payload, source, ids, prefix="page1")
+        ledger = doc.provenance["recognitionProcessingLedgers"][0]
+        assert ledger["observedProcessingCoverage"] == ("partial" if wrong else "complete")
+
+
+def test_raw_explicit_exclusion_keeps_token_and_never_proves_blank():
+    from document_files.document_model.recognition_sources import import_source_observations
+
+    doc, payload, source, _ = raw_ledger_fixture("|")
+    payload["cells"] = [
+        {
+            "page_no": 1,
+            "text": "|",
+            "raw": "|",
+            "fromOcr": True,
+            "sourceKind": "ocr",
+            "bbox": deepcopy(payload["rawOCRPasses"][0]["detections"][0]["pageBBox"]),
+            "structureView": {
+                "selection": "ruling_line_excluded",
+                "rulingLineEvidence": {
+                    "basis": "all_observed_ink_within_closed_grid_long_stroke_mask",
+                    "nonRulingInkPixels": 0,
+                    "originalTextPreserved": True,
+                },
+            },
+        }
+    ]
+    import_source_observations(doc, payload, source, [], prefix="page1")
+    ledger = doc.provenance["recognitionProcessingLedgers"][0]
+    assert ledger["entries"][0]["status"] == "explicit_geometric_exclusion"
+    assert ledger["entries"][0]["truthVerified"] is False
+    assert doc.nodes["page1:source:0"]["originalRecognitionText"] == "|"
+    assert ledger["rawOCRPasses"][0]["detections"][0]["text"] == "|"
+    assert all(n["text"] for n in doc.nodes.values())
+
+
+def test_raw_tsv_failed_call_remains_an_incomplete_capture(tmp_path, monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+
+    import pytest
+
+    pytest.importorskip("docling")
+    from PIL import Image
+
+    from document_files.document_model import docling_pipeline
+
+    cls = docling_pipeline.pipeline_class(
+        RecognitionConfig("/models", "/ocr", "/data"), {}
+    )._product_ocr_type
+    model = cls.__new__(cls)
+    model.options = SimpleNamespace(lang=["kor", "eng"], psm=3)
+    model._safe_tesseract_cmd, model._safe_tessdata_path = "/ocr", "/data"
+    model.scale, model.orientation = 3, 0
+    path = tmp_path / "crop.png"
+    Image.new("RGB", (60, 30), "white").save(path)
+
+    def fail(*args, **kwargs):
+        raise subprocess.TimeoutExpired("fixed OCR", 1)
+
+    monkeypatch.setattr(docling_pipeline, "bounded_tsv", fail)
+    with pytest.raises(subprocess.TimeoutExpired):
+        model._run_tesseract(str(path), None)
+    assert model.raw_passes[0]["status"] == "failed"
+    assert model.raw_capture_issues == [{"code": "recognition_raw_capture_failed"}]
+
+
+def test_digital_text_support_is_separate_from_ocr_and_requires_exact_alignment():
+    import hashlib
+
+    from document_files.document_model.recognition_sources import (
+        import_source_observations,
+        raw_pass_fingerprint,
+    )
+
+    for variation in ("digital", "ocr_label", "wrong_geometry", "wrong_text"):
+        doc, payload, source, ids = raw_ledger_fixture()
+        capture = payload["rawOCRPasses"][0]
+        capture["tsv"] = capture["tsv"].splitlines()[0] + "\n"
+        capture["tsvSha256"] = hashlib.sha256(capture["tsv"].encode()).hexdigest()
+        capture["detections"] = []
+        capture["fingerprint"] = raw_pass_fingerprint(capture)
+        payload["rawCapturePages"][0]["passFingerprints"] = [capture["fingerprint"]]
+        cell = {
+            "page_no": 1,
+            "text": "001.20",
+            "raw": "001.20",
+            "fromOcr": False,
+            "sourceKind": "pdf_text",
+            "bbox": {"l": 10, "t": 20, "r": 40, "b": 30, "coord_origin": "TOPLEFT"},
+        }
+        if variation == "ocr_label":
+            cell.update(fromOcr=True, sourceKind="ocr")
+        elif variation == "wrong_geometry":
+            cell["bbox"].update(l=100, r=130)
+        elif variation == "wrong_text":
+            cell.update(text="001.21", raw="001.21")
+        payload["cells"] = [cell]
+        import_source_observations(doc, payload, source, ids, prefix="page1")
+        ledger = doc.provenance["recognitionProcessingLedgers"][0]
+        assert ledger["allRawOCRDetectionsPreserved"] is True
+        assert ledger["entries"] == []
+        if variation == "digital":
+            assert ledger["unsupportedStructuralText"] == []
+            assert ledger["digitalTextSupport"] == [
+                {
+                    "sourceRef": "page1:source:0",
+                    "targetRef": ids[0],
+                    "targetStart": 0,
+                    "targetEnd": 6,
+                    "basis": "exact_pdf_text_observation_and_geometry",
+                    "ocrEvidence": False,
+                }
+            ]
+            assert ledger["observedProcessingCoverage"] == "complete"
+        else:
+            assert ledger["unsupportedStructuralText"]
+            assert ledger["digitalTextSupport"] == []
+            assert ledger["observedProcessingCoverage"] == "partial"
+        assert ledger["ocrTruthVerified"] is False
+
+
+def full_page_render_fixture(*, rotation=0):
+    import hashlib
+    import io
+
+    import pypdfium2 as pdfium
+    from reportlab.pdfgen import canvas
+
+    from document_files.document_model.recognition_worker import capture_full_page_render
+
+    stream = io.BytesIO()
+    pdf = canvas.Canvas(stream, pagesize=(120, 80))
+    pdf.setPageRotation(rotation)
+    pdf.drawString(10, 20, "Visible")
+    pdf.save()
+    content = stream.getvalue()
+    source_hash = hashlib.sha256(content).hexdigest()
+    document = pdfium.PdfDocument(content)
+    try:
+        document.init_forms()
+        record = capture_full_page_render(document, 0, source_hash)
+    finally:
+        document.close()
+    return content, record
+
+
+def test_whole_page_capture_hashes_actual_full_render_and_keeps_rotation():
+    import hashlib
+
+    import pypdfium2 as pdfium
+
+    for rotation in (0, 90):
+        content, record = full_page_render_fixture(rotation=rotation)
+        assert record["status"] == "captured"
+        assert record["sourceSha256"] == hashlib.sha256(content).hexdigest()
+        assert record["page_no"] == 1 and record["intrinsicRotation"] == rotation
+        document = pdfium.PdfDocument(content)
+        try:
+            document.init_forms()
+            page = document[0]
+            bitmap = page.render(
+                scale=3,
+                rotation=0,
+                crop=(0, 0, 0, 0),
+                fill_color=(255, 255, 255, 255),
+                draw_annots=True,
+                may_draw_forms=True,
+            )
+            image = bitmap.to_pil().convert("RGB")
+            try:
+                assert record["pixelSha256"] == hashlib.sha256(image.tobytes()).hexdigest()
+                assert record["processedPixelBounds"] == [0, 0, *image.size]
+            finally:
+                image.close()
+                bitmap.close()
+                page.close()
+        finally:
+            document.close()
+        assert record["visualContentCoverage"] == "not_assessed"
+        assert record["coordinateAlignmentToRecognition"] == "not_verified"
+        assert record["ocrTruthVerified"] is False
+
+
+def test_whole_page_capture_budget_failure_is_preserved_without_allocating_pixels():
+    import hashlib
+
+    import pypdfium2 as pdfium
+
+    from document_files.document_model.recognition_worker import capture_full_page_render
+
+    content, _ = full_page_render_fixture()
+    document = pdfium.PdfDocument(content)
+    try:
+        document.init_forms()
+        record = capture_full_page_render(
+            document, 0, hashlib.sha256(content).hexdigest(), max_pixels=1
+        )
+    finally:
+        document.close()
+    assert record["status"] == "failed"
+    assert record["issues"] == [{"code": "recognition_page_render_pixel_budget_exceeded"}]
+    assert "pixelSha256" not in record and "processedPixelBounds" not in record
+    assert record["visualContentCoverage"] == "not_assessed"
+
+
+def test_page_capture_import_rejects_mismatch_and_keeps_original_evidence():
+    from document_files.document_model.pdf import import_page_render
+    from document_files.document_model.recognition_sources import page_render_fingerprint
+
+    _, capture = full_page_render_fixture()
+    for variation in ("valid", "wrong_page", "wrong_source", "partial_bounds", "tampered"):
+        record = deepcopy(capture)
+        if variation == "wrong_page":
+            record["page_no"] = 2
+        elif variation == "wrong_source":
+            record["sourceSha256"] = "0" * 64
+        elif variation == "partial_bounds":
+            record["processedPixelBounds"][0] = 10
+        if variation != "tampered":
+            record["fingerprint"] = page_render_fingerprint(record)
+        else:
+            record["pixelSha256"] = "0" * 64
+        before = deepcopy(record)
+        doc = ObservationDocument()
+        import_page_render(doc, record, source_hash=capture["sourceSha256"], page=1)
+        evidence = doc.provenance["pdfPageRenderCaptures"][0]
+        assert record == before and evidence["capture"] == before
+        assert evidence["bindingStatus"] == (
+            "source_page_matched" if variation == "valid" else "invalid"
+        )
+        assert evidence["contentCoverageVerified"] is False
+        if variation != "valid":
+            assert doc.issues[0]["code"] == "recognition_page_render_unverified"
+
+
+def test_full_page_render_does_not_resolve_native_or_content_coverage_issues(monkeypatch):
+    from document_files.document_model import pdf
+
+    content, record = full_page_render_fixture()
+
+    def native(doc, content):
+        doc.provenance["pdfium"] = {"pageCount": 1}
+        doc.issue("pdf_page_has_no_native_text", page=1)
+        return []
+
+    monkeypatch.setattr(pdf, "_native_pdf", native)
+
+    class Recognition:
+        def observe(self, content):
+            return {
+                "status": "complete",
+                "pageResults": [
+                    {
+                        "page": 1,
+                        "sourceSha256": record["sourceSha256"],
+                        "status": "complete",
+                        "pageRender": record,
+                        "document": {"pages": {"1": {}}, "texts": [], "tables": []},
+                    }
+                ],
+            }
+
+    doc = ObservationDocument()
+    pdf.observe_pdf(doc, content, recognition=Recognition())
+    evidence = doc.provenance["pdfObservationChannels"]
+    assert evidence["fullDisplayedPageCapture"] == "captured"
+    assert evidence["visualContentCoverage"] == "not_assessed"
+    dispositions = evidence["issueDispositions"]
+    original = next(d for d in dispositions if d["issue"]["code"] == "pdf_page_has_no_native_text")
+    assert original["channel"] == "native_pdf" and original["status"] == "unresolved"
+    assert original["resolutionEvidence"] == []
+    assert all(d["issue"] in doc.issues for d in dispositions)
+    assert any(i["code"] == "recognition_content_completeness_unverified" for i in doc.issues)
+    assert doc.coverage["recognitionContentCompleteness"] == "unverified"
+
+
+def test_render_budget_failure_cannot_be_checkpointed_as_complete_conversion(monkeypatch):
+    from document_files.document_model import recognition_worker
+
+    content, _ = full_page_render_fixture()
+    capture = recognition_worker.capture_full_page_render
+    monkeypatch.setattr(
+        recognition_worker, "capture_full_page_render", lambda *a: capture(*a, max_pixels=1)
+    )
+    result = recognition_worker.page_batches(
+        content,
+        RecognitionConfig("/models", "/ocr", "/data"),
+        lambda data: ({"pages": {"1": {}}, "texts": []}, "complete"),
+    )
+    assert result["status"] == "partial" and result["completedPages"] == []
+    page = result["pageResults"][0]
+    assert page["status"] == "partial" and page["pageRender"]["status"] == "failed"
+    assert page["pageRender"]["visualContentCoverage"] == "not_assessed"
+    assert any(
+        i["code"] == "recognition_page_render_pixel_budget_exceeded" for i in result["issues"]
+    )

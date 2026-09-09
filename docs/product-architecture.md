@@ -99,12 +99,11 @@ or explicit native note references. Same-region membership is not applicability 
 does not rewrite data or pointers. Different statements in one paragraph remain
 separate. Truncated context and missing candidates keep an uncertain result. Saved
 scope decisions are reused only while their statement/context/target fingerprint
-matches; an unchanged unresolved question is not sent repeatedly. Up to eight
-independent scope decisions share one bounded request. Invalid or duplicate decisions
+matches; an unchanged unresolved question is not sent repeatedly. Independent statements are decided separately within the shared finite budget. Invalid or duplicate decisions
 do not discard valid siblings. A malformed/omitted decision can be retried only
 with a new explicit model-call budget grant; a valid unchanged unresolved decision
 is not automatically repeated. This repair stage never asks for the full schema or
-values again. Scope integration v2 participates in checkpoint identity.
+values again. Scope integration v5 includes observed header-group membership and current statement context in checkpoint identity.
 
 ### Bounded non-table source views
 

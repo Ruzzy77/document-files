@@ -152,6 +152,28 @@ quality pass, source-build attestation or proof of a hostile operator's honesty.
 The plain preparation-image CPU preflight still does not qualify a final product
 image or local model, and this tool must not relabel that preflight as such.
 
+## Installed HTTP lifecycle preparation
+
+`scripts/run_http_installation_check.py` runs with the selected image's installed
+Python, not an editable source checkout. Supply the trusted inventory hash, selected
+core/source/image/pack IDs, an administrator local-pack configuration, a public
+multi-stage input, and explicit total call/time and outer-runner budgets. Its help
+lists the exact arguments. It first checks installed core bytes, source-bound runner
+bytes and selected pack identities; missing or mismatched assets stop the run.
+
+The runner owns a new loopback service and state directory. It exercises authentication,
+byte-only inputs, idempotency/conflicts, a one-call partial result and explicit grant,
+actual inference-child cancellation, restart/interruption without automatic replay,
+checkpoint resume, result preservation and deletion. Use a document that needs more
+than one call; a one-call complete fixture cannot prove the budget/resume path.
+The grant uses only the supplied total allowance, never an automatic increase.
+
+Wrap this execution in `measure_cpu_execution.py`, then capture the actual image
+identity on the container host. The raw `http-installation-run.v1` report always has
+`passed: false` and `releaseQualification: false`; `checksPassed` describes only
+the checks actually performed. Independent content review, image and isolation
+receipts are still required. Preparing this runner does not qualify the service.
+
 ## Large archives: transport parts only
 
 GitHub requires each release asset to be under 2 GiB. The prepared Qwen archive

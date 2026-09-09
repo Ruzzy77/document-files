@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import math
 import subprocess
@@ -59,9 +61,36 @@ def pipeline_class(config, snapshots, restored=None):
         orientation = None
 
         def _perform_osd(self, filename):
+            self.orientation = None
             result = super()._perform_osd(filename)
             self.orientation = _parse_orientation(result)
             return result
+
+        def get_ocr_rects(self, page):
+            rectangles = super().get_ocr_rects(page)
+            self.raw_rectangles = [r.model_dump(mode="json") for r in rectangles if r.area() > 0]
+            return rectangles
+
+        def post_process_cells(self, all_ocr_cells, page, conv_res):
+            self.raw_transform_seen = True
+            # The pinned upstream seam exposes transformed cells BEFORE overlap filtering.
+            detections = [
+                d
+                for p in self.raw_passes
+                if p["sourcePass"] == "page_ocr"
+                for d in p.get("detections", [])
+                if d.get("accepted")
+            ]
+            if len(detections) == len(all_ocr_cells) and all(
+                d["text"] == c.orig == c.text and abs(d["confidence"] / 100 - c.confidence) < 1e-9
+                for d, c in zip(detections, all_ocr_cells, strict=True)
+            ):
+                for detection, cell in zip(detections, all_ocr_cells, strict=True):
+                    detection["pageBBox"] = cell.to_bounding_box().model_dump(mode="json")
+                    detection["mappingBasis"] = "pinned_upstream_pre_merge_order_text_confidence"
+            else:
+                self.raw_capture_issues.append({"code": "recognition_raw_transform_unresolved"})
+            return super().post_process_cells(all_ocr_cells, page, conv_res)
 
         def _run_tesseract(self, ifilename, osd):
             # Upstream uses `osd` here only for automatic language selection.
@@ -83,11 +112,106 @@ def pipeline_class(config, snapshots, restored=None):
             if hasattr(self, "call_psm"):
                 cmd[cmd.index("--psm") + 1] = str(self.call_psm)
             timeout = getattr(self, "call_timeout", config.timeout_seconds)
-            raw = bounded_tsv(
-                cmd, timeout=timeout, max_bytes=min(config.max_output_bytes, 16 * 1024 * 1024)
-            )
+            if not hasattr(self, "raw_passes"):
+                self.raw_passes, self.raw_capture_issues = [], []
+            from PIL import Image
+
+            with Image.open(ifilename) as source_image:
+                pixels = source_image.tobytes()
+                image_identity = {
+                    "sha256": hashlib.sha256(pixels).hexdigest(),
+                    "size": list(source_image.size),
+                    "mode": source_image.mode,
+                }
+            repair_transform = getattr(self, "raw_repair_transform", None)
+            original_index = sum(p["sourcePass"] == "page_ocr" for p in self.raw_passes)
+            capture = {
+                "passId": f"pass-{len(self.raw_passes)}",
+                "page_no": getattr(self, "raw_page_no", 1),
+                "sourcePass": "table_repair" if repair_transform else "page_ocr",
+                "image": image_identity,
+                "transform": deepcopy(repair_transform)
+                if repair_transform
+                else {
+                    "scale": self.scale,
+                    # Pinned upstream uses doc_orientation=0 when OSD fails. This
+                    # is an applied transform, not a verified source orientation.
+                    "orientation": _parse_orientation(osd) if osd is not None else 0,
+                    "orientationObservation": self.orientation,
+                    "orientationBasis": "upstream_osd_result"
+                    if osd is not None
+                    else "upstream_no_rotation_fallback",
+                    "crop": self.raw_rectangles[original_index]
+                    if original_index < len(getattr(self, "raw_rectangles", []))
+                    else None,
+                },
+                "status": "failed",
+                "detections": [],
+            }
+            self.raw_passes.append(capture)
+            try:
+                raw = bounded_tsv(
+                    cmd, timeout=timeout, max_bytes=min(config.max_output_bytes, 16 * 1024 * 1024)
+                )
+                # Keep the lexical TSV too: invalid geometry must not silently disappear.
+                capture["tsv"] = raw.decode("utf-8")
+                capture["tsvSha256"] = hashlib.sha256(raw).hexdigest()
+                parsed = parse_tsv(raw)
+                accepted = iter(parsed)
+                next_accepted = next(accepted, None)
+                for ordinal, row in enumerate(
+                    csv.DictReader(io.StringIO(capture["tsv"]), delimiter="\t")
+                ):
+                    if not row.get("text", "").strip():
+                        continue
+                    detection = {
+                        "ordinal": ordinal,
+                        "text": row["text"],
+                        "raw": row,
+                        "accepted": False,
+                    }
+                    capture["detections"].append(detection)
+                    if next_accepted is not None and row["text"] == next_accepted["text"]:
+                        try:
+                            matches = (
+                                all(
+                                    int(row[k]) == next_accepted[k]
+                                    for k in ("left", "top", "width", "height")
+                                )
+                                and float(row["conf"]) == next_accepted["conf"]
+                            )
+                        except (ValueError, TypeError, KeyError):
+                            matches = False
+                        if matches:
+                            detection.update(
+                                accepted=True,
+                                confidence=next_accepted["conf"],
+                                imageBBox={
+                                    k: next_accepted[k] for k in ("left", "top", "width", "height")
+                                },
+                            )
+                            if repair_transform:
+                                x, y = repair_transform["pixelOrigin"]
+                                sx, sy = repair_transform["scale"]
+                                left, top = (
+                                    (x + next_accepted["left"]) / sx,
+                                    (y + next_accepted["top"]) / sy,
+                                )
+                                detection["pageBBox"] = {
+                                    "l": left,
+                                    "t": top,
+                                    "r": left + next_accepted["width"] / sx,
+                                    "b": top + next_accepted["height"] / sy,
+                                    "coord_origin": "TOPLEFT",
+                                }
+                                detection["mappingBasis"] = "explicit_table_unit_pixel_transform"
+                            next_accepted = next(accepted, None)
+                capture["status"] = "complete"
+            except Exception:
+                self.raw_capture_issues.append({"code": "recognition_raw_capture_failed"})
+                raise
             return pd.DataFrame(
-                parse_tsv(raw),
+                parsed,
                 columns=[
                     "left",
                     "top",
@@ -101,13 +225,25 @@ def pipeline_class(config, snapshots, restored=None):
         def __call__(self, conv_res, page_batch):
             for source_page in page_batch:
                 self.orientation = None
+                self.raw_passes, self.raw_capture_issues = [], []
+                self.raw_page_no = source_page.page_no
+                self.raw_transform_seen = False
+                self.raw_rectangles = []
                 for page in super().__call__(conv_res, [source_page]):
                     original = list(page.cells)
+                    if not self.raw_transform_seen or len(self.raw_rectangles) != len(
+                        self.raw_passes
+                    ):
+                        self.raw_capture_issues.append(
+                            {"code": "recognition_raw_page_capture_incomplete"}
+                        )
                     snapshot = {
                         "original": [record(c, stage="original_ocr") for c in original],
                         "supplemental": [],
                         "repairs": [],
-                        "issues": [],
+                        "issues": self.raw_capture_issues,
+                        "rawOCRPasses": self.raw_passes,
+                        "rawCaptureVersion": "document-files.raw-ocr.v1",
                     }
                     snapshot["originalOCRFingerprint"] = hashlib.sha256(
                         json.dumps(
@@ -200,6 +336,9 @@ def pipeline_class(config, snapshots, restored=None):
                             and prior.get("policy", "ruled_tables_v1") == config.table_ocr_repair
                             and prior.get("sourceBBox") == bbox.model_dump(mode="json")
                         ):
+                            snapshot["issues"].append(
+                                {"code": "recognition_raw_reused_repair_unverified"}
+                            )
                             new_index = len(snapshot["repairs"])
                             snapshot["repairs"].append(
                                 {**deepcopy(prior), "reusedFromCheckpoint": True}
@@ -420,6 +559,9 @@ def pipeline_class(config, snapshots, restored=None):
                             None,
                         )
                         if saved_unit:
+                            snapshot["issues"].append(
+                                {"code": "recognition_raw_reused_repair_unverified"}
+                            )
                             unit.update(complete=True, reusedFromCheckpoint=True)
                             for saved in restored.get("cells", []):
                                 if (
@@ -473,6 +615,15 @@ def pipeline_class(config, snapshots, restored=None):
                             break
                         self.repair_calls += 1
                         self.call_timeout, self.call_psm = remaining, unit["psm"]
+                        self.raw_repair_transform = {
+                            "pixelOrigin": [
+                                x0 + unit["pixelOffset"][0],
+                                y0 + unit["pixelOffset"][1],
+                            ],
+                            "scale": [scale_x, scale_y],
+                            "repairIndex": len(snapshot["repairs"]) - 1,
+                            "cellUnitIndex": unit_index,
+                        }
                         try:
                             with tempfile.TemporaryDirectory(
                                 prefix="document-files-table-ocr-"
@@ -481,7 +632,7 @@ def pipeline_class(config, snapshots, restored=None):
                                 unit_image.save(path)
                                 result = self._run_tesseract(str(path), None)
                         finally:
-                            del self.call_timeout, self.call_psm
+                            del self.call_timeout, self.call_psm, self.raw_repair_transform
                         offset = unit["pixelOffset"]
                         for ordinal, row in result.iterrows():
                             left, top = (

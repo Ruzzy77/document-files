@@ -54,6 +54,13 @@ another endpoint or disabling checks.
 Recognition works on one framework page at a time; completed frames can be saved
 before the worker finishes and replayed without repeating completed OCR. Semantic
 checkpoints store accepted region decisions, not the whole conversation history.
+Record tables additionally checkpoint structure and meaning separately. A structure
+may be retained as `structure_compiled` while the extraction remains partial. Resume
+then uses the saved structure, not another record-generation call. Each stage has at
+most two attempts sharing the total call/time budget; exhausted stages require an
+explicit additional grant. Checkpoint v2 includes table-protocol identity; old
+incompatible checkpoints must not be force-resumed. A stage completing is not a
+semantic quality approval, and unresolved subtotal/note content remains partial.
 Resume checks the input and exact installed configuration. A budget grant is explicit;
 it never resets existing usage. No automatic replay occurs after service interruption.
 For a deliberately longer run, select the CPU profile and pass the supplied

@@ -136,7 +136,7 @@ class DoclingRecognition:
         self._identity = {
             **supplied,
             "adapter": "docling-offline-worker",
-            "adapterVersion": "7",
+            "adapterVersion": "10",
             "configuration": asdict(config),
             "modelPinning": (
                 "caller_supplied_manifest"
@@ -561,11 +561,14 @@ def import_docling(doc: ObservationDocument, exported: dict, *, prefix="docling"
                 if cell["row"] + cell["rowSpan"] > rows or cell["col"] + cell["colSpan"] > cols:
                     doc.issue("recognition_table_dimensions_conflict", tableRef=table_ref)
                     continue
-                occupied.update(
+                positions = {
                     (r, c)
                     for r in range(cell["row"], cell["row"] + cell["rowSpan"])
                     for c in range(cell["col"], cell["col"] + cell["colSpan"])
-                )
+                }
+                if occupied & positions:
+                    doc.issue("recognition_table_cells_overlap", tableRef=table_ref)
+                occupied.update(positions)
             missing = rows * cols - len(occupied)
             if missing:
                 table["unobservedCellCount"] = missing

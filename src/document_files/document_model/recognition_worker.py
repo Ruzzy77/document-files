@@ -9,9 +9,11 @@ import hashlib
 import io
 import json
 import logging
+import math
 import os
 import sys
 import time
+from copy import deepcopy
 from dataclasses import fields
 from importlib.metadata import version
 from pathlib import Path
@@ -22,6 +24,90 @@ from .docling_adapter import RecognitionConfig
 def _offline_network_guard(event, _args):
     if event in {"socket.connect", "socket.getaddrinfo", "urllib.Request"}:
         raise PermissionError("recognition network access is disabled")
+
+
+def capture_full_page_render(document, index, source_hash, *, scale=3.0, max_pixels=16000000):
+    """Capture the full displayed PDF page, not a claim that its ink was interpreted.
+
+    The caller initializes form rendering before acquiring page handles. Pixels are
+    transient; their exact RGB digest and rendering recipe remain source-addressed.
+    """
+    from .recognition_sources import page_render_fingerprint
+
+    record = {
+        "version": "document-files.full-page-render.v1",
+        "sourceSha256": source_hash,
+        "page_no": index + 1,
+        "status": "failed",
+        "engine": "pypdfium2",
+        "engineVersion": version("pypdfium2"),
+        "profile": {
+            "scale": scale,
+            "maxPixels": max_pixels,
+            "additionalRotation": 0,
+            "crop": [0, 0, 0, 0],
+            "background": [255, 255, 255, 255],
+            "drawAnnotations": True,
+            "drawForms": True,
+            "pixelMode": "RGB",
+        },
+        "scope": "full_displayed_page_media_crop_intersection",
+        "visualContentCoverage": "not_assessed",
+        "ocrTruthVerified": False,
+        "coordinateAlignmentToRecognition": "not_verified",
+        "issues": [],
+    }
+    page = bitmap = image = None
+    try:
+        if not math.isfinite(scale) or scale <= 0 or type(max_pixels) is not int or max_pixels <= 0:
+            raise ValueError
+        page = document[index]
+        width, height = page.get_width(), page.get_height()
+        if not all(math.isfinite(v) and v > 0 for v in (width, height)):
+            raise ValueError
+        pixel_width, pixel_height = math.ceil(width * scale), math.ceil(height * scale)
+        record.update(
+            pageSizeCanvasUnits=[width, height],
+            intrinsicRotation=page.get_rotation(),
+            pageBoxes={
+                "effective": list(page.get_bbox()),
+                "mediaDeclared": page.get_mediabox(fallback_ok=False),
+                "cropDeclared": page.get_cropbox(fallback_ok=False),
+                "boxCoordinateOrigin": "BOTTOMLEFT",
+                "declaredBoxesMayBeInherited": True,
+            },
+            plannedPixelSize=[pixel_width, pixel_height],
+        )
+        if pixel_width * pixel_height > max_pixels:
+            record["issues"].append({"code": "recognition_page_render_pixel_budget_exceeded"})
+        else:
+            bitmap = page.render(
+                scale=scale,
+                rotation=0,
+                crop=(0, 0, 0, 0),
+                fill_color=(255, 255, 255, 255),
+                draw_annots=True,
+                may_draw_forms=True,
+            )
+            image = bitmap.to_pil().convert("RGB")
+            if list(image.size) != [pixel_width, pixel_height]:
+                raise ValueError
+            record.update(
+                status="captured",
+                pixelSize=list(image.size),
+                pixelSha256=hashlib.sha256(image.tobytes()).hexdigest(),
+                processedPixelBounds=[0, 0, pixel_width, pixel_height],
+                pixelCoordinateOrigin="TOPLEFT",
+                displayCanvasToPixelScale=[pixel_width / width, pixel_height / height],
+            )
+    except Exception:
+        record["issues"].append({"code": "recognition_page_render_failed"})
+    finally:
+        for resource in (image, bitmap, page):
+            if resource is not None:
+                resource.close()
+    record["fingerprint"] = page_render_fingerprint(record)
+    return record
 
 
 def page_batches(
@@ -47,6 +133,7 @@ def page_batches(
     total_bytes = 0
     document = pdfium.PdfDocument(content)
     try:
+        document.init_forms()
         total_pages = len(document)
         if any(p > total_pages for p in skipped):
             raise ValueError("completed page outside source document")
@@ -67,7 +154,14 @@ def page_batches(
             try:
                 if before_page:
                     before_page(index + 1)
+                page_render = capture_full_page_render(document, index, source_hash)
+                if time.monotonic() - started >= config.timeout_seconds:
+                    issues.append({"code": "recognition_timeout"})
+                    break
                 exported, status, *observations = convert_page(page_content)
+                if page_render["status"] != "captured":
+                    status = "partial"
+                    issues.extend({**issue, "page": index + 1} for issue in page_render["issues"])
 
                 # A single-page conversion numbers its page 1. Preserve its local
                 # location and remap every page locator into the original PDF.
@@ -90,6 +184,7 @@ def page_batches(
                     "status": status,
                     "sourceSha256": source_hash,
                     "document": remap(exported),
+                    "pageRender": page_render,
                 }
                 if observations:
                     page["sourceObservations"] = remap(observations[0])
@@ -291,6 +386,28 @@ def recognize(
                 ]
                 observations["issues"] = [
                     issue for snapshot in source_snapshots.values() for issue in snapshot["issues"]
+                ]
+                from .recognition_sources import raw_pass_fingerprint
+
+                observations["rawCaptureVersion"] = "document-files.raw-ocr.v1"
+                observations["coverage"] = (
+                    "raw_word_detections_and_separate_post_merge_observations"
+                )
+                observations["rawOCRPasses"] = [
+                    {**deepcopy(capture), "fingerprint": raw_pass_fingerprint(capture)}
+                    for snapshot in source_snapshots.values()
+                    for capture in snapshot.get("rawOCRPasses", [])
+                ]
+                observations["rawCapturePages"] = [
+                    {
+                        "page_no": page_no,
+                        "captureAvailable": snapshot.get("rawCaptureVersion")
+                        == "document-files.raw-ocr.v1",
+                        "passFingerprints": [
+                            raw_pass_fingerprint(c) for c in snapshot.get("rawOCRPasses", [])
+                        ],
+                    }
+                    for page_no, snapshot in source_snapshots.items()
                 ]
                 observations["stage"] = "original_ocr_and_separate_table_repair"
                 observations["originalOCRFingerprint"] = next(iter(source_snapshots.values()))[

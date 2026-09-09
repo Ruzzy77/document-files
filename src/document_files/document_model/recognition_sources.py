@@ -233,13 +233,411 @@ def import_source_observations(doc, payload, exported, structural_ids, *, prefix
                     "resolution": "unresolved",
                 }
             )
+    raw_ledger = import_raw_ocr_ledger(
+        doc, payload, exported, structural_ids, imported_refs, prefix=prefix
+    )
     doc.provenance.setdefault("recognitionSourceObservations", []).append(
         {
             "batch": prefix,
             "stage": payload.get("stage"),
             "coverage": payload.get("coverage"),
             "unassignedCandidateCount": len(primary),
-            "allRawOCRDetectionsPreserved": False,
+            "allRawOCRDetectionsPreserved": raw_ledger["allRawOCRDetectionsPreserved"],
+            "observedProcessingCoverage": raw_ledger["observedProcessingCoverage"],
+            "ocrTruthVerified": False,
         }
     )
     return primary
+
+
+def raw_pass_fingerprint(capture):
+    """Integrity of a local-page capture; page_no is remapped by the PDF batch worker."""
+    import hashlib
+    import json
+
+    return hashlib.sha256(
+        json.dumps(
+            {
+                k: v
+                for k, v in capture.items()
+                if k not in {"fingerprint", "page_no", "batch_page_no"}
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+def import_raw_ocr_ledger(doc, payload, exported, structural_ids, imported_refs, *, prefix):
+    """Account returned word detections, not undetected content or OCR correctness.
+
+    Raw captures are immutable provenance. This derived ledger never invents a blank,
+    suppresses a conflict, or promotes the document's content-completeness status.
+    """
+    import csv
+    import hashlib
+    import io
+    import math
+    from copy import deepcopy
+
+    from .table_ocr_repair import parse_tsv
+
+    captures = payload.get("rawOCRPasses", [])
+    expected_pages = {int(p) for p in exported.get("pages", {}) if str(p).isdigit()}
+    declared = payload.get("rawCapturePages", [])
+    valid = (
+        payload.get("rawCaptureVersion") == "document-files.raw-ocr.v1"
+        and isinstance(captures, list)
+        and isinstance(declared, list)
+        and bool(expected_pages)
+        and len(declared) == len(expected_pages)
+        and all(
+            isinstance(p, dict)
+            and type(p.get("page_no")) is int
+            and p.get("captureAvailable") is True
+            for p in declared
+        )
+        and {p.get("page_no") for p in declared} == expected_pages
+        and not payload.get("unavailablePages")
+        and not any(
+            i.get("code", "").startswith("recognition_raw_") for i in payload.get("issues", [])
+        )
+    )
+    if valid:
+        valid = all(
+            p.get("passFingerprints")
+            == [
+                c.get("fingerprint")
+                for c in captures
+                if isinstance(c, dict) and c.get("page_no") == p["page_no"]
+            ]
+            for p in declared
+        )
+    ledger, seen, supported = [], set(), {}
+
+    def overlap(a, b):
+        if not a or not b or a.get("origin") != "TOPLEFT" or b.get("origin") != "TOPLEFT":
+            return 0.0
+        area = (a["right"] - a["left"]) * (a["bottom"] - a["top"])
+        if area <= 0:
+            return 0.0
+        return (
+            max(0, min(a["right"], b["right"]) - max(a["left"], b["left"]))
+            * max(0, min(a["bottom"], b["bottom"]) - max(a["top"], b["top"]))
+            / area
+        )
+
+    def verified_transform(capture, detection):
+        try:
+            image = capture["image"]
+            width, height = image["size"]
+            if not all(type(v) is int and v > 0 for v in (width, height)):
+                return False
+            raw_box = detection["imageBBox"]
+            left, top = raw_box["left"], raw_box["top"]
+            right, bottom = left + raw_box["width"], top + raw_box["height"]
+            if not 0 <= left < right <= width or not 0 <= top < bottom <= height:
+                return False
+            transform = capture["transform"]
+            if capture["sourcePass"] == "page_ocr":
+                angle = transform["orientation"]
+                if angle == 90:
+                    left, top, right, bottom = top, width - right, bottom, width - left
+                elif angle == 180:
+                    left, top, right, bottom = (
+                        width - right,
+                        height - bottom,
+                        width - left,
+                        height - top,
+                    )
+                elif angle == 270:
+                    left, top, right, bottom = height - bottom, left, height - top, right
+                elif angle != 0:
+                    return False
+                scale = transform["scale"]
+                crop = transform["crop"]
+                if crop["coord_origin"] != "TOPLEFT" or not math.isfinite(scale) or scale <= 0:
+                    return False
+                expected = [
+                    left / scale + crop["l"],
+                    top / scale + crop["t"],
+                    right / scale + crop["l"],
+                    bottom / scale + crop["t"],
+                ]
+            else:
+                x, y = transform["pixelOrigin"]
+                sx, sy = transform["scale"]
+                if not all(math.isfinite(v) for v in (x, y, sx, sy)) or min(sx, sy) <= 0:
+                    return False
+                expected = [(x + left) / sx, (y + top) / sy, (x + right) / sx, (y + bottom) / sy]
+            actual = detection["pageBBox"]
+            return actual.get("coord_origin") == "TOPLEFT" and all(
+                math.isfinite(v) and math.isclose(v, actual[k], rel_tol=1e-9, abs_tol=1e-7)
+                for k, v in zip(("l", "t", "r", "b"), expected, strict=True)
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return False
+
+    def matches(node, text, bounds, page):
+        raw = node.get("originalRecognitionText", node["text"])
+        loc = node.get("sourceStructure", {})
+        return (
+            bool(text)
+            and raw.count(text) == 1
+            and loc.get("page") == page
+            and overlap(bounds, loc.get("bbox")) >= 0.8
+        )
+
+    digital_support = []
+    # Digital PDF text has a distinct observation channel: requiring OCR support
+    # for it would falsely report preserved native text as missing. Revalidate the
+    # exact existing support relation; a sourceKind label alone is not evidence.
+    for relation in doc.relations:
+        source_ref, target_ref = relation.get("sourceRef"), relation.get("targetRef")
+        if (
+            relation.get("kind") != "recognitionSourceSupport"
+            or relation.get("basis") != "exact_unique_text_and_geometry"
+            or source_ref not in imported_refs
+            or target_ref not in structural_ids
+        ):
+            continue
+        node, target = doc.nodes[source_ref], doc.nodes[target_ref]
+        loc = node.get("sourceStructure", {})
+        raw = node.get("originalRecognitionText", node["text"])
+        start, end = relation.get("targetStart"), relation.get("targetEnd")
+        target_raw = target.get("originalRecognitionText", target["text"])
+        if (
+            loc.get("sourceKind") != "pdf_text"
+            or node.get("recognizedText") is not False
+            or node.get("observationBasis") != "docling_pdf_text"
+            or node["text"] != raw
+            or type(start) is not int
+            or type(end) is not int
+            or not 0 <= start < end <= len(target_raw)
+            or target_raw[start:end] != raw
+            or not matches(target, raw, loc.get("bbox"), loc.get("page"))
+        ):
+            continue
+        supported.setdefault(target_ref, set()).update(range(start, end))
+        digital_support.append(
+            {
+                "sourceRef": source_ref,
+                "targetRef": target_ref,
+                "targetStart": start,
+                "targetEnd": end,
+                "basis": "exact_pdf_text_observation_and_geometry",
+                "ocrEvidence": False,
+            }
+        )
+
+    if not isinstance(captures, list):
+        captures = []
+    for capture_index, capture in enumerate(captures):
+        capture_valid = True
+        try:
+            page, pass_id = capture["page_no"], capture["passId"]
+            if (
+                type(page) is not int
+                or page not in expected_pages
+                or not isinstance(pass_id, str)
+                or (page, pass_id) in seen
+            ):
+                raise ValueError
+            seen.add((page, pass_id))
+            raw = capture["tsv"].encode("utf-8")
+            if (
+                capture.get("status") != "complete"
+                or hashlib.sha256(raw).hexdigest() != capture["tsvSha256"]
+                or raw_pass_fingerprint(capture) != capture["fingerprint"]
+            ):
+                raise ValueError
+            words = [
+                (i, r)
+                for i, r in enumerate(csv.DictReader(io.StringIO(capture["tsv"]), delimiter="\t"))
+                if r.get("text", "").strip()
+            ]
+            detections = capture["detections"]
+            if len(words) != len(detections) or any(
+                d.get("ordinal") != i or d.get("raw") != r or d.get("text") != r["text"]
+                for (i, r), d in zip(words, detections, strict=True)
+            ):
+                raise ValueError
+            parsed = parse_tsv(raw)
+            accepted = [d for d in detections if d.get("accepted") is True]
+            if len(accepted) != len(parsed) or any(
+                d.get("imageBBox") != {k: r[k] for k in ("left", "top", "width", "height")}
+                or d.get("confidence") != r["conf"]
+                or d["text"] != r["text"]
+                for d, r in zip(accepted, parsed, strict=True)
+            ):
+                raise ValueError
+            if (
+                not isinstance(capture.get("image"), dict)
+                or not isinstance(capture.get("transform"), dict)
+                or capture.get("sourcePass") not in {"page_ocr", "table_repair"}
+            ):
+                raise ValueError
+        except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+            capture_valid, valid = False, False
+            detections = capture.get("detections", []) if isinstance(capture, dict) else []
+            page = capture.get("page_no") if isinstance(capture, dict) else None
+        if not isinstance(detections, list):
+            detections = []
+        for index, detection in enumerate(detections):
+            entry = {
+                "rawRef": f"{prefix}:raw:{capture_index}:{index}",
+                "status": "unresolved",
+                "targetRefs": [],
+            }
+            ledger.append(entry)
+            if (
+                not capture_valid
+                or not isinstance(detection, dict)
+                or detection.get("accepted") is not True
+            ):
+                entry["reason"] = "raw_capture_or_token_invalid"
+                continue
+            loc = detection.get("pageBBox")
+            if (
+                not isinstance(loc, dict)
+                or not all(
+                    type(loc.get(k)) in (float, int) and math.isfinite(loc[k])
+                    for k in ("l", "t", "r", "b")
+                )
+                or not detection.get("mappingBasis")
+                or not verified_transform(capture, detection)
+            ):
+                entry["reason"] = "page_transform_unresolved"
+                continue
+            height = (
+                exported["pages"]
+                .get(str(page), exported["pages"].get(page, {}))
+                .get("size", {})
+                .get("height")
+            )
+            bounds = box(loc, height)
+            text = detection["text"]
+            candidates = [r for r in structural_ids if matches(doc.nodes[r], text, bounds, page)]
+            if len(candidates) == 1:
+                target = candidates[0]
+                target_text = doc.nodes[target].get(
+                    "originalRecognitionText", doc.nodes[target]["text"]
+                )
+                start = target_text.index(text)
+                supported.setdefault(target, set()).update(range(start, start + len(text)))
+                entry.update(
+                    status="structural_observation",
+                    targetRefs=[target],
+                    targetStart=start,
+                    targetEnd=start + len(text),
+                )
+                continue
+            if len(candidates) > 1:
+                entry.update(reason="ambiguous_structural_alignment", targetRefs=candidates)
+                continue
+            sources = [r for r in imported_refs if matches(doc.nodes[r], text, bounds, page)]
+            exclusions, independent = [], []
+            for ref in sources:
+                node = doc.nodes[ref]
+                selection = node.get("structureViewSelection") or {}
+                evidence = selection.get("rulingLineEvidence") or {}
+                if (
+                    selection.get("selection") == "ruling_line_excluded"
+                    and evidence.get("basis")
+                    == "all_observed_ink_within_closed_grid_long_stroke_mask"
+                    and evidence.get("nonRulingInkPixels") == 0
+                    and evidence.get("originalTextPreserved") is True
+                ):
+                    exclusions.append(ref)
+                elif node.get("semanticInput", {}).get(
+                    "role"
+                ) == "unassigned_observation" and not node.get("semanticInput", {}).get(
+                    "candidateTableRefs"
+                ):
+                    independent.append(ref)
+            if len(exclusions) == 1 and not independent:
+                entry.update(
+                    status="explicit_geometric_exclusion",
+                    targetRefs=exclusions,
+                    truthVerified=False,
+                )
+            elif len(independent) == 1 and not exclusions:
+                entry.update(status="independent_observation", targetRefs=independent)
+            else:
+                entry.update(reason="unassigned_or_conflicting_detection", targetRefs=sources)
+    unsupported = []
+    for ref in structural_ids:
+        node = doc.nodes[ref]
+        raw = node.get("originalRecognitionText", node["text"])
+        gaps = [
+            i
+            for i, char in enumerate(raw)
+            if not char.isspace() and i not in supported.get(ref, set())
+        ]
+        if gaps:
+            unsupported.append({"sourceRef": ref, "unaccountedCharacterCount": len(gaps)})
+    tables = [
+        t for t in doc.tables.values() if any(c["sourceRef"] in structural_ids for c in t["cells"])
+    ]
+    unverified_tables = [
+        t["id"]
+        for t in tables
+        if not (
+            type(t.get("declaredRowCount")) is int
+            and type(t.get("declaredColCount")) is int
+            and 0 < t["declaredRowCount"] * t["declaredColCount"] <= 100000
+        )
+    ]
+    unresolved = sum(e["status"] == "unresolved" for e in ledger)
+    # Structural/recognition issues remain blocking even with a lossless raw inventory.
+    complete = (
+        valid
+        and not unresolved
+        and not unsupported
+        and not unverified_tables
+        and not payload.get("issues")
+        and not doc.issues
+    )
+    result = {
+        "version": "document-files.observed-processing-ledger.v2",
+        "batch": prefix,
+        "scope": "returned_word_detections_and_exported_structure_only",
+        "allRawOCRDetectionsPreserved": valid,
+        "observedProcessingCoverage": "complete" if complete else "partial",
+        "ocrTruthVerified": False,
+        "pageContentCompletenessVerified": False,
+        "unverifiedTableExtents": unverified_tables,
+        "digitalTextSupport": digital_support,
+        "entries": ledger,
+        "unsupportedStructuralText": unsupported,
+        "rawOCRPasses": deepcopy(captures),
+        "rawCapturePages": deepcopy(declared),
+    }
+    doc.provenance.setdefault("recognitionProcessingLedgers", []).append(result)
+    if not complete:
+        doc.issue(
+            "recognition_observed_processing_partial",
+            recognitionBatch=prefix,
+            unresolvedDetections=unresolved,
+            unsupportedStructuralNodes=len(unsupported),
+            rawInventoryVerified=valid,
+        )
+    return result
+
+
+def page_render_fingerprint(record):
+    """Digest source-bound capture metadata, excluding only its own digest."""
+    import hashlib
+    import json
+
+    return hashlib.sha256(
+        json.dumps(
+            {k: v for k, v in record.items() if k != "fingerprint"},
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
