@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -111,6 +112,11 @@ def test_actual_local_copy_worker_and_exact_output_hashes(prepared):
             helper.digest((args.output / "files" / row["filename"]).read_bytes()) == row["sha256"]
         )
     assert all(not r["cleanup"]["terminated"] for r in result["inputs"])
+    for item in result["inputs"]:
+        assert item["sourceRecheck"]["status"] == "verified"
+        assert item["sourceRecheck"]["pathIdentityMatches"] is True
+        assert item["sourceRecheck"]["bytesRead"] == item["expectedSize"]
+        assert item["sourceRecheck"]["sha256"] == item["expectedSha256"]
     with pytest.raises(FileExistsError):
         helper.prepare(args)
 
@@ -332,7 +338,8 @@ def test_post_worker_same_size_tampering_is_not_accepted(prepared, monkeypatch):
     assert len(result["inputs"]) == 1
 
 
-def test_local_mutation_during_copy_is_recorded(tmp_path, monkeypatch):
+@pytest.mark.parametrize("restore_timestamp", [False, True])
+def test_local_mutation_during_copy_is_recorded(tmp_path, monkeypatch, restore_timestamp):
     original = tmp_path / "original"
     raw = b"source bytes"
     original.write_bytes(raw)
@@ -347,15 +354,25 @@ def test_local_mutation_during_copy_is_recorded(tmp_path, monkeypatch):
     }
     stream = helper.stream_bytes
 
+    before = original.stat()
+
     def changed(*args):
         result = stream(*args)
         original.write_bytes(b"x" * len(raw))
+        if restore_timestamp:
+            os.utime(original, ns=(before.st_atime_ns, before.st_mtime_ns))
+            assert original.stat().st_mtime_ns == before.st_mtime_ns
         return result
 
     monkeypatch.setattr(helper, "stream_bytes", changed)
     result = helper.transfer({"input": row, "directory": str(output), "timeoutSeconds": 10})
     assert result["status"] == "failed" and result["partialBytes"] == len(raw)
     assert not (output / "source.bin").exists()
+    assert result["copiedBytes"] == len(raw)
+    assert result["copiedSha256"] == helper.digest(raw)
+    assert result["sourceRecheck"]["bytesRead"] == len(raw)
+    assert result["sourceRecheck"]["sha256"] == helper.digest(b"x" * len(raw))
+    assert result["sourceRecheck"]["status"] == "incomplete"
 
 
 def test_deadline_stops_stream_without_writing(tmp_path):
@@ -733,3 +750,81 @@ def test_v2_model_symlink_below_reuse_root_is_rejected(prepared_model, tmp_path)
     except OSError:
         pytest.skip("host cannot create symbolic links")
     assert helper.prepare(args)["status"] == "failed"
+
+
+def test_source_recheck_stops_at_size_plus_one_and_records_actual_reads():
+    evidence = {}
+    with pytest.raises(ValueError, match="exceeds approved size"):
+        helper.recheck_local_source(
+            io.BytesIO(b"abcdef"),
+            {"size": 3, "sha256": helper.digest(b"abc")},
+            time.monotonic() + 10,
+            evidence,
+        )
+    assert evidence["bytesRead"] == evidence["maxBytes"] == 4
+    assert evidence["sha256"] == helper.digest(b"abcd")
+    assert evidence["status"] == "incomplete"
+
+
+def test_source_recheck_keeps_partial_reads_on_original_deadline(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(helper.time, "monotonic", lambda: clock[0])
+
+    class Source(io.BytesIO):
+        def read1(self, n):
+            value = super().read1(min(n, 2))
+            clock[0] = 2.0
+            return value
+
+    evidence = {}
+    with pytest.raises(TimeoutError, match="source recheck deadline"):
+        helper.recheck_local_source(
+            Source(b"abcd"), {"size": 4, "sha256": helper.digest(b"abcd")}, 1.0, evidence
+        )
+    assert evidence["bytesRead"] == 2
+    assert evidence["sha256"] == helper.digest(b"ab")
+    assert evidence["status"] == "incomplete"
+
+
+def test_source_recheck_read_failure_retains_observed_prefix():
+    class Source(io.BytesIO):
+        def read1(self, n):
+            if self.tell():
+                raise OSError("synthetic read failure")
+            return super().read1(min(n, 2))
+
+    evidence = {}
+    with pytest.raises(OSError):
+        helper.recheck_local_source(
+            Source(b"abcd"),
+            {"size": 4, "sha256": helper.digest(b"abcd")},
+            time.monotonic() + 10,
+            evidence,
+        )
+    assert evidence["bytesRead"] == 2 and evidence["sha256"] == helper.digest(b"ab")
+    assert evidence["status"] == "incomplete"
+
+
+def test_failed_recheck_keeps_partial_file_and_does_not_publish(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.write_bytes(b"abc")
+    output = tmp_path / "out"
+    output.mkdir()
+    row = {
+        "method": "copy",
+        "localPath": str(source),
+        "filename": "copied.bin",
+        "size": 3,
+        "sha256": helper.digest(b"abc"),
+    }
+
+    def failed(stream, row, deadline, evidence):
+        evidence.update(status="incomplete", bytesRead=1, sha256=helper.digest(b"a"))
+        raise TimeoutError("source recheck deadline")
+
+    monkeypatch.setattr(helper, "recheck_local_source", failed)
+    result = helper.transfer({"input": row, "directory": str(output), "timeoutSeconds": 10})
+    assert result["status"] == "failed" and result["errorType"] == "TimeoutError"
+    assert result["partialBytes"] == 3 and result["sourceRecheck"]["bytesRead"] == 1
+    assert (output / "copied.bin.partial").read_bytes() == b"abc"
+    assert not (output / "copied.bin").exists()

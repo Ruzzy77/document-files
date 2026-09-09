@@ -598,6 +598,36 @@ def stream_bytes(source, destination, row, deadline):
     return total, hashed.hexdigest()
 
 
+def recheck_local_source(source, row, deadline, evidence):
+    """Re-read the same open source before publishing a copied file.
+
+    Metadata equality is not byte stability on coarse timestamp filesystems.
+    This bounded second pass shares the transfer deadline; it does not download
+    or write another copy. The extra source reads remain visible on failure.
+    """
+    started = time.monotonic()
+    hashed = hashlib.sha256()
+    evidence.update(status="incomplete", bytesRead=0, maxBytes=row["size"] + 1)
+    try:
+        source.seek(0)
+        read = getattr(source, "read1", source.read)
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("source recheck deadline")
+            chunk = read(min(CHUNK, row["size"] - evidence["bytesRead"] + 1))
+            if not chunk:
+                break
+            evidence["bytesRead"] += len(chunk)
+            hashed.update(chunk)
+            if evidence["bytesRead"] > row["size"]:
+                raise ValueError("local original exceeds approved size during recheck")
+        if evidence["bytesRead"] != row["size"] or hashed.hexdigest() != row["sha256"]:
+            raise ValueError("local original bytes changed during copy")
+        evidence["status"] = "verified"
+    finally:
+        evidence.update(sha256=hashed.hexdigest(), elapsedSeconds=time.monotonic() - started)
+
+
 def transfer(job):
     row = job["input"]
     directory = regular(Path(job["directory"]), directory=True)
@@ -621,10 +651,14 @@ def transfer(job):
                 if identity(before) != identity(opened):
                     raise ValueError("local original changed before copy")
                 total, hashed = stream_bytes(source, partial, row, deadline)
+                result.update(copiedBytes=total, copiedSha256=hashed)
+                result["sourceRecheck"] = {"pathIdentityMatches": False}
+                recheck_local_source(source, row, deadline, result["sourceRecheck"])
                 after = os.fstat(source.fileno())
-            current = regular(path).stat()
-            if not identity(before) == identity(opened) == identity(after) == identity(current):
-                raise ValueError("local original changed during copy")
+                current = regular(path).stat()
+                if not identity(before) == identity(opened) == identity(after) == identity(current):
+                    raise ValueError("local original changed during copy")
+                result["sourceRecheck"]["pathIdentityMatches"] = True
         else:
             if row.get("localCopyOnly"):
                 raise ValueError("model originals cannot be downloaded")

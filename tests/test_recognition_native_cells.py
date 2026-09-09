@@ -79,7 +79,15 @@ def test_microtext_image_shape_and_extra_line_are_not_blank(kind, position):
         "boundary": [1, 5, 1.001, 5.001],
         "touching": [31, 5, 31.001, 5.001],
     }[position]
-    page["objects"].append({"id": "content", "kind": kind, "bounds": bounds})
+    page["objects"].append(
+        {
+            "id": "content",
+            "kind": kind,
+            "bounds": bounds,
+            "paintSupportBounds": bounds,
+            "paintBoundsStatus": "verified",
+        }
+    )
     result = prove(record, validation, page)
     assert not result["blankValueProven"]
     assert result["conflictObjectRefs"] == ["content"]
@@ -111,6 +119,48 @@ def test_nonunique_or_incomplete_native_borders_stay_unresolved(variant):
     else:
         line["bounds"] = None
     assert not prove(record, validation, page)["blankValueProven"]
+
+
+@pytest.mark.parametrize("variant", ["overhang", "missing", "unverified", "shrunk", "space"])
+def test_text_paint_and_logical_extent_cannot_be_ignored(variant):
+    record, validation, page, *_ = cell_fixture()
+    text = {
+        "id": "text",
+        "kind": "text",
+        "text": "A",
+        "bounds": [32, 5, 34, 10],
+        "paintSupportBounds": [30, 5, 34, 10],
+        "paintBoundsStatus": "verified",
+    }
+    if variant == "missing":
+        del text["paintSupportBounds"]
+    elif variant == "unverified":
+        text["paintBoundsStatus"] = "unverified"
+    elif variant == "shrunk":
+        text["bounds"] = [30, 5, 34, 10]
+        text["paintSupportBounds"] = [32, 5, 34, 10]
+    elif variant == "space":
+        text.update(text=" ", bounds=[30, 5, 34, 10])
+    page["objects"].append(text)
+    decision = prove(record, validation, page)
+    assert not decision["blankValueProven"]
+    if variant in {"overhang", "space"}:
+        assert decision["conflictObjectRefs"] == ["text"]
+
+
+def test_verified_text_extent_outside_cell_does_not_hide_native_blank():
+    record, validation, page, *_ = cell_fixture()
+    page["objects"].append(
+        {
+            "id": "text",
+            "kind": "text",
+            "text": "A",
+            "bounds": [33, 5, 34, 10],
+            "paintSupportBounds": [32, 4, 35, 11],
+            "paintBoundsStatus": "verified",
+        }
+    )
+    assert prove(record, validation, page)["blankValueProven"]
 
 
 @pytest.mark.parametrize(
@@ -146,7 +196,10 @@ def import_fixture(monkeypatch):
     from document_files.document_model.model import ObservationDocument
 
     record, validation, page, _, _, _, mapping = cell_fixture()
-    page["completeness"] = {"eligibleForNativeCellReasoning": True}
+    page["completeness"] = {
+        "eligibleForNativeCellReasoning": True,
+        "textPaintBoundsVerified": True,
+    }
     inventory = {"pages": [page], "sourceSha256": "a" * 64}
     inventory["fingerprint"] = fingerprint(inventory)
     # This import fixture tests table/state integration; the real parser and its
@@ -256,6 +309,7 @@ def test_import_preserves_values_source_pixels_and_original_issue(monkeypatch):
         "other_source",
         "other_page",
         "incomplete",
+        "unverified_text_bounds",
         "duplicate_batch",
         "duplicate_table",
         "merged",
@@ -271,6 +325,10 @@ def test_import_does_not_promote_cross_source_ambiguous_or_unverified_cells(monk
         doc.provenance["pdfNativeObjects"]["pages"][0]["completeness"][
             "eligibleForNativeCellReasoning"
         ] = False
+    elif variant == "unverified_text_bounds":
+        del doc.provenance["pdfNativeObjects"]["pages"][0]["completeness"][
+            "textPaintBoundsVerified"
+        ]
     elif variant == "duplicate_batch":
         doc.provenance["recognitionCellPixelObservations"].append(deepcopy(batch))
     elif variant == "duplicate_table":

@@ -19,13 +19,18 @@
   input and licenses, and regenerate RECORD with a derivation receipt. This is not
   target execution or redistribution approval.
 - Add bounded native PDF object/stream inspection and a narrow missing-cell blank
-  decision (recognition adapter v21). Require a complete supported source inventory,
+  decision (recognition adapter v22, native-object and cell-decision v2). Verify linked
+  embedded font bytes, supported character mappings and glyph paint bounds without
+  discarding logical text bounds. Require a complete supported source inventory,
   four unique closed native borders and a fully observed opaque-white interior.
   Preserve original values and resolved issue evidence; scans, ambiguous content and
   global completeness remain unverified.
 - Add bounded Linux recognition-input checking/acquisition with explicit inventory
   hashes, official origins, local-byte verification and owned-worker cleanup. Default
   inspection is offline; this does not assemble or approve a recognition stage.
+- Recheck local input bytes before publishing a copied file, sharing the original
+  deadline and recording extra reads. Equal size/timestamps no longer hide an input
+  mutation; failures retain the partial copy without promoting it.
 - Add explicit v2 component selection for recognition inputs without changing legacy
   v1 blocking behavior. Preserve unresolved stage requirements separately, bind each
   selected file to an exact source-manifest row, and keep model reuse local-copy-only.

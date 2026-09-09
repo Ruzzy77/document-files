@@ -8,7 +8,7 @@ from copy import deepcopy
 
 from .recognition_coordinates import fingerprint
 
-VERSION = "document-files.native-cell-decision.v1"
+VERSION = "document-files.native-cell-decision.v2"
 MAX_COMPARISONS = 262144
 
 
@@ -26,6 +26,32 @@ def _rectangle(value):
 
 def _touches(a, b):
     return a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
+
+
+def _content_bounds(obj):
+    def bounds(value):
+        if (
+            not isinstance(value, (list, tuple))
+            or len(value) != 4
+            or any(type(v) not in (int, float) or not math.isfinite(v) for v in value)
+            or value[0] > value[2]
+            or value[1] > value[3]
+        ):
+            raise ValueError("object bounds unavailable")
+        return value
+
+    original = bounds(obj.get("bounds"))
+    if obj.get("kind") != "text":
+        return original
+    if obj.get("paintBoundsStatus") != "verified":
+        raise ValueError("text paint bounds unverified")
+    painted = bounds(obj.get("paintSupportBounds"))
+    if not (
+        painted[0] <= original[0] <= original[2] <= painted[2]
+        and painted[1] <= original[1] <= original[3] <= painted[3]
+    ):
+        raise ValueError("text logical bounds not preserved")
+    return painted
 
 
 def _source_boxes(record, slot, validation, native_page):
@@ -112,15 +138,7 @@ def prove_native_blank(record, slot, validation, native_page, *, comparison_budg
         edges, conflicts = {}, []
         for obj in objects:
             decision["comparisons"] += 1
-            bounds = obj.get("bounds")
-            if (
-                not isinstance(bounds, (list, tuple))
-                or len(bounds) != 4
-                or any(type(v) not in (int, float) or not math.isfinite(v) for v in bounds)
-                or bounds[0] > bounds[2]
-                or bounds[1] > bounds[3]
-            ):
-                raise ValueError("object bounds unavailable")
+            bounds = _content_bounds(obj)
             if not _touches(bounds, outer):
                 continue
             edge = _line_edge(obj, outer, inner)
@@ -169,7 +187,11 @@ def import_native_blank_cells(doc, *, source_hash, page, prefix):
     if validation.get("status") != "verified":
         return []
     native_page = validation["pageInventory"]
-    if not native_page.get("completeness", {}).get("eligibleForNativeCellReasoning"):
+    completeness = native_page.get("completeness", {})
+    if not all(
+        completeness.get(key) is True
+        for key in ("eligibleForNativeCellReasoning", "textPaintBoundsVerified")
+    ):
         return []
     batches = [
         batch

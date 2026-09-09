@@ -20,7 +20,7 @@ from copy import deepcopy
 
 from .recognition_coordinates import fingerprint
 
-VERSION = "document-files.pdf-native-objects.v1"
+VERSION = "document-files.pdf-native-objects.v2"
 DEFAULT_LIMITS = {
     "maxInputBytes": 16_000_000,
     "maxPages": 16,
@@ -202,6 +202,404 @@ def _valid_operation(operation):
     return _finite(args)
 
 
+def _font_stream(stream, usage, limits):
+    _bound(usage, limits, "maxStreams")
+    data, filters, encoded = _decoded(stream, limits["maxDecodedBytes"] - usage["maxDecodedBytes"])
+    _bound(usage, limits, "maxDecodedBytes", len(data))
+    return data, {
+        "objectNumber": stream.objid,
+        "generation": stream.genno,
+        "encodedSha256": encoded,
+        "decodedSha256": hashlib.sha256(data).hexdigest(),
+        "decodedBytes": len(data),
+        "filters": filters,
+    }
+
+
+def _one_byte_cmap(data, usage, limits, deadline):
+    """Validate a narrow ToUnicode syntax using the existing PDF tokenizer."""
+    from pdfminer.pdfinterp import PDFContentParser
+    from pdfminer.pdftypes import PDFStream
+    from pdfminer.psparser import PSEOF, PSKeyword, keyword_name
+
+    parser = PDFContentParser([PDFStream({}, data)])
+    tokens = []
+    while True:
+        if time.monotonic() > deadline:
+            raise ValueError("time_budget_exceeded")
+        try:
+            _, value = parser.nextobject()
+        except PSEOF:
+            if parser.context or parser.curstack:
+                raise ValueError("truncated_font_cmap") from None
+            break
+        _bound(usage, limits, "maxOperators")
+        tokens.append(keyword_name(value) if isinstance(value, PSKeyword) else _operand(value))
+    prologue = [
+        {"name": "CIDInit"},
+        {"name": "ProcSet"},
+        "findresource",
+        "begin",
+        12,
+        "dict",
+        "begin",
+        "begincmap",
+    ]
+    tail = [
+        "endcmap",
+        "CMapName",
+        "currentdict",
+        {"name": "CMap"},
+        "defineresource",
+        "pop",
+        "end",
+        "end",
+    ]
+    if tokens[:8] != prologue or tokens[-8:] != tail:
+        raise ValueError("font_cmap_wrapper_unsupported")
+    body = tokens[8:-8]
+    attrs = {}
+    while len(body) >= 3 and isinstance(body[0], dict) and set(body[0]) == {"name"}:
+        name, value, op = body[:3]
+        key = name["name"]
+        if op != "def" or key not in {"CIDSystemInfo", "CMapName", "CMapType"} or key in attrs:
+            raise ValueError("font_cmap_attributes_unsupported")
+        attrs[key] = value
+        body = body[3:]
+    if attrs.get("CMapType") != 2 or set(attrs) != {"CIDSystemInfo", "CMapName", "CMapType"}:
+        raise ValueError("font_cmap_type_unsupported")
+    if len(body) < 5 or body[:2] != [1, "begincodespacerange"] or body[4] != "endcodespacerange":
+        raise ValueError("font_cmap_codespace_unsupported")
+
+    def code(v):
+        if not isinstance(v, dict) or set(v) != {"bytesHex"}:
+            raise ValueError("font_cmap_code_invalid")
+        return bytes.fromhex(v["bytesHex"])
+
+    low, high = code(body[2]), code(body[3])
+    if len(low) != 1 or len(high) != 1 or low > high:
+        raise ValueError("font_cmap_codespace_invalid")
+    body = body[5:]
+    mapping = {}
+    while body:
+        n = body[0]
+        if type(n) is not int or not 0 < n <= 256 or len(body) < 3 or body[1] != "beginbfchar":
+            raise ValueError("font_cmap_mapping_unsupported")
+        if len(body) < 3 + 2 * n or body[2 + 2 * n] != "endbfchar":
+            raise ValueError("font_cmap_mapping_truncated")
+        for index in range(n):
+            source, dest = code(body[2 + 2 * index]), code(body[3 + 2 * index])
+            if len(source) != 1 or not low <= source <= high or source.hex() in mapping:
+                raise ValueError("font_cmap_mapping_duplicate_or_outside")
+            value = dest.decode("utf-16-be")
+            if len(value) != 1 or ord(value) > 0xFFFF:
+                raise ValueError("font_cmap_multichar_unsupported")
+            mapping[source.hex()] = ord(value)
+        body = body[3 + 2 * n :]
+    if not mapping:
+        raise ValueError("font_cmap_empty")
+    return mapping
+
+
+def _truetype_format6(data, usage, limits, deadline):
+    """Narrow adapter over ReportLab's parser, not a general sfnt parser.
+
+    Preflight the one bounded cmap before TTFontFile.extractInfo can expand
+    arbitrary ranges. Do not use its inverted format-6 charToGlyph mapping.
+    """
+    from reportlab.pdfbase.ttfonts import TTFontFile, TTFontParser
+
+    if data[:4] not in (b"\x00\x01\x00\x00", b"true"):
+        raise ValueError("font_program_format_unsupported")
+    _bound(usage, limits, "maxDecodedBytes", len(data))
+
+    class BoundedFont(TTFontFile):
+        pass
+
+    def bounded_reader(name):
+        original = getattr(TTFontParser, name)
+
+        def read(self, *args):
+            if time.monotonic() > deadline:
+                raise ValueError("time_budget_exceeded")
+            _bound(usage, limits, "maxOperators")
+            return original(self, *args)
+
+        return read
+
+    for method in (
+        "read_ushort",
+        "read_ulong",
+        "read_short",
+        "read_uint8",
+        "read_tag",
+        "get_ushort",
+        "get_ulong",
+    ):
+        setattr(BoundedFont, method, bounded_reader(method))
+    parser = BoundedFont.__new__(BoundedFont)
+    TTFontParser.__init__(parser, io.BytesIO(data), validate=0)
+    if len(parser.tables) != len(parser.table) or len(parser.tables) > 64:
+        raise ValueError("font_table_inventory_unsupported")
+    spans = []
+    for table in parser.tables:
+        start, length = table["offset"], table["length"]
+        if start < 12 + 16 * len(parser.tables) or start + length > len(data):
+            raise ValueError("font_table_bounds_invalid")
+        if length and any(start < b and start + length > a for a, b in spans):
+            raise ValueError("font_table_overlap")
+        spans.append((start, start + length))
+    if any(
+        k in parser.table for k in ("CFF ", "CFF2", "SVG ", "CBDT", "CBLC", "sbix", "COLR", "fvar")
+    ):
+        raise ValueError("font_outline_program_unsupported")
+    start, size = parser.get_table_pos("cmap")
+    parser.seek(start)
+    if parser.read_ushort() != 0 or parser.read_ushort() != 1:
+        raise ValueError("font_cmap_subtables_unsupported")
+    if (parser.read_ushort(), parser.read_ushort(), parser.read_ulong()) != (1, 0, 12):
+        raise ValueError("font_cmap_platform_unsupported")
+    if parser.read_ushort() != 6:
+        raise ValueError("font_cmap_format_unsupported")
+    length, language, first, count = [parser.read_ushort() for _ in range(4)]
+    if (
+        not 0 < count <= 256
+        or first + count > 256
+        or language != 0
+        or length != 10 + 2 * count
+        or size != 12 + length
+    ):
+        raise ValueError("font_cmap_format6_bounds_invalid")
+    glyph_map = {f"{first + i:02x}": parser.read_ushort() for i in range(count)}
+    _bound(usage, limits, "maxOperators", count + len(parser.tables))
+    if time.monotonic() > deadline:
+        raise ValueError("time_budget_exceeded")
+    # Bound the loops before ReportLab materializes glyph/metric arrays.
+    parser.seek_table("maxp", 4)
+    glyph_count = parser.read_ushort()
+    if not 0 < glyph_count <= 4096:
+        raise ValueError("font_glyph_inventory_unsupported")
+    _bound(usage, limits, "maxSegments", glyph_count + 1)
+    parsed = parser
+    parsed.extractInfo(charInfo=1)
+    if time.monotonic() > deadline:
+        raise ValueError("time_budget_exceeded")
+    if not 16 <= parsed.unitsPerEm <= 16384 or parsed.numGlyphs != glyph_count:
+        raise ValueError("font_glyph_inventory_unsupported")
+    positions = parsed.glyphPos
+    glyf_start, glyf_size = parser.get_table_pos("glyf")
+    if (
+        len(positions) != parsed.numGlyphs + 1
+        or any(type(v) is not int or not 0 <= v <= glyf_size for v in positions)
+        or positions != sorted(positions)
+    ):
+        raise ValueError("font_loca_invalid")
+    if any(not 0 <= g < parsed.numGlyphs for g in glyph_map.values()):
+        raise ValueError("font_cmap_glyph_outside")
+    return {
+        "cmapFormat": 6,
+        "cmapPlatform": [1, 0],
+        "codeToGlyph": glyph_map,
+        "unitsPerEm": parsed.unitsPerEm,
+        "numGlyphs": parsed.numGlyphs,
+        "glyphOffsets": positions,
+        "glyfOffset": glyf_start,
+        "glyfBytes": glyf_size,
+    }
+
+
+def _source_font(font, ref, output, usage, limits, deadline):
+    from pdfminer.pdftypes import PDFStream, resolve1
+    from pdfminer.psparser import literal_name
+
+    record = {"id": ref, "status": "unverified", "streams": [], "nativeLoadAllowed": False}
+    output["fontResources"].append(record)
+    try:
+        record["subtype"] = literal_name(font.get("Subtype"))
+        descriptor = resolve1(font.get("FontDescriptor", {}))
+        # An ordinary nonembedded font can still be inventoried, but cannot
+        # bypass the later mandatory paint-support check.
+        if (
+            record["subtype"] == "Type1"
+            and not any(k in descriptor for k in ("FontFile", "FontFile2", "FontFile3"))
+            and not isinstance(resolve1(font.get("ToUnicode")), PDFStream)
+            and not isinstance(resolve1(font.get("Encoding")), PDFStream)
+        ):
+            record["nativeLoadAllowed"] = True
+        if record["subtype"] != "TrueType" or "Encoding" in font or "DescendantFonts" in font:
+            raise ValueError("font_mapping_unsupported")
+        descriptor = resolve1(font.get("FontDescriptor", {}))
+        record["flags"] = descriptor.get("Flags")
+        if type(record["flags"]) is not int or not record["flags"] & 4 or record["flags"] & 32:
+            raise ValueError("font_symbolic_mapping_unsupported")
+        if any(k in descriptor for k in ("FontFile", "FontFile3")):
+            raise ValueError("font_program_unsupported")
+        program, cmap = resolve1(descriptor.get("FontFile2")), resolve1(font.get("ToUnicode"))
+        if not isinstance(program, PDFStream) or not isinstance(cmap, PDFStream):
+            raise ValueError("font_program_or_cmap_missing")
+        data, item = _font_stream(program, usage, limits)
+        item["role"] = "FontFile2"
+        record["streams"].append(item)
+        text, item = _font_stream(cmap, usage, limits)
+        item["role"] = "ToUnicode"
+        record["streams"].append(item)
+        record["codeToUnicode"] = _one_byte_cmap(text, usage, limits, deadline)
+        record["trueType"] = _truetype_format6(data, usage, limits, deadline)
+        record["status"] = "verified"
+        record["nativeLoadAllowed"] = True
+        return record, data
+    except Exception as error:
+        record.update(errorType=type(error).__name__, reason=str(error))
+        return record, None
+    finally:
+        record["fingerprint"] = fingerprint(record)
+
+
+def _text_source_bytes(operation):
+    args = operation["operands"]
+    parts = args[-1] if operation["operator"] == "TJ" else args[-1:]
+    return b"".join(
+        bytes.fromhex(p["bytesHex"]) for p in parts if isinstance(p, dict) and "bytesHex" in p
+    )
+
+
+def _paint_text(raw, obj, textpage, item, source_op, fonts, usage, limits, deadline, height):
+    """Bound actual native outlines by their control hull; never replace text."""
+    ref = source_op.get("fontResourceRef")
+    record, original = fonts.get(ref, ({}, None))
+    item.update(
+        fontResourceRef=ref,
+        sourceOperatorSequence=source_op["sequence"],
+        paintBoundsStatus="unverified",
+    )
+    if record.get("status") != "verified" or original is None or item["textRenderMode"] != 0:
+        raise ValueError("text_font_or_paint_unsupported")
+    font = raw.FPDFTextObj_GetFont(obj)
+    if not font or raw.FPDFFont_GetIsEmbedded(font) != 1:
+        raise ValueError("native_font_not_embedded")
+    size = ctypes.c_size_t()
+    if not raw.FPDFFont_GetFontData(font, None, 0, size) or size.value != len(original):
+        raise ValueError("native_font_size_mismatch")
+    _bound(usage, limits, "maxDecodedBytes", size.value)
+    buffer = (ctypes.c_uint8 * size.value)()
+    if (
+        not raw.FPDFFont_GetFontData(font, buffer, len(buffer), size)
+        or size.value != len(original)
+        or memoryview(buffer).cast("B") != original
+    ):
+        raise ValueError("native_font_bytes_mismatch")
+    item["nativeFontSha256"] = hashlib.sha256(buffer).hexdigest()
+    source = _text_source_bytes(source_op)
+    mapping = record["codeToUnicode"]
+    codes = [f"{c:02x}" for c in source]
+    unicodes = [mapping[c] for c in codes]
+    if any(u == 0 or list(mapping.values()).count(u) != 1 for u in unicodes):
+        raise ValueError("text_unicode_inverse_ambiguous")
+    if "".join(chr(u) for u in unicodes) != item["text"]:
+        raise ValueError("text_source_native_mismatch")
+    address = ctypes.cast(obj.raw, ctypes.c_void_p).value
+    chars = []
+    for index in range(raw.FPDFText_CountChars(textpage)):
+        _bound(usage, limits, "maxOperators")
+        candidate = raw.FPDFText_GetTextObject(textpage, index)
+        if candidate and ctypes.cast(candidate, ctypes.c_void_p).value == address:
+            chars.append(index)
+    if len(chars) != len(codes):
+        raise ValueError("text_character_membership_mismatch")
+    font_size = ctypes.c_float()
+    if (
+        not raw.FPDFTextObj_GetFontSize(obj, font_size)
+        or not _finite([font_size.value])
+        or font_size.value <= 0
+    ):
+        raise ValueError("text_size_invalid")
+    item["paintGlyphs"] = []
+    hull = list(item["bounds"])
+    tt = record["trueType"]
+    for ordinal, (index, code, unicode) in enumerate(zip(chars, codes, unicodes, strict=True)):
+        if time.monotonic() > deadline:
+            raise ValueError("time_budget_exceeded")
+        if (
+            raw.FPDFText_GetUnicode(textpage, index) != unicode
+            or raw.FPDFText_IsGenerated(textpage, index) != 0
+        ):
+            raise ValueError("text_character_source_mismatch")
+        matrix = raw.FS_MATRIX()
+        x, y = ctypes.c_double(), ctypes.c_double()
+        if not raw.FPDFText_GetMatrix(textpage, index, matrix) or not raw.FPDFText_GetCharOrigin(
+            textpage, index, x, y
+        ):
+            raise ValueError("text_character_geometry_unavailable")
+        values = [getattr(matrix, k) for k in "abcdef"]
+        if (
+            not _finite(values + [x.value, y.value])
+            or values[1] != 0
+            or values[2] != 0
+            or values[0] <= 0
+            or values[3] <= 0
+        ):
+            raise ValueError("text_character_transform_unsupported")
+        glyph = tt["codeToGlyph"][code]
+        start, end = tt["glyphOffsets"][glyph : glyph + 2]
+        path = raw.FPDFFont_GetGlyphPath(font, unicode, font_size.value)
+        count = raw.FPDFGlyphPath_CountGlyphSegments(path) if path else -1
+        points = []
+        native_points = []
+        if start == end:
+            if count > 0:
+                raise ValueError("source_empty_native_outline_mismatch")
+            basis = "source_loca_zero_length"
+        else:
+            if not path or count <= 0:
+                raise ValueError("native_glyph_outline_unavailable")
+            _bound(usage, limits, "maxSegments", count)
+            basis = "native_outline_control_hull"
+            for n in range(count):
+                if time.monotonic() > deadline:
+                    raise ValueError("time_budget_exceeded")
+                segment = raw.FPDFGlyphPath_GetGlyphPathSegment(path, n)
+                px, py = ctypes.c_float(), ctypes.c_float()
+                if (
+                    not segment
+                    or not raw.FPDFPathSegment_GetPoint(segment, px, py)
+                    or not _finite([px.value, py.value])
+                ):
+                    raise ValueError("native_glyph_point_unavailable")
+                # PDFium LoadGlyphPath uses a 64px em and divides FT 26.6
+                # coordinates by 64*64; its points are normalized to one em.
+                # Embedded simple fonts have no substitution-width adjustment.
+                native_points.append([px.value, py.value])
+                points.append(
+                    [
+                        x.value + px.value * font_size.value * values[0],
+                        height - (y.value + py.value * font_size.value * values[3]),
+                    ]
+                )
+            hull = [
+                min(hull[0], min(p[0] for p in points)),
+                min(hull[1], min(p[1] for p in points)),
+                max(hull[2], max(p[0] for p in points)),
+                max(hull[3], max(p[1] for p in points)),
+            ]
+        item["paintGlyphs"].append(
+            {
+                "sourceOrdinal": ordinal,
+                "sourceCode": code,
+                "unicode": unicode,
+                "glyphId": glyph,
+                "textPageIndex": index,
+                "matrix": values,
+                "originBottomLeft": [x.value, y.value],
+                "fontSize": font_size.value,
+                "loca": [start, end],
+                "basis": basis,
+                "controlPoints": points,
+                "nativeOutlinePoints": native_points,
+            }
+        )
+    item.update(paintSupportBounds=hull, paintBoundsStatus="verified")
+
+
 def _source_inventory(source_page, output, usage, limits, deadline):
     from pdfminer.pdfinterp import PDFContentParser
     from pdfminer.pdftypes import PDFStream, resolve1, stream_value
@@ -215,6 +613,10 @@ def _source_inventory(source_page, output, usage, limits, deadline):
     streams = source_page.contents
     output["declaredSourceStreamCount"] = len(streams)
     state = {"graphicsDepth": 0, "textOpen": False}
+    fonts = {}
+    active_font = None
+    font_stack = []
+    output["fontResources"] = []
     for stream_index, obj in enumerate(streams):
         _bound(usage, limits, "maxStreams")
         item = {"index": stream_index, "status": "unexamined"}
@@ -269,10 +671,12 @@ def _source_inventory(source_page, output, usage, limits, deadline):
                 if op in UNSUPPORTED:
                     _issue(output, "unsupported_content_operator", operator=op)
                 if op == "q":
+                    font_stack.append(active_font)
                     state["graphicsDepth"] += 1
                     if state["graphicsDepth"] > 64:
                         raise ValueError("graphics_depth_exceeded")
                 elif op == "Q":
+                    active_font = font_stack.pop() if font_stack else None
                     state["graphicsDepth"] -= 1
                     if state["graphicsDepth"] < 0:
                         raise ValueError("unbalanced_graphics_state")
@@ -298,25 +702,22 @@ def _source_inventory(source_page, output, usage, limits, deadline):
                     if subtype != "Image":
                         _issue(output, "form_or_unknown_xobject_unsupported", subtype=subtype)
                 if op == "Tf" and len(operands) == 2:
-                    font = resolve1(resolve1(resources.get("Font", {}))[literal_name(operands[0])])
+                    font_reference = resolve1(resources.get("Font", {}))[literal_name(operands[0])]
+                    font = resolve1(font_reference)
                     operation["fontSubtype"] = literal_name(font.get("Subtype"))
                     if operation["fontSubtype"] == "Type3":
                         _issue(output, "type3_font_content_unsupported")
-                    # Embedded font/CMap programs have their own potentially
-                    # unbounded streams. This first source-only inventory does
-                    # not decode them or claim their content fully inspected.
-                    fonts = [font]
-                    descendants = resolve1(font.get("DescendantFonts", []))
-                    if not isinstance(descendants, list) or len(descendants) > 16:
-                        raise ValueError("font_descendants_unsupported")
-                    fonts.extend(resolve1(v) for v in descendants)
-                    for selected_font in fonts:
-                        descriptor = resolve1(selected_font.get("FontDescriptor", {}))
-                        if any(k in descriptor for k in ("FontFile", "FontFile2", "FontFile3")):
-                            _issue(output, "embedded_font_program_not_inspected")
-                        for key in ("Encoding", "ToUnicode"):
-                            if isinstance(resolve1(selected_font.get(key)), PDFStream):
-                                _issue(output, "font_mapping_stream_not_inspected", field=key)
+                    active_font = f"page:{output['page']}:font:{literal_name(operands[0])}"
+                    operation["fontResourceRef"] = active_font
+                    if active_font not in fonts:
+                        fonts[active_font] = _source_font(
+                            font, active_font, output, usage, limits, deadline
+                        )
+                        font_record = fonts[active_font][0]
+                        font_record["objectNumber"] = getattr(font_reference, "objid", None)
+                        font_record["fingerprint"] = fingerprint(font_record)
+                if op in TEXT:
+                    operation["fontResourceRef"] = active_font
                 operands = []
             item["status"] = "inspected"
         except Exception as error:
@@ -324,6 +725,15 @@ def _source_inventory(source_page, output, usage, limits, deadline):
             _issue(output, "source_stream_unresolved", streamIndex=stream_index)
     if state["graphicsDepth"] or state["textOpen"]:
         _issue(output, "unbalanced_content_state")
+    for record, _ in fonts.values():
+        if not record["nativeLoadAllowed"]:
+            _issue(
+                output,
+                "font_program_or_mapping_unverified",
+                fontResourceRef=record["id"],
+                reason=record.get("reason"),
+            )
+    return fonts
 
 
 def _color(raw, obj, stroke):
@@ -366,10 +776,14 @@ def _primitive(obj):
     )
 
 
-def _pdfium_objects(page, output, usage, limits, deadline):
+def _pdfium_objects(page, output, usage, limits, deadline, fonts):
     import pypdfium2.raw as raw
 
     height = output["pageSize"][1]
+    source_clip_safe = not output["issues"]
+    text_ops = iter(
+        o for o in output["sourceOperators"] if o["operator"] in TEXT and _text_source_bytes(o)
+    )
     count = raw.FPDFPage_CountObjects(page)
     if count < 0:
         raise ValueError("object_count_unavailable")
@@ -407,7 +821,7 @@ def _pdfium_objects(page, output, usage, limits, deadline):
             # Distinguish that case using the independently inspected source
             # stream; a missing handle or any unsupported source cannot prove it.
             source_has_no_clip = (
-                not output["issues"]
+                source_clip_safe
                 and len(output["sourceStreams"]) == output.get("declaredSourceStreamCount")
                 and all(s["status"] == "inspected" for s in output["sourceStreams"])
             )
@@ -433,6 +847,26 @@ def _pdfium_objects(page, output, usage, limits, deadline):
                 item["textRenderMode"] = raw.FPDFTextObj_GetTextRenderMode(obj)
                 if item["textRenderMode"] not in (0, 1, 2, 3):
                     _issue(output, "text_clipping_or_mode_unavailable", objectRef=item["id"])
+                try:
+                    _paint_text(
+                        raw,
+                        obj,
+                        textpage,
+                        item,
+                        next(text_ops),
+                        fonts,
+                        usage,
+                        limits,
+                        deadline,
+                        height,
+                    )
+                except Exception as error:
+                    item.update(
+                        paintBoundsStatus="unverified",
+                        paintBoundsError=type(error).__name__,
+                        paintBoundsReason=str(error),
+                    )
+                    _issue(output, "text_paint_bounds_unverified", objectRef=item["id"])
             elif obj.type == raw.FPDF_PAGEOBJ_IMAGE:
                 item["kind"] = "image"
             elif obj.type == raw.FPDF_PAGEOBJ_FORM:
@@ -560,7 +994,132 @@ def _operator_structure_valid(page):
     return depth == 0 and not text_open
 
 
+def _font_and_paint_valid(page):
+    """Recheck retained support relationships, not original font bytes."""
+    fonts = {f["id"]: f for f in page["fontResources"]}
+    if len(fonts) != len(page["fontResources"]):
+        return False
+    for f in fonts.values():
+        if f.get("fingerprint") != fingerprint(f):
+            return False
+    source = [o for o in page["sourceOperators"] if o["operator"] in TEXT and _text_source_bytes(o)]
+    texts = [o for o in page["objects"] if o["pdfiumType"] == 1]
+    if len(source) != len(texts):
+        return False
+    for op, obj in zip(source, texts, strict=True):
+        font = fonts.get(op.get("fontResourceRef"), {})
+        if (
+            font.get("status") != "verified"
+            or font.get("subtype") != "TrueType"
+            or obj.get("fontResourceRef") != font.get("id")
+            or obj.get("sourceOperatorSequence") != op["sequence"]
+            or obj.get("paintBoundsStatus") != "verified"
+            or obj.get("textRenderMode") != 0
+        ):
+            return False
+        streams = font["streams"]
+        if len(streams) != 2 or [s["role"] for s in streams] != ["FontFile2", "ToUnicode"]:
+            return False
+        for stream in streams:
+            if (
+                type(stream["decodedBytes"]) is not int
+                or stream["decodedBytes"] <= 0
+                or not re.fullmatch(r"[0-9a-f]{64}", stream["decodedSha256"])
+            ):
+                return False
+        if obj.get("nativeFontSha256") != streams[0]["decodedSha256"]:
+            return False
+        tt = font["trueType"]
+        offsets = tt["glyphOffsets"]
+        if (
+            tt["cmapFormat"] != 6
+            or tt["cmapPlatform"] != [1, 0]
+            or type(tt["numGlyphs"]) is not int
+            or not 0 < tt["numGlyphs"] <= 4096
+            or len(offsets) != tt["numGlyphs"] + 1
+        ):
+            return False
+        if any(
+            type(v) is not int or not 0 <= v <= tt["glyfBytes"] for v in offsets
+        ) or offsets != sorted(offsets):
+            return False
+        mapping = font["codeToUnicode"]
+        codes = [f"{c:02x}" for c in _text_source_bytes(op)]
+        glyphs = obj["paintGlyphs"]
+        if len(glyphs) != len(codes) or obj["text"] != "".join(chr(mapping[c]) for c in codes):
+            return False
+        hull = list(obj["bounds"])
+        indices = []
+        for ordinal, (code, g) in enumerate(zip(codes, glyphs, strict=True)):
+            u = mapping[code]
+            gid = tt["codeToGlyph"][code]
+            if (
+                type(u) is not int
+                or not 0 < u <= 0xFFFF
+                or list(mapping.values()).count(u) != 1
+                or type(gid) is not int
+                or not 0 <= gid < tt["numGlyphs"]
+                or g["sourceOrdinal"] != ordinal
+                or g["sourceCode"] != code
+                or g["unicode"] != u
+                or g["glyphId"] != gid
+                or g["loca"] != offsets[gid : gid + 2]
+            ):
+                return False
+            m, origin, size = g["matrix"], g["originBottomLeft"], g["fontSize"]
+            if (
+                len(m) != 6
+                or len(origin) != 2
+                or not _finite(m + origin + [size])
+                or size <= 0
+                or m[1] != 0
+                or m[2] != 0
+                or m[0] <= 0
+                or m[3] <= 0
+            ):
+                return False
+            if type(g["textPageIndex"]) is not int or g["textPageIndex"] < 0:
+                return False
+            indices.append(g["textPageIndex"])
+            points, native = g["controlPoints"], g["nativeOutlinePoints"]
+            empty = offsets[gid] == offsets[gid + 1]
+            if empty:
+                if g["basis"] != "source_loca_zero_length" or points or native:
+                    return False
+            else:
+                if (
+                    g["basis"] != "native_outline_control_hull"
+                    or not native
+                    or any(len(p) != 2 or not _finite(p) for p in native)
+                ):
+                    return False
+                projected = [
+                    [
+                        origin[0] + p[0] * size * m[0],
+                        page["pageSize"][1] - (origin[1] + p[1] * size * m[3]),
+                    ]
+                    for p in native
+                ]
+                if points != projected:
+                    return False
+                hull = [
+                    min(hull[0], min(p[0] for p in points)),
+                    min(hull[1], min(p[1] for p in points)),
+                    max(hull[2], max(p[0] for p in points)),
+                    max(hull[3], max(p[1] for p in points)),
+                ]
+        if indices != sorted(set(indices)) or obj.get("paintSupportBounds") != hull:
+            return False
+    return True
+
+
 def _finish(page):
+    used = {
+        op.get("fontResourceRef")
+        for op in page["sourceOperators"]
+        if op["operator"] in TEXT and _text_source_bytes(op)
+    }
+    fonts = {f["id"]: f for f in page.get("fontResources", [])}
     page["paintCounts"] = _counts(page)
     complete = {
         "sourceStreamsComplete": len(page["sourceStreams"]) == page.get("declaredSourceStreamCount")
@@ -578,6 +1137,28 @@ def _finish(page):
         "pdfiumObjectsComplete": len(page["objects"]) == page.get("declaredPDFiumObjectCount")
         and all("fingerprint" in o for o in page["objects"]),
         "paintCountsMatch": page["paintCounts"]["matched"],
+        "fontResourcesComplete": all(
+            fonts.get(ref, {}).get("status") == "verified" for ref in used
+        ),
+        "nativeFontBytesLinked": all(
+            o.get("nativeFontSha256")
+            == next(
+                (
+                    s.get("decodedSha256")
+                    for s in fonts.get(o.get("fontResourceRef"), {}).get("streams", [])
+                    if s.get("role") == "FontFile2"
+                ),
+                None,
+            )
+            and o.get("nativeFontSha256") is not None
+            for o in page["objects"]
+            if o["pdfiumType"] == 1
+        ),
+        "textPaintBoundsVerified": all(
+            o.get("paintBoundsStatus") == "verified"
+            for o in page["objects"]
+            if o["pdfiumType"] == 1
+        ),
         "unsupportedContentPresent": bool(page["issues"]),
     }
     complete["eligibleForNativeCellReasoning"] = (
@@ -588,6 +1169,9 @@ def _finish(page):
                 "sourceOperatorsComplete",
                 "pdfiumObjectsComplete",
                 "paintCountsMatch",
+                "fontResourcesComplete",
+                "nativeFontBytesLinked",
+                "textPaintBoundsVerified",
             )
         )
         and not complete["unsupportedContentPresent"]
@@ -666,7 +1250,7 @@ def inventory_pdf_native_objects(content, *, page_numbers=None, limits=None):
                 }
                 result["pages"].append(page)
                 try:
-                    _source_inventory(source_page, page, usage, selected_limits, deadline)
+                    fonts = _source_inventory(source_page, page, usage, selected_limits, deadline)
                     if page["issues"]:
                         _issue(page, "pdfium_objects_not_enumerated_for_unsupported_source")
                     else:
@@ -685,7 +1269,7 @@ def inventory_pdf_native_objects(content, *, page_numbers=None, limits=None):
                                 _issue(page, "page_coordinate_transform_unsupported")
                             if native.get_formtype() != 0:
                                 _issue(page, "document_forms_unsupported")
-                            _pdfium_objects(pdf_page, page, usage, selected_limits, deadline)
+                            _pdfium_objects(pdf_page, page, usage, selected_limits, deadline, fonts)
                             if time.monotonic() > deadline:
                                 _issue(page, "time_budget_exceeded")
                 except Exception as error:
@@ -799,6 +1383,8 @@ def validate_native_inventory(inventory, *, source_sha256, page):
                 or stream["decodedBytes"] < 0
             ):
                 raise ValueError("source stream inconsistent")
+        if not _font_and_paint_valid(entry):
+            raise ValueError("native font or paint evidence inconsistent")
         recomputed = deepcopy(entry)
         _finish(recomputed)
         if (

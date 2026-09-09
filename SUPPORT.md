@@ -51,14 +51,16 @@ The release gate also parses the delivered image export and verifies its actual
 configuration ID, architecture and ordered layer hashes, rather than trusting the
 build receipt alone.
 
-Two designated DGX Spark hosts were reachable over SSH and reported ARM64, Ubuntu
-24.04 and cgroup v2. Docker execution currently requires user authentication. No
-container permission, GPU, swap, network or security settings were changed. At source
-25e6cd8, ARM core, CPU runtime and native recognition CI builds passed. Separate
-600-second ARM native artifact downloads on the Mac and Spark each timed out and
-remain unverified partial files; a successful CI upload is not a verified local input. Complete recognition
-stages, CPU-only four-core/16 GiB execution,
-installation/rollback and client use remain unqualified.
+Both designated DGX Spark hosts are reachable through Tailscale SSH and reported
+ARM64, Ubuntu 24.04 and cgroup v2. A fresh check on September 10 confirmed Docker
+access for the existing account on both hosts; no authentication request remains for
+that access. No permissions, GPU, swap, network or security settings were changed.
+Spark-A now has the exact pinned ARM Bookworm image cached. Image acquisition is not
+container execution or full-product qualification. At source 25e6cd8, ARM core, CPU
+runtime and native recognition CI builds passed; the native delivery archive was
+later recovered and statically verified without rewriting prior failed transfers.
+Complete recognition stages, CPU-only four-core/16 GiB execution, installation/rollback
+and client use remain unqualified.
 
 An explicit ARM torchvision derivative was prepared from the pinned CPU wheel in a
 new output location. It restores five codec loader references and omits the now
@@ -300,9 +302,9 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After adapter v20 and cell-observation v2 integration, core regression passed
-**1,308 tests, with 165 skipped and 12 subtests**; Ruff and formatting checks passed.
-The separate recognition-runtime overlay passed **233 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
+After adapter v22 and local-copy rechecking, core regression passed
+**1,404 tests, with 211 skipped and 12 subtests**; Ruff and formatting checks passed.
+The separate recognition-runtime overlay passed **346 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
 
@@ -321,6 +323,15 @@ work was 14,985,921 pixels, below the unchanged limit. Nodes, bindings, tables, 
 issues and coverage matched v19; the scan's 994 faint edge pixels remained recorded,
 not erased or promoted to a blank value. This is development evidence, not holdout
 quality or a 16 GiB resource qualification.
+
+A clean-source adapter v21 development run completed one whole-path observation in
+7.14 seconds (7.65 seconds including supervision), with exit 0 and confirmed known
+process cleanup. Values, bindings, tables and all seven issues matched v20. The native
+Note cell was not proved blank because embedded font programs and character mappings
+were outside inventory v1. The scan retained its faint pixels. Adapter v22 adds narrow
+source/native font-byte and glyph-outline checks before native blank decisions;
+unsupported fonts and mapping/geometry uncertainty remain unresolved. This is not
+whole-page completeness or independent quality approval.
 
 The 117 acquired ARM inputs were independently rehashed and inspected without installation.
 Selected ELF files matched AArch64, but OpenCV's GUI dependencies, an empty Qt interpreter
