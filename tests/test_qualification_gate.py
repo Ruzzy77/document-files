@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from test_evaluation_execution_identity import make_execution_artifacts
+from test_evaluation_execution_identity import identity_helper, make_execution_artifacts
 
 ROOT = Path(__file__).parents[1]
 
@@ -282,6 +282,10 @@ def evidence(tmp_path):
         member = tarfile.TarInfo(prefix + "/scripts/run_http_installation_check.py")
         member.size = len(raw)
         archive.addfile(member, io.BytesIO(raw))
+        patch = b"synthetic selected patch"
+        member = tarfile.TarInfo(prefix + "/patches/rhwp/checkbox-preservation.patch")
+        member.size = len(patch)
+        archive.addfile(member, io.BytesIO(patch))
     source_asset["sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
     core_execution["evaluatorArtifactSha256"] = source_asset["sha256"]
     build_path = tmp_path / source_asset["buildReceipt"]["path"]
@@ -291,6 +295,75 @@ def evidence(tmp_path):
     for asset in extra_assets:
         asset["buildReceipt"] = build_ref
     assets.extend(extra_assets)
+    # An image must carry the rhwp bytes from this exact portable core, not only a wheel.
+    linux = next(a for a in assets if a["id"] == "core-linux-x86_64")
+    wheel_asset = next(a for a in extra_assets if a["id"] == "executed-wheel")
+    binary = b"\x7fELF\x02\x01" + bytes(12) + b"\x3e\x00" + b"not executable"
+    native = {
+        "version": "0.8.6+pat.checkbox.1",
+        "baseCommit": "f1f9c6ae58344ee9368996d3543f76b9345cf227",
+        "patchSha256": hashlib.sha256(patch).hexdigest(),
+        "binarySha256": hashlib.sha256(binary).hexdigest(),
+    }
+    native_files = {
+        "rhwp": binary,
+        "LICENSE": b"synthetic upstream notice",
+        "build.json": json.dumps(native).encode(),
+    }
+    portable = {
+        **identity,
+        "target": "linux-x86_64",
+        "wheelSha256": wheel_asset["sha256"],
+        "rhwp": native,
+    }
+    with zipfile.ZipFile(tmp_path / linux["path"], "w") as out:
+        out.writestr("document-files/BUILD.json", json.dumps(portable))
+        for name, raw in native_files.items():
+            info = zipfile.ZipInfo("document-files/rhwp/" + name)
+            info.external_attr = (0o100755 if name == "rhwp" else 0o100644) << 16
+            out.writestr(info, raw)
+    linux["sha256"] = hashlib.sha256((tmp_path / linux["path"]).read_bytes()).hexdigest()
+    linux_build = json.loads((tmp_path / linux["buildReceipt"]["path"]).read_bytes())
+    linux_build["artifacts"] = {
+        linux["path"]: linux["sha256"],
+        wheel_asset["path"]: wheel_asset["sha256"],
+        source_asset["path"]: source_asset["sha256"],
+    }
+    linux["buildReceipt"] = write(linux["buildReceipt"]["path"], linux_build)
+    native_identity = {
+        "path": "/opt/document-files-native/rhwp/rhwp",
+        "version": "rhwp v0.8.6+pat.checkbox.1",
+        "upstreamCommit": native["baseCommit"],
+        "patchSha256": native["patchSha256"],
+        "files": {n: hashlib.sha256(raw).hexdigest() for n, raw in native_files.items()},
+    }
+    installed = write(
+        "installed-core.json",
+        {
+            "core": identity_helper().wheel_package(tmp_path / wheel_asset["path"]),
+            "rhwp": {k: native_identity[k] for k in ("path", "version", "files")},
+        },
+    )
+    image_build = json.loads((tmp_path / "image-build.json").read_bytes())
+    image_build.update(
+        schemaVersion="document-files.image-build.v2",
+        status="built-unqualified",
+        stage="complete",
+        installedCoreVerification="selected-wheel-exact",
+        installedNativeVerification="selected-core-rhwp-exact",
+        installedNativeEvidence=installed,
+        rhwp=native_identity,
+        probeCleanup={"status": "removed"},
+        inputs={
+            "coreArchiveSha256": linux["sha256"],
+            "coreReceiptSha256": linux["buildReceipt"]["sha256"],
+            "wheelSha256": wheel_asset["sha256"],
+            "sourceArchiveSha256": source_asset["sha256"],
+        },
+    )
+    next(a for a in assets if a["id"] == "image")["buildReceipt"] = write(
+        "image-build.json", image_build
+    )
     inventory_ref = write("artifacts.json", inventory)
     model["runtimeManifestSha256"] = next(
         a["manifestSha256"] for a in assets if a["id"] == "runtime-linux-x86_64"
@@ -1040,3 +1113,59 @@ def test_http_review_does_not_approve_negative_content_comparison(evidence):
     )
     assert receipt["passed"] is False
     assert "independent-content-review" in receipt["missingEvidence"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "legacy",
+        "missing-native",
+        "wrong-core",
+        "wrong-wheel",
+        "wrong-source",
+        "wrong-native",
+        "failed-cleanup",
+        "wrong-installed",
+        "absolute-proof",
+    ],
+)
+def test_image_requires_exact_portable_native_and_installed_proof(evidence, mutation):
+    _, document, _, root = evidence
+    inventory_path = root / document["artifactInventory"]["path"]
+    inventory = json.loads(inventory_path.read_bytes())
+    image = next(a for a in inventory["artifacts"] if a["kind"] == "image")
+    path = root / image["buildReceipt"]["path"]
+    build = json.loads(path.read_bytes())
+    if mutation == "legacy":
+        build["schemaVersion"] = "document-files.image-build.v1"
+    elif mutation == "missing-native":
+        del build["installedNativeVerification"]
+    elif mutation in ("wrong-core", "wrong-wheel", "wrong-source"):
+        key = {
+            "wrong-core": "coreArchiveSha256",
+            "wrong-wheel": "wheelSha256",
+            "wrong-source": "sourceArchiveSha256",
+        }[mutation]
+        build["inputs"][key] = "0" * 64
+    elif mutation == "wrong-native":
+        build["rhwp"]["files"]["rhwp"] = "0" * 64
+    elif mutation == "failed-cleanup":
+        build["probeCleanup"]["status"] = "failed"
+    elif mutation == "absolute-proof":
+        build["installedNativeEvidence"]["path"] = str(root / "installed-core.json")
+    else:
+        proof_path = root / build["installedNativeEvidence"]["path"]
+        proof = json.loads(proof_path.read_bytes())
+        proof["rhwp"]["version"] = "rhwp v0.8.6"
+        proof_path.write_text(json.dumps(proof))
+        build["installedNativeEvidence"]["sha256"] = hashlib.sha256(
+            proof_path.read_bytes()
+        ).hexdigest()
+    path.write_text(json.dumps(build))
+    image["buildReceipt"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    inventory_path.write_text(json.dumps(inventory))
+    document["artifactInventory"]["sha256"] = hashlib.sha256(
+        inventory_path.read_bytes()
+    ).hexdigest()
+    with pytest.raises((ValueError, KeyError)):
+        gate_module().artifact_inventory(document, root, "a" * 40, "1.8.0")

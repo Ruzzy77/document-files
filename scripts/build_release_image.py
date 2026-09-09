@@ -22,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import tarfile
+import tempfile
 import time
 import tomllib
 import uuid
@@ -32,6 +33,9 @@ from email.parser import BytesParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+RHWP_PATH = "/opt/document-files-native/rhwp/rhwp"
+RHWP_VERSION = "rhwp v0.8.6+pat.checkbox.1"
+RHWP_UPSTREAM = "f1f9c6ae58344ee9368996d3543f76b9345cf227"
 IMAGE_ID = r"sha256:[a-f0-9]{64}"
 INSPECT = (
     '{"imageId":{{json .Id}},"os":{{json .Os}},"architecture":{{json .Architecture}},'
@@ -158,6 +162,55 @@ def lock_requirements(path):
     return requirements
 
 
+def portable_rhwp(archive, commit, version, wheel_sha, patch_sha=None):
+    """Reuse bounded ZIP inspection; return only the selected three native files."""
+    spec = importlib.util.spec_from_file_location("image_linux_zip", ROOT / "scripts/linux_abi.py")
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    before = checked(archive)
+    with tempfile.TemporaryDirectory(prefix="document-files-image-core-") as folder:
+        unpacked = Path(folder)
+        helper.unpack(archive, unpacked)
+        base = unpacked / "document-files"
+        build = read_json(base / "BUILD.json")
+        native = read_json(base / "rhwp/build.json")
+        if (
+            build.get("sourceCommit") != commit
+            or build.get("dirtySource") is not False
+            or build.get("version") != version
+            or build.get("target") != "linux-x86_64"
+            or build.get("wheelSha256") != wheel_sha
+            or build.get("rhwp") != native
+            or native.get("version") != RHWP_VERSION.removeprefix("rhwp v")
+            or native.get("baseCommit") != RHWP_UPSTREAM
+            or not re.fullmatch(r"[a-f0-9]{64}", native.get("patchSha256", ""))
+            or (patch_sha is not None and native["patchSha256"] != patch_sha)
+        ):
+            raise ValueError("Portable core/rhwp identity mismatch")
+        files = {
+            name: (base / "rhwp" / name).read_bytes() for name in ("rhwp", "LICENSE", "build.json")
+        }
+        raw = files["rhwp"]
+        if (
+            len(raw) < 20
+            or raw[:6] != b"\x7fELF\x02\x01"
+            or int.from_bytes(raw[18:20], "little") != 62
+            or not (base / "rhwp/rhwp").stat().st_mode & 0o111
+            or hashlib.sha256(raw).hexdigest() != native.get("binarySha256")
+            or not files["LICENSE"].strip()
+        ):
+            raise ValueError("Portable rhwp bytes, executable target or notice invalid")
+    if checked(archive) != before:
+        raise ValueError("Portable core archive changed during inspection")
+    return files, {
+        "path": RHWP_PATH,
+        "version": RHWP_VERSION,
+        "upstreamCommit": RHWP_UPSTREAM,
+        "patchSha256": native["patchSha256"],
+        "files": {n: hashlib.sha256(b).hexdigest() for n, b in files.items()},
+    }
+
+
 def prepare_inputs(args, commit, version, context):
     originals = {}
 
@@ -177,9 +230,13 @@ def prepare_inputs(args, commit, version, context):
         or core.get("target") != "linux-x86_64"
     ):
         raise ValueError("Matching stable Linux core receipt required")
-    for path, suffix in ((args.wheel, ".whl"), (args.source, ".tar.gz")):
+    for path, suffix in (
+        (args.wheel, ".whl"),
+        (args.source, ".tar.gz"),
+        (args.core_archive, ".zip"),
+    ):
         if not path.name.endswith(suffix) or path.name not in core.get("artifacts", {}):
-            raise ValueError("Selected wheel/source missing from build receipt")
+            raise ValueError("Selected wheel/source/core archive missing from build receipt")
         accept(path, core["artifacts"][path.name])
     if wheel_identity(args.wheel) != ("document-files", version):
         raise ValueError("Wrong core wheel identity")
@@ -187,7 +244,11 @@ def prepare_inputs(args, commit, version, context):
     for name, expected in source.items():
         if name.startswith("src/document_files/") or name == "pyproject.toml":
             accept(ROOT / name, expected)
-    for name in ("scripts/build_release_image.py", "evaluation/execution_identity.py"):
+    for name in (
+        "scripts/build_release_image.py",
+        "evaluation/execution_identity.py",
+        "scripts/linux_abi.py",
+    ):
         if name not in source:
             raise ValueError("Image builder/identity helper missing from source artifact")
         accept(ROOT / name, source[name])
@@ -198,7 +259,18 @@ def prepare_inputs(args, commit, version, context):
         if k.startswith("src/document_files/")
     }:
         raise ValueError("Core wheel and source package bytes differ")
+    patch_sha = source.get("patches/rhwp/checkbox-preservation.patch")
+    if patch_sha is None:
+        raise ValueError("Selected source lacks rhwp patch")
+    accept(ROOT / "patches/rhwp/checkbox-preservation.patch", patch_sha)
+    native_files, native_identity = portable_rhwp(
+        args.core_archive, commit, version, originals[args.wheel], patch_sha
+    )
     context.mkdir()
+    (context / "rhwp").mkdir()
+    for name, raw in native_files.items():
+        (context / "rhwp" / name).write_bytes(raw)
+        (context / "rhwp" / name).chmod(0o755 if name == "rhwp" else 0o644)
     for name in ("Dockerfile", "entrypoint.py"):
         path = ROOT / "deployment" / name
         value = accept(path)
@@ -241,6 +313,7 @@ def prepare_inputs(args, commit, version, context):
     shutil.copyfile(args.requirements, context / "requirements.lock")
     copied = {p.relative_to(context).as_posix(): sha(p) for p in context.rglob("*") if p.is_file()}
     expected_context = {
+        **{"rhwp/" + n: h for n, h in native_identity["files"].items()},
         "Dockerfile": originals[ROOT / "deployment/Dockerfile"],
         "entrypoint.py": originals[ROOT / "deployment/entrypoint.py"],
         "requirements.lock": originals[args.requirements],
@@ -248,7 +321,7 @@ def prepare_inputs(args, commit, version, context):
     }
     if copied != expected_context:
         raise ValueError("Build context changed during preparation")
-    return originals, copied, tree
+    return originals, copied, tree, native_identity
 
 
 def terminate_group(process, event):
@@ -514,7 +587,7 @@ def build(args):
         raise ValueError("Output symlink forbidden")
     output.mkdir(parents=False, exist_ok=False)
     receipt = {
-        "schemaVersion": "document-files.image-build.v1",
+        "schemaVersion": "document-files.image-build.v2",
         "status": "started",
         "releaseQualification": False,
         "securityAndLicenseReview": "not-assessed",
@@ -556,14 +629,16 @@ def build(args):
         ) or not re.fullmatch(IMAGE_ID, args.base_image_id):
             raise ValueError("Explicit pinned base reference and actual base ID required")
         context = output / "context"
-        originals, copied, tree = prepare_inputs(args, commit, version, context)
+        originals, copied, tree, native_identity = prepare_inputs(args, commit, version, context)
         receipt["inputs"] = {
             "coreReceiptSha256": args.core_receipt_sha256,
+            "coreArchiveSha256": originals[args.core_archive],
             "wheelSha256": originals[args.wheel],
             "sourceArchiveSha256": originals[args.source],
             "wheelhouseInventorySha256": args.wheelhouse_inventory_sha256,
             "context": copied,
         }
+        receipt["rhwp"] = native_identity
         receipt["stage"] = "base-inspection"
         save()
         base = inspect_image(args.base_image, output / "base-inspect.json", run)
@@ -613,13 +688,27 @@ def build(args):
         save()
         # Fixed read-only check, no document, model, token, caller code or processing endpoint.
         probe = (
-            "import document_files, pathlib, hashlib, json, sys; "
+            "import document_files,pathlib,hashlib,json,sys,os,subprocess; "
+            "from document_files.rhwp_backend import resolve_rhwp; "
             "p=pathlib.Path(document_files.__file__).parent; "
             "assert sys.version_info[:2]==(3,12); "
             "assert not any(f.is_symlink() for f in p.rglob('*')); "
-            "print(json.dumps({str(f.relative_to(p)):hashlib.sha256(f.read_bytes()).hexdigest() "
+            "core={str(f.relative_to(p)):hashlib.sha256(f.read_bytes()).hexdigest() "
             "for f in p.rglob('*') if f.is_file() and '__pycache__' not in f.parts "
-            "and f.suffix not in ('.pyc','.pyo')},sort_keys=True))"
+            "and f.suffix not in ('.pyc','.pyo')}; "
+            f"n=pathlib.Path({RHWP_PATH!r}); "
+            "assert os.environ.get('DOCUMENT_FILES_RHWP')==str(n); "
+            "assert resolve_rhwp()==n and not any(f.is_symlink() for f in (n,*n.parents)); "
+            "raw=n.read_bytes(); assert raw[:6]==b'\\x7fELF\\x02\\x01'; "
+            "assert int.from_bytes(raw[18:20],'little')==62; "
+            "assert not os.access(n,os.W_OK); "
+            "assert not any((n.parent/name).is_symlink() "
+            "for name in ('rhwp','LICENSE','build.json')); "
+            "files={name:hashlib.sha256((n.parent/name).read_bytes()).hexdigest() "
+            "for name in ('rhwp','LICENSE','build.json')}; "
+            "v=subprocess.run([str(n),'--version'],stdin=subprocess.DEVNULL, "
+            "capture_output=True,text=True,check=True,timeout=30).stdout.strip(); "
+            "print(json.dumps({'core':core,'rhwp':{'path':str(n),'version':v,'files':files}},sort_keys=True))"
         )
         cidfile = output / "probe-container-id.txt"
         probe_identity.update(
@@ -687,8 +776,16 @@ def build(args):
         )
         if state != {"running": False, "exitCode": 0}:
             raise ValueError("Probe container did not exit successfully")
-        if observed != tree:
+        if observed.get("core") != tree:
             raise ValueError("Installed core differs from selected wheel")
+        expected_native = {k: native_identity[k] for k in ("path", "version", "files")}
+        if observed.get("rhwp") != expected_native:
+            raise ValueError("Installed rhwp differs from selected core archive")
+        receipt["installedNativeVerification"] = "selected-core-rhwp-exact"
+        receipt["installedNativeEvidence"] = {
+            "path": "installed-core.json",
+            "sha256": sha(output / "installed-core.json"),
+        }
         receipt["stage"] = "export"
         save()
         archive = output / f"document-files-{version}-linux-x86_64-image.tar"
@@ -735,6 +832,7 @@ def main():
     for name in (
         "output",
         "core-receipt",
+        "core-archive",
         "wheel",
         "source",
         "wheelhouse",

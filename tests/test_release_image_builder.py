@@ -41,6 +41,9 @@ def inputs(tmp_path, monkeypatch):
     (root / "deployment").mkdir(parents=True)
     (root / "evaluation").mkdir()
     (root / "scripts").mkdir()
+    (root / "patches/rhwp").mkdir(parents=True)
+    (root / "patches/rhwp/checkbox-preservation.patch").write_text("selected patch")
+    shutil.copyfile(ROOT / "scripts/linux_abi.py", root / "scripts/linux_abi.py")
     shutil.copyfile(
         ROOT / "scripts/build_release_image.py", root / "scripts/build_release_image.py"
     )
@@ -81,6 +84,32 @@ def inputs(tmp_path, monkeypatch):
             if p.is_file()
         },
     )
+    core_archive = tmp_path / "document-files-1.8.0-linux-x86_64.zip"
+    binary = b"\x7fELF\x02\x01" + bytes(12) + b"\x3e\x00" + b"fixture-not-executable"
+    native = {
+        "version": "0.8.6+pat.checkbox.1",
+        "baseCommit": builder.RHWP_UPSTREAM,
+        "patchSha256": builder.sha(root / "patches/rhwp/checkbox-preservation.patch"),
+        "binarySha256": hashlib.sha256(binary).hexdigest(),
+    }
+    core_build = {
+        "version": "1.8.0",
+        "sourceCommit": COMMIT,
+        "dirtySource": False,
+        "target": "linux-x86_64",
+        "wheelSha256": builder.sha(wheel),
+        "rhwp": native,
+    }
+    with zipfile.ZipFile(core_archive, "w") as out:
+        for name, raw in {
+            "BUILD.json": json.dumps(core_build).encode(),
+            "rhwp/rhwp": binary,
+            "rhwp/build.json": json.dumps(native).encode(),
+            "rhwp/LICENSE": b"upstream MIT notice",
+        }.items():
+            info = zipfile.ZipInfo("document-files/" + name)
+            info.external_attr = (0o100755 if name == "rhwp/rhwp" else 0o100644) << 16
+            out.writestr(info, raw)
     receipt = tmp_path / "core.json"
     receipt.write_text(
         json.dumps(
@@ -91,7 +120,11 @@ def inputs(tmp_path, monkeypatch):
                 "dirtySource": False,
                 "candidateMode": "stable",
                 "target": "linux-x86_64",
-                "artifacts": {wheel.name: builder.sha(wheel), source.name: builder.sha(source)},
+                "artifacts": {
+                    wheel.name: builder.sha(wheel),
+                    source.name: builder.sha(source),
+                    core_archive.name: builder.sha(core_archive),
+                },
             }
         )
     )
@@ -101,6 +134,7 @@ def inputs(tmp_path, monkeypatch):
     lock.write_text("document-files==1.8.0 --hash=sha256:" + builder.sha(wheel) + "\n")
     return SimpleNamespace(
         output=tmp_path / "out",
+        core_archive=core_archive,
         core_receipt=receipt,
         core_receipt_sha256=builder.sha(receipt),
         wheel=wheel,
@@ -152,7 +186,17 @@ def fake_docker(inputs, calls, *, fail=None, wrong_core=False):
             Path(command[command.index("--cidfile") + 1]).write_text(probe["id"])
             return probe["id"]
         if command[1] == "start":
-            return json.dumps({} if wrong_core else builder.wheel_tree(inputs.wheel))
+            _, native = builder.portable_rhwp(
+                inputs.core_archive, COMMIT, "1.8.0", builder.sha(inputs.wheel)
+            )
+            raw = json.dumps(
+                {
+                    "core": {} if wrong_core else builder.wheel_tree(inputs.wheel),
+                    "rhwp": {k: native[k] for k in ("path", "version", "files")},
+                }
+            )
+            log.write_text(raw)
+            return raw
         if command[1:3] == ["container", "ls"]:
             return probe["id"] if alive else ""
         if command[1:3] == ["container", "rm"]:
@@ -195,6 +239,9 @@ def test_build_exact_context_actual_id_and_archive_without_qualification(inputs,
         "entrypoint.py",
         "requirements.lock",
         "wheelhouse/" + inputs.wheel.name,
+        "rhwp/rhwp",
+        "rhwp/LICENSE",
+        "rhwp/build.json",
     }
 
 
@@ -528,3 +575,162 @@ def test_invalid_compressed_layer_fails_closed(tmp_path):
     identity = layer_export(path, compressed=True, altered=True)
     with pytest.raises((ValueError, OSError)):
         builder.export_identity(path, identity)
+
+
+def rewrite_portable(inputs, change):
+    with zipfile.ZipFile(inputs.core_archive) as archive:
+        entries = [(info, archive.read(info)) for info in archive.infolist()]
+    entries = change(entries)
+    with zipfile.ZipFile(inputs.core_archive, "w") as archive:
+        for info, raw in entries:
+            archive.writestr(info, raw)
+    receipt = json.loads(inputs.core_receipt.read_bytes())
+    receipt["artifacts"][inputs.core_archive.name] = builder.sha(inputs.core_archive)
+    inputs.core_receipt.write_text(json.dumps(receipt))
+    inputs.core_receipt_sha256 = builder.sha(inputs.core_receipt)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "wheel",
+        "source",
+        "target",
+        "patch",
+        "upstream",
+        "binary",
+        "notice",
+        "missing",
+        "traversal",
+        "symlink",
+        "mode",
+    ],
+)
+def test_native_inputs_are_checked_even_with_updated_core_archive_hash(
+    inputs, monkeypatch, mutation
+):
+    def change(entries):
+        result = []
+        for info, raw in entries:
+            if info.filename == "document-files/BUILD.json":
+                build = json.loads(raw)
+                if mutation in ("wheel", "source", "target"):
+                    build[
+                        {"wheel": "wheelSha256", "source": "sourceCommit", "target": "target"}[
+                            mutation
+                        ]
+                    ] = "wrong"
+                if mutation in ("patch", "upstream"):
+                    build["rhwp"]["patchSha256" if mutation == "patch" else "baseCommit"] = "b" * (
+                        64 if mutation == "patch" else 40
+                    )
+                raw = json.dumps(build).encode()
+            if info.filename == "document-files/rhwp/build.json" and mutation in (
+                "patch",
+                "upstream",
+            ):
+                native = json.loads(raw)
+                native["patchSha256" if mutation == "patch" else "baseCommit"] = "b" * (
+                    64 if mutation == "patch" else 40
+                )
+                raw = json.dumps(native).encode()
+            if info.filename == "document-files/rhwp/rhwp":
+                if mutation == "binary":
+                    raw = b"wrong binary"
+                elif mutation == "mode":
+                    info.external_attr = 0o100644 << 16
+                elif mutation == "symlink":
+                    info.external_attr = 0o120777 << 16
+            if info.filename == "document-files/rhwp/LICENSE":
+                if mutation == "notice":
+                    raw = b" "
+                elif mutation == "missing":
+                    continue
+                elif mutation == "traversal":
+                    info.filename = "../LICENSE"
+            result.append((info, raw))
+        return result
+
+    rewrite_portable(inputs, change)
+    monkeypatch.setattr(builder, "execute", lambda *a, **k: pytest.fail("Docker must not run"))
+    with pytest.raises((ValueError, OSError)):
+        builder.build(inputs)
+    receipt = json.loads((inputs.output / "image-build.json").read_bytes())
+    assert receipt["status"] == "failed" and receipt["imageId"] is None
+
+
+@pytest.mark.parametrize("field", ["path", "version", "files"])
+def test_wrong_installed_native_proof_removes_probe_and_rejects_image(inputs, monkeypatch, field):
+    original = fake_docker(inputs, [])
+
+    def incorrect(command, log, **kwargs):
+        result = original(command, log, **kwargs)
+        if command[1] == "start":
+            value = json.loads(result)
+            value["rhwp"][field] = {} if field == "files" else "wrong"
+            result = json.dumps(value)
+            log.write_text(result)
+        return result
+
+    monkeypatch.setattr(builder, "execute", incorrect)
+    with pytest.raises(ValueError, match="Installed rhwp"):
+        builder.build(inputs)
+    receipt = json.loads((inputs.output / "image-build.json").read_bytes())
+    assert receipt["probeCleanup"]["status"] == "removed"
+    assert receipt["status"] == "failed" and receipt["archiveSha256"] is None
+
+
+def test_native_probe_is_fixed_readonly_and_inside_existing_budget(inputs, monkeypatch):
+    import ast
+
+    calls = []
+    monkeypatch.setattr(builder, "execute", fake_docker(inputs, calls))
+    receipt = builder.build(inputs)
+    command = next(c for c in calls if c[1] == "create")
+    tree = ast.parse(command[-1])
+    assert any(
+        isinstance(n, ast.Constant) and n.value == b"\x7fELF\x02\x01" for n in ast.walk(tree)
+    )
+    assert "timeout=30" in command[-1] and "resolve_rhwp()==n" in command[-1]
+    assert "--read-only" in command and "--user=10001:10001" in command
+    assert receipt["schemaVersion"] == "document-files.image-build.v2"
+    assert receipt["inputs"]["coreArchiveSha256"] == builder.sha(inputs.core_archive)
+    assert receipt["installedNativeEvidence"]["sha256"] == builder.sha(
+        inputs.output / "installed-core.json"
+    )
+
+
+@pytest.mark.parametrize("interrupt", ["timeout", "cancel"])
+def test_native_probe_timeout_or_cancel_preserves_failure_and_removes_exact_container(
+    inputs, monkeypatch, interrupt
+):
+    original = fake_docker(inputs, [])
+
+    def interrupted(command, log, **kwargs):
+        if command[1] == "start":
+            if interrupt == "timeout":
+                raise builder.subprocess.TimeoutExpired(command, 1)
+            raise KeyboardInterrupt()
+        return original(command, log, **kwargs)
+
+    monkeypatch.setattr(builder, "execute", interrupted)
+    with pytest.raises(
+        builder.subprocess.TimeoutExpired if interrupt == "timeout" else KeyboardInterrupt
+    ):
+        builder.build(inputs)
+    receipt = json.loads((inputs.output / "image-build.json").read_bytes())
+    assert receipt["probeCleanup"] == {"status": "removed", "containerId": "d" * 64}
+    assert receipt["status"] == "failed" and receipt["imageId"] is None
+    assert receipt["archiveSha256"] is None
+
+
+def test_duplicate_portable_member_is_rejected_before_docker(inputs, monkeypatch):
+    import copy
+
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        rewrite_portable(
+            inputs, lambda entries: entries + [(copy.copy(entries[0][0]), entries[0][1])]
+        )
+    monkeypatch.setattr(builder, "execute", lambda *a, **k: pytest.fail("Docker must not run"))
+    with pytest.raises(ValueError, match="Unsafe ZIP"):
+        builder.build(inputs)

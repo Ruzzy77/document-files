@@ -475,6 +475,7 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
     if inventory.get("schemaVersion") != "document-files.artifact-inventory.v2":
         raise ValueError("Release artifact inventory v2 required")
     assets = {}
+    images = []
     paths = set()
     for asset in inventory["artifacts"]:
         identifier = asset["id"]
@@ -515,7 +516,12 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
             _, build = _linked(root, receipt["path"], receipt["sha256"])
             _identity(build, commit, version)
             if (
-                build.get("schemaVersion") != "document-files.image-build.v1"
+                build.get("schemaVersion") != "document-files.image-build.v2"
+                or build.get("status") != "built-unqualified"
+                or build.get("stage") != "complete"
+                or build.get("installedNativeVerification") != "selected-core-rhwp-exact"
+                or build.get("installedCoreVerification") != "selected-wheel-exact"
+                or build.get("probeCleanup", {}).get("status") != "removed"
                 or build.get("archiveSha256") != asset["sha256"]
                 or (
                     asset.get("imageDigest") is not None
@@ -526,11 +532,71 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
                 or build.get("imageId") != asset["imageId"]
             ):
                 raise ValueError("Image artifact identity mismatch")
+            images.append((asset, build))
         elif kind != "metadata":
             raise ValueError("Unknown release artifact kind")
         assets[identifier] = {**asset, "verifiedPath": actual}
     if not assets:
         raise ValueError("Empty release artifact inventory")
+    if images:
+        spec = importlib.util.spec_from_file_location(
+            "qualification_image_inputs", ROOT / "scripts/build_release_image.py"
+        )
+        image_builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(image_builder)
+        for image, build in images:
+            inputs = build.get("inputs", {})
+            cores = [
+                a
+                for a in assets.values()
+                if a["kind"] == "core"
+                and a.get("target") == "linux-x86_64"
+                and a["sha256"] == inputs.get("coreArchiveSha256")
+                and a["verifiedPath"].suffix == ".zip"
+            ]
+            if len(cores) != 1 or cores[0]["buildReceipt"]["sha256"] != inputs.get(
+                "coreReceiptSha256"
+            ):
+                raise ValueError("Image requires its exact Linux portable core archive")
+            _, core_build = _linked(
+                root, cores[0]["buildReceipt"]["path"], cores[0]["buildReceipt"]["sha256"]
+            )
+            selected = {}
+            for suffix, key in ((".whl", "wheelSha256"), (".tar.gz", "sourceArchiveSha256")):
+                if not any(
+                    n.endswith(suffix) and h == inputs.get(key)
+                    for n, h in core_build["artifacts"].items()
+                ):
+                    raise ValueError("Image wheel/source not in the same core build")
+                matches = [
+                    a
+                    for a in assets.values()
+                    if a["sha256"] == inputs.get(key) and a["verifiedPath"].name.endswith(suffix)
+                ]
+                if len(matches) != 1:
+                    raise ValueError("Image requires exact wheel and source inventory entries")
+                selected[key] = matches[0]["verifiedPath"]
+            patch_sha = image_builder.source_files(selected["sourceArchiveSha256"]).get(
+                "patches/rhwp/checkbox-preservation.patch"
+            )
+            if patch_sha is None:
+                raise ValueError("Image source must include the selected rhwp patch")
+            _, native = image_builder.portable_rhwp(
+                cores[0]["verifiedPath"], commit, version, inputs["wheelSha256"], patch_sha
+            )
+            if build.get("rhwp") != native:
+                raise ValueError("Image rhwp does not match its portable core")
+            build_path = root / image["buildReceipt"]["path"]
+            proof = build["installedNativeEvidence"]
+            proof_name = Path(proof["path"])
+            if proof_name.is_absolute() or ".." in proof_name.parts or "\\" in proof["path"]:
+                raise ValueError("Unsafe image installed-native evidence path")
+            proof_path = build_path.parent / proof_name
+            _, observed = _linked(root, str(proof_path.relative_to(root)), proof["sha256"])
+            if observed.get("core") != image_builder.wheel_tree(selected["wheelSha256"]):
+                raise ValueError("Image installed core proof differs from selected wheel")
+            if observed.get("rhwp") != {k: native[k] for k in ("path", "version", "files")}:
+                raise ValueError("Image installed rhwp proof differs from portable core")
     return assets
 
 
