@@ -2482,3 +2482,245 @@ def test_visual_import_checks_source_page_render_hash_without_changing_existing_
         assert (imported["bindingStatus"] == "source_page_render_matched") == (change == "none")
         assert imported["observation"] == visual and imported["contentCoverageVerified"] is False
         assert doc.issues == before and doc.coverage == {}
+
+
+def visual_correspondence_fixture():
+    """Actual rendered pixels plus synthetic source geometry, not OCR quality."""
+    pytest.importorskip("cv2")
+    from document_files.document_model.pdf import import_page_render
+
+    _, render = full_page_render_fixture()
+    doc = ObservationDocument()
+    doc.provenance["sourceSha256"] = render["sourceSha256"]
+    import_page_render(doc, render, source_hash=render["sourceSha256"], page=1)
+    width, height = render["pageSizeCanvasUnits"]
+    doc.nodes = {
+        "pdf:page:1": {
+            "text": "",
+            "sourceStructure": {
+                "page": 1,
+                "width": width,
+                "height": height,
+                "rotation": 0,
+                "bbox": [0, 0, width, height],
+                "coordinateOrigin": "TOPLEFT",
+            },
+        },
+        "native": {
+            "text": "AB",
+            "observationBasis": "native_pdf",
+            "sourceStructure": {
+                "page": 1,
+                "characters": [
+                    {
+                        "text": char,
+                        "x0": 0,
+                        "top": 0,
+                        "x1": width,
+                        "bottom": height,
+                        "upright": True,
+                    }
+                    for char in "AB"
+                ],
+            },
+        },
+        "structure": {
+            "text": "AB",
+            "observationBasis": "recognition",
+            "sourceStructure": {"page": 1, "bbox": [0, 0, width, height]},
+        },
+    }
+    doc.relations = [
+        {
+            "kind": "observationEquivalence",
+            "targetRef": "structure",
+            "comparison": "exact_characters",
+            "resolution": "equivalent",
+            "basis": "native_character_geometry",
+            "sourceSegments": [
+                {"sourceRef": "native", "characterIndex": i, "start": i, "end": i + 1}
+                for i in range(2)
+            ],
+        }
+    ]
+    doc.issue("recognition_content_completeness_unverified")
+    return doc, render
+
+
+def test_visual_correspondences_are_two_way_candidates_not_assignments_or_model_payload():
+    from document_files.document_model.recognition_visual import append_visual_correspondences
+    from document_files.interpretation.regions import region_payload
+
+    doc, _ = visual_correspondence_fixture()
+    region = {"id": "region-1", "nodeIds": list(doc.nodes), "bindingIds": []}
+    payload = region_payload(doc, region)
+    unchanged = deepcopy((doc.nodes, doc.relations, doc.issues, doc.coverage, doc.provenance))
+    result = append_visual_correspondences(doc, recognition_identity={"adapterVersion": "14"})[0]
+    assert result["status"] == "captured_candidates"
+    assert len(result["components"]) > 1
+    assert all(c["status"] == "multiple_overlap_candidates" for c in result["components"])
+    assert all(o["status"] == "multiple_component_candidates" for o in result["observations"])
+    for edge in result["overlaps"]:
+        ci, oi = edge["componentIndex"], edge["observationIndex"]
+        assert ci in result["observations"][oi]["candidateComponentIndices"]
+        assert oi in result["components"][ci]["candidateObservationIndices"]
+    structure = result["structures"][0]
+    assert structure["sourceProxyRangeStatus"] == "full_text_range"
+    assert structure["reportedStructureBBoxUsed"] is False
+    assert structure["visualAssignmentVerified"] is False
+    assert all("structure" in c["candidateStructuralRefs"] for c in result["components"])
+    for key in (
+        "contentCoverageVerified",
+        "ocrTruthVerified",
+        "blankValueProven",
+        "readingOrderVerified",
+        "componentPixelIntersectionMeasured",
+    ):
+        assert result[key] is False
+    assert (doc.nodes, doc.relations, doc.issues, doc.coverage) == unchanged[:4]
+    assert {k: v for k, v in doc.provenance.items() if k != "visualCorrespondences"} == unchanged[4]
+    assert region_payload(doc, region) == payload
+    assert append_visual_correspondences(doc, recognition_identity={"adapterVersion": "14"}) == [
+        result
+    ]
+
+
+def test_visual_correspondence_partial_overlap_unknown_geometry_and_proxy_mismatch():
+    from document_files.document_model.recognition_visual import append_visual_correspondences
+
+    doc, render = visual_correspondence_fixture()
+    component = render["visualObservation"]["components"][0]["pixelBounds"]
+    from document_files.document_model.recognition_visual import _project_box
+
+    # Convert an actual half-component pixel rectangle into native TOPLEFT units.
+    box = _project_box(
+        [component[0], component[1], (component[0] + component[2]) / 2, component[3]],
+        render["renderCoordinates"]["pixelToPageAffine"],
+    )
+    height = render["pageSizeCanvasUnits"][1]
+    chars = doc.nodes["native"]["sourceStructure"]["characters"]
+    chars[0].update(x0=box[0], x1=box[2], top=height - box[3], bottom=height - box[1])
+    chars[1]["upright"] = False
+    doc.nodes["structure"]["text"] = "not AB"
+    result = append_visual_correspondences(doc)[0]
+    assert result["status"] == "partial_candidates"
+    assert result["geometryUnavailableObservationCount"] == 1
+    assert any(edge["kind"] == "partial_bbox_overlap_candidate" for edge in result["overlaps"])
+    assert result["observations"][1]["status"] == "geometry_unavailable"
+    assert result["structures"][0]["sourceProxies"] == []
+    assert result["structures"][0]["candidateComponentIndices"] == []
+    assert all(c["comparisonIncomplete"] for c in result["components"])
+
+
+@pytest.mark.parametrize(
+    "limit", ["sourceItems", "observationsPerKind", "bboxComparisons", "overlapCandidates"]
+)
+def test_visual_correspondence_limits_keep_unexamined_candidates_explicit(limit):
+    from document_files.document_model.recognition_visual import (
+        CORRESPONDENCE_LIMITS,
+        append_visual_correspondences,
+    )
+
+    doc, _ = visual_correspondence_fixture()
+    limits = {**CORRESPONDENCE_LIMITS, limit: 1}
+    result = append_visual_correspondences(doc, limits=limits)[0]
+    assert result["status"] == "partial_candidates"
+    assert result["truncationReasons"]
+    assert all(c["comparisonIncomplete"] for c in result["components"])
+    assert result["sourceItemsExamined"] <= limits["sourceItems"]
+    assert result["bboxComparisons"] <= limits["bboxComparisons"]
+    assert len(result["overlaps"]) <= limits["overlapCandidates"]
+    assert result["contentCoverageVerified"] is False
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_visual_correspondence_raw_source_binding_and_target_range_rechecked(rotation):
+    pytest.importorskip("cv2")
+    from document_files.document_model.pdf import import_page_render
+    from document_files.document_model.recognition_coordinates import coordinate_links
+    from document_files.document_model.recognition_sources import raw_pass_fingerprint
+    from document_files.document_model.recognition_visual import append_visual_correspondences
+
+    parser, result, render, mapping = coordinate_parser_fixture(rotation)
+    capture = coordinate_ocr_capture(result, mapping)
+    width, height = capture["image"]["size"]
+    capture["detections"] = [
+        {
+            "text": "A",
+            "accepted": True,
+            "imageBBox": {
+                "left": 0,
+                "top": 0,
+                "width": width,
+                "height": height,
+            },
+        }
+    ]
+    capture["fingerprint"] = raw_pass_fingerprint(capture)
+    links = coordinate_links(mapping, [capture])
+    assert links[0]["status"] == "verified"
+    doc = ObservationDocument()
+    doc.provenance["sourceSha256"] = render["sourceSha256"]
+    import_page_render(doc, render, source_hash=render["sourceSha256"], page=1)
+    doc.provenance["recognitionCoordinateEvidence"] = [
+        {
+            "page": 1,
+            "sourceSha256": render["sourceSha256"],
+            "status": "verified",
+            "evidence": {"mapping": mapping, "rawPassLinks": links},
+        }
+    ]
+    ledger = {
+        "batch": "docling:page:1",
+        "allRawOCRDetectionsPreserved": True,
+        "processingDependencies": {"pages": [1]},
+        "rawOCRPasses": [capture],
+        "entries": [
+            {
+                "rawRef": "docling:page:1:raw:0:0",
+                "status": "structural_observation",
+                "targetRefs": ["cell"],
+                "targetStart": 0,
+                "targetEnd": 1,
+            }
+        ],
+    }
+    doc.provenance["recognitionProcessingLedgers"] = [ledger]
+    doc.nodes["cell"] = {
+        "text": "AB",
+        "observationBasis": "recognition",
+        "sourceStructure": {"page": 1},
+    }
+    result = append_visual_correspondences(doc)[0]
+    assert result["observations"][0]["geometryStatus"] == "available"
+    assert result["observations"][0]["sourceSupportedBBoxFraction"] == 1
+    assert result["structures"][0]["sourceProxyRangeStatus"] == "partial_text_range"
+    assert result["coordinateRenderEquivalences"]
+    original = deepcopy(doc)
+    ledger["allRawOCRDetectionsPreserved"] = False
+    partial_inventory = append_visual_correspondences(doc)[0]
+    assert partial_inventory["observations"][0]["geometryStatus"] == "available"
+    assert partial_inventory["observations"][0]["rawInventoryVerified"] is False
+    assert partial_inventory["status"] == "partial_candidates"
+    for change in ("page", "fingerprint", "unverified", "raw", "target"):
+        changed = deepcopy(original)
+        evidence = changed.provenance["recognitionCoordinateEvidence"][0]
+        if change == "page":
+            evidence["page"] = 2
+        if change == "fingerprint":
+            evidence["evidence"]["mapping"]["originalRenderFingerprint"] = "0" * 64
+        if change == "unverified":
+            evidence["status"] = "unverified"
+        if change == "raw":
+            changed.provenance["recognitionProcessingLedgers"][0]["rawOCRPasses"][0]["image"][
+                "size"
+            ][0] += 1
+        if change == "target":
+            changed.nodes["cell"]["text"] = "BC"
+        result = append_visual_correspondences(changed)[0]
+        if change == "target":
+            assert result["structures"][0]["sourceProxies"] == []
+        else:
+            assert result["observations"][0]["geometryStatus"] == "unavailable"
+            assert result["status"] == "partial_candidates"
+        assert result["contentCoverageVerified"] is False

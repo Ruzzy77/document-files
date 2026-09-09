@@ -688,6 +688,11 @@ def observe_pdf(doc: ObservationDocument, content: bytes, *, recognition=None) -
         comparisons = _conflicts(doc, native_ids, recognized_ids)
         primary_ids = _semantic_candidates(doc, native_ids, recognized_ids, comparisons)
         doc.provenance["recognition"] = result.get("provenance", {})
+        from .recognition_visual import append_visual_correspondences
+
+        append_visual_correspondences(
+            doc, recognition_identity=getattr(recognition, "identity", None)
+        )
         doc.coverage["recognition"] = result.get("status", "partial")
         doc.coverage["recognitionConversion"] = result.get("status", "partial")
         doc.coverage["recognitionContentCompleteness"] = "unverified"
