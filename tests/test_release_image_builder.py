@@ -472,8 +472,12 @@ def test_real_process_timeout_terminates_owned_group_and_records_it(tmp_path):
 
 
 def test_timeout_process_group_contract_without_host_signal_permissions(tmp_path, monkeypatch):
-    import signal
     import subprocess
+    from enum import IntEnum
+
+    class PosixSignal(IntEnum):
+        SIGTERM = 15
+        SIGKILL = 9
 
     class Child:
         pid = 43210
@@ -493,15 +497,24 @@ def test_timeout_process_group_contract_without_host_signal_permissions(tmp_path
         spawned.append(kwargs)
         return child
 
-    monkeypatch.setattr(builder.os, "name", "posix")
+    # Simulate the complete POSIX boundary, including APIs absent on Windows.
+    # Do not change the shared os.name used by pathlib/pytest or require host SIGKILL.
+    monkeypatch.setattr(
+        builder,
+        "os",
+        SimpleNamespace(name="posix", killpg=lambda pid, signum: signals.append((pid, signum))),
+    )
+    monkeypatch.setattr(builder, "signal", PosixSignal)
     monkeypatch.setattr(builder.subprocess, "Popen", popen)
-    monkeypatch.setattr(builder.os, "killpg", lambda pid, signum: signals.append((pid, signum)))
-    monkeypatch.setattr(builder.time, "sleep", lambda _: None)
     events = []
     with pytest.raises(subprocess.TimeoutExpired):
         builder.execute(["fixture"], tmp_path / "group.log", timeout=0.01, events=events)
     assert spawned[0]["start_new_session"] is True
-    assert signals == [(child.pid, signal.SIGTERM), (child.pid, 0), (child.pid, signal.SIGKILL)]
+    assert signals == [
+        (child.pid, PosixSignal.SIGTERM),
+        (child.pid, 0),
+        (child.pid, PosixSignal.SIGKILL),
+    ]
     assert events[0]["leaderReaped"] and "cleanupError" not in events[0]
 
 

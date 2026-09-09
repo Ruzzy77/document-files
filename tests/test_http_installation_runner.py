@@ -167,7 +167,9 @@ def test_simulated_lifecycle_records_observations_without_passing_raw_report(tmp
     monkeypatch.setattr(runner, "installed_tree", lambda *_: {})
     monkeypatch.setattr(runner.sys, "platform", "linux")
     old_exists = Path.exists
-    monkeypatch.setattr(Path, "exists", lambda p: str(p) == "/proc/self/stat" or old_exists(p))
+    monkeypatch.setattr(
+        Path, "exists", lambda p: p.as_posix() == "/proc/self/stat" or old_exists(p)
+    )
     monkeypatch.setattr(runner.time, "sleep", lambda _: None)
     state = {"status": "partial", "attempt": 1, "resumes": 0, "revision": 1}
     upload = tmp_path / "run/service-state/uploads/job.html"
