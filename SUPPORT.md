@@ -345,8 +345,9 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After adapter v25 and the stage file-handle fix, core regression passed
-**1,593 tests, with 212 skipped and 12 subtests**; Ruff and formatting checks passed.
+After adapter v25, the stage file-handle fix and optional image preparation/transport,
+core regression passed
+**1,695 tests, with 212 skipped and 12 subtests**; Ruff and formatting checks passed.
 The separate recognition-runtime overlay passed **424 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
