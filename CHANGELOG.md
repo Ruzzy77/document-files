@@ -14,6 +14,13 @@
 - Add bounded Linux recognition-input checking/acquisition with explicit inventory
   hashes, official origins, local-byte verification and owned-worker cleanup. Default
   inspection is offline; this does not assemble or approve a recognition stage.
+- Add explicit v2 component selection for recognition inputs without changing legacy
+  v1 blocking behavior. Preserve unresolved stage requirements separately, bind each
+  selected file to an exact source-manifest row, and keep model reuse local-copy-only.
+- Record bounded full-cell, interior, OCR-window and edge pixels separately from OCR
+  values (adapter v19). Link verified frames to unique unmerged table geometry only;
+  missing pixels, ambiguous layouts and OCR-link execution remain unverified. Preserve
+  existing values, issues and partial status; no blank/completeness approval follows.
 
 - Separate literal source ranges from revisable table meanings (prompt v23, planner v14,
   table protocol v8, compiler v15, scope v7). Require explicit source review beyond

@@ -88,7 +88,21 @@ originals; add `--download` as well to allow missing inputs from the exact appro
 official URLs. Target/Python/wheel identity, byte counts and hashes must match. Missing
 metadata and unresolved inventory requirements return `not-ready`; they are not waived.
 Local file hashes are checked only after the complete inventory passes preflight.
-The current ARM inventory is not ready and no input acquisition has passed.
+Legacy v1 inventories retain that all-or-nothing preflight behavior.
+
+An explicitly normalized `document-files.recognition-preparation-inventory.v2` may
+instead select one or more `--component` values: `runtime-wheels`, `python-runtime`,
+`build-inputs`, `model-originals`. Every selected component names its required input
+IDs. Each file is bound to an original manifest SHA and exact row identity; selection
+does not waive missing required files. Outputs are isolated at `files/<id>/<filename>`.
+The receipt retains unselected inputs and unresolved `stageRequirements` separately
+from `selectedInputsReady`. Preparing inputs is not readiness to install or run them.
+
+Model originals require an explicit absolute `--reuse-root` and use local copies only.
+Their pinned publisher URLs are provenance, not network-acquisition permission; a
+missing local model never becomes a download. Use the verified inventory's reuse root,
+not a guessed downloads subdirectory. The current normalized ARM input set passes
+offline preflight and local-byte checking; full stage assembly remains unqualified.
 
 `acquisition.json` records the inventory, preparer hash, limits, verified bytes,
 remaining inputs and failure/cleanup results. Redirects are bounded and validated

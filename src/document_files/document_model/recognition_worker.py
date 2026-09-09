@@ -563,6 +563,15 @@ def recognize(
                     for snapshot in source_snapshots.values()
                     for repair in snapshot["repairs"]
                 ]
+                # Separate pixel observations never create source text or values.
+                # Keep localPageNumber and source-frame identity unchanged; the
+                # receiver checks their mapping into the original PDF independently.
+                for key in ("cellObservations", "cellObservationOCRLinks"):
+                    observations[key] = [
+                        deepcopy(record)
+                        for snapshot in source_snapshots.values()
+                        for record in snapshot.get(key, [])
+                    ]
                 observations["issues"] = [
                     issue for snapshot in source_snapshots.values() for issue in snapshot["issues"]
                 ]

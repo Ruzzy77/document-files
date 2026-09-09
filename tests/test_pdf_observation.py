@@ -3150,3 +3150,400 @@ def test_ordered_target_touching_but_not_overlapping_table_keeps_line_alignment(
     }
     import_source_observations(doc, payload, exported, ids, prefix="page1")
     assert len(doc.provenance["recognitionOrderedSourceAlignments"][0]["alignments"]) == 2
+
+
+def cell_pixel_import_fixture(*, max_pixels=16000000):
+    """Synthetic pixel/frame contracts only; no PDF rendering, OCR or quality claim."""
+    from PIL import Image
+
+    from document_files.document_model.recognition_cell_observations import observe_table_cells
+    from document_files.document_model.recognition_coordinates import (
+        fingerprint,
+        image_identity,
+        subset_mapping,
+    )
+
+    pytest.importorskip("numpy")
+    image = Image.new("RGB", (60, 40), "white")
+    image.putpixel((1, 1), (237, 237, 237))
+    render = {
+        "sourceSha256": "a" * 64,
+        "page_no": 1,
+        "status": "captured",
+        "profile": {"scale": 1},
+        "pixelSize": [60, 40],
+        "pixelSha256": "c" * 64,
+        "intrinsicRotation": 0,
+        "pageBoxes": {
+            "mediaDeclared": [0, 0, 60, 40],
+            "cropDeclared": None,
+            "effective": [0, 0, 60, 40],
+        },
+        "pageSizeCanvasUnits": [60, 40],
+        "renderCoordinates": {"pixelToPageAffine": [1, 0, 0, -1, 0, 40]},
+    }
+    render["fingerprint"] = fingerprint(render)
+    subset = deepcopy(render)
+    subset["sourceSha256"] = "b" * 64
+    subset["fingerprint"] = fingerprint(subset)
+    mapping = subset_mapping(render, subset)
+    frame = {
+        "version": "document-files.recognition-coordinates.v1",
+        "backend": "ThreadedDoclingParsePageBackend",
+        "documentKey": "key=" + "b" * 64,
+        "localPageNumber": 1,
+        "boundaryType": "crop_box",
+        "pageSize": [60, 40],
+        "normalizedMediaBox": [0, 0, 60, 40],
+        "normalizedCropBox": [0, 0, 60, 40],
+        "normalizedAngle": 0,
+        "canvas": image_identity(image),
+        "requestedCropTopLeft": None,
+        "cropPixelBounds": [0, 0, 60, 40],
+        "rounding": "python_round_then_clamp",
+        "pixelCoordinateOrigin": "TOPLEFT",
+        "ocrTruthVerified": False,
+    }
+    grid = {
+        "horizontalLines": [[0, y, 60, 1, 60] for y in (0, 19, 39)],
+        "verticalLines": [[x, 0, 1, 40, 40] for x in (0, 29, 59)],
+    }
+    record = observe_table_cells(
+        image,
+        source_frame=frame,
+        table_crop_bounds=[0, 0, 60, 40],
+        cluster_id=0,
+        local_page_number=1,
+        grid=grid,
+        max_pixels=max_pixels,
+    )
+    doc = ObservationDocument()
+    doc.nodes["value"] = {
+        "text": "12.50",
+        "sourceStructure": {
+            "page": 1,
+            "bbox": {"left": 5, "top": 5, "right": 12, "bottom": 12, "origin": "TOPLEFT"},
+        },
+    }
+    doc.tables["docling:page:1:table:0"] = {
+        "id": "docling:page:1:table:0",
+        "page": 1,
+        "declaredRowCount": 2,
+        "declaredColCount": 2,
+        "locator": {"bbox": {"left": 0, "top": 0, "right": 60, "bottom": 40, "origin": "TOPLEFT"}},
+        "cells": [{"sourceRef": "value", "row": 0, "col": 0, "rowSpan": 1, "colSpan": 1}],
+        "unobservedCellCount": 3,
+        "contentCompleteness": "unverified",
+    }
+    doc.issue("recognition_table_cells_unobserved", count=3)
+    doc.issue("recognition_content_completeness_unverified")
+    doc.coverage = {"status": "partial", "recognitionContentCompleteness": "unverified"}
+    doc.provenance["pdfPageRenderCaptures"] = [
+        {
+            "page": 1,
+            "sourceSha256": "a" * 64,
+            "bindingStatus": "source_page_matched",
+            "capture": deepcopy(render),
+        }
+    ]
+    return doc, record, render, {"mapping": mapping, "rawPassLinks": []}
+
+
+def import_cell_pixel_fixture(doc, records, render, evidence, **kwargs):
+    from document_files.document_model.recognition_sources import import_cell_pixel_observations
+
+    import_cell_pixel_observations(
+        doc,
+        records,
+        render,
+        evidence,
+        source_hash="a" * 64,
+        page=1,
+        prefix="docling:page:1",
+        **kwargs,
+    )
+    return doc.provenance["recognitionCellPixelObservations"][-1]
+
+
+def test_cell_pixel_import_without_ocr_keeps_missing_values_and_partial_status():
+    doc, record, render, evidence = cell_pixel_import_fixture()
+    before = deepcopy(doc.to_dict())
+    original = deepcopy(record)
+    result = import_cell_pixel_fixture(doc, [record], render, evidence)
+    entry = result["observations"][0]
+    assert entry["observationStatus"] == entry["sourceCoordinateStatus"] == "verified"
+    association = entry["structureAssociation"]
+    assert association["status"] == "unique_geometry_correspondence"
+    assert len(association["slots"]) == 4 and association["valueObserved"] is False
+    assert result["rawPixelsRecomputed"] is result["blankValueProven"] is False
+    assert result["ocrTruthVerified"] is result["contentCoverageVerified"] is False
+    for key in ("nodes", "tables", "bindings", "regions", "relations", "issues", "coverage"):
+        assert doc.to_dict()[key] == before[key]
+    assert record == original
+    assert entry["observation"]["slots"] == original["slots"]
+
+
+@pytest.mark.parametrize(
+    "change", ["source", "page", "subset", "render", "frame", "canvas", "statistics", "slot"]
+)
+@pytest.mark.parametrize("rehash", [False, True])
+def test_cell_pixel_import_rejects_changed_observation_or_source_chain(change, rehash):
+    doc, record, render, evidence = cell_pixel_import_fixture()
+    if change == "source":
+        render["sourceSha256"] = "0" * 64
+    elif change == "page":
+        render["page_no"] = 2
+    elif change == "subset":
+        evidence["mapping"]["subsetSha256"] = "0" * 64
+    elif change == "render":
+        doc.provenance["pdfPageRenderCaptures"][0]["bindingStatus"] = "unverified"
+    elif change == "frame":
+        record["sourceFrame"]["localPageNumber"] = 2
+    elif change == "canvas":
+        record["canvas"]["size"] = [61, 40]
+    elif change == "statistics":
+        record["slots"][0]["regions"]["interior"]["pixelCount"] += 1
+    else:
+        record["slots"][0]["row"] = 1
+    if rehash:
+        from document_files.document_model.recognition_coordinates import fingerprint
+
+        record["sourceFrameFingerprint"] = fingerprint(record["sourceFrame"])
+        record["fingerprint"] = fingerprint(record)
+    before = deepcopy(doc.issues)
+    result = import_cell_pixel_fixture(doc, [record], render, evidence)
+    entry = result["observations"][0]
+    assert entry["observationStatus"] == "unverified"
+    assert entry["structureAssociation"]["status"] == "unlinked"
+    assert doc.issues == before
+    assert entry["observation"] == record
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "duplicate",
+        "two_tables",
+        "missing_bbox",
+        "wrong_row",
+        "merged",
+        "wrong_page",
+        "shifted_table",
+        "dimensions",
+    ],
+)
+def test_cell_pixel_observation_does_not_guess_structure_slot(change):
+    doc, record, render, evidence = cell_pixel_import_fixture()
+    table = next(iter(doc.tables.values()))
+    records = [record]
+    if change == "duplicate":
+        records.append(deepcopy(record))
+    elif change == "two_tables":
+        other = deepcopy(table)
+        other["id"] = "docling:page:1:table:1"
+        doc.tables[other["id"]] = other
+    elif change == "missing_bbox":
+        doc.nodes["value"]["sourceStructure"]["bbox"] = None
+    elif change == "wrong_row":
+        table["cells"][0]["row"] = 1
+    elif change == "merged":
+        table["cells"][0]["colSpan"] = 2
+    elif change == "wrong_page":
+        table["page"] = 2
+    elif change == "shifted_table":
+        table["locator"]["bbox"]["left"] = 5
+    else:
+        table["declaredColCount"] = 3
+    before = deepcopy(doc.to_dict())
+    result = import_cell_pixel_fixture(doc, records, render, evidence)
+    for entry in result["observations"]:
+        assert entry["observationStatus"] == "verified"
+        assert entry["structureAssociation"]["status"] == "unlinked"
+    assert doc.nodes == before["nodes"] and doc.tables == before["tables"]
+    assert doc.issues == before["issues"] and doc.coverage == before["coverage"]
+
+
+def test_cell_pixel_absent_legacy_evidence_does_not_change_observation():
+    from document_files.document_model.recognition_sources import import_cell_pixel_observations
+
+    doc = ObservationDocument()
+    before = deepcopy(doc.to_dict())
+    import_cell_pixel_observations(doc, None, None, None, source_hash="a" * 64, page=1, prefix="p")
+    assert doc.to_dict() == before
+
+
+def test_pdf_projects_cell_pixels_after_structure_before_source_import(monkeypatch):
+    import hashlib
+
+    from document_files.document_model import pdf, recognition_sources
+
+    calls = []
+    marker = {"version": "synthetic-marker"}
+    monkeypatch.setattr(pdf, "_native_pdf", lambda *a: [])
+    monkeypatch.setattr(pdf, "import_page_render", lambda *a, **kw: None)
+    monkeypatch.setattr(recognition_sources, "import_coordinate_evidence", lambda *a, **kw: None)
+
+    def structure(doc, exported, **kwargs):
+        calls.append("structure")
+        return []
+
+    def pixels(doc, records, render, coordinate_evidence, **kwargs):
+        assert calls == ["structure"] and records == [marker]
+        calls.append("pixels")
+
+    def sources(*args, **kwargs):
+        assert calls == ["structure", "pixels"]
+        calls.append("sources")
+        return []
+
+    monkeypatch.setattr(pdf, "import_docling", structure)
+    monkeypatch.setattr(pdf, "import_cell_pixel_observations", pixels)
+    monkeypatch.setattr(pdf, "import_source_observations", sources)
+    content = b"synthetic receiver ordering only"
+
+    class Recognition:
+        def observe(self, content):
+            return {
+                "status": "complete",
+                "pageResults": [
+                    {
+                        "page": 1,
+                        "sourceSha256": hashlib.sha256(content).hexdigest(),
+                        "document": {},
+                        "sourceObservations": {"cellObservations": [marker]},
+                    }
+                ],
+            }
+
+    doc = ObservationDocument()
+    pdf.observe_pdf(doc, content, recognition=Recognition())
+    assert calls == ["structure", "pixels", "sources"]
+    assert doc.coverage["recognitionContentCompleteness"] == "unverified"
+    assert any(i["code"] == "recognition_content_completeness_unverified" for i in doc.issues)
+
+
+def test_cell_pixel_budget_partial_preserves_measurements_without_slot_approval():
+    doc, record, render, evidence = cell_pixel_import_fixture(max_pixels=5000)
+    assert any(s["measurementStatus"] != "measured" for s in record["slots"])
+    before = deepcopy(doc.to_dict())
+    result = import_cell_pixel_fixture(doc, [record], render, evidence)
+    entry = result["observations"][0]
+    assert entry["observationStatus"] == "verified"
+    assert entry["pixelMeasurementStatus"] == record["status"]
+    assert entry["structureAssociation"]["status"] == "unlinked"
+    assert entry["observation"] == record
+    assert doc.tables == before["tables"] and doc.issues == before["issues"]
+
+
+def cell_pixel_link_fixture():
+    """Synthetic link claims, deliberately not real TSV/execution evidence."""
+    from document_files.document_model.recognition_cell_observations import cell_ocr_links
+    from document_files.document_model.recognition_coordinates import fingerprint
+
+    doc, record, render, evidence = cell_pixel_import_fixture()
+    record["slots"][0]["ocrUnit"] = {"unitIndex": 0, "unitFingerprint": "d" * 64}
+    record["fingerprint"] = fingerprint(record)
+    capture = {
+        "passId": "p0",
+        "sourcePass": "table_repair",
+        "status": "complete",
+        "page_no": 1,
+        "image": {"size": [10, 10], "mode": "RGB", "sha256": "e" * 64},
+        "unitFingerprint": "d" * 64,
+        "transform": {"repairIndex": 0, "cellUnitIndex": 0},
+        "pixelFrame": {
+            "tableCropPixelBounds": record["tableCrop"]["pixelBounds"],
+            "documentKey": record["sourceFrame"]["documentKey"],
+            "localPageNumber": 1,
+        },
+    }
+    payload = {
+        "rawOCRPasses": [capture],
+        "rawOCRRuns": [],
+        "tableRepairs": [
+            {
+                "page_no": 1,
+                "units": [
+                    {
+                        "row": 0,
+                        "col": 0,
+                        "status": "ready",
+                        "fingerprint": "d" * 64,
+                    }
+                ],
+            }
+        ],
+    }
+    links = cell_ocr_links([record], payload["rawOCRPasses"])
+    assert len(links) == 1
+    return doc, record, render, evidence, payload, links
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "single",
+        "claimed_batch",
+        "failed",
+        "no_ink",
+        "unit",
+        "page",
+        "capture",
+        "duplicate",
+        "mapping",
+    ],
+)
+def test_cell_pixel_raw_ocr_links_are_preserved_never_counted_as_execution_success(change):
+    doc, record, render, evidence, payload, links = cell_pixel_link_fixture()
+    capture = payload["rawOCRPasses"][0]
+    if change == "claimed_batch":
+        capture["runFingerprint"] = links[0]["runFingerprint"] = "f" * 64
+        capture["tsvInputPageNumber"] = links[0]["tsvInputPageNumber"] = 1
+    elif change == "failed":
+        capture["status"] = links[0]["status"] = "failed"
+    elif change == "no_ink":
+        payload["tableRepairs"][0]["units"][0]["status"] = "no_ink_observed"
+    elif change == "unit":
+        links[0]["unitIndex"] = 1
+    elif change == "page":
+        capture["page_no"] = 2
+    elif change == "capture":
+        payload["rawOCRPasses"] = []
+    elif change == "duplicate":
+        links.append(deepcopy(links[0]))
+    elif change == "mapping":
+        evidence["mapping"]["sourceSha256"] = "0" * 64
+    before = deepcopy(doc.to_dict())
+    original = deepcopy(links)
+    result = import_cell_pixel_fixture(
+        doc, [record], render, evidence, ocr_links=links, source_payload=payload
+    )
+    saved = result["ocrLinkEvidence"]
+    assert saved["rawLinks"] == links == original
+    assert saved["verificationStatus"] == "unverified"
+    assert saved["executionSuccessInferred"] is False
+    assert saved["ocrTruthVerified"] is saved["contentCoverageVerified"] is False
+    assert all(c["verificationStatus"] == "unverified" for c in saved["checks"])
+    assert saved["checks"][0]["referenceConsistency"] == (
+        "matched" if change in ("single", "claimed_batch") else "unmatched"
+    )
+    for key in ("nodes", "tables", "bindings", "regions", "relations", "issues", "coverage"):
+        assert doc.to_dict()[key] == before[key]
+
+
+def test_cell_pixel_link_absence_does_not_invalidate_an_ocr_unit_or_no_ink_observation():
+    doc, record, render, evidence, payload, _ = cell_pixel_link_fixture()
+    result = import_cell_pixel_fixture(doc, [record], render, evidence, source_payload=payload)
+    assert result["observations"][0]["observationStatus"] == "verified"
+    assert result["ocrLinkEvidence"]["status"] == "not_provided"
+    assert result["ocrLinkEvidence"]["rawLinks"] is None
+
+
+def test_cell_pixel_orphan_links_survive_without_cell_observation_records():
+    doc, _, render, evidence, payload, links = cell_pixel_link_fixture()
+    result = import_cell_pixel_fixture(
+        doc, None, render, evidence, ocr_links=links, source_payload=payload
+    )
+    assert result["observations"] == []
+    assert result["ocrLinkEvidence"]["rawLinks"] == links
+    assert result["ocrLinkEvidence"]["checks"][0]["referenceConsistency"] == "unmatched"

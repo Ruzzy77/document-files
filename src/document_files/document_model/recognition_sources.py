@@ -1158,3 +1158,312 @@ def import_coordinate_evidence(doc, evidence, render, payload, *, source_hash, p
     )
     if status != "verified":
         doc.issue("recognition_source_coordinates_unverified", page=page)
+
+
+def _cell_observation_table_candidates(doc, record, *, page, prefix):
+    """Find unique layout correspondence, not a correct or blank cell value."""
+    import math
+
+    frame = record["sourceFrame"]
+    fw, fh = frame["pageSize"]
+    cw, ch = record["canvas"]["size"]
+    sx, sy = fw / cw, fh / ch
+
+    def normalized(bounds):
+        left, top, right, bottom = bounds
+        return [left * sx, top * sy, right * sx, bottom * sy]
+
+    def node_box(value):
+        if not isinstance(value, dict) or value.get("origin") != "TOPLEFT":
+            return None
+        values = [value.get(k) for k in ("left", "top", "right", "bottom")]
+        if not all(type(v) in (int, float) and math.isfinite(v) for v in values):
+            return None
+        return values if values[0] < values[2] and values[1] < values[3] else None
+
+    slots = {(s["row"], s["col"]): s for s in record["slots"]}
+    if (
+        not slots
+        or len(slots) != len(record["slots"])
+        or any(s.get("measurementStatus") != "measured" for s in record["slots"])
+    ):
+        return []
+    rows = max(r for r, _ in slots) + 1
+    cols = max(c for _, c in slots) + 1
+    if len(slots) != rows * cols:
+        return []
+    crop = normalized(record["tableCrop"]["pixelBounds"])
+    candidates = []
+    for table in doc.tables.values():
+        if (
+            not table["id"].startswith(prefix + ":")
+            or table.get("page") != page
+            or type(table.get("declaredRowCount")) is not int
+            or type(table.get("declaredColCount")) is not int
+            or table["declaredRowCount"] != rows
+            or table["declaredColCount"] != cols
+            or not table.get("cells")
+        ):
+            continue
+        bounds = node_box(table.get("locator", {}).get("bbox"))
+        # Only raster rounding tolerance, not a broad overlap heuristic.
+        if bounds is None or any(
+            abs(a - b) > tolerance
+            for a, b, tolerance in zip(bounds, crop, [sx, sy, sx, sy], strict=True)
+        ):
+            continue
+        occupied = set()
+        consistent = True
+        for cell in table["cells"]:
+            row, col = cell["row"], cell["col"]
+            # Rectangular grid observation cannot validate a merged layout.
+            if cell.get("rowSpan") != 1 or cell.get("colSpan") != 1:
+                consistent = False
+                break
+            if (row, col) not in slots or (row, col) in occupied:
+                consistent = False
+                break
+            occupied.add((row, col))
+            node = doc.nodes.get(cell["sourceRef"], {})
+            loc = node.get("sourceStructure", {})
+            value_box = node_box(loc.get("bbox"))
+            slot_box = normalized(slots[row, col]["fullPixelBox"])
+            if (
+                loc.get("page") != page
+                or value_box is None
+                or value_box[0] < slot_box[0] - sx
+                or value_box[1] < slot_box[1] - sy
+                or value_box[2] > slot_box[2] + sx
+                or value_box[3] > slot_box[3] + sy
+            ):
+                consistent = False
+                break
+        if consistent:
+            candidates.append(table["id"])
+    return candidates
+
+
+def import_cell_pixel_observations(
+    doc,
+    records,
+    render,
+    coordinate_evidence,
+    *,
+    source_hash,
+    page,
+    prefix,
+    ocr_links=None,
+    source_payload=None,
+):
+    """Preserve pixel measurements separately from structure/value completeness.
+
+    No OCR capture is required: a native or no-ink slot can have an independent
+    source frame. Producer statistics are checked, never recomputed without RGB.
+    """
+    from collections import Counter
+    from copy import deepcopy
+
+    if records is None and ocr_links is None:
+        return
+    if records is None:
+        records = []
+
+    from .recognition_cell_observations import validate_cell_observation
+    from .recognition_coordinates import subset_mapping
+
+    output = {
+        "version": "document-files.cell-observation-import.v1",
+        "sourceSha256": source_hash,
+        "page": page,
+        "batch": prefix,
+        "scope": "captured_slot_pixels_and_unique_layout_correspondence_only",
+        "observations": [],
+        "ocrLinkEvidence": {
+            "rawLinks": deepcopy(ocr_links),
+            "verificationStatus": "unverified",
+            "status": "not_provided" if ocr_links is None else "preserved_unverified",
+            "checks": [],
+            "ocrTruthVerified": False,
+            "contentCoverageVerified": False,
+        },
+        "rawPixelsRecomputed": False,
+        "blankValueProven": False,
+        "ocrTruthVerified": False,
+        "contentCoverageVerified": False,
+    }
+    doc.provenance.setdefault("recognitionCellPixelObservations", []).append(output)
+    if not isinstance(records, list) or len(records) > 4096:
+        output.update(status="unverified", reason="invalid_or_excessive_observation_list")
+        return
+    mapping = None
+    try:
+        proposed = coordinate_evidence["mapping"]
+        subset = proposed["subsetRender"]
+        if (
+            render["sourceSha256"] != source_hash
+            or render["page_no"] != page
+            or render["fingerprint"] != page_render_fingerprint(render)
+            or subset["fingerprint"] != page_render_fingerprint(subset)
+            or proposed != subset_mapping(render, subset)
+            or proposed["status"] != "verified"
+            or not any(
+                r.get("page") == page
+                and r.get("sourceSha256") == source_hash
+                and r.get("bindingStatus") == "source_page_matched"
+                and r.get("capture") == render
+                for r in doc.provenance.get("pdfPageRenderCaptures", [])
+            )
+        ):
+            raise ValueError
+        mapping = proposed
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        pass
+    fingerprints = Counter(
+        r.get("fingerprint")
+        for r in records
+        if isinstance(r, dict) and isinstance(r.get("fingerprint"), str)
+    )
+    for record in records:
+        entry = {
+            "observation": deepcopy(record),
+            "observationStatus": "unverified",
+            "pixelMeasurementStatus": record.get("status") if isinstance(record, dict) else None,
+            "sourceCoordinateStatus": "unverified",
+            "structureAssociation": {"status": "unlinked", "candidateTableRefs": [], "slots": []},
+        }
+        output["observations"].append(entry)
+        if mapping is None:
+            entry["reason"] = "source_page_mapping_unverified"
+            continue
+        try:
+            validation = validate_cell_observation(
+                record, mapping=mapping, source_sha256=source_hash, page=page
+            )
+            entry["validation"] = deepcopy(validation)
+            if validation.get("status") != "verified":
+                entry["reason"] = "cell_observation_unverified"
+                continue
+            entry.update(observationStatus="verified", sourceCoordinateStatus="verified")
+            if fingerprints[record["fingerprint"]] != 1:
+                entry["reason"] = "duplicate_observation"
+                continue
+            candidates = _cell_observation_table_candidates(doc, record, page=page, prefix=prefix)
+            entry["structureAssociation"]["candidateTableRefs"] = candidates
+            if len(candidates) == 1:
+                entry["structureAssociation"].update(
+                    status="unique_geometry_correspondence",
+                    basis="same_page_crop_grid_dimensions_and_existing_cell_geometry",
+                    tableRef=candidates[0],
+                    slots=[
+                        {"slotKey": s["slotKey"], "row": s["row"], "col": s["col"]}
+                        for s in record["slots"]
+                    ],
+                    valueObserved=False,
+                    blankValueProven=False,
+                )
+            else:
+                entry["reason"] = "ambiguous_or_unmatched_table_geometry"
+        except (KeyError, TypeError, ValueError, AttributeError, OverflowError, ZeroDivisionError):
+            entry["reason"] = "cell_observation_validation_failed"
+    # Different measurements of the same slot are preserved, not arbitrarily selected.
+    associated = Counter(
+        e["structureAssociation"].get("tableRef")
+        for e in output["observations"]
+        if e["structureAssociation"]["status"] == "unique_geometry_correspondence"
+    )
+    for entry in output["observations"]:
+        association = entry["structureAssociation"]
+        if associated[association.get("tableRef")] > 1:
+            entry["structureAssociation"] = {
+                "status": "unlinked",
+                "candidateTableRefs": association["candidateTableRefs"],
+                "slots": [],
+            }
+            entry["reason"] = "multiple_observations_for_table"
+    output["ocrLinkEvidence"] = _cell_ocr_link_diagnostics(
+        ocr_links, records, source_payload, output["observations"], mapping=mapping, page=page
+    )
+    output["status"] = "observational_metadata_only"
+
+
+def _cell_ocr_link_diagnostics(links, records, payload, observations, *, mapping, page):
+    """Preserve execution-link claims, never promote them to OCR approval.
+
+    Reference equality is useful for diagnosis but does not prove raw TSV,
+    capture integrity, coordinate alignment or complete batch membership.
+    """
+    from copy import deepcopy
+
+    from .recognition_cell_observations import cell_ocr_links
+
+    result = {
+        "rawLinks": deepcopy(links),
+        "verificationStatus": "unverified",
+        "status": "not_provided" if links is None else "preserved_unverified",
+        "checks": [],
+        "ocrTruthVerified": False,
+        "contentCoverageVerified": False,
+        "executionSuccessInferred": False,
+    }
+    if links is None:
+        return result
+    if not isinstance(links, list) or len(links) > 4096 or not isinstance(payload, dict):
+        result["reason"] = "invalid_or_excessive_link_payload"
+        return result
+    captures, repairs = payload.get("rawOCRPasses", []), payload.get("tableRepairs", [])
+    try:
+        recomputed = cell_ocr_links(records, captures)
+        result["producerLinksEqual"] = links == recomputed
+    except (TypeError, KeyError, ValueError, AttributeError):
+        recomputed = []
+        result["producerLinksEqual"] = False
+    for link in links:
+        check = {"verificationStatus": "unverified", "referenceConsistency": "unmatched"}
+        result["checks"].append(check)
+        try:
+            matched_observations = [
+                e
+                for e in observations
+                if e["observationStatus"] == "verified"
+                and e["observation"]["fingerprint"] == link["observationFingerprint"]
+            ]
+            matched_captures = [c for c in captures if c.get("passId") == link["capturePassId"]]
+            if mapping is None or len(matched_observations) != 1 or len(matched_captures) != 1:
+                raise ValueError
+            observation = matched_observations[0]["observation"]
+            slots = [s for s in observation["slots"] if s["slotKey"] == link["slotKey"]]
+            if len(slots) != 1 or slots[0].get("measurementStatus") != "measured":
+                raise ValueError
+            slot, capture = slots[0], matched_captures[0]
+            unit_ref = {"unitIndex": link["unitIndex"], "unitFingerprint": link["unitFingerprint"]}
+            index = capture["transform"]["repairIndex"]
+            if type(index) is not int or not 0 <= index < len(repairs):
+                raise ValueError
+            repair = repairs[index]
+            unit_index = link["unitIndex"]
+            if type(unit_index) is not int or not 0 <= unit_index < len(repair["units"]):
+                raise ValueError
+            unit = repair["units"][unit_index]
+            if (
+                not result["producerLinksEqual"]
+                or link not in recomputed
+                or slot.get("ocrUnit") != unit_ref
+                or capture.get("status") != "complete"
+                or capture.get("sourcePass") != "table_repair"
+                or capture.get("page_no") != page
+                or repair.get("page_no") != page
+                or unit.get("status") != "ready"
+                or unit.get("fingerprint") != link["unitFingerprint"]
+                or unit.get("row") != slot["row"]
+                or unit.get("col") != slot["col"]
+                or link.get("runFingerprint") != capture.get("runFingerprint")
+                or link.get("tsvInputPageNumber") != capture.get("tsvInputPageNumber")
+            ):
+                raise ValueError
+            check.update(
+                referenceConsistency="matched",
+                reason="references_only_not_raw_capture_coordinate_or_batch_verification",
+            )
+        except (KeyError, TypeError, ValueError, AttributeError, IndexError):
+            check["reason"] = "missing_conflicting_or_failed_execution_reference"
+    return result

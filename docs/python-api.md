@@ -270,7 +270,7 @@ reason-only changes, are not progress. Exposing uncertainty can be a valid corre
 Source review, applicability validity and independent semantic approval are distinct.
 Public v1 contracts remain unchanged; these are private protocol/versioned metadata.
 
-Recognition adapter v18 supports explicit `ruled_cells_v2` file-list repair.
+Recognition adapter v18 introduced explicit `ruled_cells_v2` file-list repair.
 Administrator `repairBudget` accepts `batchSize` (1–2), `maxImages` (1–64) and
 `maxInputPixels` (1–64,000,000), all integers excluding booleans. Defaults remain
 1 / 8 / 16,000,000; a two-image profile must opt into `batchSize: 2` and an image
@@ -284,6 +284,17 @@ at most two images from one table/page/language/PSM. A TSV input index does not
 change the source PDF page. Incomplete or failed output remains evidence, not a
 completed or reusable observation. Prior policy identities cannot resume as this
 contract. These are internal observation records; the public result v1 is unchanged.
+
+Adapter v19 adds `document-files.cell-observation.v1` records. It inspects existing
+canvas pixels for the full cell, interior, OCR window and remaining edge bands without
+additional rendering. Pixel, cell and preparation work are bounded; low-contrast and
+nonopaque pixels are not silently discarded. `recognitionCellPixelObservations`
+provenance separates internal measurement checks, original-page coordinate linkage
+and unique table/slot correspondence. Import does not recompute unavailable RGB
+pixels or approve OCR accuracy. Raw OCR-link evidence retains an `unverified` execution
+status even when references agree. No new value binding, blank-value assertion or
+content-completeness approval follows; older adapter checkpoints cannot be resumed
+under the new identity.
 
 Recognition adapter v12 records `document-files.recognition-coordinates.v1` evidence
 for captured OCR input pixels through the actual framework crop/rotation and the

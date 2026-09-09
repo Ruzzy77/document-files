@@ -26,6 +26,8 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urljoin, urlsplit
 
 SCHEMA = "document-files.recognition-preparation-inventory.v1"
+SCHEMA_V2 = "document-files.recognition-preparation-inventory.v2"
+COMPONENTS = {"runtime-wheels", "python-runtime", "build-inputs", "model-originals"}
 TARGETS = {"linux-aarch64", "linux-x86_64"}
 MAX_JSON = 5 * 1024**2
 CHUNK = 64 * 1024
@@ -164,12 +166,208 @@ def wheel_target(row, target):
         raise ValueError("official CPU wheel required")
 
 
+def relative_name(value):
+    if not isinstance(value, str):
+        raise ValueError("relative path required")
+    parts = value.split("/")
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("unsafe relative path")
+    for part in parts:
+        filename(part)
+    return value
+
+
+def item_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", value):
+        raise ValueError("unambiguous lowercase input ID required")
+    return value
+
+
+def canonical_row_sha256(row):
+    """Hash a parsed source row: UTF-8, sorted keys, compact JSON, no ASCII escaping."""
+    return digest(
+        json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    )
+
+
+def selected_v2(data, args):
+    selected = getattr(args, "component", None)
+    if not selected or len(set(selected)) != len(selected) or not set(selected) <= COMPONENTS:
+        raise ValueError("explicit unique known component selection required for v2")
+    declared, inputs = data.get("components"), data.get("inputs")
+    if not isinstance(declared, dict) or not declared or not set(declared) <= COMPONENTS:
+        raise ValueError("known component declarations required")
+    if not set(selected) <= set(declared):
+        raise ValueError("selected component declaration missing")
+    if not isinstance(inputs, list) or not inputs or len(inputs) > 512:
+        raise ValueError("nonempty bounded input list required")
+    requirements = data.get("stageRequirements")
+    if not isinstance(requirements, list):
+        raise ValueError("explicit stageRequirements list required")
+    indexed = {}
+    for original in inputs:
+        key = item_id(original.get("id"))
+        if key in indexed or original.get("component") not in declared:
+            raise ValueError("duplicate input ID or undeclared component")
+        indexed[key] = dict(original)
+    required_by = {}
+    for component, spec in declared.items():
+        required = spec.get("requiredInputs") if isinstance(spec, dict) else None
+        if not isinstance(required, list) or not required:
+            raise ValueError("nonempty requiredInputs list required for each component")
+        for key in required:
+            item_id(key)
+            if key in required_by:
+                raise ValueError("ambiguous required input ID")
+            required_by[key] = component
+            if key in indexed and indexed[key]["component"] != component:
+                raise ValueError("required input component mismatch")
+    if not set(indexed) <= set(required_by):
+        raise ValueError("input omitted from requiredInputs")
+    missing, rows = [], []
+    for component in selected:
+        for key in declared[component]["requiredInputs"]:
+            if key not in indexed:
+                missing.append(
+                    {"component": component, "id": key, "reason": "required input missing"}
+                )
+            else:
+                rows.append(indexed[key])
+    return (
+        rows,
+        missing,
+        {
+            "selectedComponents": selected,
+            "selectedRequiredInputs": [
+                key for key, group in required_by.items() if group in selected
+            ],
+            "stageRequirements": requirements,
+            "unselectedComponents": {
+                group: spec for group, spec in declared.items() if group not in selected
+            },
+            "unselectedInputs": [row for row in inputs if row["component"] not in selected],
+            "unselectedRequirements": {
+                key: data[key]
+                for key in ("unresolved", "collectionIssues", "modelInputs")
+                if key in data
+            },
+            "selectedInputsReady": False,
+            "remainingSelectedInputs": [
+                key for key, group in required_by.items() if group in selected
+            ],
+        },
+    )
+
+
+def source_row(ref, base, evidence):
+    evidence(ref)
+    source, _ = read_json(base / ref["path"], ref["sha256"])
+    if "rowIndex" in ref and "rowPath" in ref:
+        raise ValueError("ambiguous source row locator")
+    if "rowIndex" in ref:
+        index = ref["rowIndex"]
+        if not isinstance(source, list) or type(index) is not int or not 0 <= index < len(source):
+            raise ValueError("source row index mismatch")
+        original = source[index]
+    else:
+        pointer = ref.get("rowPath")
+        if not isinstance(pointer, list) or not pointer:
+            raise ValueError("explicit source row path required")
+        original = source
+        for key in pointer:
+            if (
+                isinstance(original, dict)
+                and isinstance(key, str)
+                and key in original
+                or isinstance(original, list)
+                and type(key) is int
+                and 0 <= key < len(original)
+            ):
+                original = original[key]
+            else:
+                raise ValueError("source row path mismatch")
+    if not isinstance(original, dict) or canonical_row_sha256(original) != ref.get("rowSha256"):
+        raise ValueError("source row SHA256 mismatch")
+    return original
+
+
+def acquisition_source(row, base, evidence):
+    original = source_row(row.get("sourceRef"), base, evidence)
+    source_sha = original.get("sha256", original.get("digests", {}).get("sha256"))
+    if source_sha != row["sha256"] or any(
+        row[key] != original.get(key) for key in ("filename", "size", "url")
+    ):
+        raise ValueError("acquisition source row identity mismatch")
+
+
+def model_original(row, args, base, evidence):
+    if row.get("localCopyOnly") is not True or "url" in row or "localOriginal" in row:
+        raise ValueError("model input requires local-copy-only provenance, not acquisition URL")
+    ref = row.get("sourceRef")
+    if isinstance(ref, dict) and "rowPath" in ref:
+        raise ValueError("model originals require manifest rowIndex")
+    original = source_row(ref, base, evidence)
+    path = relative_name(original.get("path"))
+    if (
+        not path.startswith("models/")
+        or any(
+            row.get(key) != original.get(source_key)
+            for key, source_key in (
+                ("sha256", "sha256"),
+                ("size", "size"),
+                ("sourceUrl", "url"),
+                ("assemblyPath", "path"),
+            )
+        )
+        or row["filename"] != path.rsplit("/", 1)[-1]
+    ):
+        raise ValueError("model source row identity mismatch")
+    url = row["sourceUrl"]
+    if not isinstance(url, str) or any(ord(c) < 33 for c in url) or "\\" in url:
+        raise ValueError("invalid model provenance URL")
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc not in {"huggingface.co", "raw.githubusercontent.com"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("invalid model provenance origin")
+    if parsed.hostname == "huggingface.co":
+        match = re.fullmatch(
+            r"/docling-project/(docling-layout-heron|docling-models)/resolve/([0-9a-f]{40})/(.+)",
+            parsed.path,
+        )
+        expected = f"models/docling/docling-project--{match[1]}/{match[3]}" if match else None
+        publisher = f"docling-project/{match[1]}" if match else None
+        revision = match[2] if match else None
+    else:
+        match = re.fullmatch(
+            r"/tesseract-ocr/tessdata_best/([0-9a-f]{40})/(kor.traineddata|eng.traineddata|LICENSE|README.md)",
+            parsed.path,
+        )
+        expected = f"models/tessdata/{match[2]}" if match else None
+        publisher = "tesseract-ocr/tessdata_best"
+        revision = match[1] if match else None
+    if path != expected or row["name"] != publisher or row["version"] != revision:
+        raise ValueError("model provenance path mismatch")
+    root = getattr(args, "reuse_root", None)
+    if root is None or not root.is_absolute():
+        raise ValueError("explicit absolute reuse root required for model originals")
+    root = regular(root, directory=True)
+    row["localOriginal"] = {"path": str(root / path), "size": row["size"], "sha256": row["sha256"]}
+    row["localCopyOnly"] = True
+
+
 def inventory_plan(args, deadline):
     data, raw = read_json(args.inventory, args.inventory_sha256)
-    if data.get("schemaVersion") != SCHEMA or data.get("target") != args.target:
+    v2 = data.get("schemaVersion") == SCHEMA_V2
+    if data.get("schemaVersion") not in {SCHEMA, SCHEMA_V2} or data.get("target") != args.target:
         raise ValueError("inventory target/schema mismatch")
     if not re.fullmatch(r"3\.12\.[0-9]+", data.get("pythonVersion", "")):
         raise ValueError("CPython 3.12 inventory required")
+    if not v2 and (getattr(args, "component", None) or getattr(args, "reuse_root", None)):
+        raise ValueError("component selection and reuse root require explicit v2")
     base = args.inventory.absolute().parent
     checked_refs = set()
     metadata_bytes = 0
@@ -194,31 +392,40 @@ def inventory_plan(args, deadline):
                 raise ValueError("metadata input budget exceeded")
             checked_refs.add(key)
 
-    for ref in data.get("sourceInputs", {}).values():
-        evidence(ref)
-    for key in ("dependencyCheck", "collection", "modelInputs"):
-        if data.get(key):
-            evidence(data[key])
-    missing = list(data.get("collectionIssues", [])) + list(data.get("unresolved", []))
-    if data.get("dependencyCheck"):
-        dependency, _ = read_json(base / data["dependencyCheck"]["path"])
-        if dependency.get("passed") is not True:
-            missing.append({"component": "dependencyCheck", "reason": "not passed"})
-    rows = list(data.get("wheels", []))
-    for key in ("pythonRuntime", "antlrSource"):
-        if isinstance(data.get(key), dict):
-            rows.append(data[key])
-        else:
-            missing.append({"component": key, "reason": "missing explicit input"})
-    wheel_refs = {(r.get("name"), r.get("version")): r for r in data.get("wheels", [])}
-    for row in data.get("buildTools", []):
-        if "filename" not in row and (row.get("name"), row.get("version")) in wheel_refs:
-            continue  # Exact existing wheel reference, not a second acquisition.
-        rows.append(row)
-    if data.get("modelInputs"):
-        missing.append(
-            {"component": "modelInputs", "reason": "reference is not a normalized acquisition list"}
-        )
+    if v2:
+        rows, missing, context = selected_v2(data, args)
+        for ref in data.get("sourceInputs", {}).values():
+            evidence(ref)
+    else:
+        context = {}
+        for ref in data.get("sourceInputs", {}).values():
+            evidence(ref)
+        for key in ("dependencyCheck", "collection", "modelInputs"):
+            if data.get(key):
+                evidence(data[key])
+        missing = list(data.get("collectionIssues", [])) + list(data.get("unresolved", []))
+        if data.get("dependencyCheck"):
+            dependency, _ = read_json(base / data["dependencyCheck"]["path"])
+            if dependency.get("passed") is not True:
+                missing.append({"component": "dependencyCheck", "reason": "not passed"})
+        rows = list(data.get("wheels", []))
+        for key in ("pythonRuntime", "antlrSource"):
+            if isinstance(data.get(key), dict):
+                rows.append(data[key])
+            else:
+                missing.append({"component": key, "reason": "missing explicit input"})
+        wheel_refs = {(r.get("name"), r.get("version")): r for r in data.get("wheels", [])}
+        for row in data.get("buildTools", []):
+            if "filename" not in row and (row.get("name"), row.get("version")) in wheel_refs:
+                continue  # Exact existing wheel reference, not a second acquisition.
+            rows.append(row)
+        if data.get("modelInputs"):
+            missing.append(
+                {
+                    "component": "modelInputs",
+                    "reason": "reference is not a normalized acquisition list",
+                }
+            )
     if len(rows) > 512:
         raise ValueError("input count limit")
     planned, seen, packages = [], set(), set()
@@ -226,25 +433,51 @@ def inventory_plan(args, deadline):
         if time.monotonic() >= deadline:
             raise TimeoutError("preflight deadline")
         row = dict(original)
-        if not all(
-            row.get(k) is not None for k in ("name", "version", "filename", "url", "sha256", "size")
-        ):
+        model = v2 and row["component"] == "model-originals"
+        required = ("name", "version", "filename", "sha256", "size") + (() if model else ("url",))
+        if not all(row.get(k) is not None for k in required):
             missing.append(
                 {"component": row.get("name", "unnamed"), "reason": "incomplete explicit input"}
             )
             continue
         name = filename(row["filename"])
-        if name.casefold() in seen:
+        key = row["id"] + "/" + name if v2 else name
+        if key.casefold() in seen:
             raise ValueError("duplicate output filename")
-        seen.add(name.casefold())
+        seen.add(key.casefold())
+        row["outputPath"] = key
         if (
             not re.fullmatch(r"[a-f0-9]{64}", row["sha256"])
             or type(row["size"]) is not int
             or row["size"] <= 0
         ):
             raise ValueError("exact positive size and SHA256 required")
-        official_url(row["url"], name)
-        if name.endswith(".whl"):
+        if model:
+            model_original(row, args, base, evidence)
+        else:
+            official_url(row["url"], name)
+            if v2:
+                acquisition_source(row, base, evidence)
+        if v2 and not model:
+            component = row["component"]
+            if (
+                (component == "runtime-wheels" and not name.endswith(".whl"))
+                or (
+                    component == "python-runtime"
+                    and (
+                        row.get("role") != "python-runtime"
+                        or not name.endswith("-install_only.tar.gz")
+                    )
+                )
+                or (
+                    component == "build-inputs"
+                    and row.get("role") not in {"build-source", "build-tool"}
+                )
+            ):
+                raise ValueError("input role/component mismatch")
+        if model:
+            pass
+        elif name.endswith(".whl"):
             wheel_target(row, args.target)
             package = canonical(row["name"])
             if package in packages:
@@ -285,14 +518,17 @@ def inventory_plan(args, deadline):
                     raise ValueError("local original size mismatch")
                 row["localPath"] = str(path)
         row["method"] = "copy" if row.get("localPath") else "download"
-        if row["method"] == "download" and not args.download:
+        if row["method"] == "download" and (not args.download or row.get("localCopyOnly")):
             missing.append(
-                {"component": row["name"], "reason": "local input missing and download disabled"}
+                {
+                    "component": row["name"],
+                    "reason": "local input missing and acquisition not permitted",
+                }
             )
         planned.append(row)
     if not planned:
         missing.append({"component": "inputs", "reason": "empty input list"})
-    return raw, planned, missing
+    return raw, planned, missing, context
 
 
 class Redirects(urllib.request.HTTPRedirectHandler):
@@ -384,6 +620,8 @@ def transfer(job):
             if not identity(before) == identity(opened) == identity(after) == identity(current):
                 raise ValueError("local original changed during copy")
         else:
+            if row.get("localCopyOnly"):
+                raise ValueError("model originals cannot be downloaded")
             official_url(row["url"], name)
             opener = urllib.request.build_opener(
                 urllib.request.ProxyHandler({}), Redirects(row["url"], name)
@@ -497,7 +735,10 @@ def prepare(args):
         receipt["observedInventorySha256"] = digest(observed)
         with (output / "received-inventory.json").open("xb") as copy:
             copy.write(observed)
-        raw, rows, missing = inventory_plan(args, deadline)
+        raw, rows, missing, context = inventory_plan(args, deadline)
+        receipt.update(context)
+        if context and getattr(args, "reuse_root", None):
+            receipt["reuseRoot"] = str(args.reuse_root)
         (output / "approved-inventory.json").write_bytes(raw)
         receipt["missing"] = missing
         totals = {
@@ -530,7 +771,7 @@ def prepare(args):
             raise ValueError("insufficient free disk")
         if digest(regular(args.inventory).read_bytes()) != args.inventory_sha256:
             raise ValueError("inventory changed during preflight")
-        receipt["remaining"] = [r["filename"] for r in rows]
+        receipt["remaining"] = [r["outputPath"] for r in rows]
         if missing:
             receipt["status"] = "not-ready"
         elif not args.acquire:
@@ -572,6 +813,8 @@ def prepare(args):
                     {"filename": row["filename"], "size": size, "sha256": hashed.hexdigest()}
                 )
             receipt["remoteBytesVerified"] = False
+            if context:
+                receipt["selectedInputsReady"] = True
             receipt["status"] = "ready-not-acquired"
         else:
             if args.timeout_seconds <= 5:
@@ -586,7 +829,11 @@ def prepare(args):
                 if shutil.disk_usage(output).free < row["size"] + args.min_free_bytes:
                     raise ValueError("free disk fell below reserve")
                 timeout = min(remaining, args.file_timeout_seconds)
-                job = {"input": row, "directory": str(output / "files"), "timeoutSeconds": timeout}
+                directory = output / "files"
+                if context:
+                    directory = directory / row["id"]
+                    directory.mkdir()
+                job = {"input": row, "directory": str(directory), "timeoutSeconds": timeout}
                 job_path = output / "jobs" / f"{index:04}.json"
                 write_json(job_path, job)
                 result = supervise(job_path, timeout)
@@ -596,12 +843,12 @@ def prepare(args):
                     expectedSize=row["size"],
                     jobPath="jobs/" + job_path.name,
                 )
-                partial = output / "files" / (row["filename"] + ".partial")
+                partial = output / "files" / (row["outputPath"] + ".partial")
                 result["partialBytes"] = partial.stat().st_size if partial.is_file() else 0
                 receipt["inputs"].append(result)
                 if result["status"] != "verified":
                     raise ValueError("input transfer failed; no retry")
-                final = regular(output / "files" / row["filename"])
+                final = regular(output / "files" / row["outputPath"])
                 if final.stat().st_size != row["size"] or result.get("sha256") != row["sha256"]:
                     raise ValueError("transfer result identity mismatch")
                 hashed = hashlib.sha256()
@@ -620,8 +867,13 @@ def prepare(args):
                     != (after.st_ino, after.st_size, after.st_mtime_ns)
                 ):
                     raise ValueError("final bytes changed after transfer")
-                result["verifiedPath"] = "files/" + row["filename"]
-                receipt["remaining"].remove(row["filename"])
+                result["verifiedPath"] = "files/" + row["outputPath"]
+                if context:
+                    result["id"] = row["id"]
+                    receipt["remainingSelectedInputs"].remove(row["id"])
+                receipt["remaining"].remove(row["outputPath"])
+            if context:
+                receipt["selectedInputsReady"] = True
             receipt["status"] = "inputs-acquired-not-stage-approved"
     except (Exception, KeyboardInterrupt) as exc:
         receipt["errorType"] = type(exc).__name__
@@ -656,6 +908,8 @@ def main():
     parser.add_argument("--inventory-sha256")
     parser.add_argument("--target", choices=sorted(TARGETS))
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--component", action="append", choices=sorted(COMPONENTS))
+    parser.add_argument("--reuse-root", type=Path)
     parser.add_argument("--acquire", action="store_true")
     parser.add_argument("--download", action="store_true")
     for name in (

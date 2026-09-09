@@ -438,3 +438,294 @@ def test_sigterm_enters_failure_receipt_path_and_restores_handler(prepared, monk
     assert handlers[-1] is previous
     assert result["status"] == "failed" and result["errorType"] == "KeyboardInterrupt"
     assert (args.output / "acquisition.json").is_file()
+
+
+@pytest.fixture
+def prepared_v2(prepared, tmp_path):
+    args, data, seal = prepared
+    wheel = data["wheels"][0]
+    original = dict(wheel)
+    source = tmp_path / "source-wheel.json"
+    source.write_text(json.dumps([original]), encoding="utf-8")
+    wheel["sourceRef"] = {
+        "path": source.name,
+        "sha256": helper.digest(source.read_bytes()),
+        "rowIndex": 0,
+        "rowSha256": helper.canonical_row_sha256(original),
+    }
+    wheel.update(id="runtime-demo", component="runtime-wheels")
+    data.clear()
+    data.update(
+        schemaVersion=helper.SCHEMA_V2,
+        target="linux-aarch64",
+        pythonVersion="3.12.14",
+        components={
+            "runtime-wheels": {"requiredInputs": ["runtime-demo"]},
+            "build-inputs": {"requiredInputs": ["build-wheel"]},
+        },
+        inputs=[
+            wheel,
+            {"id": "build-wheel", "component": "build-inputs", "name": "wheel", "url": None},
+        ],
+        stageRequirements=[{"component": "ARM native", "status": "unavailable"}],
+        unresolved=[{"component": "full stage", "status": "not-audited"}],
+    )
+    args.component = ["runtime-wheels"]
+    args.reuse_root = None
+    seal()
+    return args, data, seal
+
+
+def test_v2_selected_runtime_can_acquire_without_stage_or_unselected_build_inputs(prepared_v2):
+    args, data, _ = prepared_v2
+    args.acquire = True
+    result = helper.prepare(args)
+    assert result["status"] == "inputs-acquired-not-stage-approved"
+    assert result["selectedInputsReady"] is True
+    assert result["stageApproved"] is False and result["releaseQualified"] is False
+    assert result["stageRequirements"] == data["stageRequirements"]
+    assert result["unselectedInputs"] == [data["inputs"][1]]
+    assert result["unselectedRequirements"]["unresolved"] == data["unresolved"]
+    assert result["remaining"] == []
+    assert result["inputs"][0]["verifiedPath"] == "files/runtime-demo/demo-1.0-py3-none-any.whl"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "no-selection",
+        "unknown-selection",
+        "duplicate-selection",
+        "missing-component",
+        "no-required",
+        "empty-required",
+        "empty-inputs",
+        "duplicate-id",
+        "uppercase-id",
+        "escaping-id",
+        "unlisted-id",
+        "wrong-component",
+        "unknown-component",
+    ],
+)
+def test_v2_rejects_ambiguous_or_missing_selection_contract(prepared_v2, change):
+    args, data, seal = prepared_v2
+    if change == "no-selection":
+        args.component = None
+    if change == "unknown-selection":
+        args.component = ["native"]
+    if change == "duplicate-selection":
+        args.component *= 2
+    if change == "missing-component":
+        args.component = ["python-runtime"]
+    if change == "no-required":
+        data["components"]["runtime-wheels"] = {}
+    if change == "empty-required":
+        data["components"]["runtime-wheels"]["requiredInputs"] = []
+    if change == "empty-inputs":
+        data["inputs"] = []
+    if change == "duplicate-id":
+        data["inputs"].append(dict(data["inputs"][0]))
+    if change == "uppercase-id":
+        data["inputs"][0]["id"] = "Runtime-demo"
+    if change == "escaping-id":
+        data["inputs"][0]["id"] = "../escape"
+    if change == "unlisted-id":
+        data["inputs"][0]["id"] = "not-required"
+    if change == "wrong-component":
+        data["inputs"][0]["component"] = "build-inputs"
+    if change == "unknown-component":
+        data["components"]["unknown"] = {"requiredInputs": ["unknown"]}
+    seal()
+    result = helper.prepare(args)
+    assert result["status"] == "failed"
+    assert not (args.output / "files").exists()
+
+
+def test_v2_required_missing_input_is_not_ready(prepared_v2):
+    args, data, seal = prepared_v2
+    data["components"]["runtime-wheels"]["requiredInputs"].append("runtime-missing")
+    seal()
+    result = helper.prepare(args)
+    assert result["status"] == "not-ready" and result["selectedInputsReady"] is False
+    assert result["missing"][0]["id"] == "runtime-missing"
+    assert "runtime-missing" in result["remainingSelectedInputs"]
+
+
+def test_v2_selected_incomplete_build_input_is_not_ready(prepared_v2):
+    args, _, _ = prepared_v2
+    args.component = ["build-inputs"]
+    assert helper.prepare(args)["status"] == "not-ready"
+
+
+def test_v1_cannot_opt_into_component_bypass(prepared):
+    args, _, _ = prepared
+    args.component = ["runtime-wheels"]
+    assert helper.prepare(args)["status"] == "failed"
+
+
+@pytest.fixture
+def prepared_model(prepared_v2, tmp_path):
+    args, data, seal = prepared_v2
+    args.reuse_root = tmp_path / "reuse"
+    args.reuse_root.mkdir()
+    rows, models = [], []
+    for index, (repo, revision) in enumerate(
+        [("docling-layout-heron", "a" * 40), ("docling-models", "b" * 40)]
+    ):
+        raw = f"model fixture {index}".encode()
+        path = f"models/docling/docling-project--{repo}/README.md"
+        source = args.reuse_root / path
+        source.parent.mkdir(parents=True)
+        source.write_bytes(raw)
+        row = {
+            "url": f"https://huggingface.co/docling-project/{repo}/resolve/{revision}/README.md",
+            "path": path,
+            "size": len(raw),
+            "sha256": helper.digest(raw),
+        }
+        rows.append(row)
+        models.append(
+            {
+                "id": f"model-{index}",
+                "component": "model-originals",
+                "name": f"docling-project/{repo}",
+                "version": revision,
+                "filename": "README.md",
+                "sourceUrl": row["url"],
+                "assemblyPath": path,
+                "size": len(raw),
+                "sha256": row["sha256"],
+                "localCopyOnly": True,
+            }
+        )
+    manifest = tmp_path / "source-models.json"
+    manifest.write_text(json.dumps(rows), encoding="utf-8")
+    for i, model in enumerate(models):
+        model["sourceRef"] = {
+            "path": manifest.name,
+            "sha256": helper.digest(manifest.read_bytes()),
+            "rowIndex": i,
+            "rowSha256": helper.canonical_row_sha256(rows[i]),
+        }
+    data["components"]["model-originals"] = {"requiredInputs": [r["id"] for r in models]}
+    data["inputs"].extend(models)
+    args.component = ["model-originals"]
+    seal()
+    return args, data, seal, models
+
+
+def test_v2_models_same_basename_acquired_into_unique_ids_without_network(prepared_model):
+    args, _, _, models = prepared_model
+    args.acquire = args.download = True
+    result = helper.prepare(args)
+    assert result["status"] == "inputs-acquired-not-stage-approved"
+    assert result["selectedInputsReady"] is True
+    assert all(r["method"] == "copy" for r in result["inputs"])
+    for row in models:
+        assert (
+            helper.digest((args.output / "files" / row["id"] / "README.md").read_bytes())
+            == row["sha256"]
+        )
+    assert not (args.output / models[0]["assemblyPath"]).exists()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "manifest-sha",
+        "row-sha",
+        "row-index",
+        "assembly-path",
+        "filename",
+        "source-url",
+        "download-url",
+        "copy-policy",
+        "reuse-root",
+        "escaping-source-ref",
+        "source-version",
+    ],
+)
+def test_v2_model_source_binding_is_exact(prepared_model, change):
+    args, _, seal, models = prepared_model
+    row = models[0]
+    if change == "manifest-sha":
+        row["sourceRef"]["sha256"] = "0" * 64
+    if change == "row-sha":
+        row["sourceRef"]["rowSha256"] = "0" * 64
+    if change == "row-index":
+        row["sourceRef"]["rowIndex"] = True
+    if change == "assembly-path":
+        row["assemblyPath"] = "models/elsewhere"
+    if change == "filename":
+        row["filename"] = "other.md"
+    if change == "source-url":
+        row["sourceUrl"] = "https://evil.test/README.md"
+    if change == "download-url":
+        row["url"] = row["sourceUrl"]
+    if change == "copy-policy":
+        row["localCopyOnly"] = False
+    if change == "reuse-root":
+        args.reuse_root = Path("relative-root")
+    if change == "escaping-source-ref":
+        row["sourceRef"]["path"] = "../source-models.json"
+    if change == "source-version":
+        row["version"] = "incorrect"
+    seal()
+    assert helper.prepare(args)["status"] == "failed"
+
+
+def test_v2_missing_model_never_falls_back_to_download(prepared_model, monkeypatch):
+    args, _, _, models = prepared_model
+    (args.reuse_root / models[0]["assemblyPath"]).unlink()
+    args.acquire = args.download = True
+    monkeypatch.setattr(
+        helper, "supervise", lambda *a: pytest.fail("missing model triggered transfer")
+    )
+    assert helper.prepare(args)["status"] == "not-ready"
+
+
+def test_v2_model_worker_rejects_download_even_if_job_is_wrong(tmp_path, monkeypatch):
+    row = {
+        "filename": "README.md",
+        "method": "download",
+        "localCopyOnly": True,
+        "url": "https://files.pythonhosted.org/packages/a/README.md",
+    }
+    monkeypatch.setattr(
+        helper.urllib.request, "build_opener", lambda *a: pytest.fail("model network request")
+    )
+    assert (
+        helper.transfer({"directory": str(tmp_path), "input": row, "timeoutSeconds": 2})["status"]
+        == "failed"
+    )
+
+
+def test_v2_runtime_source_ref_cannot_be_invented(prepared_v2):
+    args, data, seal = prepared_v2
+    data["inputs"][0]["sourceRef"]["rowSha256"] = "0" * 64
+    seal()
+    assert helper.prepare(args)["status"] == "failed"
+
+
+def test_v2_python_runtime_component_cannot_contain_a_wheel(prepared_v2):
+    args, data, seal = prepared_v2
+    row = data["inputs"][0]
+    row["component"] = "python-runtime"
+    row["role"] = "python-runtime"
+    data["components"]["python-runtime"] = data["components"].pop("runtime-wheels")
+    args.component = ["python-runtime"]
+    seal()
+    assert helper.prepare(args)["status"] == "failed"
+
+
+def test_v2_model_symlink_below_reuse_root_is_rejected(prepared_model, tmp_path):
+    args, _, _, models = prepared_model
+    source = args.reuse_root / models[0]["assemblyPath"]
+    target = tmp_path / "outside"
+    source.rename(target)
+    try:
+        source.symlink_to(target)
+    except OSError:
+        pytest.skip("host cannot create symbolic links")
+    assert helper.prepare(args)["status"] == "failed"

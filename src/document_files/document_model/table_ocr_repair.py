@@ -216,6 +216,66 @@ def box_overlap(a, b):
     ) / area
 
 
+def resolved_cell_geometry(grid, *, width, height, max_cells=4096):
+    """Separate closed geometric windows from OCR and from non-text classification."""
+    hs, vs = grid.get("horizontalLines", []), grid.get("verticalLines", [])
+    if not isinstance(hs, list) or not isinstance(vs, list) or len(hs) > 128 or len(vs) > 128:
+        return [], {"status": "cell_geometry_budget_or_missing_grid"}
+    for line in [*hs, *vs]:
+        if (
+            not isinstance(line, (list, tuple))
+            or len(line) < 4
+            or any(type(v) is not int for v in line[:4])
+        ):
+            return [], {"status": "cell_geometry_invalid"}
+        x, y, w, h = line[:4]
+        if not (0 <= x < x + w <= width and 0 <= y < y + h <= height):
+            return [], {"status": "cell_geometry_invalid"}
+    ys = sorted({(int(h[1]), int(h[1] + h[3])) for h in hs})
+    xs = sorted({(int(v[0]), int(v[0] + v[2])) for v in vs})
+    count = max(0, len(xs) - 1) * max(0, len(ys) - 1)
+    if len(xs) < 2 or len(ys) < 2 or count > max_cells:
+        return [], {"status": "cell_geometry_budget_or_missing_grid", "candidateCellCount": count}
+    cells = []
+    for row in range(len(ys) - 1):
+        for col in range(len(xs) - 1):
+            top, bottom = ys[row], ys[row + 1]
+            left, right = xs[col], xs[col + 1]
+            horizontal_ok = all(
+                any(
+                    abs(h[1] - edge[0]) <= 1 and h[0] <= left[0] + 2 and h[0] + h[2] >= right[1] - 2
+                    for h in hs
+                )
+                for edge in (top, bottom)
+            )
+            vertical_ok = all(
+                any(
+                    abs(v[0] - edge[0]) <= 1 and v[1] <= top[0] + 2 and v[1] + v[3] >= bottom[1] - 2
+                    for v in vs
+                )
+                for edge in (left, right)
+            )
+            interior = [left[1], top[1], right[0], bottom[0]]
+            unit = [left[1] + 2, top[1] + 2, right[0] - 2, bottom[0] - 2]
+            resolved = horizontal_ok and vertical_ok and unit[0] < unit[2] and unit[1] < unit[3]
+            cells.append(
+                {
+                    "row": row,
+                    "col": col,
+                    "fullPixelBox": [left[0], top[0], right[1], bottom[1]],
+                    "interiorPixelBox": interior,
+                    "unitPixelBox": unit,
+                    "geometryStatus": "resolved" if resolved else "ambiguous_boundary",
+                }
+            )
+    status = (
+        "verified_rectangular_grid"
+        if all(c["geometryStatus"] == "resolved" for c in cells)
+        else "merged_or_incomplete_grid_unsupported"
+    )
+    return cells, {"status": status, "rows": len(ys) - 1, "cols": len(xs) - 1}
+
+
 def cell_ocr_units(image, grid, *, max_cells=4096):
     """Use only complete rectangular grids; never guess missing merged-cell edges.
 

@@ -54,17 +54,20 @@ build receipt alone.
 Two designated DGX Spark hosts were reachable over SSH and reported ARM64, Ubuntu
 24.04 and cgroup v2. Docker execution currently requires user authentication. No
 container permission, GPU, swap, network or security settings were changed. At source
-25e6cd8, ARM core, CPU runtime and native recognition CI builds passed. A single
-600-second ARM native artifact download timed out and remains an unverified partial
-file; a successful CI upload is not a verified local input. Complete recognition
+25e6cd8, ARM core, CPU runtime and native recognition CI builds passed. Separate
+600-second ARM native artifact downloads on the Mac and Spark each timed out and
+remain unverified partial files; a successful CI upload is not a verified local input. Complete recognition
 stages, CPU-only four-core/16 GiB execution,
 installation/rollback and client use remain unqualified.
 
 The Linux input preparation helper checks an approved inventory and requires explicit
 byte, disk and time limits. Its default is offline inspection; acquisition and network
 access require separate flags. It neither installs inputs nor approves a stage. The
-current ARM inventory fails readiness checks: build-tool metadata, normalized model
-inputs, native inputs and dynamic-library closure remain unresolved.
+legacy ARM inventory fails readiness checks. The normalized v2 inventory instead
+selects explicit input components and preserves unresolved full-stage requirements
+separately. Its 117 files and 873,482,385 bytes pass metadata and local-original checks;
+models remain local-copy-only. Native inputs, dynamic-library closure and actual stage
+assembly/qualification remain unresolved.
 
 ### Current source follow-up: table meaning, visual observations and Linux compatibility
 
@@ -246,6 +249,17 @@ status wrapper failed after the recognition output was saved; its failure, uncap
 Python exit code and successful OCR child exits are recorded separately. No retry,
 semantic model, independent holdout or resource qualification was performed.
 
+Adapter v19 now records the full cell, its interior, the OCR cell window and excluded
+edge bands from existing canvas pixels. Exact white, faint/color and unknown-alpha
+pixels stay distinct. Frame hashing, grid detection and repeated region inspection
+share a separate finite observation budget; uncertain work after an error consumes
+the remaining reservation without fabricating a measured-pixel count. A missing cache
+does not trigger a render. Import checks internal statistics and source/frame linkage,
+then requires unique unmerged table geometry before associating slots. Raw OCR links
+are preserved separately and their execution remains unverified. These records do not
+create values, prove blanks or clear existing issues/partial status. This change has
+synthetic regression coverage, not a fresh whole-document recognition result.
+
 Windows build preparation now takes pinned official product terms and records the
 actual installed toolchain instead of searching recursively for a similarly named
 license file. An installed-HTTP operational review links separate expected results,
@@ -278,9 +292,9 @@ and the follow-up 52c4d12 CI regression steps passed on all four existing platfo
 including Windows. Build completion is separate. These development runs are not one
 final candidate.
 
-After Linux ARM64, adapter v18, image-export checks and input preparation integration,
-core regression passed **1,264 tests, with 92 skipped and 12 subtests**; Ruff and formatting checks
-passed. The separate recognition-runtime overlay passed 158 PDF/OCR tests. Core skips include optional recognition dependencies and actual
+After Linux ARM64, adapter v19, image-export checks and input v2 integration,
+core regression passed **1,300 tests, with 154 skipped and 12 subtests**; Ruff and formatting checks
+passed. The separate recognition-runtime overlay passed 222 PDF/OCR tests. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.
 

@@ -15,6 +15,11 @@ from copy import deepcopy
 from pathlib import Path
 
 from .recognition_batches import BATCH_VERSION, RAW_VERSION, batch_rows, run_fingerprint
+from .recognition_cell_observations import (
+    cell_ocr_links,
+    observe_table_cells,
+    unavailable_cell_observation,
+)
 from .recognition_coordinates import (
     bind_ocr_frame,
     capture_framework_crops,
@@ -78,6 +83,8 @@ def pipeline_class(config, snapshots, restored=None):
         repair_input_pixels = 0
         repair_tables = 0
         repair_elapsed = 0.0
+        cell_observation_pixels = 0
+        cell_observation_cells = 0
         orientation = None
 
         def _release_coordinate_image(self):
@@ -478,6 +485,8 @@ def pipeline_class(config, snapshots, restored=None):
                     "rawOCRPasses": self.raw_passes,
                     "rawCaptureVersion": RAW_VERSION,
                     "rawOCRRuns": self.raw_runs,
+                    "cellObservations": [],
+                    "cellObservationOCRLinks": [],
                 }
                 snapshot["originalOCRFingerprint"] = hashlib.sha256(
                     json.dumps(
@@ -499,6 +508,9 @@ def pipeline_class(config, snapshots, restored=None):
                     snapshot["issues"].append({"code": "table_ocr_repair_timeout"})
                 except Exception:
                     snapshot["issues"].append({"code": "table_ocr_repair_failed"})
+                snapshot["cellObservationOCRLinks"] = cell_ocr_links(
+                    snapshot.get("cellObservations", []), snapshot.get("rawOCRPasses", [])
+                )
                 self.apply_structure_view(page, snapshot)
                 yield page
 
@@ -540,6 +552,134 @@ def pipeline_class(config, snapshots, restored=None):
                     selection["structureInputIndex"] = source_to_view[cell["backendCellIndex"]]
                     selection["sourceIndexPreserved"] = True
 
+        def _observe_cell_pixels(
+            self, page, snapshot, cluster, canvas, bounds, grid, units=(), *, grid_pixels=0
+        ):
+            """Use existing pixels only; reserve all new preparation passes before access."""
+            remaining = max(0, config.repair_max_pixels - self.cell_observation_pixels)
+            frame_pixels = canvas.width * canvas.height
+            crop_pixels = max(0, bounds[2] - bounds[0]) * max(0, bounds[3] - bounds[1])
+            preparation = {"frameIdentityPixels": 0, "gridDetectionPixels": grid_pixels}
+            collected = None
+            observation_started = False
+            try:
+                # framework_frame hashes the full canvas. Do not enter it unless both
+                # its pass and the subsequent canvas/crop identity pass fit.
+                if 2 * frame_pixels + crop_pixels > remaining:
+                    raise ValueError("cell_pixel_budget_exceeded")
+                preparation["frameIdentityPixels"] = frame_pixels
+                self.cell_observation_pixels += frame_pixels
+                frame = framework_frame(page._backend._result, canvas)
+                if not isinstance(frame, dict):
+                    raise ValueError("source_frame_unavailable")
+                observation_started = True
+                collected = observe_table_cells(
+                    canvas,
+                    source_frame=frame,
+                    table_crop_bounds=bounds,
+                    cluster_id=cluster.id,
+                    local_page_number=page.page_no,
+                    grid=grid,
+                    units=units,
+                    max_pixels=remaining + grid_pixels,
+                    max_cells=max(0, 4096 - self.cell_observation_cells),
+                    preparation_pixels=preparation,
+                )
+                self.cell_observation_pixels += collected["usage"]["totalExaminedPixels"] - sum(
+                    preparation.values()
+                )
+                self.cell_observation_cells += len(collected.get("slots", []))
+            except Exception:
+                collected = unavailable_cell_observation(
+                    cluster_id=cluster.id,
+                    local_page_number=page.page_no,
+                    reason="cell_pixel_budget_exceeded"
+                    if 2 * frame_pixels + crop_pixels > remaining
+                    else "source_frame_or_cell_pixels_unavailable",
+                )
+                if observation_started:
+                    # A failing region reader can have inspected an unknown prefix.
+                    # Consume its remaining reservation, never invent a measured count.
+                    unknown_reserved = max(0, remaining - preparation["frameIdentityPixels"])
+                    self.cell_observation_pixels += unknown_reserved
+                    collected["unknownWork"] = True
+                    collected["reservedBudgetConsumed"] = unknown_reserved
+                collected["preparation"] = preparation
+                collected["usage"].update(
+                    preparationPixels=sum(preparation.values()),
+                    totalExaminedPixels=sum(preparation.values()),
+                )
+                from .recognition_coordinates import fingerprint
+
+                collected["fingerprint"] = fingerprint(collected)
+            snapshot.setdefault("cellObservations", []).append(collected)
+
+        def _observe_cached_native_cells(self, page, snapshot, cluster, bbox):
+            # Do not call Page.get_image: that would silently render a cache miss.
+            cached = getattr(page, "_image_cache", {})
+            candidates = [
+                (scale, image)
+                for scale, image in cached.items()
+                if type(scale) in (float, int)
+                and math.isfinite(scale)
+                and scale > 0
+                and image is not None
+                and image.width * image.height <= config.repair_max_pixels
+            ]
+            if not candidates:
+                snapshot.setdefault("cellObservations", []).append(
+                    unavailable_cell_observation(
+                        cluster_id=cluster.id,
+                        local_page_number=page.page_no,
+                        reason="cached_canvas_unavailable",
+                    )
+                )
+                return
+            _, canvas = max(candidates, key=lambda pair: pair[0])
+            sx, sy = canvas.width / page.size.width, canvas.height / page.size.height
+            bounds = [
+                max(0, math.floor(bbox.l * sx + 1e-9)),
+                max(0, math.floor(bbox.t * sy + 1e-9)),
+                min(canvas.width, math.ceil(bbox.r * sx - 1e-9)),
+                min(canvas.height, math.ceil(bbox.b * sy - 1e-9)),
+            ]
+            remaining = config.repair_max_pixels - self.cell_observation_pixels
+            pixels = max(0, bounds[2] - bounds[0]) * max(0, bounds[3] - bounds[1])
+            if pixels <= 0 or 2 * canvas.width * canvas.height + 2 * pixels > remaining:
+                snapshot.setdefault("cellObservations", []).append(
+                    unavailable_cell_observation(
+                        cluster_id=cluster.id,
+                        local_page_number=page.page_no,
+                        reason="native_cell_pixel_budget_exceeded",
+                    )
+                )
+                return
+            self.cell_observation_pixels += pixels
+            try:
+                with canvas.crop(bounds) as crop:
+                    # Grid detection produces candidates, not a license to erase pixels.
+                    derived, grid = remove_grid(crop, max_pixels=remaining)
+                    if derived is not None:
+                        derived.close()
+                    self._observe_cell_pixels(
+                        page, snapshot, cluster, canvas, bounds, grid, grid_pixels=pixels
+                    )
+            except Exception:
+                collected = unavailable_cell_observation(
+                    cluster_id=cluster.id,
+                    local_page_number=page.page_no,
+                    reason="native_cell_geometry_unavailable",
+                )
+                # The grid operation did not return a measured prefix. Preserve
+                # its consumed reservation separately from known examined pixels.
+                collected["unknownWork"] = True
+                collected["reservedBudgetConsumed"] = pixels
+                collected["reservedWork"] = {"gridDetectionPixels": pixels}
+                from .recognition_coordinates import fingerprint
+
+                collected["fingerprint"] = fingerprint(collected)
+                snapshot.setdefault("cellObservations", []).append(collected)
+
         def repair(self, page, original, snapshot):
             if config.repair_batch_size == 2:
                 if not hasattr(self, "raw_runs"):
@@ -562,6 +702,7 @@ def pipeline_class(config, snapshots, restored=None):
                     not c.from_ocr and c.text.strip() and box_overlap(coords(c, page), target) > 0.2
                     for c in original
                 ):
+                    self._observe_cached_native_cells(page, snapshot, cluster, bbox)
                     snapshot["repairs"].append(
                         {"status": "native_text_table_skipped", "clusterId": cluster.id}
                     )
@@ -757,6 +898,10 @@ def pipeline_class(config, snapshots, restored=None):
                     )
                     snapshot["repairs"].append(info)
                     if derived is None:
+                        if config.table_ocr_repair == "ruled_cells_v2" and canvas is not None:
+                            self._observe_cell_pixels(
+                                page, snapshot, cluster, canvas, [x0, y0, x1, y1], info
+                            )
                         info["assessmentComplete"] = True
                         continue
                     info["sourcePixelsSha256"] = hashlib.sha256(crop.tobytes()).hexdigest()
@@ -783,6 +928,10 @@ def pipeline_class(config, snapshots, restored=None):
                     # Persist the full immutable unit plan before the first OCR
                     # attempt. Execution never changes indices or fingerprints.
                     info["units"] = [deepcopy(unit) for _, unit in units]
+                    if config.table_ocr_repair == "ruled_cells_v2" and canvas is not None:
+                        self._observe_cell_pixels(
+                            page, snapshot, cluster, canvas, [x0, y0, x1, y1], info, info["units"]
+                        )
                     execution = info["unitExecution"] = {
                         "version": "document-files.table-unit-execution.v1",
                         "order": list(range(len(units))),

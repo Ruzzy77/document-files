@@ -13,7 +13,7 @@ from importlib.metadata import PackageNotFoundError, version
 from .docling_adapter import RecognitionCheckpointError, import_docling
 from .model import ObservationDocument
 from .native import bind_spans
-from .recognition_sources import import_source_observations
+from .recognition_sources import import_cell_pixel_observations, import_source_observations
 
 
 def _version(name):
@@ -657,6 +657,19 @@ def observe_pdf(doc: ObservationDocument, content: bytes, *, recognition=None) -
             )
             prefix = f"docling:page:{page}"
             page_ids = import_docling(doc, page_result["document"], prefix=prefix)
+            import_cell_pixel_observations(
+                doc,
+                (page_result.get("sourceObservations") or {}).get("cellObservations"),
+                page_result.get("pageRender"),
+                page_result.get("coordinateEvidence"),
+                source_hash=source_hash,
+                page=page,
+                prefix=prefix,
+                ocr_links=(page_result.get("sourceObservations") or {}).get(
+                    "cellObservationOCRLinks"
+                ),
+                source_payload=page_result.get("sourceObservations"),
+            )
             source_ids = import_source_observations(
                 doc,
                 page_result.get("sourceObservations"),
