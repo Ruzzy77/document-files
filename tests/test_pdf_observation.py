@@ -2369,3 +2369,116 @@ def test_coordinate_import_boundary_preserves_unexpected_division_failure(monkey
     assert saved["status"] == "unverified" and saved["evidence"] == evidence
     assert saved["validationErrorType"] == "ZeroDivisionError"
     assert doc.issues[-1]["code"] == "recognition_source_coordinates_unverified"
+
+
+def visual_fixture(image, **limits):
+    pytest.importorskip("cv2")
+    from document_files.document_model.recognition_visual import observe_rgb, visual_profile
+
+    return observe_rgb(
+        image,
+        source_sha="a" * 64,
+        page=1,
+        render_profile={"visualObservation": visual_profile(**limits)},
+    )
+
+
+def test_full_visual_inventory_keeps_faint_margin_pixels_figures_and_edge_contact():
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (40, 30), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((10, 8, 29, 22), fill=(10, 20, 30))  # unclassified figure-sized area
+    draw.rectangle((0, 3, 2, 6), fill="black")  # boundary contact: possible clipping
+    draw.point((36, 27), fill=(255, 254, 255))  # faint, outside the figure/OCR-like area
+    draw.point((35, 1), fill="black")  # a margin mark cannot be cropped away
+    record = visual_fixture(image)
+    assert record["status"] == "captured" and record["foregroundPixelCount"] == 314
+    assert record["lowContrastPixelCount"] == 1 and record["foregroundPixelsDiscarded"] == 0
+    components = {tuple(c["pixelBounds"]): c for c in record["components"]}
+    assert components[(36, 27, 37, 28)]["lowContrastPixelCount"] == 1
+    assert components[(0, 3, 3, 7)]["touchesPageEdges"] == ["left"]
+    assert components[(10, 8, 30, 23)]["largeExtentOrDenseRegion"] is True
+    assert components[(35, 1, 36, 2)]["contentKind"] == "unclassified"
+    assert record["ocrBBoxesUsed"] is False and record["contentCoverageVerified"] is False
+    assert record["readingOrderVerified"] is False and record["blankValueProven"] is False
+    image.close()
+
+
+def test_visual_background_uncertainty_and_white_pixels_never_prove_blank():
+    from PIL import Image
+
+    for color, count in (((250, 250, 250), 100), ("white", 0)):
+        image = Image.new("RGB", (10, 10), color)
+        record = visual_fixture(image)
+        assert record["foregroundPixelCount"] == record["lowContrastPixelCount"] == count
+        assert record["backgroundClassification"] == "unverified"
+        assert record["blankValueProven"] is False and record["contentCoverageVerified"] is False
+        if count:
+            assert record["components"][0]["pixelBounds"] == [0, 0, 10, 10]
+            assert record["components"][0]["largeExtentOrDenseRegion"] is True
+        image.close()
+
+
+def test_visual_pixel_run_and_component_budgets_are_explicit_not_empty_success():
+    from PIL import Image
+
+    image = Image.new("RGB", (10, 10), "white")
+    for y in (1, 4, 7):
+        for x in (1, 4, 7):
+            image.putpixel((x, y), (0, 0, 0))
+    record = visual_fixture(image, max_components=2)
+    assert record["status"] == "truncated" and record["foregroundPixelCount"] == 9
+    assert len(record["components"]) == 2 and record["omittedComponentCount"] == 7
+    assert record["truncationReasons"] == ["component_budget_exceeded"]
+    record = visual_fixture(image, max_runs=2)
+    assert record["componentAnalyzedPixelBounds"] == [0, 0, 10, 1]
+    assert record["foregroundPixelCount"] == 9 and record["components"] == []
+    assert record["truncationReasons"] == ["foreground_run_budget_exceeded"]
+    record = visual_fixture(image, max_pixels=50)
+    assert record["pixelInventoryStatus"] == "not_run" and record["status"] == "truncated"
+    assert record["truncationReasons"] == ["pixel_budget_exceeded"]
+    assert "foregroundPixelCount" not in record and record["blankValueProven"] is False
+    image.close()
+    image = Image.new("RGB", (4, 6), "white")
+    for y in range(6):
+        image.putpixel((2, y), (0, 0, 0))
+    record = visual_fixture(image, max_runs=2)
+    assert record["foregroundPixelCount"] == 6 and record["analyzedForegroundPixelCount"] == 2
+    assert record["components"][0]["touchesUnprocessedBoundary"] is True
+    assert "bottom" not in record["components"][0]["touchesPageEdges"]
+    image.close()
+
+
+def test_visual_import_checks_source_page_render_hash_without_changing_existing_issues():
+    pytest.importorskip("cv2")
+    from document_files.document_model.pdf import import_page_render
+    from document_files.document_model.recognition_sources import page_render_fingerprint
+    from document_files.document_model.recognition_visual import digest
+
+    _, render = full_page_render_fixture()
+    for change in ("none", "source", "page", "rgb", "profile", "geometry", "counts"):
+        candidate = deepcopy(render)
+        visual = candidate["visualObservation"]
+        if change == "source":
+            visual["sourceSha256"] = "0" * 64
+        if change == "page":
+            visual["page"] = 2
+        if change == "rgb":
+            visual["rgbSha256"] = "0" * 64
+        if change == "profile":
+            visual["renderProfileSha256"] = "0" * 64
+        if change == "geometry":
+            visual["components"][0]["pixelBounds"][0] = -1
+        if change == "counts":
+            visual["foregroundPixelCount"] += 1
+        visual["fingerprint"] = digest({k: v for k, v in visual.items() if k != "fingerprint"})
+        candidate["fingerprint"] = page_render_fingerprint(candidate)
+        doc = ObservationDocument()
+        doc.issue("recognition_content_completeness_unverified")
+        before = deepcopy(doc.issues)
+        import_page_render(doc, candidate, source_hash=render["sourceSha256"], page=1)
+        imported = doc.provenance["pdfPageVisualObservations"][0]
+        assert (imported["bindingStatus"] == "source_page_render_matched") == (change == "none")
+        assert imported["observation"] == visual and imported["contentCoverageVerified"] is False
+        assert doc.issues == before and doc.coverage == {}

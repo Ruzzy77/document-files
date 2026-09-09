@@ -133,6 +133,7 @@ def capture_full_page_render(document, index, source_hash, *, scale=3.0, max_pix
     from pypdfium2 import PDFIUM_INFO
 
     from .recognition_sources import page_render_fingerprint
+    from .recognition_visual import observe_rgb, visual_profile
 
     record = {
         "version": "document-files.full-page-render.v1",
@@ -151,6 +152,7 @@ def capture_full_page_render(document, index, source_hash, *, scale=3.0, max_pix
             "drawAnnotations": True,
             "drawForms": True,
             "pixelMode": "RGB",
+            "visualObservation": visual_profile(),
         },
         "scope": "full_displayed_page_media_crop_intersection",
         "visualContentCoverage": "not_assessed",
@@ -200,6 +202,9 @@ def capture_full_page_render(document, index, source_hash, *, scale=3.0, max_pix
                 processedPixelBounds=[0, 0, pixel_width, pixel_height],
                 pixelCoordinateOrigin="TOPLEFT",
                 displayCanvasToPixelScale=[pixel_width / width, pixel_height / height],
+            )
+            record["visualObservation"] = observe_rgb(
+                image, source_sha=source_hash, page=index + 1, render_profile=record["profile"]
             )
             record["renderCoordinates"] = _render_coordinate_evidence(page, bitmap)
             if record["renderCoordinates"]["status"] != "verified":

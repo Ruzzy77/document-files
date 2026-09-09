@@ -136,7 +136,7 @@ class DoclingRecognition:
         self._identity = {
             **supplied,
             "adapter": "docling-offline-worker",
-            "adapterVersion": "12",
+            "adapterVersion": "13",
             "configuration": asdict(config),
             "modelPinning": (
                 "caller_supplied_manifest"

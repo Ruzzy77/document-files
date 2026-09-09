@@ -532,6 +532,24 @@ def import_page_render(doc, record, *, source_hash, page):
             "contentCoverageVerified": False,
         }
     )
+    from .recognition_visual import validate_visual
+
+    visual = record.get("visualObservation") if isinstance(record, dict) else None
+    visual_bound = binding == "source_page_matched" and validate_visual(
+        visual, record, source_sha=source_hash, page=page
+    )
+    # Observational metadata only. Neither a captured visual inventory nor a
+    # failed/truncated one changes existing issues or global completion status.
+    doc.provenance.setdefault("pdfPageVisualObservations", []).append(
+        {
+            "sourceSha256": source_hash,
+            "page": page,
+            "renderFingerprint": record.get("fingerprint") if isinstance(record, dict) else None,
+            "bindingStatus": "source_page_render_matched" if visual_bound else "unverified",
+            "observation": deepcopy(visual),
+            "contentCoverageVerified": False,
+        }
+    )
     if binding != "source_page_matched":
         doc.issue(
             "recognition_page_render_unavailable"
