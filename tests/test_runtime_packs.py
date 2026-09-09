@@ -278,7 +278,7 @@ def test_private_cpu_command_and_guaranteed_shutdown(tmp_path, vision):
                 assert "--no-mmproj-offload" in command
                 assert ("--mmproj" in command) is vision
                 if vision:
-                    assert command[command.index("--mmproj") + 1].endswith("/vision.gguf")
+                    assert Path(command[command.index("--mmproj") + 1]).name == "vision.gguf"
                     assert command[command.index("--image-min-tokens") + 1] == "1024"
                     assert command[command.index("--image-max-tokens") + 1] == "1536"
                 assert not any("huggingface" in arg for arg in command)

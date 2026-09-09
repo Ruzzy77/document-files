@@ -2,6 +2,18 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add an internal PDF page-review stage for explicitly image-capable managed packs.
+  Account for exact non-white pixel runs, measure line candidates on the same RGB
+  render, and reject missing-source pixels, incomplete slot borders and conflicting
+  reading order. Share document call/time budgets and durable page checkpoints.
+- Apply accepted page decisions atomically before semantic planning: retain original
+  strings/raw OCR, add only reviewed blank cells, reorder matched regions, and keep
+  exact issue-resolution evidence. Recompute derived observation counts/status,
+  without claiming OCR truth or weakening the final complete predicate.
+- Add an explicit optional F16 projector conversion to the model-pack builder with
+  preprocessor/config checks, GGUF inspection and conversion receipt v2. Default
+  text-only conversion is unchanged. Fix a POSIX-only test path assertion for Windows.
+
 - Add optional, explicitly pinned CPU vision-projector transport without changing
   text-only pack behavior. Validate bounded inline images, freeze image/schema input,
   use the owned server's multimodal token calculation and pin visual policy in job

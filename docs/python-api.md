@@ -413,3 +413,26 @@ context but is excluded from data candidates. The affected disposition and issue
 are retained in resolution provenance. A complete returned-detection ledger does
 not establish page completeness, OCR truth or scan blankness. Prior checkpoints
 remain incompatible; public v1 contracts are unchanged.
+
+
+### Internal PDF page review
+
+An explicit managed vision pack enables `document-files.pdf-visual-review.v1` before
+regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
+image preparation, exact pixel/grid and application policy versions participate in
+checkpoint identity. This adds no public caller-supplied interpretation endpoint.
+
+The model classifies source-linked pixel units and missing slots and orders observed
+blocks. The receiver rejects unsupported structural pixels, incomplete detail coverage,
+unknown units and geometry-conflicting order. All pages must pass before atomic
+application; original nodes, bindings and raw OCR remain unchanged. Added blank nodes
+use `observationBasis="visual_pdf_page_review"`, never native-proof metadata.
+`provenance.observation.pdfVisualReviewApplication` records the accepted page/decision
+fingerprints, region order and exact original issues replaced by the review. Derived
+observation counts/status are recomputed. `ocrTruthVerified` and independent quality
+approval remain false; table content accuracy is not certified by an empty-slot decision.
+
+Page attempts consume the same finite model-call/time budget as semantic interpretation.
+The engine saves a running attempt before inference, reuses reviewed pages after resume,
+and does not automatically replay unknown, failed or interrupted page calls. The existing
+final extraction-complete predicate and public v1 result/CLI/MCP contracts are unchanged.

@@ -30,7 +30,109 @@ MODEL_URI = "https://huggingface.co/Qwen/Qwen3.5-9B"
 LLAMA_URI = "https://github.com/ggml-org/llama.cpp"
 
 
+def vision_options(args: argparse.Namespace) -> dict | None:
+    enabled = getattr(args, "include_vision_projector", False)
+    minimum = getattr(args, "image_min_tokens", None)
+    maximum = getattr(args, "image_max_tokens", None)
+    if not enabled:
+        if minimum is not None or maximum is not None:
+            raise PackError("model_image_tokens_without_vision")
+        return None
+    minimum = 1024 if minimum is None else minimum
+    maximum = 1536 if maximum is None else maximum
+    if (
+        type(minimum) is not int
+        or type(maximum) is not int
+        or not 1024 <= minimum <= maximum <= 1536
+    ):
+        raise PackError("model_invalid_image_tokens")
+    return {
+        "file": "Qwen3.5-9B-mmproj-f16.gguf",
+        "minImageTokens": minimum,
+        "maxImageTokens": maximum,
+    }
+
+
+def vision_source(source: Path, files: dict) -> dict:
+    if "preprocessor_config.json" not in files:
+        raise PackError("model_missing_preprocessor_asset")
+    try:
+        preprocessing = json.loads((source / "preprocessor_config.json").read_text())
+        config = json.loads((source / "config.json").read_text())
+        vision = config["vision_config"]
+        if (
+            preprocessing["processor_class"] != "Qwen3VLProcessor"
+            or preprocessing["image_processor_type"] != "Qwen2VLImageProcessorFast"
+        ):
+            raise ValueError
+        import math
+
+        for key in ("image_mean", "image_std"):
+            values = preprocessing[key]
+            if (
+                not isinstance(values, list)
+                or len(values) != 3
+                or any(
+                    type(v) not in (int, float)
+                    or not math.isfinite(v)
+                    or (key == "image_std" and v <= 0)
+                    for v in values
+                )
+            ):
+                raise ValueError
+        size = preprocessing["size"]
+        if (
+            type(size["shortest_edge"]) is not int
+            or type(size["longest_edge"]) is not int
+            or not 0 < size["shortest_edge"] <= size["longest_edge"]
+        ):
+            raise ValueError
+        for processor_key, config_key in (
+            ("patch_size", "patch_size"),
+            ("temporal_patch_size", "temporal_patch_size"),
+            ("merge_size", "spatial_merge_size"),
+        ):
+            value = preprocessing[processor_key]
+            if type(value) is not int or value <= 0 or value != vision[config_key]:
+                raise ValueError
+        if any(
+            type(vision[key]) is not int or vision[key] <= 0
+            for key in ("hidden_size", "out_hidden_size")
+        ):
+            raise ValueError
+    except (ValueError, TypeError, KeyError) as error:
+        raise PackError("model_invalid_vision_source_configuration") from error
+    return vision
+
+
+def validate_projector(inspection: dict, config: dict) -> None:
+    try:
+        metadata = inspection["metadata"]
+        if (
+            metadata["general.architecture"] != "clip"
+            or type(metadata["general.file_type"]) is not int
+            or metadata["general.file_type"] != 1
+            or metadata["clip.projector_type"] != "qwen3vl_merger"
+            or metadata["clip.has_vision_encoder"] is not True
+            or type(metadata["clip.vision.embedding_length"]) is not int
+            or type(metadata["clip.vision.projection_dim"]) is not int
+            or metadata["clip.vision.embedding_length"] != config["hidden_size"]
+            or metadata["clip.vision.projection_dim"] != config["out_hidden_size"]
+            or type(inspection["tensorCount"]) is not int
+            or inspection["tensorCount"] <= 0
+            or not isinstance(inspection["tensorTypes"], list)
+            or not inspection["tensorTypes"]
+            or not set(inspection["tensorTypes"]) <= {"0", "1"}
+        ):
+            raise ValueError
+    except (ValueError, KeyError, TypeError) as error:
+        raise PackError("model_invalid_projector_gguf") from error
+
+
 def prepare(args: argparse.Namespace) -> dict:
+    vision = vision_options(args)
+    if vision and (args.output.exists() or args.output.is_symlink()):
+        raise PackError("pack_output_exists")
     if not args.converter_lock.is_file():
         raise PackError("model_missing_converter_lock")
     inventory = json.loads(args.snapshot_inventory.read_text())
@@ -61,6 +163,7 @@ def prepare(args: argparse.Namespace) -> dict:
             raise PackError("model_missing_source_asset")
     if not any(name.endswith(".safetensors") for name in source_files):
         raise PackError("model_missing_safetensors")
+    vision_config = vision_source(args.source, source_files) if vision else None
     git = lambda *command: subprocess.check_output(  # noqa: E731
         ["git", "-C", str(args.llama_source), *command], text=True
     ).strip()
@@ -104,6 +207,12 @@ def prepare(args: argparse.Namespace) -> dict:
     intermediate = args.work / "model-f16.gguf"
     converted = stage / "Qwen3.5-9B-Q4_K_M.gguf"
     converter = args.llama_source / "convert_hf_to_gguf.py"
+    converter_sha = sha256_file(converter)
+    converter_lock_sha = sha256_file(args.converter_lock)
+    if vision:
+        input_inventory_sha = sha256_file(args.snapshot_inventory)
+        runtime_manifest_sha = sha256_file(args.runtime_manifest)
+        converter_python_sha = sha256_file(args.converter_python)
     subprocess.run(
         [
             str(args.converter_python),
@@ -138,6 +247,53 @@ def prepare(args: argparse.Namespace) -> dict:
         timeout=args.timeout,
         text=True,
     )
+    projector = None
+    projector_inspection = None
+    if vision:
+        projector = stage / vision["file"]
+        subprocess.run(
+            [
+                str(args.converter_python),
+                str(converter),
+                str(args.source),
+                "--outfile",
+                str(projector),
+                "--outtype",
+                "f16",
+                "--mmproj",
+            ],
+            check=True,
+            env=env,
+            timeout=args.timeout,
+        )
+        if projector.is_symlink() or not projector.is_file():
+            raise PackError("model_missing_projector_output")
+        with projector.open("rb") as stream:
+            if stream.read(4) != b"GGUF":
+                raise PackError("model_invalid_projector_gguf")
+        projector_code = (
+            "import json,sys; from gguf import GGUFReader,VisionProjectorType; "
+            "r=GGUFReader(sys.argv[1]); "
+            "keys=['general.architecture','general.file_type','clip.projector_type',"
+            "'clip.has_vision_encoder','clip.vision.embedding_length',"
+            "'clip.vision.projection_dim']; "
+            "metadata={k:r.get_field(k).contents() for k in keys if r.get_field(k)}; "
+            "assert metadata['clip.projector_type']==VisionProjectorType.QWEN3VL; "
+            "print(json.dumps({'metadata':metadata,'tensorCount':len(r.tensors),"
+            "'tensorTypes':sorted({str(t.tensor_type) for t in r.tensors})}))"
+        )
+        projector_inspection = json.loads(
+            subprocess.check_output(
+                [str(args.converter_python), "-c", projector_code, str(projector)],
+                env=env,
+                timeout=args.timeout,
+                text=True,
+            )
+        )
+        validate_projector(projector_inspection, vision_config)
+        shutil.copyfile(
+            args.source / "preprocessor_config.json", stage / "preprocessor_config.json"
+        )
     shutil.copyfile(args.source / "LICENSE", stage / "LICENSE.model")
     shutil.copyfile(args.snapshot_inventory, stage / "source-inventory.json")
     shutil.copyfile(args.converter_lock, stage / "converter-requirements.lock")
@@ -171,6 +327,56 @@ def prepare(args: argparse.Namespace) -> dict:
         "modelSha256": sha256_file(converted),
         "ggufInspection": json.loads(inspection_result),
     }
+    if vision:
+        # Do not bind a projector to inputs modified while either conversion ran.
+        if (
+            sha256_file(converter) != converter_sha
+            or sha256_file(args.converter_lock) != converter_lock_sha
+            or sha256_file(args.snapshot_inventory) != input_inventory_sha
+            or sha256_file(args.runtime_manifest) != runtime_manifest_sha
+            or sha256_file(args.converter_python) != converter_python_sha
+            or {
+                p.relative_to(args.source).as_posix() for p in args.source.rglob("*") if p.is_file()
+            }
+            != set(source_files)
+            or any((args.source / name).is_symlink() for name in source_files)
+            or any((runtime_root / item["path"]).is_symlink() for item in runtime["files"])
+            or git("rev-parse", "HEAD") != args.llama_revision
+            or git("status", "--porcelain", "--untracked-files=normal")
+            or any(
+                sha256_file(args.source / name) != item["sha256"]
+                for name, item in source_files.items()
+            )
+            or any(
+                sha256_file(runtime_root / item["path"]) != item["sha256"]
+                for item in runtime["files"]
+            )
+        ):
+            raise PackError("model_conversion_inputs_changed")
+        import hashlib
+
+        environment_sha = hashlib.sha256(
+            json.dumps(environment_record, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        receipt["schemaVersion"] = "document-files.model-conversion.v2"
+        receipt["vision"] = {
+            **vision,
+            "sha256": sha256_file(projector),
+            "size": projector.stat().st_size,
+            "outtype": "f16",
+            "projectorType": "qwen3vl_merger",
+            "ggufInspection": projector_inspection,
+            "preprocessor": {
+                "path": "preprocessor_config.json",
+                "sha256": source_files["preprocessor_config.json"]["sha256"],
+            },
+            "modelConfigSha256": source_files["config.json"]["sha256"],
+            "converterEnvironmentSha256": environment_sha,
+            "converterPythonSha256": converter_python_sha,
+            "runtimeManifestSha256": runtime_manifest_sha,
+            "converterSha256": converter_sha,
+            "converterRevision": args.llama_revision,
+        }
     receipt_path = stage / "conversion.json"
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     inventory_sha = sha256_file(args.snapshot_inventory)
@@ -218,7 +424,7 @@ def prepare(args: argparse.Namespace) -> dict:
                     "uri": LLAMA_URI,
                     "revision": args.llama_revision,
                     "sha256": receipt_sha,
-                    "digestKind": "conversion-receipt-v1",
+                    "digestKind": "conversion-receipt-v2" if vision else "conversion-receipt-v1",
                 },
             ]
         },
@@ -233,6 +439,8 @@ def prepare(args: argparse.Namespace) -> dict:
             "thinking": False,
         },
     }
+    if vision:
+        declaration["model"]["vision"] = vision
     result = build_pack(
         stage,
         declaration,
@@ -262,6 +470,9 @@ def main() -> None:
         parser.add_argument("--" + option, required=True)
     parser.add_argument("--compatible-runtime-manifest", type=Path, action="append", default=[])
     parser.add_argument("--context-tokens", type=int, default=8192)
+    parser.add_argument("--include-vision-projector", action="store_true")
+    parser.add_argument("--image-min-tokens", type=int)
+    parser.add_argument("--image-max-tokens", type=int)
     parser.add_argument("--timeout", type=int, default=7200)
     print(json.dumps(prepare(parser.parse_args())))
 

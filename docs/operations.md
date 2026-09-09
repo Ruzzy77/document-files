@@ -57,6 +57,23 @@ capability/context checks and generation; text token estimates are not a fallbac
 Visual policy changes also invalidate the job profile identity. This transport alone
 does not review a PDF page, resolve an empty cell or approve extraction completeness.
 
+For PDF schema extraction with an explicit vision pack, the engine runs the internal
+page-review v1 stage before semantic region planning. It reuses completed recognition,
+reproduces source-bound images, accounts for exact foreground pixels and measures
+line candidates on that same render. Every page and its full missing-slot detail must
+receive a consistent decision before blank values or region order are applied.
+Page calls share the requested document call/time budget. A pending page may resume;
+reviewed pages are reused, and unknown/failed/interrupted calls are not silently retried.
+Checkpoints retain source/image hashes, pixel membership and decisions, not image bytes.
+A processing decision does not certify OCR accuracy or independent document quality.
+
+To build a separate optional vision model pack, use `--include-vision-projector` with
+`prepare_model_pack.py`; explicit image-token bounds remain within 1024–1536. The
+builder validates the existing snapshot's preprocessor/config, creates a separate F16
+projector, inspects its GGUF type/dimensions and records conversion receipt v2. Use a
+new output location and qualify the resulting exact pack before activation. This does
+not authorize replacing an installed text-only pack or skipping full CPU memory tests.
+
 Generate a random server token of at least 32 ASCII characters and supply it via
 `DOCUMENT_FILES_SERVER_TOKEN` or the container's owner-readable secret file.
 The foreground service defaults to loopback. LAN publication still requires auth;

@@ -33,13 +33,16 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Optional visual review preparation
+### Optional source-bound PDF page review
 
 The managed client now has a separate, explicit vision-projector path. It preserves
 bounded inline PNG/JPEG bytes, checks actual server multimodal capability and counts
 image tokens using the same frozen request used for inference. Default text-only
-packs and installed client configurations are unchanged. This capability does not
-yet resolve PDF page completeness, scan blank cells or reading order.
+packs and installed client configurations are unchanged. With that explicit pack,
+the engine now reviews PDF pages before semantic region planning. It can apply
+reviewed blank slots and reading order only after all page decisions, exact pixel
+membership, source references and processing dependencies pass. Other issues remain.
+This is processing coverage, not independent OCR accuracy or release qualification.
 
 A development F16 projector was converted once from the already verified official
 Qwen3.5-9B snapshot with the matching pinned llama.cpp converter: 6.52 seconds,
@@ -58,8 +61,20 @@ observations and activation state were unchanged. This was a development feasibi
 run on the Mac, partly concurrent with regression tests, not a 16 GiB benchmark.
 The model called the detail border-only, but incorrectly ordered the table after the
 lower condition notes. No empty value, reading order or page completion was accepted.
-Pixel-unit accounting, source-bound decision checks and shared-budget/checkpoint
-integration remain required before this path can resolve PDF observation issues.
+The subsequent page-review v1 request reused those same PNG/OCR inputs (no new
+render or OCR). One CPU call finished in 123.74 seconds with 5,075 prompt and 260
+output tokens. It accounted for 84,206 foreground pixels across 20 units, reviewed
+the missing Note slot as empty, and returned the correct title/unit/table/condition
+order. The fixed validator accepted this page decision; source text, original
+observations and activation were unchanged, and the server exited. The old OCR
+canvas is not treated as identical to this render. This single development page
+does not establish all-page application, semantic extraction or holdout quality.
+
+The engine shares page and semantic calls/time, checkpoints each attempt before
+inference, and resumes reviewed pages without another call. Unknown, failed and
+interrupted calls are not automatically retried. PNG bytes stay out of checkpoints.
+The optional projector builder now has an explicit flag and conversion receipt v2;
+its actual final-pack and multi-platform qualification remain pending.
 
 ### Linux ARM64 addition
 
@@ -347,7 +362,7 @@ final candidate.
 
 After adapter v25, the stage file-handle fix and optional image preparation/transport,
 core regression passed
-**1,695 tests, with 212 skipped and 12 subtests**; Ruff and formatting checks passed.
+**1,842 tests, with 213 skipped and 12 subtests**; Ruff and formatting checks passed.
 The separate recognition-runtime overlay passed **424 PDF/OCR tests**. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.

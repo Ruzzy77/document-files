@@ -1,0 +1,279 @@
+"""Synthetic review contracts, not actual OCR accuracy or quality approval."""
+
+import hashlib
+import io
+import time
+from copy import deepcopy
+
+import pytest
+from PIL import Image, ImageDraw
+
+from document_files.document_model.model import ObservationDocument
+from document_files.interpretation import pdf_visual_plan as plan
+from document_files.interpretation.pdf_visual_pixels import extract_visual_pixels
+
+
+def example(extra=False):
+    image = Image.new("RGB", (120, 120), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((12, 12, 20, 18), fill="black")
+    draw.rectangle((12, 60, 20, 66), fill="black")
+    if extra:
+        image.putpixel((110, 110), (254, 254, 254))
+    out = io.BytesIO()
+    image.save(out, format="PNG")
+    rgb = hashlib.sha256(image.tobytes()).hexdigest()
+    image.close()
+    capture = {
+        "sourceSha256": "a" * 64,
+        "page_no": 1,
+        "pixelSize": [120, 120],
+        "pageSizeCanvasUnits": [40, 40],
+        "pixelSha256": rgb,
+        "fingerprint": "c" * 64,
+    }
+    doc = ObservationDocument(provenance={"sourceSha256": "a" * 64})
+    for index, top in enumerate((4, 20)):
+        doc.node(
+            f"n{index}",
+            f"item {index}",
+            observationBasis="recognition",
+            locator={
+                "page": 1,
+                "bbox": {"left": 4, "top": top, "right": 8, "bottom": top + 3, "origin": "TOPLEFT"},
+            },
+        )
+    pixels = extract_visual_pixels(
+        out.getvalue(),
+        expected_rgb_sha256=rgb,
+        expected_size=[120, 120],
+        deadline=time.monotonic() + 10,
+    )
+    return doc, capture, pixels
+
+
+def build(extra=False):
+    doc, capture, pixels = example(extra)
+    return plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 10)
+
+
+def answer(value):
+    return {
+        "units": [{"id": u["id"], "decision": "source_text"} for u in value["units"]],
+        "slots": [],
+        "readingOrder": [b["id"] for b in value["blocks"]],
+        "unrepresentedContent": False,
+    }
+
+
+def test_exact_pixel_plan_and_independent_review_remain_distinct():
+    doc, capture, pixels = example()
+    before = deepcopy((doc, capture, pixels))
+    result = plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 10)
+    assert (doc, capture, pixels) == before
+    assert len(result["sources"]) == len(result["units"]) == len(result["blocks"]) == 2
+    assert result["foregroundPixelCount"] == 126
+    assert result["precedences"] == [["o0", "o1"]]
+    approved = plan.validate_decision(result, answer(result), detail_bounds=None)
+    assert approved["status"] == "reviewed"
+    assert approved["ocrTruthVerified"] is False
+    assert "parts" not in plan.review_payload(result)["units"][0]
+
+
+def test_actual_foreground_outside_sources_is_not_silently_dropped():
+    value = build(extra=True)
+    unmatched = [u for u in value["units"] if not u["sourceIds"]]
+    assert len(unmatched) == 1 and unmatched[0]["pixelCount"] == 1
+    decision = answer(value)
+    with pytest.raises(plan.PdfVisualReviewError, match="without_source"):
+        plan.validate_decision(value, decision, detail_bounds=None)
+    decision["units"][-1]["decision"] = "unknown"
+    assert plan.validate_decision(value, decision, detail_bounds=None)["status"] == "unresolved"
+
+
+def test_connected_bounding_rectangle_is_not_all_owned_pixels():
+    doc, capture, pixels = example()
+    # Pixel extraction tests establish these disjoint exact components. Here the
+    # source candidate overlaps a component's bbox but none of its actual pixels.
+    pixels["components"] = [{"id": "border", "runs": [[0, 0, 120], [119, 0, 120]]}]
+    pixels["foregroundPixelCount"] = 240
+    result = plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 10)
+    assert result["units"][0]["sourceIds"] == []
+    assert result["units"][0]["onlyBoundaryPixels"] is False
+
+
+@pytest.mark.parametrize("variant", ["duplicate", "omitted", "extra", "type", "order", "structure"])
+def test_wrong_decision_cannot_pass(variant):
+    value = build()
+    decision = answer(value)
+    if variant == "duplicate":
+        decision["units"][1] = decision["units"][0]
+    elif variant == "omitted":
+        decision["units"].pop()
+    elif variant == "extra":
+        decision["complete"] = True
+    elif variant == "type":
+        decision["unrepresentedContent"] = 0
+    elif variant == "order":
+        decision["readingOrder"].reverse()
+    else:
+        decision["units"][0]["decision"] = "table_border"
+    with pytest.raises(plan.PdfVisualReviewError):
+        plan.validate_decision(value, decision, detail_bounds=None)
+
+
+def test_fingerprint_and_observation_source_changes():
+    value = build()
+    decision = answer(value)
+    value["sources"][0]["text"] = "changed"
+    with pytest.raises(plan.PdfVisualReviewError, match="plan_changed"):
+        plan.validate_decision(value, decision, detail_bounds=None)
+    doc, capture, pixels = example()
+    before = plan.observation_page_fingerprint(doc, 1)
+    doc.nodes["n0"]["text"] += " changed"
+    assert plan.observation_page_fingerprint(doc, 1) != before
+    capture["sourceSha256"] = "b" * 64
+    with pytest.raises(plan.PdfVisualReviewError, match="source_changed"):
+        plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 1)
+
+
+@pytest.mark.parametrize(
+    "budget", ["cancelled", "timeout", "comparisons", "sources", "units", "runs"]
+)
+def test_limits_do_not_return_a_successful_truncated_plan(budget, monkeypatch):
+    doc, capture, pixels = example()
+    kwargs = {"deadline": time.monotonic() + 10}
+    if budget == "cancelled":
+        kwargs["cancelled"] = lambda: True
+    elif budget == "timeout":
+        kwargs["deadline"] = time.monotonic() - 1
+    else:
+        monkeypatch.setattr(
+            plan,
+            {
+                "comparisons": "MAX_COMPARISONS",
+                "sources": "MAX_SOURCES",
+                "units": "MAX_UNITS",
+                "runs": "MAX_SPLIT_RUNS",
+            }[budget],
+            1,
+        )
+    with pytest.raises(plan.PdfVisualReviewError):
+        plan.build_page_plan(doc, capture, pixels, **kwargs)
+
+
+def grid_plan(extra=False):
+    from test_pdf_visual_grid import fixture
+
+    from document_files.document_model.recognition_cell_observations import fingerprint
+
+    def marks(colors):
+        colors[35, 35] = (0, 0, 0)
+        if extra:
+            colors[100, 100] = (254, 254, 254)
+
+    pixels, _ = fixture(alter=marks)
+    height = 170 / 3
+    capture = {
+        "sourceSha256": "a" * 64,
+        "page_no": 1,
+        "pixelSize": [170, 170],
+        "pageSizeCanvasUnits": [height, height],
+        "pixelSha256": pixels["rgbSha256"],
+        "fingerprint": "c" * 64,
+    }
+    doc = ObservationDocument(provenance={"sourceSha256": "a" * 64})
+
+    def bbox(values):
+        return {
+            **dict(zip(("left", "top", "right", "bottom"), [v / 3 for v in values], strict=True)),
+            "origin": "TOPLEFT",
+        }
+
+    doc.node(
+        "text",
+        "A",
+        observationBasis="recognition",
+        locator={"page": 1, "tableRef": "table", "bbox": bbox([34, 34, 37, 37])},
+    )
+    doc.tables["table"] = {
+        "page": 1,
+        "locator": {"bbox": bbox([20, 20, 142, 142])},
+        "declaredRowCount": 2,
+        "declaredColCount": 2,
+        "unobservedCellCount": 3,
+        "cells": [{"sourceRef": "text", "row": 0, "col": 0, "rowSpan": 1, "colSpan": 1}],
+    }
+    record = {
+        "slots": [
+            {
+                "row": row,
+                "col": col,
+                "slotKey": f"{row}:{col}",
+                "geometryStatus": "resolved",
+                "measurementStatus": "measured",
+                "fullPixelBox": [20 + 60 * col, 20 + 60 * row, 82 + 60 * col, 82 + 60 * row],
+            }
+            for row in range(2)
+            for col in range(2)
+        ],
+        "tableCrop": {"pixelBounds": [0, 0, 170, 170]},
+        "geometry": {
+            "status": "verified_rectangular_grid",
+            "horizontalLines": [[20, y, 122, 2] for y in (20, 80, 140)],
+            "verticalLines": [[x, 20, 2, 122] for x in (20, 80, 140)],
+        },
+    }
+    record["fingerprint"] = fingerprint(record)
+    doc.provenance["recognitionCellPixelObservations"] = [
+        {
+            "page": 1,
+            "sourceSha256": "a" * 64,
+            "observations": [
+                {
+                    "structureAssociation": {
+                        "status": "unique_geometry_correspondence",
+                        "tableRef": "table",
+                    },
+                    "observation": record,
+                    "validation": {
+                        "status": "verified",
+                        "observationFingerprint": record["fingerprint"],
+                        "canvasPixelToOriginalPageAffine": [1 / 3, 0, 0, -1 / 3, 0, height],
+                    },
+                }
+            ],
+        }
+    ]
+    return plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 10)
+
+
+def test_same_render_grid_drives_full_slot_and_keeps_every_pixel():
+    value = grid_plan()
+    assert len(value["slots"]) == 3
+    assert value["slots"][-1]["bounds"] == [80, 80, 142, 142]
+    decision = answer(value)
+    for unit, chosen in zip(value["units"], decision["units"], strict=True):
+        chosen["decision"] = "source_text" if unit["sourceIds"] else "table_border"
+    decision["slots"] = [{"id": slot["id"], "decision": "empty"} for slot in value["slots"]]
+    assert (
+        plan.validate_decision(value, decision, detail_bounds=[0, 0, 170, 170])["status"]
+        == "reviewed"
+    )
+    with pytest.raises(plan.PdfVisualReviewError, match="detail_missing"):
+        plan.validate_decision(value, decision, detail_bounds=[82, 82, 140, 140])
+
+
+def test_one_faint_interior_pixel_cannot_be_a_table_border_or_empty_value():
+    value = grid_plan(extra=True)
+    unmatched = [u for u in value["units"] if not u["sourceIds"] and not u["onlyBoundaryPixels"]]
+    assert len(unmatched) == 1 and unmatched[0]["pixelCount"] == 1
+    decision = answer(value)
+    for unit, chosen in zip(value["units"], decision["units"], strict=True):
+        chosen["decision"] = "source_text" if unit["sourceIds"] else "table_border"
+    decision["slots"] = [{"id": slot["id"], "decision": "empty"} for slot in value["slots"]]
+    with pytest.raises(plan.PdfVisualReviewError, match="unproven_structural_pixels"):
+        plan.validate_decision(value, decision, detail_bounds=[0, 0, 170, 170])
+    next(v for v in decision["units"] if v["id"] == unmatched[0]["id"])["decision"] = "unknown"
+    with pytest.raises(plan.PdfVisualReviewError, match="slot_not_empty"):
+        plan.validate_decision(value, decision, detail_bounds=[0, 0, 170, 170])

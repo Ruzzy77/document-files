@@ -44,6 +44,7 @@ from .integration import (
 )
 from .legacy_engine import _has_unread_visuals as _has_unread_visuals
 from .legacy_engine import decode, encode
+from .pdf_visual_runner import review_identity, review_pdf_pages
 from .regions import (
     REGION_PLAN_VERSION,
     continuation_candidates,
@@ -366,6 +367,22 @@ def extract_schema_from_stream(
         "regionPlanVersion": REGION_PLAN_VERSION,
         "model": model_identity,
     }
+    visual_policy = review_identity(client) if job.input.format_id == "pdf" else None
+    if visual_policy is not None:
+        identity["pdfVisualReview"] = visual_policy
+    visual_restore = None
+    if restore is not None and restore.get("phase") == "reviewing_pdf":
+        visual_restore = restore
+        restore = {
+            **restore,
+            "regions": [],
+            "accepted": {},
+            "decisions": {},
+            "scopeDecisions": {},
+            "tableStages": {},
+            "failures": {},
+            "repairDiagnostics": {},
+        }
     accepted, decisions, failures = {}, {}, {}
     repair_diagnostics = {}
     scope_decisions = {}
@@ -581,12 +598,17 @@ def extract_schema_from_stream(
             planned_catalog = target_catalog(selected.targetSchema)
         except CompileError:
             planned_catalog = {}  # The shared validation below reports the error.
-        regions = prepare_regions(
-            observation,
-            request_metadata={"intent": selected.intent, "targetHandles": planned_catalog},
-            context_chars=min(
-                selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
-            ),
+        regions = (
+            []
+            if visual_policy is not None
+            else prepare_regions(
+                observation,
+                request_metadata={"intent": selected.intent, "targetHandles": planned_catalog},
+                context_chars=min(
+                    selected.contextChars,
+                    getattr(client, "input_budget_chars", selected.contextChars),
+                ),
+            )
         )
         result = _initial_result(job, observation, analysis_descriptor, selected, client, content)
         if (
@@ -597,6 +619,84 @@ def extract_schema_from_stream(
             result["issues"] = list(observation.issues)
             save_recognition(recognition_state, result)
             return result
+    if visual_policy is not None and (restore is None or visual_restore is not None):
+        visual_elapsed_before = usage["elapsedSeconds"]
+        visual_max_calls = selected.maxModelCalls + sum(g["maxModelCalls"] for g in grants)
+        visual_max_seconds = selected.completionSeconds + sum(
+            g["completionSeconds"] for g in grants
+        )
+
+        def save_visual(state):
+            consumed = {
+                **usage,
+                "elapsedSeconds": visual_elapsed_before + max(0.0, time.monotonic() - started),
+            }
+            result["extraction"].update(
+                status="partial",
+                stage="reviewing_pdf",
+                modelCalls=usage["modelCalls"],
+                usage=consumed,
+                budget={"maxModelCalls": visual_max_calls, "completionSeconds": visual_max_seconds},
+            )
+            result["coverage"]["pdfPageReview"] = [
+                {"page": int(page), "status": value["status"]}
+                for page, value in state["pages"].items()
+            ]
+            result["issues"] = [
+                *observation.issues,
+                *([{"code": state["haltReason"]}] if state.get("haltReason") else []),
+            ]
+            if checkpoint:
+                checkpoint(
+                    copy.deepcopy(
+                        {
+                            "version": CHECKPOINT_VERSION,
+                            "phase": "reviewing_pdf",
+                            "identity": identity,
+                            "result": result,
+                            "pdfVisualReview": state,
+                            "observationIssues": observation.issues,
+                            "usage": consumed,
+                            "grants": grants,
+                        }
+                    )
+                )
+
+        reviewed, visual_state = review_pdf_pages(
+            content,
+            observation,
+            client=client,
+            usage=usage,
+            max_calls=visual_max_calls,
+            deadline=started + visual_max_seconds - visual_elapsed_before,
+            context_chars=min(
+                selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
+            ),
+            checkpoint=save_visual,
+            restore=visual_restore["pdfVisualReview"] if visual_restore else None,
+            cancelled=cancelled,
+        )
+        if reviewed is None:
+            return result
+        observation = reviewed
+        try:
+            planned_catalog = target_catalog(selected.targetSchema)
+        except CompileError:
+            planned_catalog = {}
+        regions = prepare_regions(
+            observation,
+            request_metadata={"intent": selected.intent, "targetHandles": planned_catalog},
+            context_chars=min(
+                selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
+            ),
+        )
+        result = _initial_result(
+            job, observation, result["provenance"]["analyzer"], selected, client, content
+        )
+        result["coverage"]["pdfPageReview"] = [
+            {"page": int(page), "status": value["status"]}
+            for page, value in visual_state["pages"].items()
+        ]
     if additional_budget is not None and grant["maxModelCalls"] > 0:
         for state in table_states.values():
             for stage in ("structure", "meaning"):
