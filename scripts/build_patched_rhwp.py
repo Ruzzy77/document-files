@@ -66,19 +66,21 @@ def main():
     run("git", "apply", str(PATCH), cwd=source)
     build_env = os.environ.copy()
     linux_toolchain = None
-    if platform_key() == "linux-x86_64":
+    target = platform_key()
+    if target.startswith("linux-"):
         from linux_abi import CC, CXX, toolchain
 
         linux_toolchain = toolchain()
         build_env.update(CC=CC, CXX=CXX)
-        build_env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"] = CC
+        triple = "AARCH64" if target == "linux-aarch64" else "X86_64"
+        build_env[f"CARGO_TARGET_{triple}_UNKNOWN_LINUX_GNU_LINKER"] = CC
     run(args.cargo, "build", "--locked", "--release", "--bin", "rhwp", cwd=source, env=build_env)
     linux_abi = None
-    if platform_key() == "linux-x86_64":
+    if target.startswith("linux-"):
         from linux_abi import audit
 
-        linux_abi = audit(source / "target/release/rhwp", source / "rhwp-abi.txt")
-    name = "rhwp.exe" if os.name == "nt" else "rhwp"
+        linux_abi = audit(source / "target/release/rhwp", source / "rhwp-abi.txt", target=target)
+    name = "rhwp.exe" if target.startswith("windows-") else "rhwp"
     built = source / "target/release" / name
     output = subprocess.check_output([built, "--version"], text=True).strip()
     if output != f"rhwp v{VERSION}":

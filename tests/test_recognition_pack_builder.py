@@ -33,9 +33,10 @@ def dump(path, value):
 
 def native(target):
     data = bytearray(128)
-    if target == "linux-x86_64":
-        data[:6] = b"\x7fELF\x02\x01"
-        struct.pack_into("<H", data, 18, 62)
+    if target in {"linux-x86_64", "linux-aarch64"}:
+        data[:7] = b"\x7fELF\x02\x01\x01"
+        struct.pack_into("<HHI", data, 16, 3, 183 if target == "linux-aarch64" else 62, 1)
+        struct.pack_into("<H", data, 52, 64)
     elif target == "windows-x86_64":
         data[:2] = b"MZ"
         struct.pack_into("<I", data, 60, 64)
@@ -91,13 +92,29 @@ def fixture(tmp_path, monkeypatch):
         locked = []
         for package, version in (("torch", "2.14.0+cpu"), ("docling", "2.126.0")):
             wheel = root / f"{package}-{version}-py3-none-any.whl"
+            if package == "torch" and target == "linux-aarch64":
+                wheel = root / f"{package}-{version}-cp312-cp312-manylinux_2_28_aarch64.whl"
             metadata = f"Name: {package}\nVersion: {version}\n"
             with zipfile.ZipFile(wheel, "w") as z:
                 z.writestr(f"{package}-{version}.dist-info/METADATA", metadata)
+                if package == "torch":
+                    z.writestr(
+                        "torch/version.py", b"__version__ = '2.14.0+cpu'\ncuda = None\nhip = None\n"
+                    )
             digest = sha(wheel.read_bytes())
             sources[digest] = wheel
             source_rows.append({"sha256": digest, "role": "wheel", "licenseIds": ["test-license"]})
-            provenance.append({"uri": "https://example.org/" + wheel.name, "sha256": digest})
+            provenance.append(
+                {
+                    "uri": (
+                        "https://download.pytorch.org/whl/cpu/"
+                        if target == "linux-aarch64"
+                        else "https://example.org/"
+                    )
+                    + wheel.name,
+                    "sha256": digest,
+                }
+            )
             add(
                 f"python/lib/site-packages/{package}-{version}.dist-info/METADATA",
                 metadata.encode(),
@@ -134,6 +151,7 @@ def fixture(tmp_path, monkeypatch):
         raw_ref = {"path": evidence.name, "sha256": sha(evidence.read_bytes())}
         system = {
             "linux-x86_64": "libc.so.6",
+            "linux-aarch64": "libc.so.6",
             "windows-x86_64": "KERNEL32.dll",
             "macos-aarch64": "/usr/lib/libSystem.B.dylib",
         }[target]
@@ -209,7 +227,9 @@ def fixture(tmp_path, monkeypatch):
     return tool, create
 
 
-@pytest.mark.parametrize("target", ["linux-x86_64", "windows-x86_64", "macos-aarch64"])
+@pytest.mark.parametrize(
+    "target", ["linux-x86_64", "linux-aarch64", "windows-x86_64", "macos-aarch64"]
+)
 def test_audited_platform_bytes_verify_without_execution(fixture, target):
     _, create = fixture
     f = create(target)
@@ -411,3 +431,69 @@ def test_audit_to_build_race_is_rejected_and_only_new_outputs_removed(fixture, m
         )
     assert not list(f["root"].glob("recognition.pack.zip*"))
     assert f["audit_path"].exists()
+
+
+def test_arm_cpu_without_suffix_needs_original_official_wheel(tmp_path, monkeypatch):
+    tool = module(monkeypatch)
+    stage = tmp_path / "stage"
+    version = stage / "python/lib/site-packages/torch/version.py"
+    version.parent.mkdir(parents=True)
+    content = b"__version__='2.8.0'\ncuda=None\nhip=None\n"
+    version.write_bytes(content)
+    wheel = tmp_path / "torch-2.8.0-cp312-cp312-manylinux_2_28_aarch64.whl"
+    with zipfile.ZipFile(wheel, "w") as z:
+        z.writestr("torch/version.py", content)
+        z.writestr(
+            "torch-2.8.0.dist-info/METADATA",
+            "Name: torch\nVersion: 2.8.0\nRequires-Dist: filelock\n",
+        )
+    digest = sha(wheel.read_bytes())
+    name = version.relative_to(stage).as_posix()
+    files = {name: {"sha256": sha(content), "sourceSha256": digest}}
+    provenance = [{"sha256": digest, "uri": "https://download.pytorch.org/whl/cpu/" + wheel.name}]
+    tool.cpu_torch(stage, files, "linux-aarch64")
+    tool.verify_arm_cpu_wheel(
+        stage, files, {digest: wheel}, {digest: ("torch", "2.8.0")}, provenance
+    )
+    with pytest.raises(tool.PackError, match="cpu_build_required"):
+        tool.cpu_torch(stage, files, "linux-x86_64")
+    provenance[0]["uri"] = "https://example.org/" + wheel.name
+    with pytest.raises(tool.PackError, match="official_cpu_source"):
+        tool.verify_arm_cpu_wheel(
+            stage, files, {digest: wheel}, {digest: ("torch", "2.8.0")}, provenance
+        )
+    provenance[0]["uri"] = "https://download.pytorch.org/whl/cpu/" + wheel.name
+    files[name]["sha256"] = "0" * 64
+    with pytest.raises(tool.PackError, match="file_origin_mismatch"):
+        tool.verify_arm_cpu_wheel(
+            stage, files, {digest: wheel}, {digest: ("torch", "2.8.0")}, provenance
+        )
+
+
+def test_arm_elf_target_detected_not_x64(tmp_path, monkeypatch):
+    tool = module(monkeypatch)
+    p = tmp_path / "elf"
+    p.write_bytes(native("linux-aarch64"))
+    assert tool.binary_targets(p) == {"linux-aarch64"}
+
+
+@pytest.mark.parametrize("assignment", ["cuda='12.8'", "hip='6.3'"])
+def test_arm_gpu_version_flags_rejected(fixture, assignment):
+    tool, create = fixture
+    f = create("linux-aarch64")
+    f["update_file"](
+        "python/lib/site-packages/torch/version.py",
+        ("__version__='2.14.0+cpu'\ncuda=None\nhip=None\n" + assignment + "\n").encode(),
+    )
+    with pytest.raises(tool.PackError, match="gpu_torch_rejected"):
+        f["verify"]()
+
+
+def test_arm_linkage_cannot_borrow_x64_system_loader(fixture):
+    tool, create = fixture
+    f = create("linux-aarch64")
+    f["linkage"]["binaries"][0]["dependencies"] = [
+        {"origin": "system", "name": "ld-linux-x86-64.so.2"}
+    ]
+    with pytest.raises(tool.PackError, match="unbundled_native_dependency"):
+        f["verify"]()

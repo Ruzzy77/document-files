@@ -210,7 +210,9 @@ def test_simulated_build_receipt_never_claims_pack_or_quality(tmp_path, monkeypa
     import linux_abi
 
     monkeypatch.setattr(linux_abi, "toolchain", lambda: {"simulated": True})
-    monkeypatch.setattr(linux_abi, "audit", lambda *_a: {"simulated": True, "rawEvidence": {}})
+    monkeypatch.setattr(
+        linux_abi, "audit", lambda *_a, **_k: {"simulated": True, "rawEvidence": {}}
+    )
     pins = native.load_pins(native.PINS)
     payload = b"x"
     digest = native.hashlib.sha256(payload).hexdigest()
@@ -482,7 +484,10 @@ def linux_delivery(tmp_path, monkeypatch):
         work / "logs/acquire-component.json",
         {"status": "verified", "expectedSha256": source_sha, "observedSha256": source_sha},
     )
-    binary_sha = write(work / "candidate/bin/tesseract", b"\x7fELFbinary")
+    header = bytearray(64)
+    header[:7] = b"\x7fELF\x02\x01\x01"
+    struct.pack_into("<H", header, 18, 62)
+    binary_sha = write(work / "candidate/bin/tesseract", bytes(header))
     notices = []
     for name in ("gcc-runtime-copyright.txt", "gcc-GPL-3.txt"):
         digest = write(work / "candidate/licenses" / name, "GCC RUNTIME LIBRARY EXCEPTION")
@@ -522,6 +527,8 @@ def linux_delivery(tmp_path, monkeypatch):
         "files": files,
         "binary": {"path": "candidate/bin/tesseract", "sha256": binary_sha},
         "linuxAbi": {
+            "target": "linux-x86_64",
+            "machine": 62,
             "sha256": binary_sha,
             "rawEvidence": {"path": "logs/abi.txt", "sha256": raw_sha},
         },
@@ -551,6 +558,7 @@ def linux_delivery(tmp_path, monkeypatch):
         evidence / "result/compatibility.json",
         {
             "passed": True,
+            "target": "linux-x86_64",
             "libc": ["glibc", "2.36"],
             "files": [{"path": "bin/tesseract", "sha256": binary_sha}],
             "startup": probes,
@@ -603,7 +611,7 @@ def test_linux_delivery_preserves_only_checked_candidate_sources_and_proof(linux
     assert len(list((case.output / "sources").iterdir())) == 1
     assert not (case.output / "private-secret.txt").exists()
     assert "steps.linux_candidate.outcome == 'success'" in case.workflow
-    assert "recognition-native-inputs-linux-x86_64-${{ github.sha }}" in case.workflow
+    assert "recognition-native-inputs-${{ matrix.target }}-${{ github.sha }}" in case.workflow
     assert "if: always()" in case.workflow
     with pytest.raises(FileExistsError):
         run_linux_delivery(case)
@@ -672,3 +680,69 @@ def test_linux_delivery_rejects_change_between_check_and_copy(linux_delivery, mo
         run_linux_delivery(case)
     assert case.output.exists()  # Retain failed staged bytes, but no success receipt/upload.
     assert not (case.output / "delivery.json").exists()
+
+
+def test_arm_host_and_linkage_do_not_accept_x64_loader(monkeypatch):
+    monkeypatch.setattr(native.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(native.platform, "machine", lambda: "aarch64")
+    assert native.current_target() == "linux-aarch64"
+    raw = (
+        "0x (NEEDED) Shared library: [libc.so.6]\n"
+        "0x (NEEDED) Shared library: [ld-linux-aarch64.so.1]"
+    )
+    assert "ld-linux-aarch64.so.1" in native.parse_linkage(raw, "linux-aarch64")
+    with pytest.raises(native.BuildError):
+        native.parse_linkage(raw, "linux-x86_64")
+    with pytest.raises(native.BuildError):
+        native.parse_linkage(raw.replace("aarch64.so.1", "x86-64.so.2"), "linux-aarch64")
+    flags = native.options("tesseract", Path("/tmp/prefix"), "linux-aarch64")
+    assert "-DENABLE_NATIVE=OFF" in flags and "-DOPENMP_BUILD=OFF" in flags
+
+
+def test_linux_delivery_rejects_wrong_architecture_receipt(linux_delivery):
+    case = linux_delivery
+    path = case.work / "native-candidate.json"
+    value = json.loads(path.read_text())
+    value["linuxAbi"]["machine"] = 183
+    path.write_text(json.dumps(value))
+    with pytest.raises(ValueError):
+        run_linux_delivery(case)
+
+
+def test_linux_delivery_arm_target_matches_binary_and_probe(linux_delivery):
+    case = linux_delivery
+    native_path = case.work / "native-candidate.json"
+    value = json.loads(native_path.read_text())
+    binary = case.work / "candidate/bin/tesseract"
+    data = bytearray(binary.read_bytes())
+    struct.pack_into("<H", data, 18, 183)
+    binary.write_bytes(data)
+    digest = case.namespace["digest"](binary)
+    value["target"] = "linux-aarch64"
+    value["linuxAbi"].update(target="linux-aarch64", machine=183, sha256=digest)
+    value["binary"]["sha256"] = digest
+    for item in value["files"]:
+        if item["path"] == "candidate/bin/tesseract":
+            item["sha256"] = digest
+    native_path.write_text(json.dumps(value))
+    compatibility_path = case.evidence / "result/compatibility.json"
+    compat = json.loads(compatibility_path.read_text())
+    compat["target"] = "linux-aarch64"
+    compat["files"][0]["sha256"] = digest
+    for item in compat["startup"]:
+        item["executableSha256"] = digest
+    compatibility_path.write_text(json.dumps(compat))
+    image_path = case.evidence / "probe-image.json"
+    image = json.loads(image_path.read_text())
+    image["Architecture"] = "arm64"
+    image_path.write_text(json.dumps(image))
+    case.namespace["stage_candidate"](
+        case.root,
+        case.work,
+        case.cache,
+        case.evidence,
+        case.output,
+        case.source,
+        target="linux-aarch64",
+    )
+    assert json.loads((case.output / "delivery.json").read_text())["target"] == "linux-aarch64"

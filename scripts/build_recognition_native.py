@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build pinned native Tesseract candidates on Linux x64 / Windows x64 only.
+"""Build pinned native Tesseract candidates on Linux x64/ARM64 or Windows x64.
 
 Requires an existing CMake + native compiler toolchain (MSVC developer shell on
 Windows). Never installs packages. --download permits only hash-pinned inputs;
@@ -215,8 +215,11 @@ def unpack(archive: Path, destination: Path) -> Path:
 
 
 def current_target() -> str:
-    if platform.machine().lower() not in {"x86_64", "amd64"}:
-        raise BuildError("native x64 host required; Intel Mac recognition uses Linux")
+    machine = platform.machine().lower()
+    if platform.system() == "Linux" and machine in {"aarch64", "arm64"}:
+        return "linux-aarch64"
+    if machine not in {"x86_64", "amd64"}:
+        raise BuildError("native Linux ARM64/x64 or Windows x64 host required")
     return {"Linux": "linux-x86_64", "Windows": "windows-x86_64"}.get(platform.system(), "")
 
 
@@ -429,11 +432,11 @@ def write_attributions(pins, candidate):
 
 def check_binary(path: Path, target: str) -> None:
     head = path.read_bytes()[:4096]
-    if target == "linux-x86_64":
+    if target.startswith("linux-"):
         valid = (
             len(head) >= 20
             and head[:6] == b"\x7fELF\x02\x01"
-            and struct.unpack_from("<H", head, 18)[0] == 62
+            and struct.unpack_from("<H", head, 18)[0] == (183 if target == "linux-aarch64" else 62)
         )
     else:
         offset = struct.unpack_from("<I", head, 60)[0] if len(head) >= 64 else 0
@@ -443,9 +446,13 @@ def check_binary(path: Path, target: str) -> None:
 
 
 def parse_linkage(raw: str, target: str) -> list[str]:
-    if target == "linux-x86_64":
+    if target.startswith("linux-"):
         deps = re.findall(r"\(NEEDED\).*?\[([^]]+)\]", raw)
-        allowed = LINUX_SYSTEM
+        allowed = (
+            (LINUX_SYSTEM - {"ld-linux-x86-64.so.2"}) | {"ld-linux-aarch64.so.1"}
+            if target == "linux-aarch64"
+            else LINUX_SYSTEM
+        )
         if re.search(r"\((?:RPATH|RUNPATH)\)", raw):
             raise BuildError("unexpected dynamic search path in static-library candidate")
     else:
@@ -465,7 +472,7 @@ def parse_linkage(raw: str, target: str) -> list[str]:
 def run_build(args) -> dict:
     target = current_target()
     if not target or target != args.target:
-        raise BuildError("must execute on requested native Linux/Windows x64 host")
+        raise BuildError("must execute on requested native Linux/Windows host")
     pins = load_pins(args.pins)
     repository = Path(__file__).resolve().parents[1]
     commit = subprocess.check_output(
@@ -628,7 +635,7 @@ def run_build(args) -> dict:
     if target.startswith("linux"):
         from linux_abi import audit
 
-        linux_abi = audit(relocated, logs / "glibc-versions.txt")
+        linux_abi = audit(relocated, logs / "glibc-versions.txt", target=target)
         linux_abi["rawEvidence"]["path"] = "logs/glibc-versions.txt"
     # Hide the entire install prefix: relocation must not silently use build products.
     prefix.rename(work / "prefix-not-on-runtime-path")
@@ -707,7 +714,9 @@ def run_build(args) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", required=True, choices=["linux-x86_64", "windows-x86_64"])
+    parser.add_argument(
+        "--target", required=True, choices=["linux-x86_64", "linux-aarch64", "windows-x86_64"]
+    )
     parser.add_argument(
         "--work", required=True, type=Path, help="New, nonexistent output directory"
     )

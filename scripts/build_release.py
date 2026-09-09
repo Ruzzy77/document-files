@@ -79,7 +79,7 @@ def host_bundle(stage: Path) -> None:
     ):
         shutil.copy2(ROOT / name, stage / name)
     (stage / "scripts").mkdir()
-    for name in ("provision_rhwp.py", "build_patched_rhwp.py"):
+    for name in ("provision_rhwp.py", "build_patched_rhwp.py", "linux_abi.py"):
         shutil.copy2(ROOT / "scripts" / name, stage / "scripts" / name)
 
 
@@ -175,6 +175,35 @@ def source_fingerprint() -> str:
     return digest.hexdigest()
 
 
+def verify_native_target(binary: Path, target: str) -> None:
+    if target.startswith("linux-"):
+        from linux_abi import inspect_header
+
+        inspect_header(binary.resolve(strict=True), target)
+
+
+def verify_python_runtime(python: Path, target: str, expected_version: str) -> dict:
+    verify_native_target(python, target)
+    actual = json.loads(
+        subprocess.check_output(
+            [
+                str(python),
+                "-I",
+                "-c",
+                "import json,platform; print(json.dumps({"
+                "'version':platform.python_version(),'machine':platform.machine()}))",
+            ],
+            text=True,
+        )
+    )
+    machine = {"arm64": "aarch64", "aarch64": "aarch64", "amd64": "x86_64", "x86_64": "x86_64"}.get(
+        actual.get("machine", "").casefold()
+    )
+    if actual.get("version") != expected_version or machine != target.split("-", 1)[1]:
+        raise SystemExit("Packaged Python version/architecture mismatch")
+    return actual
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "dist")
@@ -208,6 +237,7 @@ def main() -> None:
     wheel = output / f"document_files-{version}-py3-none-any.whl"
     # Build from this source in the isolated output, never accept a pre-existing wheel.
     command(args.uv, "build", "--out-dir", output, cwd=ROOT)
+    verify_native_target(args.rhwp, target)
     backend_version = subprocess.check_output([str(args.rhwp), "--version"], text=True).strip()
     if backend_version != "rhwp v0.8.6+pat.checkbox.1":
         raise SystemExit("A verified checkbox-patched rhwp build is required")
@@ -238,12 +268,7 @@ def main() -> None:
         with tarfile.open(download) as archive:
             archive.extractall(stage, filter="data")
         python = stage / ("python/python.exe" if os.name == "nt" else "python/bin/python3")
-        actual = subprocess.check_output(
-            [str(python), "-I", "-c", "import platform; print(platform.python_version())"],
-            text=True,
-        ).strip()
-        if actual != pins["pythonVersion"]:
-            raise SystemExit("Packaged Python version mismatch")
+        python_runtime = verify_python_runtime(python, target, pins["pythonVersion"])
         requirements = work / "requirements.txt"
         command(
             args.uv,
@@ -324,6 +349,7 @@ def main() -> None:
                 "version": version,
                 "target": target,
                 "python": pin,
+                "pythonRuntime": python_runtime,
                 "wheelSha256": sha(wheel),
                 "rhwp": provenance,
                 "qualification": "pending-external-client-and-model-evidence",
@@ -349,7 +375,7 @@ def main() -> None:
         )
         write_json(stage / ".mcp.json", {"mcpServers": {"document-files": codex_launch}})
         archive_tree(stage, output / f"document-files-{version}-{target}-codex.zip")
-        if target != "linux-x86_64":
+        if not target.startswith("linux-"):
             manifest = {
                 "manifest_version": "0.3",
                 "name": "document-files",

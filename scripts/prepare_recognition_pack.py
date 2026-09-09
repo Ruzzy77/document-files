@@ -28,6 +28,7 @@ import sys
 import zipfile
 from email.parser import Parser
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from build_runtime_pack import build_pack  # noqa: E402
@@ -109,7 +110,11 @@ def binary_targets(path: Path) -> set[str]:
     if head.startswith(b"\x7fELF"):
         if len(head) < 20 or head[4:6] != b"\x02\x01":
             return {"unsupported-elf"}
-        return {"linux-x86_64"} if struct.unpack_from("<H", head, 18)[0] == 62 else {"other-elf"}
+        return {
+            {62: "linux-x86_64", 183: "linux-aarch64"}.get(
+                struct.unpack_from("<H", head, 18)[0], "other-elf"
+            )
+        }
     if head[:2] == b"MZ":
         if len(head) < 64:
             return {"invalid-pe"}
@@ -164,6 +169,66 @@ def cpu_torch(stage: Path, files: dict, platform: str) -> None:
         raise PackError("recognition_linux_torch_cpu_build_required")
 
 
+def verify_arm_cpu_wheel(stage, files, sources, wheel_origins, provenance):
+    """ARM CPU releases need not have +cpu; verify exact official wheel bytes instead."""
+    origins = [digest for digest, (name, _) in wheel_origins.items() if name == "torch"]
+    if len(origins) != 1:
+        raise PackError("recognition_missing_torch_cpu_evidence")
+    digest = origins[0]
+    wheel = sources[digest]
+    links = [entry["uri"] for entry in provenance if entry["sha256"] == digest]
+
+    def official(url):
+        parsed = urlsplit(url)
+        return (
+            parsed.scheme == "https"
+            and parsed.hostname in {"download.pytorch.org", "download-r2.pytorch.org"}
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port in (None, 443)
+            and not parsed.query
+            and unquote(parsed.path) == "/whl/cpu/" + wheel.name
+            and (not parsed.fragment or parsed.fragment == "sha256=" + digest)
+        )
+
+    if not any(official(url) for url in links) or not re.fullmatch(
+        r"torch-[^-]+-cp[0-9]+-cp[0-9]+-manylinux_[0-9_]+_aarch64.whl", wheel.name
+    ):
+        raise PackError("recognition_arm_torch_official_cpu_source_required")
+    with zipfile.ZipFile(wheel) as archive:
+        names = archive.namelist()
+        if len(names) != len(set(names)) or any(
+            re.search(
+                r"(?:cuda|cudnn|cublas|nvrtc|amdhip|hiprtc|rocblas).*\.(?:so|dll)", name, re.I
+            )
+            for name in names
+        ):
+            raise PackError("recognition_gpu_wheel")
+        metadata = [name for name in names if name.endswith(".dist-info/METADATA")]
+        meta = Parser().parsestr(archive.read(metadata[0]).decode())
+        if any(
+            re.search(r"nvidia|cuda|rocm|triton", dep, re.I)
+            for dep in meta.get_all("Requires-Dist", [])
+        ):
+            raise PackError("recognition_gpu_wheel")
+        seen_version = False
+        for name, item in files.items():
+            if "/site-packages/torch/" not in name:
+                continue
+            relative = name.split("/site-packages/", 1)[1]
+            if item.get("sourceSha256") != digest or relative not in names:
+                raise PackError("recognition_torch_file_origin_mismatch")
+            import hashlib
+
+            with archive.open(relative) as stream:
+                original = hashlib.file_digest(stream, "sha256").hexdigest()
+            if original != item["sha256"]:
+                raise PackError("recognition_torch_file_origin_mismatch")
+            seen_version |= relative == "torch/version.py"
+        if not seen_version:
+            raise PackError("recognition_missing_torch_cpu_evidence")
+
+
 def verify_linkage(stage: Path, files: dict, audit_path: Path, audit: dict, target: str) -> None:
     evidence = load(verified_file(audit_path.parent, audit["nativeLinkage"]))
     if evidence.get("schemaVersion") != "document-files.recognition-native-linkage.v1" or (
@@ -178,6 +243,13 @@ def verify_linkage(stage: Path, files: dict, audit_path: Path, audit: dict, targ
                 raise PackError("recognition_foreign_native_binary")
             if re.search(r"cuda|cudnn|cublas|nvrtc|amdhip|hiprtc|rocblas", Path(name).name, re.I):
                 raise PackError("recognition_gpu_native_library")
+            if target.startswith("linux-"):
+                from linux_abi import inspect_header
+
+                try:
+                    inspect_header(stage / name, target)
+                except ValueError as exc:
+                    raise PackError("recognition_foreign_native_binary") from exc
             binaries[name] = files[name]["sha256"]
     entries = evidence.get("binaries", [])
     if len(entries) != len(binaries) or {item["path"] for item in entries} != set(binaries):
@@ -199,8 +271,13 @@ def verify_linkage(stage: Path, files: dict, audit_path: Path, audit: dict, targ
                 allowed = (
                     target == "macos-aarch64"
                     and name.startswith(("/usr/lib/", "/System/Library/"))
-                    or target == "linux-x86_64"
-                    and name in LINUX_SYSTEM
+                    or target.startswith("linux-")
+                    and name
+                    in (
+                        (LINUX_SYSTEM - {"ld-linux-x86-64.so.2"}) | {"ld-linux-aarch64.so.1"}
+                        if target == "linux-aarch64"
+                        else LINUX_SYSTEM
+                    )
                     or target == "windows-x86_64"
                     and (
                         name.lower() in WINDOWS_SYSTEM
@@ -230,11 +307,11 @@ def verify_stage(
     target = declaration.get("platform")
     if target == "macos-x86_64":
         raise PackError("pack_intel_recognition_requires_linux_container")
-    if target not in {"macos-aarch64", "linux-x86_64", "windows-x86_64"} or (
+    if target not in {"macos-aarch64", "linux-x86_64", "linux-aarch64", "windows-x86_64"} or (
         audit.get("platform") != target or declaration.get("kind") != "recognition"
     ):
         raise PackError("recognition_wrong_target")
-    if target == "linux-x86_64" and not re.fullmatch(
+    if target.startswith("linux-") and not re.fullmatch(
         r"\d+\.\d+(?:\.\d+)?", declaration.get("minimumGlibc", "")
     ):
         raise PackError("recognition_missing_glibc_baseline")
@@ -366,6 +443,10 @@ def verify_stage(
         if target not in binary_targets(stage / settings[key]):
             raise PackError("recognition_non_native_entrypoint")
     cpu_torch(stage, files, target)
+    if target == "linux-aarch64":
+        verify_arm_cpu_wheel(
+            stage, files, sources, wheel_origins, declaration["provenance"]["sources"]
+        )
     verify_linkage(stage, files, audit_path, audit, target)
     receipt = {
         "schemaVersion": "document-files.recognition-stage-verification.v1",

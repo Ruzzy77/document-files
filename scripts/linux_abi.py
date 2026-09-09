@@ -13,6 +13,7 @@ import os
 import platform
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import zipfile
@@ -51,7 +52,67 @@ def check_versions(values):
             raise ValueError(f"Bookworm ABI exceeded: {value} > {family}_{LIMITS[family]}")
 
 
-def audit(binary, evidence):
+TARGETS = {
+    "linux-x86_64": {"machine": 62, "loader": "/lib64/ld-linux-x86-64.so.2"},
+    "linux-aarch64": {"machine": 183, "loader": "/lib/ld-linux-aarch64.so.1"},
+}
+
+
+def inspect_header(binary, target="linux-x86_64"):
+    """Read ELF64 LE geometry and PT_INTERP without executing the input."""
+    if target not in TARGETS:
+        raise ValueError("Unsupported Linux target")
+    binary = Path(binary)
+    if binary.is_symlink() or not binary.is_file():
+        raise ValueError("Expected regular ELF input")
+    size = binary.stat().st_size
+    with binary.open("rb") as stream:
+        header = stream.read(64)
+        if len(header) != 64 or header[:7] != b"\x7fELF\x02\x01\x01":
+            raise ValueError("Expected ELF64 little-endian version 1")
+        kind, machine, version = struct.unpack_from("<HHI", header, 16)
+        offset = struct.unpack_from("<Q", header, 32)[0]
+        ehsize, entsize, count = struct.unpack_from("<HHH", header, 52)
+        if kind not in (2, 3) or machine != TARGETS[target]["machine"] or version != 1:
+            raise ValueError("ELF target mismatch")
+        if ehsize != 64 or count > 4096 or (count and (entsize != 56 or offset < 64)):
+            raise ValueError("Invalid ELF program header")
+        if offset + count * entsize > size:
+            raise ValueError("Truncated ELF program headers")
+        interpreter = None
+        for index in range(count):
+            stream.seek(offset + index * entsize)
+            entry = stream.read(56)
+            if struct.unpack_from("<I", entry)[0] != 3:
+                continue
+            start, length = (
+                struct.unpack_from("<Q", entry, 8)[0],
+                struct.unpack_from("<Q", entry, 32)[0],
+            )
+            if interpreter is not None or not 2 <= length <= 256 or start + length > size:
+                raise ValueError("Invalid ELF interpreter range")
+            stream.seek(start)
+            raw = stream.read(length)
+            if not raw.endswith(b"\0") or b"\0" in raw[:-1]:
+                raise ValueError("Invalid ELF interpreter")
+            interpreter = raw[:-1].decode("ascii")
+            if interpreter != TARGETS[target]["loader"]:
+                raise ValueError("Foreign Linux interpreter")
+    return {"target": target, "machine": machine, "elfClass": 64, "interpreter": interpreter}
+
+
+def require_host(target):
+    machines = {
+        "x86_64": "linux-x86_64",
+        "amd64": "linux-x86_64",
+        "aarch64": "linux-aarch64",
+        "arm64": "linux-aarch64",
+    }
+    if platform.system() != "Linux" or machines.get(platform.machine().lower()) != target:
+        raise ValueError("Linux startup requires matching native host target")
+
+
+def audit(binary, evidence, target="linux-x86_64"):
     binary, evidence = Path(binary), Path(evidence)
     if binary.is_symlink() or not binary.is_file():
         raise ValueError("ABI input must be a regular binary")
@@ -59,6 +120,7 @@ def audit(binary, evidence):
         if stream.read(4) != b"\x7fELF":
             raise ValueError("ABI input is not ELF")
     before = sha(binary)
+    header = inspect_header(binary, target)
     result = subprocess.run(
         ["readelf", "--version-info", "--wide", str(binary)],
         capture_output=True,
@@ -77,6 +139,7 @@ def audit(binary, evidence):
     values = requirements(result.stdout)
     check_versions(values)
     return {
+        **header,
         "sha256": before,
         "requirements": values,
         "limits": LIMITS,
@@ -218,6 +281,7 @@ def main():
     source.add_argument("--archive", type=Path)
     source.add_argument("--tree", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--target", choices=tuple(TARGETS), default="linux-x86_64")
     parser.add_argument("--startup", choices=("cpu", "native", "core"))
     parser.add_argument(
         "--startup-only", action="store_true", help="Consumer image needs no readelf"
@@ -230,6 +294,7 @@ def main():
     receipt = {
         "schemaVersion": "document-files.linux-compatibility.v1",
         "passed": False,
+        "target": args.target,
         "limits": LIMITS,
         "files": [],
         "finalImageQualified": False,
@@ -238,6 +303,8 @@ def main():
     }
     try:
         with tempfile.TemporaryDirectory(prefix="Document Files relocated Linux ") as temp:
+            if args.startup:
+                require_host(args.target)
             if args.startup_only:
                 release = Path("/etc/os-release").read_text()
                 if not re.search(r"^ID=debian$", release, re.M) or not re.search(
@@ -267,8 +334,15 @@ def main():
                         elf = stream.read(4) == b"\x7fELF"
                     if elf:
                         entry = {"path": path.relative_to(root).as_posix(), "sha256": sha(path)}
+                        inspect_header(path, args.target)
                         if not args.startup_only:
-                            entry.update(audit(path, output / f"elf-{len(receipt['files'])}.txt"))
+                            entry.update(
+                                audit(
+                                    path,
+                                    output / f"elf-{len(receipt['files'])}.txt",
+                                    target=args.target,
+                                )
+                            )
                         receipt["files"].append(entry)
             if not receipt["files"]:
                 raise ValueError("No ELF inputs")

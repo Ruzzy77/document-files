@@ -28,6 +28,10 @@ jobs:
         include:
           - os: ubuntu-22.04
             target: linux-x86_64
+            docker_platform: linux/amd64
+          - os: ubuntu-22.04-arm
+            target: linux-aarch64
+            docker_platform: linux/arm64
           - os: windows-2022
             target: windows-x86_64
     runs-on: ${{ matrix.os }}
@@ -44,7 +48,7 @@ jobs:
       - name: Linux native build and relocated discovery
         if: runner.os == 'Linux'
         run: >-
-          uv run --frozen python scripts/build_recognition_native.py --target linux-x86_64
+          uv run --frozen python scripts/build_recognition_native.py --target ${{ matrix.target }}
           --work native-work --cache native-inputs --download --with-tessdata --jobs 4
       - name: Relocated bookworm native startup (not final image qualification)
         if: runner.os == 'Linux'
@@ -53,7 +57,7 @@ jobs:
           EVIDENCE="$RUNNER_TEMP/bookworm-native-evidence"
           mkdir "$EVIDENCE"
           # Provision only this explicit official test image; no document-time fetch.
-          timeout 300 docker pull --platform linux/amd64 python:3.12-bookworm
+          timeout 300 docker pull --platform ${{ matrix.docker_platform }} python:3.12-bookworm
           IMAGE=$(timeout 30 docker image inspect python:3.12-bookworm --format '{{index .RepoDigests 0}}')
           timeout 30 docker image inspect "$IMAGE" --format '{{json .}}' | python3 -c 'import json,sys; x=json.load(sys.stdin); print(json.dumps({k:x[k] for k in ("Id","RepoDigests","Architecture","Os")}))' > "$EVIDENCE/probe-image.json"
           CID=""
@@ -65,14 +69,14 @@ jobs:
             fi
           }
           trap cleanup EXIT
-          timeout 60 docker create --cidfile "$EVIDENCE/container-id.txt" --platform linux/amd64 --network none --read-only \
+          timeout 60 docker create --cidfile "$EVIDENCE/container-id.txt" --platform ${{ matrix.docker_platform }} --network none --read-only \
             --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
             --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,exec,size=2g \
             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/linux_abi.py,dst=/probe.py,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/native-work/candidate,dst=/input/candidate,readonly" \
             --mount "type=bind,src=$EVIDENCE,dst=/evidence" \
             "$IMAGE" python /probe.py --tree /input/candidate --output /evidence/result \
-            --startup native --startup-only > "$EVIDENCE/create.txt"
+            --startup native --startup-only --target ${{ matrix.target }} > "$EVIDENCE/create.txt"
           CID=$(cat "$EVIDENCE/container-id.txt")
           timeout 300 docker start --attach "$CID" > "$EVIDENCE/container-log.txt" 2>&1
           timeout 30 docker inspect "$CID" --format '{{json .Image}}' > "$EVIDENCE/container-image.json"
@@ -92,6 +96,7 @@ jobs:
           from pathlib import Path
           import re
           import shutil
+          import struct
           import subprocess
 
           def digest(path):
@@ -107,7 +112,7 @@ jobs:
                   raise ValueError('Nonregular evidence')
               return result
 
-          def stage_candidate(root, work, cache, evidence, output, source):
+          def stage_candidate(root, work, cache, evidence, output, source, target="linux-x86_64"):
               def require(condition):
                   if not condition:
                       raise ValueError('Linux candidate evidence mismatch')
@@ -120,9 +125,10 @@ jobs:
               require(re.fullmatch('[a-f0-9]{40}', source))
               require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip() == source)
               require(not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=root, text=True).strip())
+              require(target in {"linux-x86_64", "linux-aarch64"})
               receipt = load(regular(work, 'native-candidate.json'))
               require(receipt['sourceCommit'] == source and receipt['dirtySource'] is False)
-              require(receipt['target'] == 'linux-x86_64' and receipt['nativeExecutionVerified'] is True)
+              require(receipt['target'] == target and receipt['nativeExecutionVerified'] is True)
               require(receipt['languageDiscoveryVerified'] is True and set(receipt['languages']) == {'eng', 'kor', 'osd'})
               require(receipt['releaseReady'] is False and receipt['fullRecognitionQualified'] is False)
               require(receipt['builderSha256'] == digest(root / 'scripts/build_recognition_native.py'))
@@ -139,8 +145,12 @@ jobs:
                   require(ref['path'].startswith('candidate/'))
                   require(checked(work, ref).stat().st_size == ref['size'])
               binary = checked(work, receipt['binary'])
-              require(binary.read_bytes()[:4] == b'\x7fELF')
+              header = binary.read_bytes()[:64]
+              require(len(header) == 64 and header[:7] == b'\x7fELF\x02\x01\x01')
+              require(struct.unpack_from('<H', header, 18)[0] == (183 if target == 'linux-aarch64' else 62))
               require(receipt['linuxAbi']['sha256'] == digest(binary))
+              require(receipt['linuxAbi']['target'] == target)
+              require(receipt['linuxAbi']['machine'] == (183 if target == 'linux-aarch64' else 62))
               checked(work, receipt['linuxAbi']['rawEvidence'])
               notices = receipt['runtimeNotices']
               require(notices['collected'] is True)
@@ -173,6 +183,7 @@ jobs:
                   require(acquired['expectedSha256'] == acquired['observedSha256'] == ref['sha256'])
                   acquisitions.append((acquisition, Path(name)))
               compatibility = load(regular(evidence, 'result/compatibility.json'))
+              require(compatibility['target'] == target)
               require(compatibility['passed'] is True and compatibility['libc'] == ['glibc', '2.36'])
               require(compatibility['files'] == [{'path': 'bin/tesseract', 'sha256': digest(binary)}])
               require(len(compatibility['startup']) == 2)
@@ -187,7 +198,7 @@ jobs:
               state = load(regular(evidence, 'container-state.json'))
               require(state['Running'] is False and state['Pid'] == 0 and state['ExitCode'] == 0)
               image = load(regular(evidence, 'probe-image.json'))
-              require(image['Architecture'] == 'amd64' and image['Os'] == 'linux')
+              require(image['Architecture'] == ('arm64' if target == 'linux-aarch64' else 'amd64') and image['Os'] == 'linux')
               require(re.fullmatch('sha256:[a-f0-9]{64}', image['Id']))
               require(load(regular(evidence, 'container-image.json')) == image['Id'])
               # Fresh allowlisted output, never the full work tree or environment.
@@ -225,17 +236,17 @@ jobs:
                   checked(output / 'bookworm/result', probe['log'])
               require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip() == source)
               require(not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=root, text=True).strip())
-              (output / 'delivery.json').write_text(json.dumps({'sourceCommit': source, 'target': 'linux-x86_64', 'releaseReady': False, 'fullRecognitionQualified': False, 'purpose': 'native inputs for independent Linux stage audit; not a release', 'files': inventory}, indent=2) + '\n')
+              (output / 'delivery.json').write_text(json.dumps({'sourceCommit': source, 'target': target, 'releaseReady': False, 'fullRecognitionQualified': False, 'purpose': 'native inputs for independent Linux stage audit; not a release', 'files': inventory}, indent=2) + '\n')
 
           if __name__ == '__main__':
-              stage_candidate(Path.cwd(), Path('native-work'), Path('native-inputs'), Path(os.environ['RUNNER_TEMP']) / 'bookworm-native-evidence', Path('linux-native-delivery'), os.environ['GITHUB_SHA'])
+              stage_candidate(Path.cwd(), Path('native-work'), Path('native-inputs'), Path(os.environ['RUNNER_TEMP']) / 'bookworm-native-evidence', Path('linux-native-delivery'), os.environ['GITHUB_SHA'], '${{ matrix.target }}')
           # END LINUX CANDIDATE CONTRACT
           PY
       - name: Preserve verified Linux native inputs (not a release)
         if: success() && runner.os == 'Linux' && steps.linux_candidate.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: recognition-native-inputs-linux-x86_64-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: recognition-native-inputs-${{ matrix.target }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: linux-native-delivery/
           if-no-files-found: error
           retention-days: 14

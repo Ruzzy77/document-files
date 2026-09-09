@@ -54,6 +54,12 @@ def test_all_platforms_pin_cpu_only_options_and_explicit_arch_baseline(target):
             "libstdc++.so.6 => /opt/compiler/libstdc++.so.6 (0x01)",
         ),
         (
+            "linux-aarch64",
+            "libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x01)\n"
+            "/lib/ld-linux-aarch64.so.1 (0x02)",
+            "libcudart.so => /usr/lib/aarch64-linux-gnu/libcudart.so (0x01)",
+        ),
+        (
             "windows-x86_64",
             "Image has the following dependencies:\n    KERNEL32.dll\n    WS2_32.dll\n",
             "    VCRUNTIME140.dll\n",
@@ -119,6 +125,62 @@ def test_build_rejects_wrong_host_and_existing_work_before_any_command(tmp_path,
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "host,target", [("linux-x86_64", "linux-aarch64"), ("linux-aarch64", "linux-x86_64")]
+)
+def test_linux_cpu_cross_arch_build_is_rejected_before_creating_output(
+    tmp_path, monkeypatch, host, target
+):
+    monkeypatch.setattr(builder, "current_target", lambda: host)
+    monkeypatch.setattr(builder, "run", lambda *a, **k: pytest.fail("cross-architecture build"))
+    with pytest.raises(builder.PackError, match="matching_host"):
+        builder.build(target, tmp_path / "work", tmp_path / "pack.zip", "b10853-cpu.4")
+    assert not (tmp_path / "work").exists()
+
+
+@pytest.mark.parametrize("target,foreign_machine", [("linux-aarch64", 62), ("linux-x86_64", 183)])
+def test_cpu_foreign_elf_is_rejected_before_ldd_or_startup(
+    tmp_path, monkeypatch, target, foreign_machine
+):
+    import linux_abi
+    from test_linux_abi import elf
+
+    work = tmp_path / "work"
+    monkeypatch.setattr(builder, "current_target", lambda: target)
+    monkeypatch.setattr(linux_abi, "toolchain", lambda: {"fixture": "gcc12"})
+    commands = []
+
+    def run(*args, **kwargs):
+        commands.append(args)
+        if args[:3] == ("git", "rev-parse", "HEAD"):
+            return builder.REVISION
+        if args[:2] == ("git", "archive"):
+            (work / "llama-source.tar").write_bytes(b"fixture source")
+        if args[:2] == ("cmake", "-S"):
+            directory = work / "build"
+            directory.mkdir()
+            options = builder.cmake_options(target)
+            (directory / "CMakeCache.txt").write_text(
+                "\n".join(f"{key}:STRING={value}" for key, value in options.items())
+            )
+        if args[:2] == ("cmake", "--build"):
+            directory = work / "build/bin"
+            directory.mkdir()
+            (directory / "llama-server").write_bytes(elf(foreign_machine))
+        if args[0] == "ldd":
+            pytest.fail("foreign ELF passed to ldd")
+        return ""
+
+    monkeypatch.setattr(builder, "run", run)
+    monkeypatch.setattr(
+        builder, "smoke_binary", lambda *a, **k: pytest.fail("executed foreign ELF")
+    )
+    with pytest.raises(ValueError, match="ELF target mismatch"):
+        builder.build(target, work, tmp_path / "pack.zip", "b10853-cpu.4")
+    assert not (tmp_path / "pack.zip").exists()
+    assert all(command[0] != "ldd" for command in commands)
+
+
 def test_windows_static_runtime_requires_separate_license_input(tmp_path, monkeypatch):
     monkeypatch.setattr(builder, "current_target", lambda: "windows-x86_64")
     with pytest.raises(builder.PackError, match="windows_runtime_license_required"):
@@ -154,12 +216,12 @@ def test_new_ci_pack_version_is_explicit_and_valid_without_reusing_old_default(
     tmp_path, monkeypatch
 ):
     workflow = (SCRIPTS.parent / ".github/workflows/cpu-runtime.yml").read_text()
-    assert "default: 'b10853-cpu.3'" in workflow
-    assert "inputs.pack_version || 'b10853-cpu.3'" in workflow
+    assert "default: 'b10853-cpu.4'" in workflow
+    assert "inputs.pack_version || 'b10853-cpu.4'" in workflow
     assert '--version "$PACK_VERSION"' in workflow
     monkeypatch.setattr(builder, "current_target", lambda: "linux-x86_64")
     monkeypatch.setattr(builder, "run", lambda *a, **k: pytest.fail("unexpected build"))
     with pytest.raises(builder.PackError, match="fresh_paths"):
-        builder.build("linux-x86_64", tmp_path, tmp_path / "pack.zip", "b10853-cpu.3")
+        builder.build("linux-x86_64", tmp_path, tmp_path / "pack.zip", "b10853-cpu.4")
     with pytest.raises(builder.PackError, match="invalid_cpu_build_options"):
         builder.build("linux-x86_64", tmp_path / "new", tmp_path / "pack.zip", "b10853-cpu.0")

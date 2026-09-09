@@ -25,7 +25,7 @@ from document_files.runtime_packs import PackError, current_target
 
 REVISION = "9dcf84e5ae2718947188b539aab8b9c2b15d3ba1"
 SOURCE_URL = "https://github.com/ggml-org/llama.cpp.git"
-TARGETS = {"macos-aarch64", "macos-x86_64", "windows-x86_64", "linux-x86_64"}
+TARGETS = {"macos-aarch64", "macos-x86_64", "windows-x86_64", "linux-x86_64", "linux-aarch64"}
 DISABLED = (
     "BUILD_SHARED_LIBS",
     "GGML_BACKEND_DL",
@@ -143,8 +143,8 @@ def cmake_options(target):
     if target.startswith("macos"):
         options["CMAKE_OSX_ARCHITECTURES"] = "arm64" if target.endswith("aarch64") else "x86_64"
         options["CMAKE_OSX_DEPLOYMENT_TARGET"] = "13.3"
-        if target.endswith("aarch64"):
-            options["GGML_CPU_ARM_ARCH"] = "armv8.2-a+fp16+dotprod"
+    if target.endswith("aarch64"):
+        options["GGML_CPU_ARM_ARCH"] = "armv8.2-a+fp16+dotprod"
     if target.startswith("linux"):
         from linux_abi import CC, CXX
 
@@ -342,6 +342,11 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
             raise PackError("cpu_build_binary_missing_or_ambiguous")
         shutil.copyfile(matches[0], stage / name)
         (stage / name).chmod(0o755)
+        if target.startswith("linux"):
+            from linux_abi import inspect_header
+
+            # Reject a foreign executable before invoking ldd or the startup probe.
+            inspect_header(stage / name, target)
         command = (
             ("otool", "-L")
             if target.startswith("macos")
@@ -353,7 +358,7 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
         if target.startswith("linux"):
             from linux_abi import audit
 
-            linux_abi[name] = audit(stage / name, stage / f"{name}-abi.txt")
+            linux_abi[name] = audit(stage / name, stage / f"{name}-abi.txt", target=target)
             symbols += (stage / f"{name}-abi.txt").read_text()
         versions[name] = smoke_binary(stage / name, quantize=name.startswith("llama-quantize"))
     licenses, components, file_licenses = stage_notices(source, stage, windows_runtime_license)

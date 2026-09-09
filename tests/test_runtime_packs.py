@@ -19,6 +19,27 @@ from document_files.runtime_packs import (
 )
 
 
+@pytest.mark.parametrize("machine", ["aarch64", "arm64"])
+def test_linux_arm_pack_target_does_not_accept_x64_execution(monkeypatch, machine):
+    from document_files import runtime_packs
+
+    monkeypatch.setattr(runtime_packs.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(runtime_packs.platform, "machine", lambda: machine)
+    monkeypatch.setattr(runtime_packs.platform, "release", lambda: "6.17.0")
+    monkeypatch.setattr(runtime_packs.platform, "libc_ver", lambda: ("glibc", "2.39"))
+    assert current_target() == "linux-aarch64"
+    manifest = {
+        "platform": "linux-aarch64",
+        "minimumOS": {"name": "linux", "version": "5.15"},
+        "minimumGlibc": "2.36",
+    }
+    runtime_packs.check_host(manifest)
+    with pytest.raises(PackError, match="platform_mismatch"):
+        runtime_packs.check_host({**manifest, "platform": "linux-x86_64"})
+    with pytest.raises(PackError, match="libc_incompatible"):
+        runtime_packs.check_host({**manifest, "minimumGlibc": "2.40"})
+
+
 def fixture_pack(tmp_path: Path, version="1", *, kind="core", extra=None):
     contents = {"bin/server": b"native executable", "LICENSE": b"Apache License 2.0"}
     if kind == "model":
@@ -355,6 +376,13 @@ def test_recognition_rejects_intel_native_and_online_configuration(tmp_path):
         {"repairBudget": {"maxCalls": True}},
         {"repairBudget": {"maxPixels": 64000001}},
         {"repairBudget": {"unknown": 1}},
+        *[
+            {"repairBudget": {key: value}}
+            for key, maximum in (("batchSize", 2), ("maxImages", 64), ("maxInputPixels", 64000000))
+            for value in (True, False, 0, -1, maximum + 1, 1.0, "1", None)
+        ],
+        {"tableOcrRepair": "off", "repairBudget": {"batchSize": 2}},
+        {"tableOcrRepair": "ruled_tables_v1", "repairBudget": {"batchSize": 2}},
     ],
 )
 @pytest.mark.parametrize("policy", ["off", "ruled_tables_v1", "ruled_cells_v2"])
@@ -380,14 +408,29 @@ def test_recognition_policy_is_pinned_and_budgeted_in_manifest(tmp_path, bad, po
         "tableOcrRepair": policy,
         "repairBudget": {"maxCalls": 2},
     }
+    before = json.dumps(manifest, sort_keys=True)
     validate_manifest(manifest)
+    assert json.dumps(manifest, sort_keys=True) == before  # Never modify immutable pack defaults.
+    for budget in (
+        {"batchSize": 1, "maxImages": 1, "maxInputPixels": 1},
+        {
+            "batchSize": 2 if policy == "ruled_cells_v2" else 1,
+            "maxImages": 64,
+            "maxInputPixels": 64000000,
+        },
+    ):
+        manifest["recognition"]["repairBudget"] = budget
+        validate_manifest(manifest)
     manifest["recognition"].update(bad)
     with pytest.raises(PackError, match="unapproved_recognition_configuration"):
         validate_manifest(manifest)
 
 
+@pytest.mark.parametrize("explicit", [False, True])
 @pytest.mark.parametrize("policy", ["off", "ruled_tables_v1", "ruled_cells_v2"])
-def test_pinned_recognition_policy_reaches_the_same_backend_identity(tmp_path, monkeypatch, policy):
+def test_pinned_recognition_policy_reaches_the_same_backend_identity(
+    tmp_path, monkeypatch, policy, explicit
+):
     from types import SimpleNamespace
 
     from document_files.jobs import ModelProfile
@@ -421,6 +464,16 @@ def test_pinned_recognition_policy_reaches_the_same_backend_identity(tmp_path, m
             },
         },
     )
+    settings = (
+        {
+            "batchSize": 2 if policy == "ruled_cells_v2" else 1,
+            "maxImages": 64,
+            "maxInputPixels": 64000000,
+        }
+        if explicit
+        else {}
+    )
+    pack.manifest["recognition"]["repairBudget"].update(settings)
     monkeypatch.setattr(
         "document_files.profiles.PackStore", lambda _: SimpleNamespace(resolve=lambda _: pack)
     )
@@ -431,6 +484,13 @@ def test_pinned_recognition_policy_reaches_the_same_backend_identity(tmp_path, m
     )
     assert backend.config.table_ocr_repair == policy
     assert backend.config.repair_max_calls == 2
+    for key, field, default in (
+        ("batchSize", "repair_batch_size", 1),
+        ("maxImages", "repair_max_images", 8),
+        ("maxInputPixels", "repair_max_input_pixels", 16000000),
+    ):
+        assert getattr(backend.config, field) == settings.get(key, default)
+        assert backend.identity["configuration"][field] == settings.get(key, default)
     assert backend.identity["configuration"]["table_ocr_repair"] == policy
     assert backend.identity["packManifestSha256"] == "f" * 64
 

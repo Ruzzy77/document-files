@@ -36,7 +36,14 @@ ACTIVE_SCHEMA = "document-files.active-packs.v1"
 # Bound its metadata separately from the multi-GB weights and archive file count.
 MAX_MANIFEST_BYTES = 16 * 1024**2
 KINDS = {"core", "recognition", "llama-cpp-runtime", "model"}
-TARGETS = {"macos-aarch64", "macos-x86_64", "windows-x86_64", "linux-x86_64", "any"}
+TARGETS = {
+    "macos-aarch64",
+    "macos-x86_64",
+    "windows-x86_64",
+    "linux-x86_64",
+    "linux-aarch64",
+    "any",
+}
 _ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._+-]{0,127}\Z")
 _SHA = re.compile(r"[a-f0-9]{64}\Z")
 _RESERVED = {
@@ -204,7 +211,15 @@ def validate_manifest(manifest: dict) -> dict:
             }:
                 raise PackError("pack_unapproved_recognition_configuration")
             repair_budget = recognition.get("repairBudget", {})
-            limits = {"maxTables": 32, "maxCalls": 32, "maxPixels": 64000000, "maxSeconds": 300}
+            limits = {
+                "maxTables": 32,
+                "maxCalls": 32,
+                "maxPixels": 64000000,
+                "maxSeconds": 300,
+                "batchSize": 2,
+                "maxImages": 64,
+                "maxInputPixels": 64000000,
+            }
             if (
                 not isinstance(repair_budget, dict)
                 or set(repair_budget) - set(limits)
@@ -212,6 +227,11 @@ def validate_manifest(manifest: dict) -> dict:
                     type(value) is not int or not 1 <= value <= limits[key]
                     for key, value in repair_budget.items()
                 )
+            ):
+                raise PackError("pack_unapproved_recognition_configuration")
+            if (
+                repair_budget.get("batchSize", 1) == 2
+                and recognition.get("tableOcrRepair", "off") != "ruled_cells_v2"
             ):
                 raise PackError("pack_unapproved_recognition_configuration")
             if manifest["platform"] == "macos-x86_64":

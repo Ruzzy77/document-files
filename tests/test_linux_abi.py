@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import struct
 import subprocess
 import sys
 import zipfile
@@ -17,6 +18,21 @@ NEEDS = (
     "Version needs section '.gnu.version_r' contains 1 entry:\n"
     "  Name: GLIBC_2.35 Flags: none\n  Name: GLIBCXX_3.4.30 Flags: none\n"
 )
+
+
+def elf(machine=62, loader=None):
+    raw = bytearray(256)
+    raw[:7] = b"\x7fELF\x02\x01\x01"
+    struct.pack_into("<HHI", raw, 16, 3, machine, 1)
+    struct.pack_into("<HHH", raw, 52, 64, 56, 1 if loader else 0)
+    if loader:
+        struct.pack_into("<Q", raw, 32, 64)
+        struct.pack_into("<I", raw, 64, 3)
+        struct.pack_into("<Q", raw, 72, 128)
+        data = loader.encode() + b"\0"
+        struct.pack_into("<Q", raw, 96, len(data))
+        raw[128 : 128 + len(data)] = data
+    return bytes(raw)
 
 
 def test_only_needed_versions_count_not_exports_or_symbol_listing():
@@ -43,7 +59,7 @@ def test_numeric_version_order_and_boundary():
 )
 def test_audit_keeps_failed_raw_evidence(tmp_path, monkeypatch, raw, code):
     binary = tmp_path / "binary"
-    binary.write_bytes(b"\x7fELFfake")
+    binary.write_bytes(elf())
     monkeypatch.setattr(
         abi.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, code, raw, "")
     )
@@ -55,7 +71,7 @@ def test_audit_keeps_failed_raw_evidence(tmp_path, monkeypatch, raw, code):
 
 def test_audit_binds_exact_bytes_and_evidence(tmp_path, monkeypatch):
     binary = tmp_path / "binary"
-    binary.write_bytes(b"\x7fELFfake")
+    binary.write_bytes(elf())
     monkeypatch.setattr(
         abi.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, NEEDS, "")
     )
@@ -148,7 +164,7 @@ def test_workflows_keep_four_targets_and_exact_cleanup_and_baseline():
     for target in ["macos-aarch64", "macos-x86_64", "linux-x86_64", "windows-x86_64"]:
         assert "target: " + target in text
     assert '--output "${RUNNER_TEMP}/rhwp-candidate"' in text
-    assert "--archive dist/document-files-1.8.0-linux-x86_64.zip --output dist/linux-abi" in text
+    assert "--output dist/linux-abi" in text and "--archive dist/document-files-1.8.0-" in text
 
 
 def test_rhwp_existing_output_rejected_before_commands(tmp_path, monkeypatch):
@@ -187,10 +203,10 @@ def test_rhwp_rustc_version_uses_source_toolchain_and_build_environment(
 
 def test_binary_mutation_during_inspection_is_rejected(tmp_path, monkeypatch):
     binary = tmp_path / "binary"
-    binary.write_bytes(b"\x7fELFone")
+    binary.write_bytes(elf())
 
     def run(*args, **kwargs):
-        binary.write_bytes(b"\x7fELFtwo")
+        binary.write_bytes(elf() + b"changed")
         return subprocess.CompletedProcess(args, 0, NEEDS, "")
 
     monkeypatch.setattr(abi.subprocess, "run", run)
@@ -203,3 +219,43 @@ def test_native_linux_uses_prepared_python_not_jammy_system_python():
     assert "uv sync --frozen --python 3.12" in text
     assert "uv run --frozen python scripts/build_recognition_native.py" in text
     assert "python3 scripts/build_recognition_native.py" not in text
+
+
+@pytest.mark.parametrize(
+    "target,machine,loader",
+    [
+        ("linux-x86_64", 62, "/lib64/ld-linux-x86-64.so.2"),
+        ("linux-aarch64", 183, "/lib/ld-linux-aarch64.so.1"),
+    ],
+)
+def test_elf_target_and_loader_are_independent(tmp_path, target, machine, loader):
+    path = tmp_path / "binary"
+    path.write_bytes(elf(machine, loader))
+    assert abi.inspect_header(path, target)["machine"] == machine
+    with pytest.raises(ValueError, match="target mismatch"):
+        abi.inspect_header(path, "linux-aarch64" if machine == 62 else "linux-x86_64")
+    path.write_bytes(elf(machine, "/lib/foreign-loader.so"))
+    with pytest.raises(ValueError, match="Foreign Linux interpreter"):
+        abi.inspect_header(path, target)
+
+
+def test_arm_startup_refuses_wrong_host(monkeypatch):
+    monkeypatch.setattr(abi.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(abi.platform, "machine", lambda: "x86_64")
+    with pytest.raises(ValueError, match="matching native host"):
+        abi.require_host("linux-aarch64")
+    abi.require_host("linux-x86_64")
+    monkeypatch.setattr(abi.platform, "machine", lambda: "aarch64")
+    abi.require_host("linux-aarch64")
+
+
+def test_arm_cannot_relax_bookworm_abi(tmp_path, monkeypatch):
+    path = tmp_path / "binary"
+    path.write_bytes(elf(183))
+    monkeypatch.setattr(
+        abi.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, NEEDS.replace("2.35", "2.38"), ""),
+    )
+    with pytest.raises(ValueError, match="Bookworm ABI exceeded"):
+        abi.audit(path, tmp_path / "raw", target="linux-aarch64")

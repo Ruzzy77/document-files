@@ -19,17 +19,21 @@ def load_script(name):
     return module
 
 
-def test_four_platform_python_inputs_have_pinned_digests():
+def test_five_platform_python_inputs_have_pinned_digests():
     pins = json.loads((ROOT / "scripts/python-runtimes.json").read_text())
     assert set(pins["targets"]) == {
         "macos-aarch64",
         "macos-x86_64",
         "windows-x86_64",
         "linux-x86_64",
+        "linux-aarch64",
     }
     for item in pins["targets"].values():
         assert item["url"].startswith("https://github.com/astral-sh/python-build-standalone/")
         assert len(bytes.fromhex(item["sha256"])) == 32
+    arm = pins["targets"]["linux-aarch64"]
+    assert "3.12.14%2B20260901-aarch64-unknown-linux-gnu-install_only" in arm["url"]
+    assert arm["sha256"] == "b61b856c3e1a4fc65b8f6e6b0495ef975dd0924f90c59f3ea61b38a079173b84"
 
 
 def test_launchers_cannot_provision_during_document_processing():
@@ -206,3 +210,124 @@ def test_builder_builds_wheel_instead_of_accepting_one():
     body = (ROOT / "scripts/build_release.py").read_text(encoding="utf-8")
     assert 'command(args.uv, "build", "--out-dir", output, cwd=ROOT)' in body
     assert "if not wheel.is_file()" not in body
+
+
+@pytest.mark.parametrize("machine", ["aarch64", "arm64"])
+def test_packaged_python_checks_actual_machine_and_version(monkeypatch, tmp_path, machine):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    builder = load_script("build_release")
+    checks = []
+    monkeypatch.setattr(builder, "verify_native_target", lambda *args: checks.append(args))
+    actual = {"version": "3.12.14", "machine": machine}
+    monkeypatch.setattr(builder.subprocess, "check_output", lambda *a, **k: json.dumps(actual))
+    python = tmp_path / "python"
+    assert builder.verify_python_runtime(python, "linux-aarch64", "3.12.14") == actual
+    assert checks == [(python, "linux-aarch64")]
+    with pytest.raises(SystemExit, match="version/architecture mismatch"):
+        builder.verify_python_runtime(python, "linux-x86_64", "3.12.14")
+    actual["version"] = "3.12.13"
+    with pytest.raises(SystemExit, match="version/architecture mismatch"):
+        builder.verify_python_runtime(python, "linux-aarch64", "3.12.14")
+
+
+def test_linux_python_foreign_elf_rejected_before_any_execution(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    builder = load_script("build_release")
+    import linux_abi
+
+    python = tmp_path / "python"
+    python.write_bytes(b"wrong ELF")
+    checks = []
+
+    def reject(binary, target):
+        checks.append((binary, target))
+        raise ValueError("foreign ELF")
+
+    monkeypatch.setattr(linux_abi, "inspect_header", reject)
+    monkeypatch.setattr(builder.subprocess, "check_output", lambda *a, **k: pytest.fail("executed"))
+    with pytest.raises(ValueError, match="foreign ELF"):
+        builder.verify_python_runtime(python, "linux-aarch64", "3.12.14")
+    assert checks == [(python.resolve(), "linux-aarch64")]
+
+
+def test_native_arm_ci_keeps_x64_and_uses_explicit_bookworm_architecture():
+    for name in ("build.yml", "cpu-runtime.yml"):
+        body = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+        assert "os: ubuntu-22.04-arm\n            target: linux-aarch64" in body
+        assert "os: ubuntu-22.04\n            target: linux-x86_64" in body
+        assert "linux-aarch64) PROBE_PLATFORM=linux/arm64; EXPECTED_ARCH=arm64" in body
+        assert 'docker pull --platform "$PROBE_PLATFORM" python:3.12-bookworm' in body
+        assert '--target "$TARGET" --startup' in body
+        assert "container-image.json" in body
+        assert "--privileged" not in body
+
+
+def test_core_linux_targets_do_not_claim_claude_desktop_platform():
+    body = (ROOT / "scripts/build_release.py").read_text(encoding="utf-8")
+    assert 'if not target.startswith("linux-"):' in body
+
+
+@pytest.mark.parametrize("machine", ["aarch64", "arm64"])
+def test_all_existing_rhwp_platform_resolvers_recognize_linux_arm(monkeypatch, machine):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    provision = load_script("provision_rhwp")
+    from document_files import extraction_rhwp, rhwp_backend
+
+    monkeypatch.setattr(provision.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(provision.platform, "machine", lambda: machine)
+    assert provision.platform_key() == "linux-aarch64"
+    assert extraction_rhwp._platform_key() == "linux-aarch64"
+    assert rhwp_backend._platform_key() == "linux-aarch64"
+
+
+def test_unconfigured_host_python_launcher_remains_architecture_neutral():
+    body = (ROOT / "openai-runtime/document-files").read_text(encoding="utf-8")
+    assert "PYTHON=${DOCUMENT_FILES_HOST_PYTHON:-python3}" in body
+    assert "sys.version_info >= (3, 11)" in body
+    assert "pip install" not in body and "uv run" not in body
+
+
+@pytest.mark.parametrize(
+    "target,triple", [("linux-aarch64", "AARCH64"), ("linux-x86_64", "X86_64")]
+)
+def test_patched_rhwp_passes_actual_linux_target_to_linker_and_abi(
+    monkeypatch, tmp_path, target, triple
+):
+    import sys
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    builder = load_script("build_patched_rhwp")
+    import linux_abi
+
+    source, output = tmp_path / "source", tmp_path / "output"
+    binary = source / "target/release/rhwp"
+    commands, audits = [], []
+    monkeypatch.setattr(builder, "platform_key", lambda: target)
+    monkeypatch.setattr(linux_abi, "toolchain", lambda: {"fixture": "gcc12"})
+
+    def run(*args, **kwargs):
+        commands.append((args, kwargs))
+        if args[0] == "cargo":
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"not a real executable")
+
+    def audit(binary_path, evidence, *, target):
+        audits.append((binary_path, target))
+        evidence.write_text("fixture raw ABI evidence")
+        return {"target": target}
+
+    monkeypatch.setattr(builder, "run", run)
+    monkeypatch.setattr(linux_abi, "audit", audit)
+    monkeypatch.setattr(builder, "rustc_version", lambda *a: "fixture pinned Rust")
+    monkeypatch.setattr(
+        builder.subprocess, "check_output", lambda *a, **k: f"rhwp v{builder.VERSION}"
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["build_patched_rhwp.py", "--source", str(source), "--output", str(output)]
+    )
+    builder.main()
+    cargo = next(kwargs for args, kwargs in commands if args[0] == "cargo")
+    assert cargo["env"][f"CARGO_TARGET_{triple}_UNKNOWN_LINUX_GNU_LINKER"] == linux_abi.CC
+    assert audits == [(binary, target)]
+    metadata = json.loads((output / "build.json").read_text())
+    assert metadata["linuxAbi"] == {"target": target}
