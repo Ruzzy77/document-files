@@ -1,0 +1,15 @@
+{
+  "storageRoot": "/state/jobs",
+  "maxUploadBytes": 33554432,
+  "defaultTtlSeconds": null,
+  "profiles": {
+    "cpu": {
+      "type": "local-pack",
+      "revision": "cpu-profile-1",
+      "packRoot": "/state/packs",
+      "runtimeId": "llama-cpp-cpu",
+      "modelId": "qwen3.5-9b-q4-k-m",
+      "recognitionPackId": "docling-cpu"
+    }
+  }
+}

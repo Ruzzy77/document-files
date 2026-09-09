@@ -317,6 +317,11 @@ def capabilities() -> dict[str, Any]:
             "resultLookup": "document_get_extraction",
             "networkPolicy": "explicitly_configured_model_endpoint_only",
             "visualInterpretation": False,
+            "recognitionBackend": "explicit_installed_docling_cpu_pack",
+            "semanticProtocol": "compact_regions_and_source_bindings",
+            "managedJobs": True,
+            "httpService": True,
+            "qualityQualified": False,
             "reconstructionVerified": False,
         },
         "backends": {

@@ -18,10 +18,17 @@ from pathlib import Path
 from ..analysis import AnalysisInput, AnalysisJob, runtime_root
 from ..engine import DocumentFilesError
 from ..private_fs import private_path
+from . import resource_store
 from .backends import ChatCompletionsClient, ModelClient, ModelError
 from .contracts import ExtractionOptions
-from .engine import encode, extract_schema_from_stream
-from .prompts import PROMPT_VERSION
+from .engine import (
+    PROMPT_VERSION,
+    encode,
+    extract_schema_from_stream,
+    observation_identity,
+    validate_additional_budget,
+)
+from .semantic_types import COMPILER_VERSION
 
 
 def _private(path: Path, *, directory: bool = False) -> None:
@@ -111,7 +118,7 @@ def _client(model_client):
     return None
 
 
-def _fingerprint(identity, options, client):
+def _fingerprint(identity, options, client, observation_backend=None):
     model_identity = dict(client.identity) if client else {"available": False}
     model_identity.pop("returnedModel", None)
     return hashlib.sha256(
@@ -121,6 +128,8 @@ def _fingerprint(identity, options, client):
                 options.model_dump(),
                 model_identity,
                 PROMPT_VERSION,
+                COMPILER_VERSION,
+                observation_identity(observation_backend),
             ]
         ).encode()
     ).hexdigest()
@@ -129,6 +138,7 @@ def _fingerprint(identity, options, client):
 def _initialize(database):
     with _connect(database, create=True) as connection:
         connection.execute("CREATE TABLE IF NOT EXISTS result (fingerprint TEXT, body TEXT)")
+        resource_store.initialize(connection)
         connection.execute(
             "CREATE TABLE IF NOT EXISTS execution "
             "(id INTEGER PRIMARY KEY CHECK(id=1), metadata TEXT, checkpoint TEXT, "
@@ -136,35 +146,70 @@ def _initialize(database):
         )
 
 
-def _execute(source, job_id, selected, client, database, fingerprint, *, restore=None):
+def _store_result(connection, fingerprint, result):
+    """Version the committed body in the same short transaction as its checkpoint."""
+    prior = connection.execute("SELECT body FROM result").fetchone()
+    revision = json.loads(prior[0]).get("resultRevision", 0) if prior else 0
+    if type(revision) is not int or revision < 0:
+        raise DocumentFilesError("extraction-store-invalid", "Stored result version is invalid.")
+    result["resultRevision"] = revision + 1
+    result["extractionStatus"] = result.get("extraction", {}).get("status")
+    stored = resource_store.store(connection, result, owner="result")
+    connection.execute("DELETE FROM result")
+    connection.execute("INSERT INTO result VALUES (?,?)", (fingerprint, encode(stored)))
+    resource_store.prune(connection)
+
+
+def _execute(
+    source,
+    job_id,
+    selected,
+    client,
+    database,
+    fingerprint,
+    *,
+    restore=None,
+    observation_backend=None,
+    additional_budget=None,
+):
     job = AnalysisJob(
         job_id=job_id,
         input=AnalysisInput.from_path(source, format_id=source.suffix.lower().lstrip(".")),
     )
 
-    if _fingerprint(job.input, selected, client) != fingerprint:
+    if _fingerprint(job.input, selected, client, observation_backend) != fingerprint:
         raise DocumentFilesError("request-mismatch", "Input changed before extraction began.")
 
     def save(snapshot):
         with _connect(database) as connection:
+            if isinstance(snapshot.get("result"), dict):
+                _store_result(connection, fingerprint, snapshot["result"])
+            stored_snapshot = dict(snapshot)
+            stored_result = resource_store.store(
+                connection, snapshot.get("result"), owner="checkpoint"
+            )
+            if "result" in snapshot:
+                stored_snapshot["result"] = stored_result
             connection.execute(
                 "UPDATE execution SET checkpoint=?, status='running' WHERE id=1",
-                (encode(snapshot),),
+                (encode(stored_snapshot),),
             )
-            if isinstance(snapshot.get("result"), dict):
-                connection.execute("DELETE FROM result")
-                connection.execute(
-                    "INSERT INTO result VALUES (?,?)", (fingerprint, encode(snapshot["result"]))
-                )
+            resource_store.prune(connection)
 
     try:
         with source.open("rb") as stream:
             result = extract_schema_from_stream(
-                job, stream, options=selected, model_client=client, restore=restore, checkpoint=save
+                job,
+                stream,
+                options=selected,
+                model_client=client,
+                restore=restore,
+                checkpoint=save,
+                observation_backend=observation_backend,
+                additional_budget=additional_budget,
             )
         with _connect(database) as connection:
-            connection.execute("DELETE FROM result")
-            connection.execute("INSERT INTO result VALUES (?,?)", (fingerprint, encode(result)))
+            _store_result(connection, fingerprint, result)
             connection.execute("UPDATE execution SET status='finished' WHERE id=1")
         return result
     except BaseException:
@@ -181,6 +226,7 @@ def extract_schema(
     model_client: ModelClient | None = None,
     storage_dir: str | Path | None = None,
     retain: bool = True,
+    observation_backend=None,
 ) -> dict:
     selected = ExtractionOptions.model_validate(options or {})
     source = Path(path).expanduser().resolve(strict=True)
@@ -194,8 +240,9 @@ def extract_schema(
                 stream,
                 options=selected,
                 model_client=client,
+                observation_backend=observation_backend,
             )
-    fingerprint = _fingerprint(identity, selected, client)
+    fingerprint = _fingerprint(identity, selected, client, observation_backend)
     database = _database(job_id, storage_dir, create=True)
     with _ownership(database):
         _initialize(database)
@@ -207,7 +254,9 @@ def extract_schema(
                 if prior_fp != fingerprint:
                     raise DocumentFilesError("request-mismatch", "Request ID has different inputs.")
                 if previous:
-                    return json.loads(previous[1])
+                    return resource_store.restore(
+                        connection, json.loads(previous[1]), owner="result"
+                    )
                 raise DocumentFilesError(
                     "extraction-interrupted", "Explicitly resume this extraction."
                 )
@@ -219,7 +268,15 @@ def extract_schema(
             connection.execute(
                 "INSERT INTO execution VALUES (1,?,NULL,'running')", (encode(metadata),)
             )
-        return _execute(source, job_id, selected, client, database, fingerprint)
+        return _execute(
+            source,
+            job_id,
+            selected,
+            client,
+            database,
+            fingerprint,
+            observation_backend=observation_backend,
+        )
 
 
 def resume_extraction(
@@ -228,7 +285,10 @@ def resume_extraction(
     path: str | None = None,
     model_client: ModelClient | None = None,
     storage_dir: str | Path | None = None,
+    observation_backend=None,
+    additional_budget: dict | None = None,
 ) -> dict:
+    validate_additional_budget(additional_budget)
     database = _database(job_id, storage_dir)
     if not database.is_file():
         raise DocumentFilesError("extraction-not-found", "No retained extraction with this ID.")
@@ -244,6 +304,11 @@ def resume_extraction(
                 if exists
                 else None
             )
+            snapshot = json.loads(row[1]) if row and row[1] else None
+            if isinstance(snapshot, dict) and "result" in snapshot:
+                snapshot["result"] = resource_store.restore(
+                    connection, snapshot["result"], owner="checkpoint"
+                )
         if not row:
             raise DocumentFilesError(
                 "extraction-not-resumable", "Legacy result has no resume metadata."
@@ -253,21 +318,33 @@ def resume_extraction(
         selected = ExtractionOptions.model_validate(metadata["options"])
         client = _client(model_client)
         identity = AnalysisInput.from_path(source, format_id=source.suffix.lower().lstrip("."))
-        fingerprint = _fingerprint(identity, selected, client)
+        fingerprint = _fingerprint(identity, selected, client, observation_backend)
         if fingerprint != metadata["fingerprint"]:
             raise DocumentFilesError(
                 "resume-mismatch", "Input, options, model or prompt has changed."
             )
         with _connect(database) as connection:
             stored = connection.execute("SELECT body FROM result").fetchone()
-        if stored:
-            completed = json.loads(stored[0])
-            if completed.get("extraction", {}).get("status") == "complete":
-                return completed
-        snapshot = json.loads(row[1]) if row[1] else None
+            completed = (
+                resource_store.restore(connection, json.loads(stored[0]), owner="result")
+                if stored
+                else None
+            )
+        if stored and completed.get("extraction", {}).get("status") == "complete":
+            return completed
         with _connect(database) as connection:
             connection.execute("UPDATE execution SET status='running' WHERE id=1")
-        return _execute(source, job_id, selected, client, database, fingerprint, restore=snapshot)
+        return _execute(
+            source,
+            job_id,
+            selected,
+            client,
+            database,
+            fingerprint,
+            restore=snapshot,
+            observation_backend=observation_backend,
+            additional_budget=additional_budget,
+        )
 
 
 def delete_extraction(job_id: str, *, storage_dir: str | Path | None = None) -> dict:
@@ -298,25 +375,43 @@ def get_extraction(
         with closing(
             sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=1)
         ) as connection:
+            connection.execute("BEGIN")
             record = connection.execute("SELECT body FROM result").fetchone()
+            result = json.loads(record[0]) if record else None
+            if section is None and record:
+                result = resource_store.restore(connection, result, owner="result")
     except sqlite3.OperationalError as exc:
         raise DocumentFilesError(
             "extraction-not-ready", "No committed result is available."
         ) from exc
     if record is None:
         raise DocumentFilesError("extraction-not-ready", "No committed result is available.")
-    result = json.loads(record[0])
     if section is None:
         return result
     if section == "nodes":
         items = [{"id": k, **v} for k, v in result["document"]["nodes"].items()]
-    elif section in {"semantics", "schemaEvidence", "valueEvidence", "issues"}:
-        items = result[section]
+    elif section in {"regions", "relations", "tables"}:
+        items = result["document"].get("structure", {}).get(section, [])
+        if isinstance(items, dict):
+            items = [{"id": k, **v} for k, v in items.items()]
+    elif section == "bindings":
+        items = [{"id": k, **v} for k, v in result["document"].get("bindings", {}).items()]
+    elif section in {
+        "semantics",
+        "schemaEvidence",
+        "valueEvidence",
+        "issues",
+        "semanticDetails",
+        "valueObservations",
+    }:
+        items = result.get(section, [])
     else:
         raise DocumentFilesError("invalid-section", "Unsupported extraction section.")
     end = min(len(items), offset + limit)
     return {
         "jobId": job_id,
+        "resultRevision": result.get("resultRevision", 0),
+        "extractionStatus": result.get("extraction", {}).get("status"),
         "section": section,
         "items": items[offset:end],
         "total": len(items),

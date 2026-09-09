@@ -48,7 +48,9 @@ DOCUMENT_FILES_HOST_PYTHON="$HOST_PYTHON" sh "${SKILL_DIR}/../../runtime/documen
 ## AI-assisted 스키마·시맨틱·값 추출
 
 - `extract-schema input.docx` 또는 `document_extract_schema`를 호출한다. Document Files 내부에서 AI 해석·추가 읽기·스키마 검사·원문 대조를 수행한다. 호출 에이전트가 별도 해석안을 작성해 제출하는 방식으로 대체하지 않는다.
-- 실행 환경의 `DOCUMENT_FILES_AI_ENDPOINT`, `DOCUMENT_FILES_AI_MODEL`과 필요한 인증 설정을 사용한다. 원문 관찰이 설정된 모델로 전달될 수 있으므로 사용자가 선택한 연결을 사용한다. 연결이 없으면 `ai_unavailable`을 알리며 임의 서버로 보내지 않는다.
+- 로컬 CPU 실행은 미리 설치한 팩의 관리자 프로필을 사용한다. CLI는 `extract-schema input.docx --config server.json --profile cpu`로 호출하며 실행 중 팩을 설치하거나 바꾸지 않는다. 장시간 작업은 설치된 서비스의 작업 제출·조회·취소·재개 경로를 사용한다.
+- 별도 모델 연결은 실행 환경의 `DOCUMENT_FILES_AI_ENDPOINT`, `DOCUMENT_FILES_AI_MODEL`과 필요한 인증 설정을 사용한다. 원문 관찰이 설정된 모델로 전달될 수 있으므로 사용자가 선택한 연결을 사용한다. 연결이 없으면 `ai_unavailable`을 알리며 임의 서버로 보내지 않는다.
+- ChatGPT에 모델 연결이 없으면 가능한 읽기·구조 추출과 AI 추출의 사용 불가를 구분한다. 호스트 대화 모델이 내부 API로 자동 제공된다고 가정하지 않는다.
 - `dataSchema`, `semantics`, `data`, evidence와 coverage를 함께 사용한다. `partial`, 불확실한 시맨틱과 미완료 항목을 완전 추출로 표시하지 않는다. 형식 검사를 의미 정확성 보증으로 해석하지 않는다.
 - 개인용 재현 맥락은 기본 포함된다. 프로젝트의 스키마·값 연계에는 `reconstructionContext=false`를 지정할 수 있다. 재현 맥락의 보관과 실제 수신 AI의 재현 성공은 별개다.
 - 저장 결과는 `get-extraction` 또는 `document_get_extraction`으로 다시 읽는다. 중단된 작업은 `resume-extraction`, 저장 결과 삭제는 `delete-extraction`을 사용한다. 재개는 입력과 모델 설정의 일치를 확인하며 삭제는 원문에 영향을 주지 않는다. 내부 시각 판독·대형 문서 통합·실제 모델 품질 평가의 지원 상태는 해당 배포본에서 확인한다.

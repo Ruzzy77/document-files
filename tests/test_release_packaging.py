@@ -66,7 +66,7 @@ def test_stable_gate_rejects_missing_checks_and_stale_identity(tmp_path):
             }
         )
     )
-    with pytest.raises(ValueError, match="Missing successful"):
+    with pytest.raises(ValueError, match="identity"):
         gate.check(manifest, tmp_path, "a" * 40, "1.8.0")
     with pytest.raises(ValueError, match="identity"):
         gate.check(manifest, tmp_path, "b" * 40, "1.8.0")
@@ -104,7 +104,7 @@ def test_stable_gate_does_not_accept_mock_model_generic_test_record(tmp_path):
             }
         )
     )
-    with pytest.raises(ValueError, match="Actual model"):
+    with pytest.raises(ValueError, match="identity"):
         gate.check(manifest, tmp_path, commit, "1.8.0")
 
 
@@ -126,3 +126,68 @@ def test_generated_skill_uses_platform_launcher_and_remote_upload_keeps_metadata
     assert "${SKILL_DIR}/scripts/document-files/document-files" in (stage / "SKILL.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_evaluation_limits_formats_and_never_promotes_or_overwrites_evidence(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from test_regional_interpretation import ReferenceModel
+
+    spec = importlib.util.spec_from_file_location("evaluation_run", ROOT / "evaluation/run.py")
+    evaluator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(evaluator)
+
+    def public_inputs(directory):
+        paths = [directory / "case.txt", directory / "case.html"]
+        paths[0].write_text("count: 0", encoding="utf-8")
+        paths[1].write_text("<p>count: 0</p>", encoding="utf-8")
+        return paths
+
+    monkeypatch.setattr(evaluator, "fixtures", public_inputs)
+    args = SimpleNamespace(
+        kind="local",
+        output=tmp_path / "evidence",
+        options=None,
+        case_format=["txt"],
+        holdout_only=False,
+        holdout=None,
+    )
+    model = ReferenceModel()
+    evaluator.evaluate(args, model, None)
+    report = json.loads((args.output / "local_model.json").read_text())
+    assert [c["format"] for c in report["cases"]] == ["txt"]
+    assert report["passed"] is False
+    assert report["cases"][0]["semanticReview"]["status"] == "pending"
+    assert report["cases"][0]["holdout"] is False
+    before = model.calls
+    with pytest.raises(ValueError, match="not overwritten"):
+        evaluator.evaluate(args, model, None)
+    assert model.calls == before
+
+
+def test_candidate_output_rejects_existing_same_version_wheel(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    builder = load_script("build_release")
+    builder.prepare_output(tmp_path)
+    (tmp_path / "document_files-1.8.0-py3-none-any.whl").write_bytes(b"stale")
+    with pytest.raises(ValueError, match="new or empty"):
+        builder.prepare_output(tmp_path)
+
+
+def test_stable_builder_rejects_dirty_source_but_development_is_explicit(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    builder = load_script("build_release")
+    monkeypatch.setattr(
+        builder.subprocess,
+        "check_output",
+        lambda command, **kwargs: "a" * 40 if "rev-parse" in command else " M source.py",
+    )
+    with pytest.raises(ValueError, match="clean source"):
+        builder.source_identity(development=False)
+    assert builder.source_identity(development=True) == ("a" * 40, True)
+
+
+def test_builder_builds_wheel_instead_of_accepting_one():
+    body = (ROOT / "scripts/build_release.py").read_text()
+    assert 'command(args.uv, "build", "--out-dir", output, cwd=ROOT)' in body
+    assert "if not wheel.is_file()" not in body

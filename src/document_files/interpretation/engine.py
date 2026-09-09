@@ -1,14 +1,12 @@
-"""Synchronous product-owned model/read/repair loop, callable by ordinary software."""
+"""Product-owned staged interpretation with compact references and durable regions."""
 
 from __future__ import annotations
 
 import copy
 import hashlib
 import io
-import json
-import re
+import math
 import time
-import zipfile
 from collections.abc import Callable
 from typing import BinaryIO
 
@@ -16,116 +14,176 @@ from pydantic import ValidationError
 
 from ..analysis import AnalysisInput, AnalysisJob, AnalyzerBackend, analyze_document
 from ..document_model.capture import capture
+from ..document_model.model import OBSERVATION_VERSION, ObservationDocument
+from ..document_model.observe import observe_document
 from ..structured_extraction import project_structured_extraction
-from .backends import ChatCompletionsClient, ModelClient, ModelError
-from .bindings import materialize
-from .contracts import RESULT_VERSION, ExtractionOptions, Proposal, Review, Step
-from .prompts import PROMPT_VERSION, REVIEW, SYSTEM
-from .validation import check_schema, validate
+from .backends import (
+    ChatCompletionsClient,
+    InferenceRequest,
+    ManagedPackClient,
+    ModelClient,
+    ModelError,
+)
+from .compiler import (
+    CompileError,
+    combine_regions,
+    compile_region,
+    join_continuations,
+    target_catalog,
+)
+from .contracts import RESULT_VERSION, ExtractionOptions
+from .integration import (
+    SCOPE_SYSTEM,
+    SCOPE_VERSION,
+    apply_scope_decision,
+    build_scope_tasks,
+    parse_scope_choices,
+    scope_batch_payload,
+    scope_batches,
+    scope_output_schema,
+)
+from .legacy_engine import _has_unread_visuals as _has_unread_visuals
+from .legacy_engine import decode, encode
+from .regions import (
+    REGION_PLAN_VERSION,
+    continuation_candidates,
+    model_node,
+    prepare_regions,
+    region_payload,
+)
+from .semantic_prompts import INTEGRATE, PROMPT_VERSION, SYSTEM
+from .semantic_types import (
+    COMPILER_VERSION,
+    SEMANTIC_VERSION,
+    DocumentIntegration,
+    RegionInterpretation,
+    region_output_schema,
+)
+
+CHECKPOINT_VERSION = "document-files.regional-checkpoint.v1"
 
 
-def encode(value) -> str:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+def _feedback_code(issue):
+    """Name the affected source, binding, field or statement; never document text."""
+    for key in ("sourceRef", "bindingId", "fieldId", "semanticId"):
+        if issue.get(key):
+            return f"{issue['code']}:{issue[key]}"
+    return issue["code"]
 
 
-def decode(text: str):
-    def invalid_constant(value):
-        raise ValueError("non-finite JSON number")
-
-    def unique_object(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("duplicate JSON key")
-            result[key] = value
-        return result
-
-    try:
-        return json.loads(text, parse_constant=invalid_constant, object_pairs_hook=unique_object)
-    except RecursionError:
-        raise ValueError("JSON nesting budget exceeded") from None
+def _node_read_coverage(regions, accepted):
+    """A node split across views is fully read only after every owning view."""
+    owners, seen = {}, set()
+    accepted = set(accepted)
+    for region in regions:
+        for ref in region["nodeIds"]:
+            owners.setdefault(ref, set()).add(region["id"])
+        if region["id"] in accepted:
+            seen.update([*region["nodeIds"], *region.get("contextNodeIds", [])])
+    complete = {ref for ref in seen if owners.get(ref, set()) <= accepted}
+    return {"readNodes": len(complete), "partiallyReadNodes": len(seen - complete)}
 
 
-def _has_unread_visuals(content: bytes, format_id: str, nodes: dict) -> bool:
+def observation_identity(backend):
+    if backend is None:
+        return {"adapter": "native-observation", "version": OBSERVATION_VERSION}
+    identity = getattr(backend, "identity", None)
+    if not isinstance(identity, dict):
+        raise ValueError("observation backend must provide a stable identity")
+    return copy.deepcopy(identity)
+
+
+def validate_additional_budget(value):
+    if value is None:
+        return {"maxModelCalls": 0, "completionSeconds": 0}
+    if not isinstance(value, dict) or set(value) - {"maxModelCalls", "completionSeconds"}:
+        raise ValueError("invalid additional extraction budget")
+    result = {
+        "maxModelCalls": value.get("maxModelCalls", 0),
+        "completionSeconds": value.get("completionSeconds", 0),
+    }
     if any(
-        n.get("sourceUnitType") in {"embedded_object", "diagram_text"}
-        or n.get("semantic", {}).get("list", {}).get("marker", {}).get("kind") == "image"
-        for n in nodes.values()
-    ):
-        return True
-    if format_id == "html":
-        return bool(re.search(rb"<(?:img|svg|canvas|object|embed)(?:\s|>)", content, re.I))
-    if format_id in {"docx", "xlsx", "pptx", "hwpx"}:
-        with zipfile.ZipFile(io.BytesIO(content)) as package:
-            return any(
-                "/media/" in member.filename.lower()
-                or "/charts/" in member.filename.lower()
-                or member.filename.lower().startswith("bindata/")
-                for member in package.infolist()
-            )
-    return False
+        type(v) is not int or not 0 <= v <= (100 if k == "maxModelCalls" else 3600)
+        for k, v in result.items()
+    ) or not any(result.values()):
+        raise ValueError("invalid additional extraction budget")
+    return result
 
 
-def _check_restore_shape(state: dict) -> None:
-    """A damaged private checkpoint must fail safely before history enters a model request."""
+def _restored_usage(value):
+    if not isinstance(value, dict):
+        raise ValueError("invalid checkpoint usage")
     try:
-        if not isinstance(state, dict) or not isinstance(state["identity"], dict):
-            raise ValueError
-        result = state["result"]
-        if not isinstance(result, dict) or result["schemaVersion"] != RESULT_VERSION:
-            raise ValueError
-        if not isinstance(result["document"], dict):
-            raise ValueError
-        extraction = result["extraction"]
-        if (
-            extraction["status"] not in {"partial", "complete"}
-            or type(extraction["modelCalls"]) is not int
-            or extraction["modelCalls"] < 0
-            or not isinstance(result["coverage"], dict)
-            or not isinstance(result["validation"], dict)
-            or not isinstance(result["provenance"], dict)
-            or not isinstance(result["issues"], list)
-            or not all(
-                isinstance(i, dict) and isinstance(i.get("code"), str) for i in result["issues"]
-            )
+        if any(
+            type(value[key]) is not int or value[key] < 0
+            for key in ("modelCalls", "promptTokens", "completionTokens")
+        ) or (
+            type(value["elapsedSeconds"]) not in (int, float)
+            or not math.isfinite(value["elapsedSeconds"])
+            or value["elapsedSeconds"] < 0
         ):
             raise ValueError
-        validation = result["validation"]
-        if (
-            type(validation["valid"]) is not bool
-            or validation["semanticAccuracy"] not in {"unverified", "ai_reviewed"}
-            or not isinstance(validation["errors"], list)
-            or not all(isinstance(v, str) for v in validation["errors"])
-        ):
+        restored = dict(value)
+        # Old checkpoints cannot establish how many calls reported both totals.
+        unknown = restored.setdefault("unreportedUsageCalls", restored["modelCalls"])
+        if type(unknown) is not int or not 0 <= unknown <= restored["modelCalls"]:
             raise ValueError
-        for key in ("semantics", "schemaEvidence", "valueEvidence"):
-            if not isinstance(result[key], list):
-                raise ValueError
-        for key in ("documentSchema", "dataSchema"):
-            if result[key] is not None and not isinstance(result[key], dict):
-                raise ValueError
-        if "data" not in result or "dataSchemaRevision" not in result:
-            raise ValueError
-        for key in ("readNodes", "totalNodes"):
-            if type(result["coverage"][key]) is not int or result["coverage"][key] < 0:
-                raise ValueError
-        if not isinstance(result["coverage"]["semanticAccounting"], list):
-            raise ValueError
-        for key in ("seen", "selected", "feedback"):
-            if not isinstance(state[key], list) or not all(isinstance(v, str) for v in state[key]):
-                raise ValueError
-        if type(state["reviewPending"]) is not bool or not isinstance(state["history"], list):
-            raise ValueError
-        for message in state["history"]:
-            if (
-                not isinstance(message, dict)
-                or set(message) != {"role", "content"}
-                or message["role"] not in {"user", "assistant"}
-                or not isinstance(message["content"], str)
-            ):
-                raise ValueError
-    except (KeyError, TypeError, ValueError, AttributeError):
-        raise ValueError("checkpoint structure is invalid") from None
+        return restored
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("invalid checkpoint usage") from None
+
+
+def _initial_result(job, observation, analyzer, selected, client, content):
+    result = {
+        "schemaVersion": RESULT_VERSION,
+        "jobId": job.job_id,
+        "source": job.input.to_dict(),
+        "document": {
+            "nodes": observation.nodes,
+            "observationVersion": OBSERVATION_VERSION,
+            "bindings": observation.bindings,
+            "structure": {
+                "schemaVersion": "document-files.structure.v1",
+                "regions": observation.regions,
+                "tables": observation.tables,
+                "relations": observation.relations,
+            },
+        },
+        "documentSchema": {"type": "object", "additionalProperties": {"type": "object"}},
+        "dataSchema": None,
+        "dataSchemaRevision": None,
+        "data": None,
+        "semantics": [],
+        "schemaEvidence": [],
+        "valueEvidence": [],
+        "semanticDetails": [],
+        "semanticDetailsVersion": "document-files.semantic-details.v1",
+        "valueObservations": [],
+        "extraction": {"status": "partial", "modelCalls": 0, "stage": "observed"},
+        "coverage": {
+            "observation": observation.coverage,
+            "readNodes": 0,
+            "totalNodes": len(observation.nodes),
+            "semanticAccounting": [],
+            "regions": [],
+        },
+        "validation": {"valid": False, "errors": [], "semanticAccuracy": "unverified"},
+        "issues": [],
+        "provenance": {
+            "analyzer": analyzer,
+            "observation": observation.provenance,
+            "promptVersion": PROMPT_VERSION,
+            "compilerVersion": COMPILER_VERSION,
+            "semanticVersion": SEMANTIC_VERSION,
+            "regionPlanVersion": REGION_PLAN_VERSION,
+            "model": client.identity if client else None,
+        },
+    }
+    if selected.reconstructionContext:
+        result["reconstructionContext"] = capture(
+            content, job.input.format_id, max_expanded_bytes=selected.maxInputBytes * 4
+        )
+    return result
 
 
 def extract_schema_from_stream(
@@ -135,341 +193,679 @@ def extract_schema_from_stream(
     options: ExtractionOptions | None = None,
     model_client: ModelClient | None = None,
     backend: AnalyzerBackend | None = None,
+    observation_backend=None,
     restore: dict | None = None,
     checkpoint: Callable[[dict], None] | None = None,
+    additional_budget: dict | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict:
+    """Interpret internally; only explicitly selected legacy integrations use Proposal v1."""
+    if getattr(model_client, "interpretation_protocol", "compact") == "legacy":
+        if observation_backend is not None or additional_budget is not None:
+            raise ValueError("legacy interpretation does not support new stage or budget options")
+        from .legacy_engine import extract_schema_from_stream as legacy
+
+        return legacy(
+            job,
+            source,
+            options=options,
+            model_client=model_client,
+            backend=backend,
+            restore=restore,
+            checkpoint=checkpoint,
+        )
     started = time.monotonic()
-    options = options or ExtractionOptions()
-    if job.input.byte_size > options.maxInputBytes:
+    selected = options or ExtractionOptions()
+    if job.input.byte_size > selected.maxInputBytes:
         raise ValueError("schema extraction input budget exceeded")
-    chunks = []
-    byte_count = 0
-    while True:
-        chunk = source.read(min(1024 * 1024, options.maxInputBytes + 1 - byte_count))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        byte_count += len(chunk)
-        if byte_count > options.maxInputBytes:
+    grant = validate_additional_budget(additional_budget)
+    if restore is None and additional_budget is not None:
+        raise ValueError("additional budget requires an existing checkpoint")
+    chunks, size = [], 0
+    while chunk := source.read(min(1024 * 1024, selected.maxInputBytes + 1 - size)):
+        size += len(chunk)
+        if size > selected.maxInputBytes:
             raise ValueError("schema extraction input budget exceeded")
+        chunks.append(chunk)
     content = b"".join(chunks)
     if AnalysisInput.from_bytes(content, format_id=job.input.format_id) != job.input:
         raise ValueError("schema extraction bytes do not match input identity")
-    if options.targetSchema is not None:
-        check_schema(options.targetSchema)
-    analysis = analyze_document(job, io.BytesIO(content), backend=backend)
-    observation = project_structured_extraction(
-        analysis.extraction,
-        source_format=job.input.format_id,
-        unit_offset=0,
-        max_units=len(analysis.extraction.units),
-        include_text=True,
-    )
-    nodes = {f"n{u['ordinal']}": u for u in observation["units"]}
-    result = {
-        "schemaVersion": RESULT_VERSION,
-        "jobId": job.job_id,
-        "source": job.input.to_dict(),
-        "document": {"nodes": nodes},
-        "documentSchema": None,
-        "dataSchema": None,
-        "dataSchemaRevision": None,
-        "data": None,
-        "semantics": [],
-        "schemaEvidence": [],
-        "valueEvidence": [],
-        "extraction": {"status": "partial", "modelCalls": 0},
-        "coverage": {
-            "observation": observation["coverage"],
-            "readNodes": 0,
-            "totalNodes": len(nodes),
-            "semanticAccounting": [],
-        },
-        "validation": {"valid": False, "errors": [], "semanticAccuracy": "unverified"},
-        "issues": list(observation["issues"]),
-        "provenance": {
-            "analyzer": analysis.analyzer.to_dict(),
-            "promptVersion": PROMPT_VERSION,
-            "model": None,
-        },
-    }
-    if options.reconstructionContext:
-        result["reconstructionContext"] = capture(
-            content, job.input.format_id, max_expanded_bytes=options.maxInputBytes * 4
-        )
-
-    def issue(code):
-        entry = {"code": code}
-        if entry not in result["issues"]:
-            result["issues"].append(entry)
-
     try:
         client = model_client or ChatCompletionsClient.from_environment()
+        client_issue = None
     except ModelError as exc:
-        issue(exc.code)
-        return result
+        client, client_issue = None, exc.code
+    model_identity = (
+        {k: v for k, v in client.identity.items() if k != "returnedModel"}
+        if client
+        else {"available": False}
+    )
     identity = {
         "source": job.input.to_dict(),
-        "options": options.model_dump(),
+        "options": selected.model_dump(),
+        "observationVersion": OBSERVATION_VERSION,
+        "observationBackend": observation_identity(observation_backend),
         "promptVersion": PROMPT_VERSION,
-        "model": {k: v for k, v in client.identity.items() if k != "returnedModel"},
+        "compilerVersion": COMPILER_VERSION,
+        "scopeVersion": SCOPE_VERSION,
+        "regionPlanVersion": REGION_PLAN_VERSION,
+        "model": model_identity,
     }
-    result["provenance"]["model"] = client.identity
-    seen: set[str] = set()
-    selected: list[str] = []
-    feedback: list[str] = []
-    candidate: Proposal | None = None
-    contract = Step.model_json_schema()
-    history: list[dict] = []
-    review_pending = False
-    if restore is not None:
-        _check_restore_shape(restore)
+    accepted, decisions, failures = {}, {}, {}
+    repair_diagnostics = {}
+    scope_decisions = {}
+    usage = {
+        "modelCalls": 0,
+        "elapsedSeconds": 0.0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "unreportedUsageCalls": 0,
+    }
+    grants = []
+    observing_restore = None
+    if restore is not None and restore.get("phase") == "observing":
         if (
-            restore.get("version") != "document-files.checkpoint.v1"
+            restore.get("version") != CHECKPOINT_VERSION
             or restore.get("identity") != identity
             or restore.get("result", {}).get("jobId") != job.job_id
-            or restore.get("result", {}).get("document", {}).get("nodes") != nodes
+            or restore.get("result", {}).get("source") != job.input.to_dict()
         ):
-            raise ValueError("checkpoint does not match input, options, model or prompt version")
-        result = copy.deepcopy(restore["result"])
-        seen = set(restore["seen"])
-        if not seen <= set(nodes):
-            raise ValueError("checkpoint has unknown source nodes")
-        selected = list(restore["selected"])
-        if not set(selected) <= set(nodes):
-            raise ValueError("checkpoint has unknown selected source nodes")
-        feedback = list(restore["feedback"])
-        history = copy.deepcopy(restore["history"])
-        if restore.get("candidate") is not None:
-            try:
-                candidate = Proposal.model_validate(restore["candidate"])
-            except (ValidationError, ValueError, TypeError):
-                raise ValueError("checkpoint proposal structure is invalid") from None
-        review_pending = bool(restore["reviewPending"])
-        if review_pending and (candidate is None or validate(candidate, nodes, seen)):
-            raise ValueError("checkpoint review proposal is invalid")
-        if result["extraction"]["status"] == "complete":
-            return result
-        # Earlier interruption remains historical information, not a new completion gap.
-        retry_codes = {
-            "model_call_budget_exceeded",
-            "completion_budget_exceeded",
-            "review_budget_exceeded",
-            "ai_timeout",
-            "ai_connection_failed",
-            "ai_rate_limited",
-            "ai_server_error",
-            "ai_response_invalid",
-            "ai_response_incomplete",
-            "ai_authentication_failed",
-        }
-        result["issues"] = [i for i in result["issues"] if i.get("code") not in retry_codes]
-    invocation_calls = 0
+            raise ValueError("observation checkpoint is incompatible with input or configuration")
+        observing_restore, restore = restore, None
+        usage = _restored_usage(observing_restore.get("usage"))
+        grants = copy.deepcopy(observing_restore["grants"])
+        for prior in grants:
+            validate_additional_budget(prior)
+        if additional_budget is not None:
+            grants.append(grant)
+    if restore is not None:
+        try:
+            if restore["version"] != CHECKPOINT_VERSION or restore["identity"] != identity:
+                raise ValueError
+            result = copy.deepcopy(restore["result"])
+            if (
+                result["schemaVersion"] != RESULT_VERSION
+                or result["jobId"] != job.job_id
+                or result["source"] != job.input.to_dict()
+            ):
+                raise ValueError
+            doc = result["document"]
+            structure = doc["structure"]
+            observation = ObservationDocument(
+                nodes=doc["nodes"],
+                bindings=doc["bindings"],
+                regions=structure["regions"],
+                tables=structure["tables"],
+                relations=structure["relations"],
+                issues=restore["observationIssues"],
+                coverage=result["coverage"]["observation"],
+                provenance=result["provenance"]["observation"],
+            )
+            regions = copy.deepcopy(restore["regions"])
+            accepted = {
+                key: RegionInterpretation.model_validate(value)
+                for key, value in restore["accepted"].items()
+            }
+            decisions = dict(restore["decisions"])
+            scope_decisions = copy.deepcopy(restore.get("scopeDecisions", {}))
+            failures = dict(restore["failures"])
+            repair_diagnostics = copy.deepcopy(restore.get("repairDiagnostics", {}))
+            if not isinstance(repair_diagnostics, dict) or any(
+                not isinstance(key, str)
+                or not isinstance(value, list)
+                or len(value) > 20
+                or any(not isinstance(item, str) or len(item) > 500 for item in value)
+                for key, value in repair_diagnostics.items()
+            ):
+                raise ValueError
+            usage = _restored_usage(restore["usage"])
+            grants = list(restore["grants"])
+            for prior in grants:
+                validate_additional_budget(prior)
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(
+                "checkpoint is incompatible with input, options, observation, model or engine"
+            ) from None
+        if additional_budget is not None:
+            grants.append(grant)
+    else:
+        if observing_restore is not None:
+            legacy = copy.deepcopy(observing_restore["nativeProjection"])
+            analysis_descriptor = copy.deepcopy(
+                observing_restore["result"]["provenance"]["analyzer"]
+            )
+        else:
+            analysis = analyze_document(job, io.BytesIO(content), backend=backend)
+            analysis_descriptor = analysis.analyzer.to_dict()
+            legacy = project_structured_extraction(
+                analysis.extraction,
+                source_format=job.input.format_id,
+                unit_offset=0,
+                max_units=len(analysis.extraction.units),
+                include_text=True,
+            )
+        legacy_nodes = {f"n{unit['ordinal']}": unit for unit in legacy["units"]}
+        early = _initial_result(
+            job,
+            ObservationDocument(nodes=legacy_nodes),
+            analysis_descriptor,
+            selected,
+            client,
+            content,
+        )
+        recognition_state = (
+            observing_restore.get("recognitionResume") if observing_restore else None
+        )
+        elapsed_before = usage["elapsedSeconds"]
+        observed_backend = observation_backend
 
-    def save():
-        result["coverage"]["readNodes"] = len(seen)
-        result["provenance"]["model"] = client.identity
-        if checkpoint is not None:
+        def save_recognition(state, public_result=None):
+            nonlocal recognition_state
+            recognition_state = state
+            body = public_result if public_result is not None else early
+            progress = state.get("completedPages", []) if state else []
+            body["document"]["recognitionProgress"] = {"completedPages": progress}
+            body["extraction"].update(
+                stage="recognizing", status="partial", modelCalls=usage["modelCalls"]
+            )
+            consumed = {
+                **usage,
+                "elapsedSeconds": elapsed_before + max(0.0, time.monotonic() - started),
+            }
+            body["extraction"]["usage"] = consumed
+            if checkpoint:
+                checkpoint(
+                    copy.deepcopy(
+                        {
+                            "version": CHECKPOINT_VERSION,
+                            "phase": "observing",
+                            "identity": identity,
+                            "result": body,
+                            "nativeProjection": legacy,
+                            "recognitionResume": state,
+                            "usage": consumed,
+                            "grants": grants,
+                        }
+                    )
+                )
+
+        if observation_backend is not None and getattr(
+            observation_backend, "supports_checkpoints", False
+        ):
+
+            class CheckpointRecognition:
+                def observe(self, data):
+                    available = (
+                        selected.completionSeconds
+                        + sum(g["completionSeconds"] for g in grants)
+                        - elapsed_before
+                        - (time.monotonic() - started)
+                    )
+                    if available <= 0:
+                        return {
+                            "status": "partial",
+                            "issues": [{"code": "completion_budget_exceeded"}],
+                            "pageResults": recognition_state.get("pageResults", [])
+                            if recognition_state
+                            else [],
+                        }
+                    save_recognition(recognition_state)
+                    return observation_backend.observe(
+                        data,
+                        restore=recognition_state,
+                        checkpoint=save_recognition,
+                        timeout_seconds=available,
+                    )
+
+            observed_backend = CheckpointRecognition()
+        observation = observe_document(
+            content, job.input.format_id, legacy_nodes, recognition=observed_backend
+        )
+        observation.issues = [*legacy["issues"], *observation.issues]
+        observation.coverage["legacyAnalysis"] = legacy["coverage"]
+        try:
+            planned_catalog = target_catalog(selected.targetSchema)
+        except CompileError:
+            planned_catalog = {}  # The shared validation below reports the error.
+        regions = prepare_regions(
+            observation,
+            request_metadata={"intent": selected.intent, "targetHandles": planned_catalog},
+            context_chars=min(
+                selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
+            ),
+        )
+        result = _initial_result(job, observation, analysis_descriptor, selected, client, content)
+        if (
+            job.input.format_id == "pdf"
+            and getattr(observation_backend, "supports_checkpoints", False)
+            and observation.coverage.get("recognition") != "complete"
+        ):
+            result["issues"] = list(observation.issues)
+            save_recognition(recognition_state, result)
+            return result
+    prior_elapsed = usage["elapsedSeconds"]
+    max_calls = selected.maxModelCalls + sum(g["maxModelCalls"] for g in grants)
+    max_seconds = selected.completionSeconds + sum(g["completionSeconds"] for g in grants)
+    issues = list(observation.issues)
+    issues.extend(
+        {"code": "region_interpretation_invalid", "regionId": key, "errors": value}
+        for key, value in repair_diagnostics.items()
+    )
+    candidates = continuation_candidates(observation, regions)
+    compiled = {}
+    for region in regions:
+        if region["id"] in accepted:
+            compiled[region["id"]] = compile_region(
+                accepted[region["id"]], observation, region, target_schema=selected.targetSchema
+            )
+    try:
+        catalog = target_catalog(selected.targetSchema)
+    except CompileError as exc:
+        issues.append({"code": str(exc)})
+        catalog = None
+
+    def issue(code, **details):
+        item = {"code": code, **details}
+        if item not in issues:
+            issues.append(item)
+
+    def linked_regions():
+        linked, join_issues, links = join_continuations(
+            list(compiled.values()), candidates, decisions
+        )
+        scope_tasks = build_scope_tasks(
+            observation,
+            regions,
+            linked,
+            context_chars=min(
+                12000,
+                max(
+                    1024,
+                    min(
+                        selected.contextChars,
+                        getattr(client, "input_budget_chars", selected.contextChars),
+                    )
+                    - 4000,
+                ),
+            ),
+        )
+        for task in scope_tasks:
+            stored = scope_decisions.get(task.id, {})
+            if stored.get("fingerprint") == task.fingerprint and "decision" in stored:
+                try:
+                    linked, _ = apply_scope_decision(linked, task, stored["decision"])
+                except CompileError:
+                    issue("scope_decision_stale", taskId=task.id)
+        return linked, join_issues, links, scope_tasks
+
+    def refresh(stage):
+        linked, join_issues, links, scope_tasks = linked_regions()
+        projection = combine_regions(linked, target_schema=selected.targetSchema)
+        errors = projection.pop("errors")
+        projection_issues = projection.pop("issues")
+        result.update(projection)
+        result["dataSchemaRevision"] = (
+            hashlib.sha256(encode(result["dataSchema"]).encode()).hexdigest()
+            if result["dataSchema"] is not None
+            else None
+        )
+        result["issues"] = [*issues, *projection_issues, *join_issues]
+        result["document"]["semanticRelations"] = links
+        result["coverage"]["semanticAccounting"] = [
+            d for c in compiled.values() for d in c.dispositions
+        ]
+        result["coverage"]["regions"] = [
+            {
+                "id": r["id"],
+                "status": "interpreted" if r["id"] in compiled else "pending",
+                "nodeIds": r["nodeIds"],
+                "inputChars": r["inputChars"],
+                **({"nodeViews": r["nodeViews"]} if r.get("nodeViews") else {}),
+            }
+            for r in regions
+        ]
+        result["coverage"].update(_node_read_coverage(regions, compiled))
+        result["coverage"]["unprocessedRegions"] = [
+            r["id"] for r in regions if r["id"] not in compiled
+        ]
+        result["coverage"]["scopeIntegration"] = [
+            {
+                "taskId": task.id,
+                "semanticId": task.semantic_id,
+                "candidateCoverage": task.payload["candidateCoverage"],
+                "status": "interpreted"
+                if task.complete_candidates
+                and scope_decisions.get(task.id, {}).get("fingerprint") == task.fingerprint
+                and scope_decisions.get(task.id, {}).get("decision", {}).get("decision") == "apply"
+                else "unresolved",
+            }
+            for task in scope_tasks
+        ]
+        result["validation"].update(valid=bool(compiled) and not errors, errors=errors)
+        usage["elapsedSeconds"] = prior_elapsed + max(0.0, time.monotonic() - started)
+        result["extraction"].update(
+            modelCalls=usage["modelCalls"],
+            stage=stage,
+            usage=dict(usage),
+            budget={"maxModelCalls": max_calls, "completionSeconds": max_seconds},
+        )
+        result["provenance"]["model"] = client.identity if client else None
+        result["provenance"]["scopeIntegrationVersion"] = SCOPE_VERSION
+        complete = (
+            any(c.has_data for c in compiled.values())
+            and bool(compiled)
+            and len(compiled) == len(regions)
+            and not result["issues"]
+            and not errors
+        )
+        result["extraction"]["status"] = "complete" if complete else "partial"
+
+    def save(stage):
+        refresh(stage)
+        if checkpoint:
             checkpoint(
                 copy.deepcopy(
                     {
-                        "version": "document-files.checkpoint.v1",
+                        "version": CHECKPOINT_VERSION,
                         "identity": identity,
                         "result": result,
-                        "seen": sorted(seen),
-                        "selected": selected,
-                        "feedback": feedback,
-                        "history": history,
-                        "candidate": candidate.model_dump() if candidate is not None else None,
-                        "reviewPending": review_pending,
+                        "regions": regions,
+                        "accepted": {key: value.model_dump() for key, value in accepted.items()},
+                        "decisions": decisions,
+                        "scopeDecisions": scope_decisions,
+                        "failures": failures,
+                        "repairDiagnostics": repair_diagnostics,
+                        "usage": usage,
+                        "grants": grants,
+                        "observationIssues": observation.issues,
                     }
                 )
             )
 
-    def retain():
-        # Only mechanically validated candidates enter the public result, before AI review.
-        result.update(
-            {k: v for k, v in candidate.model_dump().items() if k not in {"accounting", "issues"}}
-        )
-        result["dataSchemaRevision"] = hashlib.sha256(
-            encode(candidate.dataSchema).encode()
-        ).hexdigest()
-        result["coverage"]["semanticAccounting"] = [a.model_dump() for a in candidate.accounting]
-        result["issues"] = [i for i in result["issues"] if i.get("code") != "ai_reported_gap"]
-        result["issues"].extend(
-            {"code": "ai_reported_gap", "description": i} for i in candidate.issues
-        )
-        result["validation"] = {"valid": True, "errors": [], "semanticAccuracy": "unverified"}
-        result["extraction"]["status"] = "partial"
+    def remaining():
+        return max_seconds - prior_elapsed - (time.monotonic() - started)
 
-    save()
-    while True:
-        remaining = options.completionSeconds - (time.monotonic() - started)
-        if invocation_calls >= options.maxModelCalls:
-            issue("review_budget_exceeded" if review_pending else "model_call_budget_exceeded")
-            break
-        if remaining <= 0:
-            issue("completion_budget_exceeded")
-            break
-        if not review_pending:
-            payload = {
-                "intent": options.intent,
-                "targetSchema": options.targetSchema,
-                "nodeIds": list(nodes),
-                "unreadIds": [n for n in nodes if n not in seen],
-                "nodes": {},
-                "feedback": feedback,
-                "stepContract": contract,
-            }
-            if candidate is not None:
-                payload["previousProposal"] = candidate.model_dump()
-            budget = (
-                options.contextChars - len(SYSTEM) - len(encode(payload)) - len(encode(history))
-            )
-            if budget <= 0:
-                issue("context_budget_exceeded")
-                break
-            wanted = list(dict.fromkeys([*selected, *[n for n in nodes if n not in seen]]))
-            loaded = set()
-            for node_id in wanted:
-                cost = len(encode({node_id: nodes[node_id]})) + 2
-                if cost <= budget:
-                    payload["nodes"][node_id] = nodes[node_id]
-                    loaded.add(node_id)
-                    budget -= cost
-            if not loaded and set(nodes) - seen and not selected:
-                issue("source_node_exceeds_context_budget")
-                break
+    def invoke(system, payload, contract, feedback=None):
+        if cancelled and cancelled():
+            raise ModelError("ai_cancelled")
+        if usage["modelCalls"] >= max_calls:
+            raise ModelError("model_call_budget_exceeded")
+        timeout = remaining()
+        if timeout <= 0:
+            raise ModelError("completion_budget_exceeded")
+        content = {**payload, "outputContract": contract}
+        if feedback is not None:
+            # Feedback follows the unchanged region and contract, so a repair call
+            # shares its whole prompt prefix with the original call.
+            content["repairFeedback"] = feedback
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": encode(content)},
+        ]
+        if sum(len(m["content"]) for m in messages) > min(
+            selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
+        ):
+            raise ModelError("region_context_budget_exceeded")
+        usage["modelCalls"] += 1
+        usage["unreportedUsageCalls"] += 1
+        save("interpreting")
+        if hasattr(client, "infer"):
+            result["extraction"].pop("lastInferenceDiagnostics", None)
             try:
-                invocation_calls += 1
-                result["extraction"]["modelCalls"] += 1
-                save()
-                message = {"role": "user", "content": encode(payload)}
-                remaining = options.completionSeconds - (time.monotonic() - started)
-                if remaining <= 0:
-                    invocation_calls -= 1
-                    result["extraction"]["modelCalls"] -= 1
-                    issue("completion_budget_exceeded")
-                    break
-                answer = client.complete(
-                    [{"role": "system", "content": SYSTEM}, *history, message],
-                    timeout=remaining,
+                response = client.infer(
+                    InferenceRequest(
+                        messages=messages,
+                        output_schema=contract,
+                        max_output_tokens=getattr(client, "max_output_tokens", None) or 8192,
+                        timeout=timeout,
+                        cancelled=cancelled,
+                    )
                 )
-                if time.monotonic() - started >= options.completionSeconds:
-                    issue("completion_budget_exceeded")
+            finally:
+                if isinstance(client, ManagedPackClient):
+                    result["extraction"]["lastInferenceDiagnostics"] = client.last_diagnostics
+            if all(
+                type(response.usage.get(key)) is int and response.usage[key] >= 0
+                for key in ("prompt_tokens", "completion_tokens")
+            ):
+                usage["unreportedUsageCalls"] -= 1
+            for src, dest in (
+                ("prompt_tokens", "promptTokens"),
+                ("completion_tokens", "completionTokens"),
+            ):
+                count = response.usage.get(src, 0)
+                if type(count) is int and count >= 0:
+                    usage[dest] += count
+            if response.finish_reason != "stop":
+                raise ModelError("ai_response_incomplete")
+            return decode(response.text)
+        return decode(client.complete(messages, timeout=timeout))
+
+    save("observed" if not accepted else "interpreting")
+    if not client:
+        issue(client_issue or "ai_unavailable")
+        save("paused")
+        return result
+    if catalog is None:
+        save("paused")
+        return result
+
+    def local_issues(fragment):
+        return [i for i in fragment.issues if i.get("code") != "semantic_scope_unresolved"]
+
+    for region in regions:
+        rid = region["id"]
+        if rid in compiled and not local_issues(compiled[rid]):
+            continue
+        if not region["withinContextBudget"]:
+            issue(
+                "region_context_budget_exceeded",
+                regionId=rid,
+                reason=region.get("budgetReason", "region_exceeds_budget"),
+            )
+            continue
+        if not region["nodeIds"]:
+            issue("region_has_no_observed_content", regionId=rid)
+            continue
+        payload = region_payload(observation, region)
+        payload.update(intent=selected.intent, targetHandles=catalog)
+        candidate_schema = region_output_schema(observation, region, catalog)
+        if region.get("tableRef"):
+            table = observation.tables[region["tableRef"]]
+            original_table = table.get("sourceTableRef", region["tableRef"])
+            for prior_ir in accepted.values():
+                prior = next(
+                    (
+                        r
+                        for r in prior_ir.repeats
+                        if observation.tables[r.tableRef].get("sourceTableRef", r.tableRef)
+                        == original_table
+                    ),
+                    None,
+                )
+                if prior is not None:
+                    payload["sameTableMapping"] = {
+                        "key": prior.key,
+                        "label": prior.label,
+                        "columns": [c.model_dump() for c in prior.columns],
+                        "instruction": (
+                            "Reuse these field keys/types for the same observed columns unless "
+                            "this region explicitly changes their meaning; report such changes, "
+                            "do not silently alter the mapping."
+                        ),
+                    }
                     break
-                if len(answer) > options.contextChars:
-                    issue("ai_response_budget_exceeded")
+        feedback = (
+            [i["code"] for i in compiled[rid].issues[:20]]
+            if rid in compiled
+            else repair_diagnostics.get(rid, [])
+        )
+        last_response = (
+            hashlib.sha256(encode(accepted[rid].model_dump()).encode()).hexdigest()
+            if rid in accepted
+            else None
+        )
+        # Local repair only; unchanged responses and previously exhausted failures do not loop.
+        for attempt in range(2):
+            try:
+                value = invoke(SYSTEM, payload, candidate_schema, feedback)
+                response_hash = hashlib.sha256(encode(value).encode()).hexdigest()
+                if response_hash == last_response or response_hash == failures.get(rid):
+                    issue("region_repair_no_progress", regionId=rid)
                     break
-                history.extend([message, {"role": "assistant", "content": answer}])
-                seen.update(loaded)
-                step = Step.model_validate(decode(answer))
-            except (ValidationError, ValueError):
-                feedback = ["Invalid step JSON. Follow stepContract exactly."]
-                save()
+                last_response = response_hash
+                candidate = RegionInterpretation.model_validate(value)
+                fragment = compile_region(
+                    candidate, observation, region, target_schema=selected.targetSchema
+                )
+                # Never discard committed content in exchange for a smaller-looking partial answer.
+                previous = compiled.get(rid)
+                # Values read from declared header cells are flagged misuse; a
+                # repair that stops reading them does not lose committed content.
+                regresses = previous is not None and (
+                    not previous.consumed_bindings - previous.header_value_bindings
+                    <= fragment.consumed_bindings
+                    or len(local_issues(fragment)) >= len(local_issues(previous))
+                )
+                if regresses:
+                    issue("region_repair_no_progress", regionId=rid)
+                    break
+                accepted[rid], compiled[rid] = candidate, fragment
+                failures.pop(rid, None)
+                repair_diagnostics.pop(rid, None)
+                issues[:] = [
+                    item
+                    for item in issues
+                    if not (
+                        item.get("code") == "region_interpretation_invalid"
+                        and item.get("regionId") == rid
+                    )
+                ]
+                save("interpreting")
+                if not local_issues(fragment) or attempt == 1:
+                    break
+                feedback = [_feedback_code(i) for i in fragment.issues[:20]]
                 continue
             except ModelError as exc:
-                issue(exc.code)
-                break
-            if step.action == "read":
-                if not step.readIds or not set(step.readIds) <= set(nodes):
-                    feedback = ["readIds must contain existing source node IDs"]
-                else:
-                    selected = step.readIds
-                    feedback = []
-                save()
-                continue
-            if step.proposal is None:
-                feedback = ["finish requires proposal"]
-                save()
-                continue
-            candidate, binding_errors = materialize(step.proposal, nodes, seen)
-            feedback = binding_errors + validate(candidate, nodes, seen, options.targetSchema)
-            if feedback:
-                if result["dataSchema"] is None:
-                    result["validation"] = {
-                        "valid": False,
-                        "errors": feedback,
-                        "semanticAccuracy": "unverified",
-                    }
-                else:
-                    result["validation"]["repairErrors"] = feedback
-                selected = []
-                save()
-                continue
-            retain()
-            review_pending = True
-            save()
-            # Re-enter the budget check so a just-validated candidate is always persisted.
-            continue
+                issue(exc.code, regionId=rid)
+                save("paused")
+                return result
+            except ValidationError as exc:
+                member_names = set(candidate_schema["properties"])
+                for definition in candidate_schema.get("$defs", {}).values():
+                    member_names.update(definition.get("properties", {}))
+                feedback = [
+                    "invalid_internal_contract:"
+                    + "/".join(
+                        str(part) if type(part) is int or part in member_names else "unknown_member"
+                        for part in e["loc"]
+                    )
+                    for e in exc.errors(include_input=False)[:12]
+                ]
+            except CompileError as exc:
+                feedback = [str(exc)]
+            except (ValueError, TypeError, KeyError):
+                feedback = ["invalid_model_json"]
+            # Record safe diagnostics before another call can exhaust a budget
+            # or fail. Never leave an invalid first response indistinguishable
+            # from an unexplained empty result; do not log its source or values.
+            issue("region_interpretation_invalid", regionId=rid, errors=feedback)
+            repair_diagnostics[rid] = feedback
+            failures[rid] = last_response
+            save("interpreting")
+    pending = [
+        c
+        for c in candidates
+        if not c["confirmed"]
+        and c["id"] not in decisions
+        and c["leftRegion"] in compiled
+        and c["rightRegion"] in compiled
+    ]
+    batches, batch = [], []
+    integration_contract = DocumentIntegration.model_json_schema()
+    input_limit = min(
+        selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
+    )
 
-        review_payload = encode({"sourceNodes": nodes, "proposal": candidate.model_dump()})
-        if len(review_payload) + len(REVIEW) > options.contextChars:
-            issue("review_context_budget_exceeded")
-            break
+    def integration_payload(items):
+        refs = list(dict.fromkeys(r for c in items for r in c["sourceRefs"]))
+        return {
+            "candidates": items,
+            "sourceNodes": {r: model_node(observation.nodes[r]) for r in refs},
+        }
+
+    for candidate in pending:
+        trial = [*batch, candidate]
+        size = len(INTEGRATE) + len(
+            encode({**integration_payload(trial), "outputContract": integration_contract})
+        )
+        if batch and (len(trial) > 8 or size > input_limit):
+            batches.append(batch)
+            batch = [candidate]
+        else:
+            batch = trial
+    if batch:
+        batches.append(batch)
+    for batch in batches:
+        refs = {r for c in batch for r in c["sourceRefs"]}
+        payload = integration_payload(batch)
         try:
-            invocation_calls += 1
-            result["extraction"]["modelCalls"] += 1
-            save()
-            remaining = options.completionSeconds - (time.monotonic() - started)
-            if remaining <= 0:
-                invocation_calls -= 1
-                result["extraction"]["modelCalls"] -= 1
-                issue("completion_budget_exceeded")
-                break
-            review_answer = client.complete(
-                [
-                    {"role": "system", "content": REVIEW},
-                    {"role": "user", "content": review_payload},
-                ],
-                timeout=remaining,
+            integrated = DocumentIntegration.model_validate(
+                invoke(INTEGRATE, payload, integration_contract)
             )
-            if time.monotonic() - started >= options.completionSeconds:
-                issue("completion_budget_exceeded")
-                break
-            if len(review_answer) > options.contextChars:
-                raise ModelError("ai_response_budget_exceeded")
-            review = Review.model_validate(decode(review_answer))
-        except (ValidationError, ValueError):
-            feedback = ["The internal verification response was invalid; repeat the proposal."]
-            review_pending = False
-            save()
-            continue
+            ids = [c.candidateId for c in integrated.continuations]
+            if set(ids) != {c["id"] for c in batch} or len(ids) != len(set(ids)):
+                raise ValueError
+            for item in integrated.continuations:
+                if not set(item.sourceRefs) <= refs:
+                    raise ValueError
+                decisions[item.candidateId] = item.decision
+            save("integrating")
         except ModelError as exc:
             issue(exc.code)
+            if exc.code == "region_context_budget_exceeded":
+                continue
             break
-        review_pending = False
-        if review.issues:
-            feedback = review.issues
-            result["validation"]["reviewIssues"] = review.issues
-            save()
-            continue
-        result["validation"].pop("reviewIssues", None)
-        result["validation"].pop("repairErrors", None)
-        result["validation"]["semanticAccuracy"] = "ai_reviewed"
-        uncertain = (
-            candidate.issues
-            or any(a.disposition == "unresolved" for a in candidate.accounting)
-            or any(a.status == "uncertain" for a in candidate.semantics)
-            or any(
-                e.status in {"uncertain", "unreadable"}
-                for e in [*candidate.valueEvidence, *candidate.schemaEvidence]
-            )
+        except (ValueError, TypeError):
+            issue("document_integration_invalid")
+    linked, _, _, tasks = linked_regions()
+    pending_tasks = [
+        task
+        for task in tasks
+        if scope_decisions.get(task.id, {}).get("fingerprint") != task.fingerprint
+        or (
+            scope_decisions.get(task.id, {}).get("invalid") is True
+            and additional_budget is not None
+            and grant["maxModelCalls"] > 0
         )
-        # Observation accounting is not a proof about unseen visual content.
-        unsupported_visual = _has_unread_visuals(content, job.input.format_id, nodes)
-        if unsupported_visual:
-            issue("visual_interpretation_unverified")
-        complete = (
-            observation["completeness"] == "complete"
-            and not uncertain
-            and bool(nodes)
-            and not unsupported_visual
-        )
-        if time.monotonic() - started >= options.completionSeconds:
-            issue("completion_budget_exceeded")
-            complete = False
-        result["extraction"]["status"] = "complete" if complete else "partial"
-        break
-    save()
+    ]
+    for batch in scope_batches(
+        pending_tasks,
+        context_chars=min(
+            selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
+        ),
+    ):
+        try:
+            response = invoke(SCOPE_SYSTEM, scope_batch_payload(batch), scope_output_schema(batch))
+            choices, invalid = parse_scope_choices(response, batch)
+            if invalid:
+                issue("scope_batch_invalid_decision")
+        except ModelError as exc:
+            issue(exc.code, taskIds=[t.id for t in batch])
+            break
+        except (ValueError, TypeError):
+            choices = []
+        for task in batch:
+            try:
+                decision = next(c for c in choices if c.taskId == task.id)
+                apply_scope_decision(linked, task, decision)
+                scope_decisions[task.id] = {
+                    "fingerprint": task.fingerprint,
+                    "decision": decision.model_dump(),
+                }
+            except (StopIteration, ValueError, TypeError):
+                scope_decisions[task.id] = {"fingerprint": task.fingerprint, "invalid": True}
+                issue("scope_decision_invalid", taskId=task.id)
+        save("integrating")
+    save("finished")
     return result

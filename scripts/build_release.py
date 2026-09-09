@@ -59,6 +59,8 @@ def host_bundle(stage: Path) -> None:
         "skills",
         "assets",
         "patches",
+        "docs",
+        "deployment",
         ".claude-plugin",
         ".codex-plugin",
     ):
@@ -70,8 +72,10 @@ def host_bundle(stage: Path) -> None:
         "uv.lock",
         ".mcp.json",
         "README.md",
-        "DESIGN.md",
-        "SCHEMA_EXTRACTION_DESIGN.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "CONTRIBUTING.md",
+        "SUPPORT.md",
     ):
         shutil.copy2(ROOT / name, stage / name)
     (stage / "scripts").mkdir()
@@ -128,9 +132,57 @@ def command(*args: object, **kwargs) -> None:
     subprocess.run([str(a) for a in args], check=True, **kwargs)
 
 
+def prepare_output(output: Path) -> None:
+    """Never blend fresh artifacts with a previous same-version build."""
+    if output.is_symlink() or (
+        output.exists() and any(path.name != ".gitignore" for path in output.iterdir())
+    ):
+        raise ValueError("Release output must be a new or empty directory")
+    output.mkdir(parents=True, exist_ok=True)
+
+
+def source_identity(*, development: bool) -> tuple[str, bool]:
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True))
+    if dirty and not development:
+        raise ValueError("Stable candidates require clean source; use --development for local work")
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    for name in (".codex-plugin", ".claude-plugin"):
+        if json.loads((ROOT / name / "plugin.json").read_text())["version"] != version:
+            raise ValueError("Plugin and Python versions must match")
+    return commit, dirty
+
+
+def source_fingerprint() -> str:
+    """Detect even edits that leave an already-dirty status unchanged."""
+    names = (
+        subprocess.check_output(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=ROOT
+        )
+        .decode()
+        .split("\0")
+    )
+    digest = hashlib.sha256()
+    for name in sorted(set(names) - {""}):
+        path = ROOT / name
+        digest.update(name.encode())
+        if path.is_symlink():
+            digest.update(b"link:" + os.readlink(path).encode())
+        elif path.is_file():
+            digest.update(sha(path).encode())
+        else:
+            digest.update(b"missing")
+    return digest.hexdigest()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "dist")
+    parser.add_argument(
+        "--development",
+        action="store_true",
+        help="Allow dirty source for explicitly unqualified local candidates",
+    )
     parser.add_argument(
         "--rhwp",
         type=Path,
@@ -139,18 +191,23 @@ def main() -> None:
     )
     parser.add_argument("--rhwp-license", type=Path, required=True)
     parser.add_argument("--uv", default="uv")
+    parser.add_argument(
+        "--python-archive",
+        type=Path,
+        help="Reuse a local Python archive; the platform's pinned SHA256 is still required",
+    )
     args = parser.parse_args()
     output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    prepare_output(output)
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
-    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True))
+    commit, dirty = source_identity(development=args.development)
+    fingerprint = source_fingerprint()
     target = platform_key()
     pins = json.loads((ROOT / "scripts/python-runtimes.json").read_text())
     pin = pins["targets"][target]
     wheel = output / f"document_files-{version}-py3-none-any.whl"
-    if not wheel.is_file():
-        raise SystemExit("Build the wheel/sdist first: uv build --out-dir " + str(output))
+    # Build from this source in the isolated output, never accept a pre-existing wheel.
+    command(args.uv, "build", "--out-dir", output, cwd=ROOT)
     backend_version = subprocess.check_output([str(args.rhwp), "--version"], text=True).strip()
     if backend_version != "rhwp v0.8.6+pat.checkbox.1":
         raise SystemExit("A verified checkbox-patched rhwp build is required")
@@ -167,7 +224,15 @@ def main() -> None:
         stage = work / "document-files"
         stage.mkdir()
         download = work / "python.tar.gz"
-        urllib.request.urlretrieve(pin["url"], download)  # build-time HTTPS with pinned digest
+        if args.python_archive:
+            shutil.copyfile(args.python_archive, download)
+        else:
+            # Build-time acquisition only, with a bounded connection and pinned digest.
+            with (
+                urllib.request.urlopen(pin["url"], timeout=60) as response,
+                download.open("wb") as out,
+            ):
+                shutil.copyfileobj(response, out)
         if sha(download) != pin["sha256"]:
             raise SystemExit("Python archive checksum mismatch")
         with tarfile.open(download) as archive:
@@ -205,9 +270,25 @@ def main() -> None:
         )
         command(args.uv, "pip", "install", "--python", python, "--no-deps", wheel)
         # No pip cache, user credentials or project workspace is copied into this tree.
-        for name in ("launchers", "assets", "skills", ".claude-plugin", ".codex-plugin"):
+        for name in (
+            "launchers",
+            "assets",
+            "skills",
+            "docs",
+            "deployment",
+            ".claude-plugin",
+            ".codex-plugin",
+        ):
             shutil.copytree(ROOT / name, stage / name, ignore=IGNORE)
-        for name in ("LICENSE", "NOTICE", "README.md"):
+        for name in (
+            "LICENSE",
+            "NOTICE",
+            "README.md",
+            "CHANGELOG.md",
+            "SECURITY.md",
+            "CONTRIBUTING.md",
+            "SUPPORT.md",
+        ):
             shutil.copy2(ROOT / name, stage / name)
         shutil.copy2(requirements, stage / "DEPENDENCIES.txt")
         shutil.copytree(ROOT / "scripts/python-licenses", stage / "python-licenses")
@@ -287,6 +368,21 @@ def main() -> None:
                 "compatibility": {"platforms": ["win32" if os.name == "nt" else "darwin"]},
             }
             manifest["user_config"] = {
+                "server_url": {
+                    "type": "string",
+                    "title": "Document Files service URL",
+                    "description": "Running service for managed CPU jobs; never auto-started",
+                    "required": False,
+                    "default": "http://127.0.0.1:8765",
+                },
+                "server_token": {
+                    "type": "string",
+                    "title": "Document Files service token",
+                    "description": "Bearer token for the configured Document Files service",
+                    "sensitive": True,
+                    "required": False,
+                    "default": "",
+                },
                 "ai_endpoint": {
                     "type": "string",
                     "title": "Model endpoint",
@@ -311,6 +407,8 @@ def main() -> None:
                 },
             }
             manifest["server"]["mcp_config"]["env"] = {
+                "DOCUMENT_FILES_SERVER_URL": "${user_config.server_url}",
+                "DOCUMENT_FILES_SERVER_TOKEN": "${user_config.server_token}",
                 "DOCUMENT_FILES_AI_ENDPOINT": "${user_config.ai_endpoint}",
                 "DOCUMENT_FILES_AI_MODEL": "${user_config.ai_model}",
                 "DOCUMENT_FILES_AI_API_KEY": "${user_config.ai_key}",
@@ -332,6 +430,11 @@ def main() -> None:
         archive_tree(host, output / f"document-files-{version}-host.zip", prefix="document-files/")
         skill_bundle(work / "skill")
         archive_tree(work / "skill", output / f"document-files-{version}.skill")
+    if (
+        source_identity(development=args.development) != (commit, dirty)
+        or source_fingerprint() != fingerprint
+    ):
+        raise ValueError("Source identity changed while building")
     artifacts = {
         p.name: sha(p)
         for p in sorted(output.iterdir())
@@ -340,10 +443,12 @@ def main() -> None:
     write_json(
         output / f"artifacts-{target}.json",
         {
+            "schemaVersion": "document-files.build-inventory.v2",
             "version": version,
             "target": target,
             "sourceCommit": commit,
             "dirtySource": dirty,
+            "candidateMode": "development" if args.development else "stable",
             "artifacts": artifacts,
         },
     )

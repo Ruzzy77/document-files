@@ -132,7 +132,10 @@ def test_plugin_contains_no_removed_plugin_identifiers() -> None:
     for path in root.rglob("*"):
         if (
             not path.is_file()
-            or ".venv" in path.parts
+            or any(
+                part in {".venv", "private", "dist", "build", ".git"}
+                for part in path.relative_to(root).parts
+            )
             or "__pycache__" in path.parts
             or path.suffix.lower() in {".png", ".svg", ".lock"}
         ):

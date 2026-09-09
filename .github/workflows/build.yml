@@ -8,6 +8,10 @@ permissions:
 jobs:
   platform:
     timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -22,16 +26,14 @@ jobs:
             target: windows-x86_64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version: '0.10.4'
       - name: Prepare test environment
         run: uv sync --frozen --python 3.12
       - name: Regression tests
         run: uv run --frozen pytest -q
-      - name: Python wheel and source distribution
-        run: uv build --out-dir dist
       - name: Build checkbox-preserving backend and portable candidates
         shell: bash
         run: |
@@ -41,7 +43,27 @@ jobs:
           RHWP=$(uv run --frozen python -c 'import sys;sys.path.insert(0,"scripts");from provision_rhwp import cache_root,platform_key;import os;print(cache_root()/"rhwp/v0.8.6+pat.checkbox.1"/platform_key()/"bin"/("rhwp.exe" if os.name=="nt" else "rhwp"))')
           uv run --frozen python scripts/build_release.py --rhwp "$RHWP" --rhwp-license "${RUNNER_TEMP}/rhwp-source/LICENSE"
           uv run --frozen python scripts/smoke_release.py "dist/document-files-1.8.0-${{ matrix.target }}.zip"
-      - uses: actions/upload-artifact@v4
+      - name: Export locked core Python dependency inventory
+        shell: bash
+        run: |
+          uv export --frozen --no-dev --no-emit-project --format cyclonedx1.5 --output-file dist/core-python-sbom.cdx.json
+          uv export --frozen --no-dev --no-emit-project --no-hashes --format requirements.txt --output-file dist/core-python-requirements.txt
+      - name: Audit core Python dependencies against current advisory data
+        # Public package identifiers only. This is not a native binary/model audit.
+        run: uvx --from pip-audit==2.10.1 pip-audit --strict --disable-pip --no-deps -r dist/core-python-requirements.txt --format json --output dist/core-python-audit.json
+      - name: Attest only artifacts built by this workflow
+        if: github.event_name != 'pull_request' && github.repository == 'Ruzzy77/document-files'
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.mcpb
+            dist/*.skill
+        # Assembly provenance does not attest upstream runtime/model builds or AI quality.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
         with:
           name: candidates-${{ matrix.target }}
           path: dist/

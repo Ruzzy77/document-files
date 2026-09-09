@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "document-files.upstream-pins.v1",
+  "status": "upstream metadata verified; product binaries and model quality not qualified",
+  "llamaCpp": {
+    "version": "b10853",
+    "revision": "9dcf84e5ae2718947188b539aab8b9c2b15d3ba1",
+    "source": "https://github.com/ggml-org/llama.cpp",
+    "upstreamPrerelease": true,
+    "assets": {
+      "macos-aarch64": {
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10853/llama-b10853-bin-macos-arm64.tar.gz",
+        "sha256": "44ac38967081c681880467e7d8ffed0fa4389797a659f446e87bc31c7e82c48b"
+      },
+      "macos-x86_64": {
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10853/llama-b10853-bin-macos-x64.tar.gz",
+        "sha256": "e446c340c3be1975baa1d4f377b0f44303c02721a39f32451966e2f0e993cefe"
+      },
+      "linux-x86_64": {
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10853/llama-b10853-bin-ubuntu-x64.tar.gz",
+        "sha256": "e995f96f3b82732e831ffbb540161cc2e45e0a7ee33db9340925563b37ecb3b6"
+      },
+      "windows-x86_64": {
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10853/llama-b10853-bin-win-cpu-x64.zip",
+        "sha256": "10b520be35483161a0746de3d05d66a36ce3e2bb6b243d806564ff798e28f01c"
+      }
+    }
+  },
+  "model": {
+    "id": "Qwen/Qwen3.5-9B",
+    "source": "https://huggingface.co/Qwen/Qwen3.5-9B",
+    "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+    "license": "Apache-2.0",
+    "quantization": "Q4_K_M",
+    "preparation": "official safetensors snapshot -> pinned llama.cpp converter -> pinned quantizer; no third-party GGUF"
+  }
+}

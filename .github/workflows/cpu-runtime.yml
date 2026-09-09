@@ -1,0 +1,102 @@
+name: Build pinned native CPU runtime candidates
+on:
+  push:
+    paths: ['scripts/build_cpu_runtime.py', '.github/workflows/cpu-runtime.yml']
+  workflow_dispatch:
+    inputs:
+      pack_version:
+        description: 'New immutable CPU runtime pack version (b10853-cpu.N)'
+        type: string
+        default: 'b10853-cpu.2'
+        required: true
+permissions:
+  contents: read
+jobs:
+  runtime:
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: macos-aarch64
+          - os: macos-15-intel
+            target: macos-x86_64
+          - os: ubuntu-24.04
+            target: linux-x86_64
+          - os: windows-2022
+            target: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONPATH: src
+      PACK_VERSION: ${{ inputs.pack_version || 'b10853-cpu.2' }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.10.4'
+      - name: Prepare pinned builder environment
+        run: uv sync --frozen --python 3.12
+      - name: Test CPU build and license contracts without loading models
+        run: uv run --frozen python -m pytest -q tests/test_cpu_runtime_builder.py
+      - name: Build matching Unix CPU candidate
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          test -z "$(git status --porcelain)"
+          mkdir "$RUNNER_TEMP/cpu-runtime-artifacts"
+          uv run --frozen python scripts/build_cpu_runtime.py --target "$TARGET" \
+            --work "$RUNNER_TEMP/cpu-runtime-build" \
+            --output "$RUNNER_TEMP/cpu-runtime-artifacts/llama-cpp-cpu-$PACK_VERSION-$TARGET.pack.zip" \
+            --version "$PACK_VERSION" --jobs 2
+      - name: Discover installed Visual Studio tooling and actual license, then build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (git status --porcelain) { throw 'CPU candidate requires clean source' }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) { throw 'Installed vswhere missing' }
+          $installation = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $installation) { throw 'Installed x64 C++ tools missing' }
+          $developer = Join-Path $installation 'Common7\Tools\Launch-VsDevShell.ps1'
+          if (-not (Test-Path -LiteralPath $developer -PathType Leaf)) { throw 'Installed developer shell missing' }
+          # Official installed shell initializes compiler, SDK, dumpbin and x64 environment.
+          # https://learn.microsoft.com/visualstudio/ide/reference/command-prompt-powershell
+          & $developer -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          if (-not $env:VSCMD_VER) { throw 'Developer environment not initialized' }
+          Get-Command cl.exe, dumpbin.exe, cmake.exe | Select-Object Name, Source
+          $licenses = @(Get-ChildItem -LiteralPath $installation -Filter License.rtf -Recurse -File |
+            Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+            Where-Object {
+              $text = Get-Content -LiteralPath $_.FullName -Raw
+              $text = [regex]::Replace($text, '\\[a-zA-Z]+-?\d* ?', ' ') -replace '[{}]', ' '
+              $text -match '(?is)MICROSOFT.{0,250}VISUAL\s+STUDIO' -and
+                $text -match '(?is)distributable.{0,30}code|redistribut'
+            })
+          if (-not $licenses.Count) { throw 'Installed Visual Studio License.rtf with redistribution terms not found; do not fabricate a notice' }
+          $hashes = @($licenses | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } | Sort-Object -Unique)
+          if ($hashes.Count -ne 1) { throw 'Ambiguous installed Visual Studio licenses; resolve exact edition/license on the host' }
+          $license = ($licenses | Sort-Object FullName | Select-Object -First 1).FullName
+          $output = Join-Path $env:RUNNER_TEMP 'cpu-runtime-artifacts'
+          New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
+          @{installationPath=$installation; developerVersion=$env:VSCMD_VER; licensePath=$license; licenseSha256=$hashes[0].ToLowerInvariant()} |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'windows-build-host.json') -Encoding utf8
+          uv run --frozen python scripts/build_cpu_runtime.py --target $env:TARGET `
+            --work (Join-Path $env:RUNNER_TEMP 'cpu-runtime-build') `
+            --output (Join-Path $output "llama-cpp-cpu-$env:PACK_VERSION-$env:TARGET.pack.zip") `
+            --version $env:PACK_VERSION --jobs 2 --windows-runtime-license $license
+          if ($LASTEXITCODE -ne 0) { throw 'CPU runtime build failed' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: cpu-runtime-candidate-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/cpu-runtime-artifacts/
+            ${{ runner.temp }}/cpu-runtime-build/configure.log
+            ${{ runner.temp }}/cpu-runtime-build/build.log
+            ${{ runner.temp }}/cpu-runtime-build/declaration.json
+          if-no-files-found: error
+          retention-days: 14
+# Build candidates only: no model download, active pack change, release or support qualification.

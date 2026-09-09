@@ -1,0 +1,16 @@
+# Qualification only. Compose >=2.24.4; supply after compose.yaml.
+# No host port is published. Send the HTTP request from docker compose exec.
+services:
+  document-files:
+    mem_limit: 17179869184
+    memswap_limit: 17179869184
+    cpus: 4
+    runtime: runc
+    network_mode: none
+    networks: !reset []
+    ports: !reset []
+    devices: !reset []
+    environment:
+      NVIDIA_VISIBLE_DEVICES: void
+      CUDA_VISIBLE_DEVICES: ""
+      HIP_VISIBLE_DEVICES: ""

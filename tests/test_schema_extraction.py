@@ -16,6 +16,8 @@ from document_files.interpretation.workflow import extract_schema, get_extractio
 
 
 class ScriptedModel:
+    # This fixture exercises the explicitly retained Proposal compatibility adapter.
+    interpretation_protocol = "legacy"
     identity = {"adapter": "scripted-test", "model": "not-a-real-model"}
 
     def __init__(self, *, invalid_first=False, uncertain=False):
@@ -221,6 +223,7 @@ def test_http_transport_runs_both_product_passes(tmp_path, monkeypatch):
             f"http://127.0.0.1:{server.server_port}/v1/chat/completions",
             "configured-test-model",
             "secret-for-test",
+            interpretation_protocol="legacy",
         )
         result = run(client)
         assert len(requests) == 2

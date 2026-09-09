@@ -1,0 +1,87 @@
+name: Offline pack contracts and candidate provenance
+on:
+  push:
+    paths: ['src/document_files/runtime_packs.py', 'scripts/*pack.py', 'scripts/release_parts.py', 'scripts/verify_candidate_packs.py', 'tests/test_candidate_pack_verification.py', 'tests/test_runtime_packs.py', 'deployment/**', '.github/workflows/packs.yml']
+  pull_request:
+    paths: ['src/document_files/runtime_packs.py', 'scripts/*pack.py', 'scripts/release_parts.py', 'scripts/verify_candidate_packs.py', 'tests/test_candidate_pack_verification.py', 'tests/test_runtime_packs.py', 'deployment/**', '.github/workflows/packs.yml']
+  workflow_dispatch:
+    inputs:
+      candidate_release:
+        description: 'Optional existing candidate release tag; verify uploaded pack transports, not model quality'
+        required: false
+        type: string
+      inventory_asset:
+        description: 'Release asset name of the aggregate artifact-inventory.v2 JSON'
+        required: false
+        default: 'artifact-inventory.json'
+        type: string
+      inventory_sha256:
+        description: 'Independently trusted aggregate inventory SHA256; required when candidate_release is set'
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-14, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.10.4'
+      - name: Prepare pinned core and CI tools (no recognition/GPU extras)
+        run: uv sync --frozen --python 3.12
+      - name: Offline install, corruption, rollback and process contracts
+        env:
+          PYTHONPATH: src
+        run: uv run --frozen python -m pytest -q tests/test_runtime_packs.py tests/test_release_parts.py tests/test_candidate_pack_verification.py
+      - name: Validate Python deployment entrypoint syntax
+        run: uv run --frozen python -m py_compile deployment/entrypoint.py scripts/prepare_model_pack.py
+  attest-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.candidate_release != ''
+    needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.10.4'
+      - name: Prepare pinned core and CI tools (no recognition/GPU extras)
+        run: uv sync --frozen --python 3.12
+      - name: Verify trusted inventory and actual uploaded pack transports
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ inputs.candidate_release }}
+          INVENTORY_ASSET: ${{ inputs.inventory_asset }}
+          INVENTORY_SHA256: ${{ inputs.inventory_sha256 }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          PYTHONPATH: src
+        run: |
+          # Missing/invalid trusted hash fails before any candidate pack download.
+          VERSION=$(uv run --frozen python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          uv run --frozen python scripts/verify_candidate_packs.py \
+            --candidate "$CANDIDATE" --inventory-asset "$INVENTORY_ASSET" \
+            --inventory-sha256 "$INVENTORY_SHA256" --source-commit "$SOURCE_COMMIT" \
+            --version "$VERSION" --work "$RUNNER_TEMP/verified-candidate"
+      - uses: actions/attest@f057fd524d485ac48d9b534c235aad15b5bb303f # v3
+        with:
+          subject-path: ${{ runner.temp }}/verified-candidate/subjects/*
+          predicate-type: https://github.com/Ruzzy77/document-files/attestations/pack-verification/v2
+          predicate-path: ${{ runner.temp }}/verified-candidate/verification.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-candidate-pack-inventories
+          path: ${{ runner.temp }}/verified-candidate/verification.json
+          if-no-files-found: error
+# Attestation identifies this verification workflow, not a locally unobserved
+# upstream build or model-quality result. No release is created or promoted here.

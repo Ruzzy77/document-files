@@ -44,7 +44,12 @@ def test_checkpoint_read_resume_and_no_long_transaction(setup, monkeypatch):
         calls.append(restore)
         body = result(job)
         checkpoint({"result": body, "stage": "review"})
-        assert workflow.get_extraction("one")["data"] == {"value": "123"}
+        stored = workflow.get_extraction("one")
+        assert stored["data"] == {"value": "123"}
+        assert stored["resultRevision"] == len(calls)
+        page = workflow.get_extraction("one", section="nodes")
+        assert page["resultRevision"] == stored["resultRevision"]
+        assert page["extractionStatus"] == "partial"
         # A separate writer works while the model phase owns the job lock.
         with closing(sqlite3.connect(root / "one.sqlite3", timeout=0)) as db, db:
             db.execute("UPDATE execution SET status='running'")
@@ -60,6 +65,8 @@ def test_checkpoint_read_resume_and_no_long_transaction(setup, monkeypatch):
     assert workflow.get_extraction("one")["data"]
     resumed = workflow.resume_extraction("one", model_client=Model())
     assert resumed["data"] == {"value": "123"}
+    assert resumed["resultRevision"] == 3
+    assert resumed["extractionStatus"] == "partial"
     assert calls[1]["stage"] == "review"
     assert workflow.extract_schema(str(source), request_id="one", model_client=Model()) == resumed
     assert len(calls) == 2
@@ -137,6 +144,29 @@ def test_safe_call_redacts_unexpected_error():
     assert "private document" not in response.model_dump_json()
 
 
+@pytest.mark.parametrize("kind", ["model", "pack", "job"])
+def test_cli_and_mcp_preserve_safe_operational_error_codes(kind, monkeypatch, capsys):
+    from document_files import cli
+    from document_files.interpretation.backends import ModelError
+    from document_files.jobs import JobError
+    from document_files.mcp_server import FlexibleResult, SchemaExtractionResponse, _safe_call
+    from document_files.runtime_packs import PackError
+
+    error = {"model": ModelError, "pack": PackError, "job": JobError}[kind]
+
+    def fail(*args):
+        raise error("fixed_operation_code")
+
+    monkeypatch.setattr(cli, "_run", fail)
+    monkeypatch.setattr("sys.argv", ["document-files", "capabilities"])
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main()
+    assert exit_info.value.code == 2
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "fixed_operation_code"
+    response = _safe_call(fail, SchemaExtractionResponse, FlexibleResult)
+    assert response.error.code == "fixed_operation_code"
+
+
 def test_public_result_schema_matches_real_partial(setup, monkeypatch):
     from jsonschema import Draft202012Validator
 
@@ -174,3 +204,115 @@ def test_public_result_schema_matches_validated_output():
     assert output["validation"]["valid"]
     Draft202012Validator(api.extraction_result_schema()).validate(output)
     assert "Proposal" not in api.__all__
+
+
+def test_native_resources_stored_once_and_public_resume_round_trip(setup, monkeypatch):
+    import hashlib
+
+    source, root = setup
+    asset = "Public native XML asset 영문/한글 " * 300
+    encoded_asset = json.dumps(asset, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    digest = hashlib.sha256(encoded_asset).hexdigest()
+    literal = {"$documentFilesResource": digest}
+    context = {
+        "parts": [
+            {"id": "xml", "text": asset},
+            {"id": "binary", "data": asset},
+            {"id": "literal", "text": literal},
+        ],
+        "unchanged": literal,
+    }
+    calls = []
+
+    def engine(job, stream, *, checkpoint=None, restore=None, **kwargs):
+        calls.append(restore)
+        body = result(job)
+        body["reconstructionContext"] = context
+        body["data"]["literal"] = literal
+        if restore is not None:
+            assert restore["result"]["reconstructionContext"] == context
+        if checkpoint:
+            checkpoint({"result": body, "stage": "review", "unrelatedLiteral": literal})
+            assert body["reconstructionContext"] == context  # Storage never rewrites engine state.
+        if len(calls) == 1:
+            raise KeyboardInterrupt
+        body["extraction"]["status"] = "complete"
+        return body
+
+    monkeypatch.setattr(workflow, "extract_schema_from_stream", engine)
+    with pytest.raises(KeyboardInterrupt):
+        workflow.extract_schema(str(source), request_id="assets", model_client=Model())
+    database = root / "assets.sqlite3"
+    with closing(sqlite3.connect(database)) as db:
+        assert db.execute("SELECT COUNT(*) FROM resource_blobs").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM resource_links").fetchone()[0] == 4
+        assert db.execute("SELECT body FROM resource_blobs").fetchone()[0] == encoded_asset
+        stored = db.execute("SELECT body FROM result").fetchone()[0]
+        checkpoint = db.execute("SELECT checkpoint FROM execution").fetchone()[0]
+        assert asset not in stored and asset not in checkpoint
+    read = api.get_extraction("assets")
+    assert read["reconstructionContext"] == context and read["data"]["literal"] == literal
+    page = api.get_extraction("assets", section="nodes")
+    assert page["items"] == [] and page["resultRevision"] == read["resultRevision"]
+    resumed = workflow.resume_extraction("assets", model_client=Model())
+    assert resumed["reconstructionContext"] == context
+    assert calls[1]["unrelatedLiteral"] == literal
+    assert api.get_extraction("assets") == resumed
+    assert workflow.resume_extraction("assets", model_client=Model()) == resumed
+    assert (
+        workflow.extract_schema(str(source), request_id="assets", model_client=Model()) == resumed
+    )
+    with closing(sqlite3.connect(database)) as db:
+        assert db.execute("SELECT COUNT(*) FROM resource_blobs").fetchone()[0] == 1
+    assert workflow.delete_extraction("assets")["deleted"]
+    assert not database.exists() and list(root.iterdir()) == [root / "assets.lock"]
+    assert source.read_text() == "value: 123"
+
+
+def test_native_resource_write_rolls_back_with_result_and_checkpoint(setup, monkeypatch):
+    source, root = setup
+
+    def engine(job, stream, **kwargs):
+        body = result(job)
+        body["reconstructionContext"] = {"parts": [{"text": "original public asset" * 500}]}
+        return body
+
+    monkeypatch.setattr(workflow, "extract_schema_from_stream", engine)
+    original = workflow.extract_schema(str(source), request_id="atomic", model_client=Model())
+    replacement = {**original, "reconstructionContext": {"parts": [{"data": "replacement" * 500}]}}
+    database = root / "atomic.sqlite3"
+    with (
+        pytest.raises(RuntimeError, match="intentional-write-failure"),
+        workflow._connect(database) as db,
+    ):
+        workflow._store_result(db, "fingerprint", replacement)
+        raise RuntimeError("intentional-write-failure")
+    assert workflow.get_extraction("atomic") == original
+    with closing(sqlite3.connect(database)) as db:
+        assert db.execute("SELECT COUNT(*) FROM resource_blobs").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM resource_links").fetchone()[0] == 1
+    with workflow._connect(database) as db:
+        db.execute("UPDATE resource_blobs SET body=?", (b'"corrupted"',))
+    with pytest.raises(DocumentFilesError, match="resource is invalid"):
+        workflow.get_extraction("atomic")
+
+
+def test_legacy_literal_resource_shapes_and_unretained_assets_are_untouched(setup, monkeypatch):
+    source, root = setup
+    literal = {"$documentFilesResource": "a" * 64}
+    body = {"data": literal, "reconstructionContext": {"parts": [{"text": literal}]}}
+    root.mkdir()
+    database = root / "legacy-assets.sqlite3"
+    with closing(sqlite3.connect(database)) as db, db:
+        db.execute("CREATE TABLE result(fingerprint TEXT,body TEXT)")
+        db.execute("INSERT INTO result VALUES (?,?)", ("legacy", json.dumps(body)))
+    before = database.read_bytes()
+    assert workflow.get_extraction("legacy-assets") == body
+    assert database.read_bytes() == before
+    new_root = root / "should-not-exist"
+    large = {"reconstructionContext": {"parts": [{"data": "public" * 1000}]}}
+    monkeypatch.setattr(workflow, "extract_schema_from_stream", lambda *a, **kw: large)
+    output = workflow.extract_schema(
+        str(source), retain=False, storage_dir=new_root, model_client=Model()
+    )
+    assert output == large and not new_root.exists()

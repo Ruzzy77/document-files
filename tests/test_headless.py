@@ -136,6 +136,12 @@ def test_mcp_surface_is_small_and_headless(tmp_path: Path) -> None:
         "document_edit_hwpx",
         "document_verify_hwpx",
         "document_render_file",
+        "document_start_job",
+        "document_job_status",
+        "document_job_result",
+        "document_cancel_job",
+        "document_resume_job",
+        "document_delete_job",
     }
     assert by_name["document_capabilities"].annotations.read_only_hint is True
     assert by_name["document_extract_file"].annotations.read_only_hint is True

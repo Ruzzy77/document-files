@@ -1,0 +1,7 @@
+{
+  "reconstructionContext": false,
+  "maxModelCalls": 64,
+  "completionSeconds": 3600,
+  "contextChars": 120000,
+  "maxInputBytes": 33554432
+}

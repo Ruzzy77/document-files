@@ -1,0 +1,73 @@
+name: CPU qualification environment preflight
+on:
+  push:
+    paths: ['scripts/measure_cpu_execution.py', '.github/workflows/cpu-environment.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Resolve a preparation image to an immutable digest
+        run: |
+          docker pull python:3.12-slim-bookworm
+          IMAGE=$(docker image inspect python:3.12-slim-bookworm --format '{{index .RepoDigests 0}}')
+          echo "MEASUREMENT_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Exercise the real restricted environment without a model
+        env:
+          COMMIT: ${{ github.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cpu-evidence"
+          chmod 700 "$RUNNER_TEMP/cpu-evidence"
+          python3 - <<'PY'
+          import json, os, pathlib, tomllib
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'cpu-evidence'
+          version = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']
+          (root / 'identity.json').write_text(json.dumps({
+            'version': version, 'sourceCommit': os.environ['COMMIT'], 'dirtySource': False,
+            'artifacts': ['environment-preflight-only']}))
+          PY
+          docker create --name df-cpu-preflight --network none --cpus 4 \
+            --memory 17179869184 --memory-swap 17179869184 --pids-limit 128 \
+            --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/cpu-evidence,target=/evidence" \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001 \
+            "$MEASUREMENT_IMAGE" python -B /source/scripts/measure_cpu_execution.py \
+            --evidence-root /evidence --output measured --identity /evidence/identity.json \
+            --timeout 30 -- python -c 'import time; x=bytearray(32*1024*1024); time.sleep(2)'
+          # Never dump Config.Env, secrets or arbitrary process command lines.
+          docker inspect df-cpu-preflight --format \
+            '{"memory":{{.HostConfig.Memory}},"memorySwap":{{.HostConfig.MemorySwap}},"nanoCpus":{{.HostConfig.NanoCpus}},"networkMode":"{{.HostConfig.NetworkMode}}","privileged":{{.HostConfig.Privileged}},"readonlyRootfs":{{.HostConfig.ReadonlyRootfs}},"deviceRequests":{{json .HostConfig.DeviceRequests}},"devices":{{json .HostConfig.Devices}}}' \
+            > "$RUNNER_TEMP/cpu-evidence/container-isolation.json"
+          sudo chown -R 10001:10001 "$RUNNER_TEMP/cpu-evidence"
+          docker start -a df-cpu-preflight
+          test "$(docker inspect df-cpu-preflight --format '{{.State.ExitCode}}')" = 0
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/cpu-evidence"
+          python3 - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'cpu-evidence'
+          actual = json.loads((root / 'container-isolation.json').read_text())
+          assert actual['memory'] == actual['memorySwap'] == 17179869184
+          assert actual['nanoCpus'] == 4000000000 and actual['networkMode'] == 'none'
+          assert actual['readonlyRootfs'] and not actual['privileged']
+          assert not actual['deviceRequests'] and not actual['devices']
+          (root / 'status.json').write_text(json.dumps({
+            'environmentPreflight': 'passed', 'actualModelExecuted': False,
+            'releaseQualification': False, 'image': os.environ['MEASUREMENT_IMAGE']}))
+          PY
+      - name: Remove this job's container
+        if: always()
+        run: |
+          docker rm -f df-cpu-preflight || true
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/cpu-evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: cpu-environment-preflight
+          path: ${{ runner.temp }}/cpu-evidence/
+          if-no-files-found: error
+          retention-days: 14

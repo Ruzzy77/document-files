@@ -12,7 +12,14 @@ license-files = ["LICENSE", "NOTICE"]
 authors = [{name = "Ruzzy77"}]
 requires-python = ">=3.11"
 dependencies = [
+  "cryptography>=50.0.1,<51",
   "defusedxml>=0.7.1,<1",
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "markdown-it-py==4.2.0",
+  "mdit-py-plugins==0.6.1",
+  "pdfplumber==0.11.10",
+  "pypdfium2==5.13.0",
   "mcp==2.1.1",
   "jsonschema>=4.26,<5",
   "referencing>=0.37,<1",
@@ -26,6 +33,9 @@ dependencies = [
   "reportlab>=4,<5",
 ]
 
+[project.optional-dependencies]
+recognition = ["docling==2.126.0"]
+
 [project.urls]
 Homepage = "https://github.com/Ruzzy77/document-files"
 Repository = "https://github.com/Ruzzy77/document-files"
@@ -34,6 +44,7 @@ Issues = "https://github.com/Ruzzy77/document-files/issues"
 [dependency-groups]
 dev = [
   "pytest>=8,<10",
+  "httpx>=0.28,<1",
 ]
 
 [project.scripts]

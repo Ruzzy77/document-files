@@ -4,6 +4,7 @@ import struct
 from zipfile import ZipFile
 
 import pytest
+
 from document_files import hwp_checkbox_guard as guard
 
 
