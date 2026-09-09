@@ -250,6 +250,11 @@ def verify_linkage(stage: Path, files: dict, audit_path: Path, audit: dict, targ
                     inspect_header(stage / name, target)
                 except ValueError as exc:
                     raise PackError("recognition_foreign_native_binary") from exc
+                # Linux stages use the system glibc loader, not a bundled copy.
+                # This covers ld-linux*.so names (including relocated hash names),
+                # not arbitrary renamed ELF loaders or their symbol semantics.
+                if re.fullmatch(r"ld-linux[^/]*\.so(?:\.[^/]+)*", Path(name).name):
+                    raise PackError("recognition_bundled_linux_loader")
             binaries[name] = files[name]["sha256"]
     entries = evidence.get("binaries", [])
     if len(entries) != len(binaries) or {item["path"] for item in entries} != set(binaries):

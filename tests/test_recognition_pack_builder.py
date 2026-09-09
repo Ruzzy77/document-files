@@ -497,3 +497,76 @@ def test_arm_linkage_cannot_borrow_x64_system_loader(fixture):
     ]
     with pytest.raises(tool.PackError, match="unbundled_native_dependency"):
         f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "target,loader",
+    [
+        ("linux-x86_64", "ld-linux-x86-64.so.2"),
+        ("linux-x86_64", "ld-linux-x86-64.5cbc5e90.so.2"),
+        ("linux-aarch64", "ld-linux-aarch64.so.1"),
+        ("linux-aarch64", "ld-linux-aarch64.5cbc5e90.so.1"),
+    ],
+)
+def test_bundled_elf_loader_rejected_even_with_complete_linkage(fixture, target, loader):
+    tool, create = fixture
+    f = create(target)
+    path = "python/lib/site-packages/torchvision.libs/" + loader
+    f["add"](path, native(target), f["runtime"])
+    f["linkage"]["binaries"].append(
+        {
+            "path": path,
+            "sha256": f["rows"][path]["sha256"],
+            "tool": "synthetic-test-only",
+            "rawEvidence": f["raw_ref"],
+            "dependencies": [],
+        }
+    )
+    f["linkage"]["binaries"][0]["dependencies"].append(
+        {"name": loader, "origin": "pack", "path": path}
+    )
+    with pytest.raises(tool.PackError, match="^recognition_bundled_linux_loader$"):
+        f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "target,loader",
+    [
+        ("linux-x86_64", "ld-linux-x86-64.so.2"),
+        ("linux-aarch64", "ld-linux-aarch64.so.1"),
+    ],
+)
+def test_system_loader_reference_and_nonelf_names_remain_allowed(fixture, target, loader):
+    _, create = fixture
+    f = create(target)
+    f["linkage"]["binaries"][0]["dependencies"].append({"name": loader, "origin": "system"})
+    # A data file with the same basename is not a bundled ELF loader.
+    f["add"]("licenses/" + loader, b"Synthetic non-ELF text", f["runtime"])
+    # Ordinary DSOs remain eligible, with their own complete linkage evidence.
+    path = "python/lib/libcodec.so.1"
+    f["add"](path, native(target), f["runtime"])
+    f["linkage"]["binaries"].append(
+        {
+            "path": path,
+            "sha256": f["rows"][path]["sha256"],
+            "tool": "synthetic-test-only",
+            "rawEvidence": f["raw_ref"],
+            "dependencies": [{"name": loader, "origin": "system"}],
+        }
+    )
+    _, report = f["verify"]()
+    assert report["executionVerified"] is False
+
+
+@pytest.mark.parametrize("target", ["linux-x86_64", "linux-aarch64"])
+def test_qt_empty_interpreter_is_not_exempted(fixture, target):
+    tool, create = fixture
+    f = create(target)
+    data = bytearray(native(target))
+    struct.pack_into("<Q", data, 32, 64)
+    struct.pack_into("<HH", data, 54, 56, 1)
+    struct.pack_into("<IIQQQQQQ", data, 64, 3, 4, 120, 0, 0, 1, 1, 1)
+    path = "python/lib/libQt5Core-example.so.5.15.19"
+    f["add"](path, bytes(data), f["runtime"])
+    with pytest.raises(tool.PackError, match="^recognition_foreign_native_binary$"):
+        f["verify"]()

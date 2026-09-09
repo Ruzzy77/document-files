@@ -11,6 +11,9 @@
   Actual ARM installation, full recognition and CPU 16 GiB qualification remain pending.
 - Verify the delivered image export's actual config, target and ordered layer hashes
   again at the release gate, independently of its build receipt.
+- Reject bundled Linux ELF `ld-linux*.so` files, including hash-renamed copies, during
+  recognition-stage verification. System loader references remain allowed; other
+  loader aliases and redistribution conditions still need independent review.
 - Add bounded Linux recognition-input checking/acquisition with explicit inventory
   hashes, official origins, local-byte verification and owned-worker cleanup. Default
   inspection is offline; this does not assemble or approve a recognition stage.
