@@ -44,9 +44,19 @@ and its activation, and old protocol checkpoints are rejected rather than migrat
 
 An offline reconstruction of the saved PDF development case fell from 19,014 to
 14,694 message-content characters against the unchanged 16,000-character limit.
-This is not a token measurement, successful meaning extraction or repair-fit claim.
 Every initial and repair request is checked at its actual size; overflow retains the
 accepted structure and does not dispatch a model call or enlarge the document budget.
+
+The subsequent development continuation made one actual meaning call from the saved
+source-bound structure, with no recognition or page-review rerun. Input fit at 4,469
+prompt tokens, but the response repeated the same quantity-unit interpretation and
+header quotations until the 3,072-output-token ceiling (330.54 seconds, finish reason
+`length`). The engine rejected the incomplete response and preserved every previously
+accepted value, source and structure. The cumulative budget was 6 calls / 853.49 seconds
+of the unchanged 12 / 900 limit. This remains partial, not meaning-quality success or
+independent qualification. The owned server exited; installed packs stayed unchanged.
+Next work is a finite, source-centered meaning response design and an explicit check
+of owned text versus reference context, not a larger output budget or unchanged retry.
 
 ### Optional source-bound PDF page review
 
