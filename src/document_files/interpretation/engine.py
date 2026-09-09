@@ -61,7 +61,6 @@ from .semantic_types import (
     _compact_contract,
     region_output_schema,
 )
-from .table_meaning import meaning_to_wire
 from .table_protocol import (
     MEANING_SYSTEM,
     STAGE_MAX_CALLS,
@@ -70,11 +69,19 @@ from .table_protocol import (
     TABLE_PROTOCOL_VERSION,
     meaning_ir,
     meaning_payload,
+    meaning_response,
     meaning_schema,
     structural_ir,
     structure_payload,
     structure_schema,
 )
+from .table_revisions import (
+    MeaningRevisionError,
+    meaning_snapshot,
+    preserve_reviewed_ranges,
+    validate_revision,
+)
+from .table_sources import source_inventory
 
 CHECKPOINT_VERSION = "document-files.regional-checkpoint.v2"
 
@@ -97,64 +104,69 @@ def _table_meaning_issues(fragment):
         in {
             "node_semantics_unaccounted",
             "note_scope_unresolved",
+            "table_meaning_source_unreviewed",
+            "table_meaning_source_unresolved",
         }
     ]
 
 
-def _meaning_feedback(ir, fragment, extra=()):
+def _meaning_feedback(ir, fragment, inventory, extra=()):
     return {
         "issues": [*extra, *[_feedback_code(i) for i in _table_meaning_issues(fragment)]],
-        "acceptedMeanings": [meaning_to_wire(m, ir) for m in ir.meanings],
+        "baseRevision": ir.tableMeaningState.revisionSHA256,
+        "acceptedResponse": meaning_response(ir, inventory),
         "instruction": (
-            "Repair only the reported meaning/accounting issues. Preserve every accepted "
-            "statement's id, kind, description and sourceRefs exactly; do not remove, merge "
-            "or rewrite its text. Preserve already interpreted scopes/status. You may resolve "
-            "uncertain scopes and add source-bound statements. Return the full meaning response, "
-            "not a patch. Do not change the frozen record structure or values."
+            "Review the reported source gaps and the prior interpretation together. "
+            "Correct mistaken kind, description, scope or status; split, merge or withdraw "
+            "mistaken meanings with explicit changes. Keep source text and reviewed ranges. "
+            "For a withdrawal, review its source as no_additional_meaning or unresolved. "
+            "Return the full replacement, not a patch. Do not change frozen structure or values."
         ),
     }
 
 
 def _meaning_repair_improves(before_ir, before, after_ir, after):
-    def signatures(items):
-        return {encode(item) for item in items}
-
-    if not signatures(_table_meaning_issues(after)) < signatures(_table_meaning_issues(before)):
-        return False
-    # A caption fix cannot trade away other established coverage. Fresh ambiguous
-    # statements may legitimately introduce a separate scope-integration task.
+    # Fewer issues are not proof of correctness. An explicit correction may expose
+    # uncertainty, but may not lose source review or alter established value facts.
     ignored = {
         "node_semantics_unaccounted",
         "note_scope_unresolved",
         "semantic_scope_unresolved",
         "semantic_scope_uncertain",
+        "table_meaning_source_unreviewed",
+        "table_meaning_source_unresolved",
+        "semantic_relation_unresolved",
     }
-    if not signatures(i for i in after.issues if i.get("code") not in ignored) <= signatures(
-        i for i in before.issues if i.get("code") not in ignored
-    ):
-        return False
-    meanings = {m.id: m for m in after_ir.meanings}
-    details = {m["id"]: m for m in before.semantic_details}
-    for old in before_ir.meanings:
-        new = meanings.get(old.id)
-        if new is None or (old.kind, old.description, set(old.sourceRefs)) != (
-            new.kind,
-            new.description,
-            set(new.sourceRefs),
-        ):
-            return False
-        if (
-            details.get(before_ir.regionId + ":" + old.id, {}).get("interpretationStatus")
-            == "interpreted"
-        ):
-            if new.status != old.status or (new.rowStart, new.rowEnd) != (old.rowStart, old.rowEnd):
-                return False
-            if any(
-                set(getattr(old, key)) != set(getattr(new, key))
-                for key in ("fieldIds", "groupIds", "repeatIds")
-            ):
-                return False
-    return True
+    try:
+        validate_revision(before_ir, after_ir)
+        preserve_reviewed_ranges(before.meaning_review, after.meaning_review)
+    except MeaningRevisionError as exc:
+        raise CompileError(str(exc)) from None
+    return {encode(i) for i in after.issues if i.get("code") not in ignored} <= {
+        encode(i) for i in before.issues if i.get("code") not in ignored
+    }
+
+
+def _validate_meaning_history(progress, current, observation, region, target_schema):
+    history = progress.get("revisions", [])
+    if not progress.get("acceptedResponse"):
+        if history or current.tableMeaningState is not None:
+            raise ValueError("invalid_table_meaning_history")
+        return
+    if not isinstance(history, list) or not 1 <= len(history) <= progress["usage"]["modelCalls"]:
+        raise ValueError("invalid_table_meaning_history")
+    previous, before = None, None
+    for snapshot in history:
+        if not isinstance(snapshot, dict) or snapshot.keys() != meaning_snapshot(current).keys():
+            raise ValueError("invalid_table_meaning_history")
+        restored = RegionInterpretation.model_validate(current.model_dump() | snapshot)
+        validate_revision(previous, restored)
+        fragment = compile_region(restored, observation, region, target_schema=target_schema)
+        if before is not None:
+            preserve_reviewed_ranges(before.meaning_review, fragment.meaning_review)
+        previous, before = restored, fragment
+    if meaning_snapshot(previous) != meaning_snapshot(current):
+        raise ValueError("invalid_table_meaning_history")
 
 
 def _node_read_coverage(regions, accepted):
@@ -578,9 +590,20 @@ def extract_schema_from_stream(
     compiled = {}
     for region in regions:
         if region["id"] in accepted:
-            compiled[region["id"]] = compile_region(
-                accepted[region["id"]], observation, region, target_schema=selected.targetSchema
-            )
+            try:
+                compiled[region["id"]] = compile_region(
+                    accepted[region["id"]], observation, region, target_schema=selected.targetSchema
+                )
+                if region["id"] in table_states:
+                    _validate_meaning_history(
+                        table_states[region["id"]]["meaning"],
+                        accepted[region["id"]],
+                        observation,
+                        region,
+                        selected.targetSchema,
+                    )
+            except (ValueError, TypeError, KeyError):
+                raise ValueError("checkpoint is incompatible with source review history") from None
     try:
         catalog = target_catalog(selected.targetSchema)
     except CompileError as exc:
@@ -636,6 +659,11 @@ def extract_schema_from_stream(
         result["document"]["semanticRelations"] = links
         result["coverage"]["semanticAccounting"] = [
             d for c in compiled.values() for d in c.dispositions
+        ]
+        result["coverage"]["semanticSourceReviews"] = [
+            copy.deepcopy(c.meaning_review)
+            for c in compiled.values()
+            if c.meaning_review is not None
         ]
         result["coverage"]["regions"] = [
             {
@@ -869,10 +897,11 @@ def extract_schema_from_stream(
                     else {}
                 ),
             }
+            inventory = source_inventory(observation, region) if stage == "meaning" else None
             request = (
                 structure_payload(payload)
                 if stage == "structure"
-                else meaning_payload(payload, accepted[rid], compiled[rid])
+                else meaning_payload(payload, accepted[rid], compiled[rid], inventory)
             )
             while progress["attempts"] < STAGE_MAX_CALLS:
                 try:
@@ -889,7 +918,7 @@ def extract_schema_from_stream(
                             save("interpreting")
                             return decision.tableKind != "scalar_form"
                     else:
-                        candidate = meaning_ir(value, accepted[rid])
+                        candidate = meaning_ir(value, accepted[rid], inventory)
                     fragment = compile_region(
                         candidate, observation, region, target_schema=selected.targetSchema
                     )
@@ -931,6 +960,7 @@ def extract_schema_from_stream(
                     accepted[rid], compiled[rid] = candidate, fragment
                     if stage == "meaning":
                         progress["acceptedResponse"] = True
+                        progress.setdefault("revisions", []).append(meaning_snapshot(candidate))
                     if stage == "structure":
                         state["kind"] = "record_table"
                         child, routes = route_table_values(
@@ -963,7 +993,8 @@ def extract_schema_from_stream(
                     ]
                     if stage == "meaning" and _table_meaning_issues(fragment):
                         progress.update(
-                            status="pending", feedback=_meaning_feedback(candidate, fragment)
+                            status="pending",
+                            feedback=_meaning_feedback(candidate, fragment, inventory),
                         )
                     save("interpreting")
                     if progress["status"] == "pending":
@@ -978,7 +1009,7 @@ def extract_schema_from_stream(
                         str(exc) if isinstance(exc, CompileError) else "invalid_table_contract"
                     )
                     repair = (
-                        _meaning_feedback(accepted[rid], compiled[rid], [feedback])
+                        _meaning_feedback(accepted[rid], compiled[rid], inventory, [feedback])
                         if stage == "meaning" and progress.get("acceptedResponse")
                         else [feedback]
                     )
@@ -1074,6 +1105,10 @@ def extract_schema_from_stream(
                     break
                 last_response = response_hash
                 candidate = RegionInterpretation.model_validate(value)
+                if candidate.tableMeaningState is not None or any(
+                    m.sourceRanges for m in candidate.meanings
+                ):
+                    raise CompileError("scalar_response_cannot_set_table_review_metadata")
                 if (
                     payload.get("tableKind") in {"scalar_form", "nonrecord_values"}
                     and candidate.repeats

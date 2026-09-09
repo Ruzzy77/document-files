@@ -83,7 +83,7 @@ def meaning_wire_schema(base, frozen):
     ]
     result["required"].append("scope")
     result["properties"]["scope"] = scope
-    result["$defs"] = definitions
+    result["$defs"] = result.get("$defs", {}) | definitions
     return result
 
 
@@ -139,6 +139,8 @@ def meaning_to_wire(meaning, frozen):
     result = {
         key: item for key, item in meaning.model_dump().items() if key not in LEGACY_SCOPE_FIELDS
     }
+    if not result.get("sourceRanges"):
+        result.pop("sourceRanges", None)
     result["scope"] = scope
     # Revalidate bounds and metadata without guessing a replacement scope.
     result["status"] = meaning_from_wire(result, frozen).status

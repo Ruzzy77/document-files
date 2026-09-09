@@ -28,6 +28,7 @@ from document_files.interpretation.table_protocol import (
     structure_payload,
     structure_schema,
 )
+from document_files.interpretation.table_sources import source_inventory
 
 HTML = (
     b"<table><tr><th>Code</th><th>Size</th></tr>"
@@ -105,7 +106,19 @@ class TableModel:
             assert len(payload["frozenStructure"]["repeats"]) == 1
             if self.meaning_error:
                 raise ModelError(self.meaning_error)
-            value = {"regionId": payload["regionId"]}
+            value = {
+                "regionId": payload["regionId"],
+                "meanings": [],
+                "baseRevision": None,
+                "changes": [],
+                "sourceReviews": [
+                    {
+                        "sourceRefs": [s["sourceRef"] for s in payload["meaningSources"]],
+                        "role": "no_additional_meaning",
+                        "explanation": "Plain labels and values; no notes in this scripted fixture",
+                    }
+                ],
+            }
             if self.invalid_meaning:
                 value["fields"] = [{"id": "illegal-rewrite"}]
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
@@ -341,13 +354,23 @@ def test_meaning_targets_include_compiled_header_provenance_without_expanded_val
     ]
     _, frozen = structural_ir(value, doc, region)
     compiled = compile_region(frozen, doc, region)
-    request = meaning_payload(payload, frozen, compiled)
+    request = meaning_payload(payload, frozen, compiled, source_inventory(doc, region))
     definition = next(
         d for d in request["frozenStructure"]["compiledDefinitions"] if d["id"] == "size"
     )
     assert definition["definitionRefs"]
     assert "0007" not in json.dumps(request["frozenStructure"])
-    merged = meaning_ir({"regionId": region["id"]}, frozen)
+    merged = meaning_ir(
+        {
+            "regionId": region["id"],
+            "meanings": [],
+            "sourceReviews": [],
+            "baseRevision": None,
+            "changes": [],
+        },
+        frozen,
+        source_inventory(doc, region),
+    )
     assert merged.repeats == frozen.repeats
     assert merged is not frozen
 
@@ -499,7 +522,9 @@ def test_row_candidates_keep_sparse_geometry_and_program_attaches_only_actual_ce
     assert (doc.tables, doc.nodes, payload, value) == original
     assert (
         "rowCandidates"
-        not in meaning_payload(payload, frozen, compiled)["tables"][region["tableRef"]]
+        not in meaning_payload(payload, frozen, compiled, source_inventory(doc, region))["tables"][
+            region["tableRef"]
+        ]
     )
 
 
@@ -804,3 +829,37 @@ def test_nonrecord_pending_budget_and_resume_do_not_repeat_or_erase_table_struct
     )
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert len(model.requests) == 3
+
+
+def test_source_review_does_not_hide_an_explicit_unsupported_disposition():
+    doc, region, _, value = fixture()
+    _, frozen = structural_ir(value, doc, region)
+    inventory = source_inventory(doc, region)
+    ref = inventory["sources"][0]["sourceRef"]
+    candidate = meaning_ir(
+        {
+            "regionId": region["id"],
+            "meanings": [],
+            "baseRevision": None,
+            "changes": [],
+            "sourceReviews": [
+                {
+                    "sourceRefs": [s["sourceRef"] for s in inventory["sources"]],
+                    "role": "no_additional_meaning",
+                    "explanation": "Scripted source review",
+                }
+            ],
+            "dispositions": [
+                {
+                    "sourceRef": ref,
+                    "role": "unsupported",
+                    "explanation": "Explicit conflict",
+                }
+            ],
+        },
+        frozen,
+        inventory,
+    )
+    fragment = compile_region(candidate, doc, region)
+    assert {"code": "node_semantics_unsupported", "sourceRef": ref} in fragment.issues
+    assert not fragment.meaning_review["unreviewed"]

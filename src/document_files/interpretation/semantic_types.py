@@ -10,7 +10,7 @@ from pydantic import Field
 from ..result_types import Contract
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v14"
+COMPILER_VERSION = "document-files.result-compiler.v15"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -64,11 +64,46 @@ class RepeatLink(Contract):
     targetHandle: str | None = None
 
 
+class MeaningSourceRange(Contract):
+    sourceRef: str
+    path: Literal["/text"]
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    text: str = Field(min_length=1)
+    textSHA256: str = Field(pattern="^[0-9a-f]{64}$")
+
+
+class MeaningSourceReview(Contract):
+    sourceRefs: list[str] = Field(min_length=1, max_length=1000)
+    role: Literal["no_additional_meaning", "unresolved"]
+    explanation: str = Field(min_length=1, max_length=500)
+
+
+class MeaningChange(Contract):
+    previousIds: list[str] = Field(min_length=1, max_length=100)
+    replacementIds: list[str] = Field(max_length=100)
+    reviewSourceRefs: list[str] = Field(max_length=1000)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class TableMeaningState(Contract):
+    version: Literal["document-files.table-meaning-review.v1"] = (
+        "document-files.table-meaning-review.v1"
+    )
+    inventorySHA256: str = Field(pattern="^[0-9a-f]{64}$")
+    revisionSHA256: str = Field(pattern="^[0-9a-f]{64}$")
+    sourceReviews: list[MeaningSourceReview] = Field(default_factory=list, max_length=1000)
+    baseRevision: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
+    changes: list[MeaningChange] = Field(default_factory=list, max_length=100)
+
+
 class Meaning(Contract):
     id: str = Field(min_length=1, max_length=120)
     kind: Literal["unit", "condition", "note", "definition", "reference", "relationship"]
     description: str = Field(min_length=1, max_length=2000)
     sourceRefs: list[str] = Field(min_length=1, max_length=100)
+    # Program-resolved literal quotes in the table protocol, never model offsets.
+    sourceRanges: list[MeaningSourceRange] = Field(default_factory=list, max_length=100)
     fieldIds: list[str] = Field(default_factory=list, max_length=200)
     groupIds: list[str] = Field(default_factory=list, max_length=100)
     repeatIds: list[str] = Field(default_factory=list, max_length=100)
@@ -100,6 +135,7 @@ class RegionInterpretation(Contract):
     dispositions: list[Disposition] = Field(default_factory=list, max_length=5000)
     excludedBindings: list[BindingDisposition] = Field(default_factory=list, max_length=2000)
     unresolved: list[str] = Field(default_factory=list, max_length=100)
+    tableMeaningState: TableMeaningState | None = None
 
 
 def region_output_schema(observation, region, target_handles=None, *, compact=True):
@@ -110,6 +146,9 @@ def region_output_schema(observation, region, target_handles=None, *, compact=Tr
     Component IDs remain local semantic decisions, not external JSON pointers.
     """
     schema = RegionInterpretation.model_json_schema()
+    # These are compiler/checkpoint metadata, not the scalar interpretation wire.
+    schema["properties"].pop("tableMeaningState")
+    schema["$defs"]["Meaning"]["properties"].pop("sourceRanges")
     # The typed IR can read historical compact decisions with defaults, while
     # new model responses must explicitly select a binding and presence state.
     schema["$defs"]["FieldLink"]["required"].extend(["bindingId", "status", "valueType"])

@@ -18,6 +18,8 @@ from ..result_types import Assertion, Evidence, SourceBinding, Target
 from .accounting import bound_node_dispositions
 from .bindings import resolve
 from .semantic_types import RegionInterpretation
+from .table_revisions import meaning_revision
+from .table_sources import SourceReviewError, review_ranges, source_inventory
 from .validation import check_schema, escape, leaves, pointer, schema_definitions
 
 
@@ -149,6 +151,7 @@ class CompiledRegion:
     repeat_paths: dict[str, dict] = field(default_factory=dict)
     header_value_bindings: set[str] = field(default_factory=set)
     dropped_fields: dict[str, str] = field(default_factory=dict)
+    meaning_review: dict | None = None
 
 
 def compile_region(ir: RegionInterpretation, observation, region: dict, *, target_schema=None):
@@ -163,6 +166,43 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         by_source.setdefault(candidate["sourceRef"], {})[bid] = candidate
     catalog = target_catalog(target_schema)
     out = CompiledRegion(ir.regionId)
+    if ir.tableMeaningState is not None:
+        state = ir.tableMeaningState
+        if len(ir.repeats) != 1 or not region.get("tableRef"):
+            raise CompileError("table_meaning_review_requires_frozen_table")
+        try:
+            inventory = source_inventory(observation, region)
+            if state.inventorySHA256 != inventory["sha256"]:
+                raise CompileError("table_meaning_source_inventory_changed")
+            if state.revisionSHA256 != meaning_revision(ir):
+                raise CompileError("table_meaning_revision_mismatch")
+            for meaning in ir.meanings:
+                if meaning.sourceRefs != list(
+                    dict.fromkeys(s.sourceRef for s in meaning.sourceRanges)
+                ):
+                    raise CompileError("table_meaning_source_references_mismatch")
+            out.meaning_review = review_ranges(
+                # Literal-span coverage is independent of applicability status.
+                # Scope/content uncertainty remains in semantic details and its
+                # own issues; a later scope decision must not leave a stale
+                # source-review failure for an already quoted phrase.
+                [m.model_dump() | {"status": "interpreted"} for m in ir.meanings],
+                [r.model_dump() for r in state.sourceReviews],
+                inventory,
+            ) | {
+                "version": state.version,
+                "regionId": ir.regionId,
+                "revisionSHA256": state.revisionSHA256,
+            }
+        except SourceReviewError as exc:
+            raise CompileError(str(exc)) from None
+        for key, code in (
+            ("unreviewed", "table_meaning_source_unreviewed"),
+            ("unresolved", "table_meaning_source_unresolved"),
+        ):
+            out.issues.extend({"code": code, "sourceRef": ref} for ref in out.meaning_review[key])
+    elif any(meaning.sourceRanges for meaning in ir.meanings):
+        raise CompileError("table_meaning_review_required_for_source_ranges")
     prefix = ir.regionId + ":"
     groups = {g.id: g for g in ir.groups}
     if len(groups) != len(ir.groups):
@@ -812,9 +852,20 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 "kind": meaning.kind,
                 "scope": [t.model_dump() for t in targets],
                 "sourceRefs": source_refs,
-                "sourceText": [_view_text(nodes, region, ref) for ref in source_refs],
+                "sourceText": [s.text for s in meaning.sourceRanges]
+                if meaning.sourceRanges
+                else [_view_text(nodes, region, ref) for ref in source_refs],
                 **(
                     {
+                        "sourceRanges": [s.model_dump() for s in meaning.sourceRanges],
+                        "surroundingContext": [
+                            {"sourceRef": ref, "text": _view_text(nodes, region, ref)}
+                            for ref in source_refs
+                        ],
+                        "sourceInventorySHA256": ir.tableMeaningState.inventorySHA256,
+                    }
+                    if meaning.sourceRanges
+                    else {
                         "sourceRanges": [
                             {"sourceRef": r, "path": "/text", **region["nodeViews"][r]}
                             for r in source_refs
@@ -853,6 +904,14 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         observation, region, resolved_fields, out.consumed_bindings, header_definition_sources
     )
     for ref in region["nodeIds"]:
+        if (
+            ref not in dispositions
+            and out.meaning_review is not None
+            and any(s["sourceRef"] == ref for s in inventory["sources"])
+        ):
+            # Table meaning is reviewed by exact text range, independently from
+            # the mechanical value/header dispositions preserved below.
+            continue
         disposition = dispositions.get(ref)
         if disposition is None:
             if ref not in derived:

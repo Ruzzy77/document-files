@@ -57,22 +57,31 @@ class CaptionModel:
             }
         else:
             self.meaning_calls += 1
-            caption = next(
-                (
-                    ref
-                    for ref, node in payload["nodes"].items()
-                    if node.get("semanticRole") == "caption"
-                ),
-                None,
-            )
-            value = {"regionId": payload["regionId"], "meanings": []}
+            sources = {s["sourceRef"]: s["text"] for s in payload["meaningSources"]}
+            caption = next((ref for ref, text in sources.items() if "Size uses mm." in text), None)
+            feedback = payload.get("repairFeedback", {})
+            value = {
+                "regionId": payload["regionId"],
+                "meanings": [],
+                "sourceReviews": [
+                    {
+                        "sourceRefs": [ref],
+                        "role": "no_additional_meaning",
+                        "explanation": "Scripted fixture review of preserved data or definition",
+                    }
+                    for ref, text in sources.items()
+                    if ref != caption and text != "Additional context"
+                ],
+                "baseRevision": feedback.get("baseRevision"),
+                "changes": [],
+            }
             if caption:
                 value["meanings"] = [
                     {
                         "id": "unit",
                         "kind": "unit",
                         "description": "Size uses millimeters",
-                        "sourceRefs": [caption],
+                        "sourceQuotes": [{"sourceRef": caption, "text": "Size uses mm."}],
                         "scope": {"kind": "columns", "columnIds": ["size"]},
                         "status": "interpreted",
                     }
@@ -83,13 +92,13 @@ class CaptionModel:
                 if self.mode == "invalid":
                     value["fields"] = []
                 if self.mode != "same" and caption:
-                    value["dispositions"] = [
+                    value["sourceReviews"].append(
                         {
-                            "sourceRef": caption,
-                            "role": "heading",
-                            "explanation": "Table caption and unit statement",
+                            "sourceRefs": [caption],
+                            "role": "no_additional_meaning",
+                            "explanation": "Title remainder; exact unit quote retained",
                         }
-                    ]
+                    )
                 if self.mode == "drop":
                     value["meanings"] = []
                 elif self.mode == "rewrite":
@@ -122,10 +131,12 @@ def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_cont
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["data"] == {"rows": [{"size": "001.2300"}]}
     feedback = model.requests[-1]["repairFeedback"]
-    assert feedback["issues"][0].startswith("node_semantics_unaccounted:")
-    assert feedback["acceptedMeanings"][0]["description"] == "Size uses millimeters"
-    assert feedback["acceptedMeanings"][0]["scope"]["columnIds"] == ["size"]
-    assert "do not remove" in feedback["instruction"]
+    assert any(i.startswith("table_meaning_source_unreviewed:") for i in feedback["issues"])
+    assert feedback["acceptedResponse"]["meanings"][0]["description"] == "Size uses millimeters"
+    assert feedback["acceptedResponse"]["meanings"][0]["scope"]["columnIds"] == ["size"]
+    assert "Correct mistaken" in feedback["instruction"]
+    assert feedback["baseRevision"]
+    assert "sourceQuotes" in feedback["acceptedResponse"]["meanings"][0]
     assert model.requests[1]["frozenStructure"] == model.requests[2]["frozenStructure"]
     rid = next(iter(states[-1]["accepted"]))
     before = next(
@@ -143,7 +154,7 @@ def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_cont
 
 
 @pytest.mark.parametrize("mode", ["drop", "rewrite", "weaken", "scope", "same", "invalid"])
-def test_issue_reduction_cannot_delete_or_weaken_committed_source_statement(mode):
+def test_unexplained_change_cannot_replace_the_previous_source_bound_meaning(mode):
     model, states = CaptionModel(mode), []
     result = run(model, states=states)
     assert len(model.requests) == 3
@@ -171,7 +182,7 @@ def test_global_budget_pause_resumes_only_accounting_repair_with_accepted_statem
     fixed = run(model, restore=states[-1], maxModelCalls=2, additional_budget={"maxModelCalls": 1})
     assert fixed["extraction"]["status"] == "complete", fixed["issues"]
     assert len(model.requests) == 3
-    assert model.requests[-1]["repairFeedback"]["acceptedMeanings"]
+    assert model.requests[-1]["repairFeedback"]["acceptedResponse"]["meanings"]
 
 
 @pytest.mark.parametrize("mode,code", [("timeout", "ai_timeout"), ("cancel", "ai_cancelled")])
@@ -211,9 +222,9 @@ def test_native_value_failure_does_not_cause_meaning_regeneration(monkeypatch):
 def test_structural_change_is_rejected_even_if_accounting_improves(monkeypatch):
     original = engine.meaning_ir
 
-    def malicious(value, frozen):
-        candidate = original(value, frozen)
-        if candidate.dispositions:
+    def malicious(value, frozen, inventory):
+        candidate = original(value, frozen, inventory)
+        if value.get("baseRevision"):
             candidate.repeats = copy.deepcopy(candidate.repeats)
             candidate.repeats[0].columns[0].key = "changed"
         return candidate
@@ -248,8 +259,237 @@ def test_partial_accounting_improvement_is_saved_without_claiming_completion():
     result = run(model, states=states, content=content)
     assert len(model.requests) == 3
     assert result["extraction"]["status"] == "partial"
-    assert len([i for i in result["issues"] if i["code"] == "node_semantics_unaccounted"]) == 1
-    assert len(next(iter(states[-1]["accepted"].values()))["dispositions"]) == 1
+    assert len([i for i in result["issues"] if i["code"] == "table_meaning_source_unreviewed"]) == 1
+    assert (
+        len(next(iter(states[-1]["accepted"].values()))["tableMeaningState"]["sourceReviews"]) == 3
+    )
     assert next(iter(states[-1]["tableStages"].values()))["meaning"]["status"] == "pending"
     run(model, restore=states[-1], content=content)
     assert len(model.requests) == 3
+
+
+class CorrectingModel(CaptionModel):
+    """Wrong first scripted interpretation, not a semantic oracle in production."""
+
+    def __init__(self, mode="split"):
+        super().__init__()
+        self.correction_mode = mode
+
+    def infer(self, request):
+        response = super().infer(request)
+        payload = self.requests[-1]
+        if payload["tableStage"] != "meaning":
+            return response
+        value = json.loads(response.text)
+        caption = value["meanings"][0]["sourceQuotes"][0]["sourceRef"]
+        data = next(s for s in payload["meaningSources"] if s["text"] == "001.2300")
+        if self.meaning_calls == 1:
+            if self.correction_mode == "retract":
+                value["meanings"].append(
+                    {
+                        "id": "false-unit",
+                        "kind": "unit",
+                        "description": "Data summary, not a unit",
+                        "sourceQuotes": [data],
+                        "scope": {"kind": "record"},
+                        "status": "interpreted",
+                    }
+                )
+            else:
+                value["meanings"][0].update(
+                    kind="condition",
+                    description="Measurements and unit treated as one condition",
+                    sourceQuotes=[{"sourceRef": caption, "text": "Measurements; Size uses mm"}],
+                    scope={"kind": "record"},
+                )
+                # The final punctuation remains unresolved, requiring the bounded second review.
+                value["sourceReviews"].append(
+                    {
+                        "sourceRefs": [caption],
+                        "role": "unresolved",
+                        "explanation": "Review requested for the combined interpretation",
+                    }
+                )
+        else:
+            if self.correction_mode == "retract":
+                change = {
+                    "previousIds": ["false-unit"],
+                    "replacementIds": [],
+                    "reviewSourceRefs": [data["sourceRef"]],
+                    "reason": "Already preserved data",
+                }
+            else:
+                value["meanings"][0]["id"] = "correct-unit"
+                value["meanings"].append(
+                    {
+                        "id": "title",
+                        "kind": "definition",
+                        "description": "Table title",
+                        "sourceQuotes": [{"sourceRef": caption, "text": "Measurements"}],
+                        "scope": {"kind": "record"},
+                        "status": "interpreted",
+                    }
+                )
+                change = {
+                    "previousIds": ["unit"],
+                    "replacementIds": ["correct-unit", "title"],
+                    "reviewSourceRefs": [caption],
+                    "reason": "Separate title from unit",
+                }
+            value["changes"] = [change]
+        return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
+
+
+@pytest.mark.parametrize("mode", ["split", "retract"])
+def test_explicit_semantic_correction_is_accepted_without_losing_values(mode):
+    model, states = CorrectingModel(mode), []
+    result = run(model, states=states)
+    assert len(model.requests) == 3
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert result["data"] == {"rows": [{"size": "001.2300"}]}
+    ir = next(iter(states[-1]["accepted"].values()))
+    assert all(m["id"] != "false-unit" for m in ir["meanings"])
+    if mode == "split":
+        assert {m["id"] for m in ir["meanings"]} == {"correct-unit", "title"}
+    history = next(iter(states[-1]["tableStages"].values()))["meaning"]["revisions"]
+    assert len(history) == 2
+    assert (
+        history[0]["tableMeaningState"]["inventorySHA256"]
+        == ir["tableMeaningState"]["inventorySHA256"]
+    )
+    assert result["coverage"]["semanticSourceReviews"][0]["unreviewed"] == []
+
+
+@pytest.mark.parametrize(
+    "mutation", ["remove_history", "history_content", "source_hash", "transition_reason"]
+)
+def test_tampered_meaning_checkpoint_cannot_resume(mutation):
+    model, states = CorrectingModel("retract"), []
+    run(model, states=states)
+    state = copy.deepcopy(states[-1])
+    rid = next(iter(state["accepted"]))
+    history = state["tableStages"][rid]["meaning"]["revisions"]
+    if mutation == "remove_history":
+        history.clear()
+    elif mutation == "history_content":
+        history[0]["meanings"][0]["description"] = "Tampered original meaning"
+    elif mutation == "source_hash":
+        state["accepted"][rid]["tableMeaningState"]["inventorySHA256"] = "0" * 64
+    else:
+        for part in (history[-1], state["accepted"][rid]):
+            part["tableMeaningState"]["changes"][0]["reason"] = "Tampered historical reason"
+    calls = len(model.requests)
+    with pytest.raises(ValueError):
+        run(model, restore=state)
+    assert len(model.requests) == calls
+
+
+def test_embedded_note_is_still_reviewed_after_its_entire_cell_is_read_as_value():
+    class Embedded(CaptionModel):
+        def infer(self, request):
+            response = super().infer(request)
+            payload = self.requests[-1]
+            value = json.loads(response.text)
+            if payload["tableStage"] == "structure":
+                value["record"]["columns"][0]["valueType"] = "string"
+            else:
+                embedded = next(s for s in payload["meaningSources"] if "reinspect" in s["text"])
+                value["sourceReviews"] = [
+                    r
+                    for r in value["sourceReviews"]
+                    if embedded["sourceRef"] not in r["sourceRefs"]
+                ]
+                assert embedded["sourceRef"] in payload["sourceUsage"]["valueRefs"]
+            return InferenceResponse(json.dumps(value), {})
+
+    model = Embedded()
+    content = HTML.replace(b"001.2300", b"001.2300; reinspect after heating")
+    result = run(model, content=content)
+    assert result["data"]["rows"][0]["size"] == "001.2300; reinspect after heating"
+    assert result["extraction"]["status"] == "partial"
+    reviews = result["coverage"]["semanticSourceReviews"][0]
+    assert any("reinspect" in r["text"] and r["role"] == "unreviewed" for r in reviews["ranges"])
+    assert len(model.requests) == 3
+
+
+class ScopeAfterSourceReview(CaptionModel):
+    def __init__(self, mode="scope"):
+        super().__init__()
+        self.review_mode = mode
+        self.scope_calls = 0
+
+    def infer(self, request):
+        payload = json.loads(request.messages[-1]["content"])
+        if "tableStage" not in payload:
+            self.requests.append(payload)
+            self.scope_calls += 1
+            candidate = next(c for c in payload["candidates"] if c["label"] == "Size")
+            return InferenceResponse(
+                json.dumps(
+                    {
+                        "taskId": payload["taskId"],
+                        "decision": "apply",
+                        "targetHandles": [candidate["targetHandle"]],
+                        "sourceRefs": list(
+                            dict.fromkeys(
+                                [
+                                    *payload["statement"]["sourceRefs"],
+                                    *candidate["definitionRefs"],
+                                ]
+                            )
+                        ),
+                        "explanation": "Scripted exact Size scope selection",
+                    }
+                ),
+                {},
+            )
+        response = super().infer(request)
+        if payload["tableStage"] != "meaning":
+            return response
+        value = json.loads(response.text)
+        caption = value["meanings"][0]["sourceQuotes"][0]["sourceRef"]
+        value["sourceReviews"] = [
+            r for r in value["sourceReviews"] if caption not in r["sourceRefs"]
+        ]
+        value["sourceReviews"].append(
+            {
+                "sourceRefs": [caption],
+                "role": "unresolved" if self.review_mode == "source" else "no_additional_meaning",
+                "explanation": "Explicit review of the remainder, separate from applicability",
+            }
+        )
+        if self.review_mode == "scope":
+            value["meanings"][0]["scope"] = {"kind": "unresolved"}
+        elif self.review_mode == "uncertain":
+            value["meanings"][0]["status"] = "uncertain"
+        return InferenceResponse(json.dumps(value), {})
+
+
+def test_direct_quote_scope_can_be_resolved_without_stale_source_uncertainty():
+    model = ScopeAfterSourceReview()
+    result = run(model)
+    assert model.meaning_calls == 1 and model.scope_calls == 1
+    assert len(model.requests) == 3
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert result["data"]["rows"][0]["size"] == "001.2300"
+    review = result["coverage"]["semanticSourceReviews"][0]
+    assert review["unreviewed"] == review["unresolved"] == []
+    assert not any(i["code"].startswith("table_meaning_source_") for i in result["issues"])
+
+
+@pytest.mark.parametrize(
+    "mode,code",
+    [
+        ("source", "table_meaning_source_unresolved"),
+        ("uncertain", "semantic_scope_uncertain"),
+    ],
+)
+def test_explicit_source_or_valid_target_uncertainty_remains_partial(mode, code):
+    model = ScopeAfterSourceReview(mode)
+    result = run(model)
+    assert result["extraction"]["status"] == "partial"
+    assert any(i["code"] == code for i in result["issues"])
+    assert result["data"]["rows"][0]["size"] == "001.2300"
+    assert model.scope_calls == 0
+    review = result["coverage"]["semanticSourceReviews"][0]
+    assert bool(review["unresolved"]) is (mode == "source")

@@ -815,7 +815,21 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
                     }
                 )
             if payload.get("tableStage") == "meaning":
-                return json.dumps({"regionId": payload["regionId"]})
+                return json.dumps(
+                    {
+                        "regionId": payload["regionId"],
+                        "meanings": [],
+                        "baseRevision": None,
+                        "changes": [],
+                        "sourceReviews": [
+                            {
+                                "sourceRefs": [s["sourceRef"] for s in payload["meaningSources"]],
+                                "role": "no_additional_meaning",
+                                "explanation": "Scripted plain values",
+                            }
+                        ],
+                    }
+                )
             answer = {
                 "regionId": payload["regionId"],
                 "dispositions": [
