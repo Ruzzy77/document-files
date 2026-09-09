@@ -19,6 +19,9 @@
   entry and non-PIE checks. Default/executable paths remain strict; stage declarations
   cannot relabel an executable to bypass them. Preserve the original binary, ABI
   ceilings and loader rejection; this policy is not full-stage execution approval.
+- Distinguish a wheel's top-level distribution metadata from vendored `dist-info`
+  files. Preserve vendored metadata as package data instead of treating it as an
+  extra installed distribution or rejecting a valid wheel as ambiguous.
 - Add an explicit, hash-pinned ARM torchvision derivative recipe. Restore five codec
   references to the system loader in a new build-tagged wheel, preserve the original
   input and licenses, and regenerate RECORD with a derivation receipt. This is not

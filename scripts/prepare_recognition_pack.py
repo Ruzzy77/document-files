@@ -94,6 +94,18 @@ def load(path: Path) -> dict:
     return result
 
 
+def distribution_metadata_path(name: str) -> bool:
+    """Only a distribution's direct dist-info, not vendored package data."""
+    return re.fullmatch(r"[^/\\]+\.dist-info/METADATA", name) is not None
+
+
+def wheel_metadata(archive: zipfile.ZipFile):
+    names = [name for name in archive.namelist() if distribution_metadata_path(name)]
+    if len(names) != 1:
+        raise PackError("recognition_invalid_wheel")
+    return Parser().parsestr(archive.read(names[0]).decode())
+
+
 def verified_file(root: Path, reference: dict) -> Path:
     path = root / safe_relative(reference["path"])
     if any(p.is_symlink() for p in (path, *path.parents)) or not path.is_file():
@@ -204,8 +216,7 @@ def verify_arm_cpu_wheel(stage, files, sources, wheel_origins, provenance):
             for name in names
         ):
             raise PackError("recognition_gpu_wheel")
-        metadata = [name for name in names if name.endswith(".dist-info/METADATA")]
-        meta = Parser().parsestr(archive.read(metadata[0]).decode())
+        meta = wheel_metadata(archive)
         if any(
             re.search(r"nvidia|cuda|rocm|triton", dep, re.I)
             for dep in meta.get_all("Requires-Dist", [])
@@ -378,10 +389,7 @@ def verify_stage(
             if path.suffix != ".whl":
                 raise PackError("recognition_unlocked_wheel")
             with zipfile.ZipFile(path) as archive:
-                names = [n for n in archive.namelist() if n.endswith(".dist-info/METADATA")]
-                if len(names) != 1:
-                    raise PackError("recognition_invalid_wheel")
-                meta = Parser().parsestr(archive.read(names[0]).decode())
+                meta = wheel_metadata(archive)
                 package = re.sub(r"[-_.]+", "-", meta.get("Name", "")).lower()
                 version = meta.get("Version", "")
                 if re.search(r"nvidia|cuda|rocm|triton", package, re.I):
@@ -413,7 +421,7 @@ def verify_stage(
                 "executable": name in declaration.get("executables", []),
             }
         )
-        if name.endswith(".dist-info/METADATA"):
+        if distribution_metadata_path(name.partition("/site-packages/")[2]):
             meta = Parser().parsestr(path.read_text())
             package = (re.sub(r"[-_.]+", "-", meta["Name"]).lower(), meta["Version"])
             if wheel_origins.get(item.get("sourceSha256")) != package:

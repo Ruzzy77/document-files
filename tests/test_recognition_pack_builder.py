@@ -612,3 +612,57 @@ def test_declared_executable_cannot_be_relabelled_shared_library(fixture):
     f["rows"]["python/bin/python"]["nativeRole"] = "shared-library"
     with pytest.raises(tool.PackError, match="recognition_foreign_native_binary"):
         f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "target", ["linux-x86_64", "linux-aarch64", "windows-x86_64", "macos-aarch64"]
+)
+def test_vendored_dist_info_is_data_not_an_extra_installed_wheel(fixture, target):
+    _, create = fixture
+    f = create(target)
+    old = next(digest for digest, path in f["sources"].items() if path.name.startswith("docling-"))
+    wheel = f["sources"].pop(old)
+    member = "docling/_vendor/example-1.dist-info/METADATA"
+    data = b"Name: example\nVersion: 1\n"
+    with zipfile.ZipFile(wheel, "a") as archive:
+        archive.writestr(member, data)
+    digest = sha(wheel.read_bytes())
+    f["sources"][digest] = wheel
+    for row in f["source_rows"] + f["provenance"]:
+        if row["sha256"] == old:
+            row["sha256"] = digest
+    for row in f["files"]:
+        if row["sourceSha256"] == old:
+            row["sourceSha256"] = digest
+    f["lock_path"].write_text(f["lock_path"].read_text().replace(old, digest))
+    f["audit"]["wheelLock"]["sha256"] = sha(f["lock_path"].read_bytes())
+    f["add"]("python/lib/site-packages/" + member, data, digest)
+    f["verify"]()
+    assert (f["stage"] / "python/lib/site-packages" / member).read_bytes() == data
+
+
+@pytest.mark.parametrize("top_level", [[], ["one-1.dist-info", "two-2.dist-info"]])
+def test_vendored_metadata_cannot_replace_or_disambiguate_top_level(
+    tmp_path, monkeypatch, top_level
+):
+    tool = module(monkeypatch)
+    path = tmp_path / "example.whl"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("pkg/_vendor/pkg-1.dist-info/METADATA", "Name: pkg\nVersion: 1\n")
+        for name in top_level:
+            archive.writestr(name + "/METADATA", "Name: pkg\nVersion: 1\n")
+    with (
+        zipfile.ZipFile(path) as archive,
+        pytest.raises(tool.PackError, match="recognition_invalid_wheel"),
+    ):
+        tool.wheel_metadata(archive)
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["pkg/_vendor/pkg-1.dist-info/METADATA", "pkg\\pkg-1.dist-info/METADATA", "METADATA"],
+)
+def test_only_direct_distribution_metadata_is_counted(monkeypatch, path):
+    tool = module(monkeypatch)
+    assert not tool.distribution_metadata_path(path)
+    assert tool.distribution_metadata_path("pkg-1.dist-info/METADATA")
