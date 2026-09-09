@@ -14,6 +14,15 @@
 - Reject bundled Linux ELF `ld-linux*.so` files, including hash-renamed copies, during
   recognition-stage verification. System loader references remain allowed; other
   loader aliases and redistribution conditions still need independent review.
+- Add an explicit, hash-pinned ARM torchvision derivative recipe. Restore five codec
+  references to the system loader in a new build-tagged wheel, preserve the original
+  input and licenses, and regenerate RECORD with a derivation receipt. This is not
+  target execution or redistribution approval.
+- Add bounded native PDF object/stream inspection and a narrow missing-cell blank
+  decision (recognition adapter v21). Require a complete supported source inventory,
+  four unique closed native borders and a fully observed opaque-white interior.
+  Preserve original values and resolved issue evidence; scans, ambiguous content and
+  global completeness remain unverified.
 - Add bounded Linux recognition-input checking/acquisition with explicit inventory
   hashes, official origins, local-byte verification and owned-worker cleanup. Default
   inspection is offline; this does not assemble or approve a recognition stage.

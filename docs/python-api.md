@@ -285,6 +285,18 @@ change the source PDF page. Incomplete or failed output remains evidence, not a
 completed or reusable observation. Prior policy identities cannot resume as this
 contract. These are internal observation records; the public result v1 is unchanged.
 
+Adapter v21 additionally records `document-files.pdf-native-objects.v1` and
+`document-files.native-cell-decision.v1`. The first is a bounded, original-byte
+inventory of supported PDF content streams and native objects, not whole-document
+completeness. Missing unmerged cells can be added as exact empty-string observations
+only when the same source/page has a complete supported inventory, four unique
+closed native borders, no other touching content and a fully opaque-white observed
+interior. Only that table's missing-cell count is reduced; the original issue and
+per-cell evidence remain in provenance. An empty source cell does not mean absent,
+zero or not applicable. Existing OCR text and global completeness warnings remain.
+Unsupported content, rotation, ambiguous geometry, missing pixels or budget limits
+prevent this decision. Earlier recognition adapter checkpoints cannot be resumed.
+
 Adapter v20 emits `document-files.cell-observation.v2` records. It inspects existing
 canvas pixels for the full cell, interior, OCR window and remaining edge bands without
 additional rendering. Frame creation and observation share one actual full-canvas

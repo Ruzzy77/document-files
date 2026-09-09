@@ -29,6 +29,9 @@ def _native_pdf(doc: ObservationDocument, content: bytes) -> list[str]:
     except ImportError:
         doc.issue("pdf_native_geometry_runtime_unavailable")
         return []
+    from .pdf_native_objects import inventory_pdf_native_objects
+
+    doc.provenance["pdfNativeObjects"] = inventory_pdf_native_objects(content)
     ids = []
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         for page_number, page in enumerate(pdf.pages, 1):
@@ -669,6 +672,11 @@ def observe_pdf(doc: ObservationDocument, content: bytes, *, recognition=None) -
                     "cellObservationOCRLinks"
                 ),
                 source_payload=page_result.get("sourceObservations"),
+            )
+            from .recognition_native_cells import import_native_blank_cells
+
+            page_ids.extend(
+                import_native_blank_cells(doc, source_hash=source_hash, page=page, prefix=prefix)
             )
             source_ids = import_source_observations(
                 doc,

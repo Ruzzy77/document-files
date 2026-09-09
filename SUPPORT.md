@@ -60,6 +60,13 @@ remain unverified partial files; a successful CI upload is not a verified local 
 stages, CPU-only four-core/16 GiB execution,
 installation/rollback and client use remain unqualified.
 
+An explicit ARM torchvision derivative was prepared from the pinned CPU wheel in a
+new output location. It restores five codec loader references and omits the now
+unreferenced bundled loader; 190 other members, package metadata and the original
+license remain byte-identical. The new build tag is `1dfarmloader1`. Static RECORD
+and byte checks passed; actual ARM imports/codecs and component redistribution
+conditions remain pending. The original wheel and installed environments are unchanged.
+
 The Linux input preparation helper checks an approved inventory and requires explicit
 byte, disk and time limits. Its default is offline inspection; acquisition and network
 access require separate flags. It neither installs inputs nor approves a stage. The
