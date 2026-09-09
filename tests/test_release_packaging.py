@@ -188,6 +188,6 @@ def test_stable_builder_rejects_dirty_source_but_development_is_explicit(monkeyp
 
 
 def test_builder_builds_wheel_instead_of_accepting_one():
-    body = (ROOT / "scripts/build_release.py").read_text()
+    body = (ROOT / "scripts/build_release.py").read_text(encoding="utf-8")
     assert 'command(args.uv, "build", "--out-dir", output, cwd=ROOT)' in body
     assert "if not wheel.is_file()" not in body

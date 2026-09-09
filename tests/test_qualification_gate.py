@@ -107,6 +107,7 @@ def evidence(tmp_path):
             **identity,
             "schemaVersion": "document-files.image-build.v1",
             "imageDigest": "sha256:" + "5" * 64,
+            "imageId": "sha256:" + "6" * 64,
             "archiveSha256": image_sha,
         },
     )
@@ -118,6 +119,7 @@ def evidence(tmp_path):
             "path": image.name,
             "sha256": image_sha,
             "imageDigest": "sha256:" + "5" * 64,
+            "imageId": "sha256:" + "6" * 64,
             "buildReceipt": image_receipt,
         }
     )
@@ -321,6 +323,7 @@ def evidence(tmp_path):
             path.write_text(json.dumps(report))
             review_ref = None
             execution_ref = None
+            container_ref = None
             if name.endswith("_model"):
                 review_ref = write(
                     f"review-{name}.json",
@@ -369,12 +372,53 @@ def evidence(tmp_path):
                         ],
                     },
                 )
+                container_ref = write(
+                    f"container-{name}.json",
+                    {
+                        **identity,
+                        "schemaVersion": "document-files.container-identity.v1",
+                        "collectorSha256": hashlib.sha256(
+                            (ROOT / "scripts/capture_container_identity.py").read_bytes()
+                        ).hexdigest(),
+                        "artifacts": report["artifacts"],
+                        "artifactInventory": inventory_ref,
+                        "executionRunId": report["executionRunId"],
+                        "executionReceipt": execution_ref,
+                        "containerReceiptSha256": execution_ref["sha256"],
+                        "imageArtifactId": "image",
+                        "imageArtifactSha256": image_sha,
+                        "imageId": "sha256:" + "6" * 64,
+                        "containerId": "c" * 64,
+                        "imageInspect": {
+                            "imageId": "sha256:" + "6" * 64,
+                            "repoDigests": ["registry/image@sha256:" + "5" * 64],
+                        },
+                        "dockerInspect": {
+                            "containerId": "c" * 64,
+                            "imageId": "sha256:" + "6" * 64,
+                            "running": False,
+                            "status": "exited",
+                            "startedAt": "2026-09-09T00:00:00Z",
+                            "finishedAt": "2026-09-09T00:01:00Z",
+                            "user": "10001:10001",
+                            "memory": 16 * 1024**3,
+                            "memorySwap": 16 * 1024**3,
+                            "networkMode": "none",
+                            "readOnlyRoot": True,
+                            "privileged": False,
+                            "deviceCount": 0,
+                            "deviceRequestCount": 0,
+                            "mounts": [],
+                        },
+                    },
+                )
             checks.append(
                 {
                     "id": name,
                     "passed": True,
                     "review": review_ref,
                     "executionReceipt": execution_ref,
+                    "containerIdentityReceipt": container_ref,
                     "evidence": {
                         "path": path.name,
                         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),

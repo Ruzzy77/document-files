@@ -6,8 +6,11 @@ import json
 import os
 import signal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+
+POSIX_KILL = 9
 
 
 @pytest.fixture
@@ -16,6 +19,8 @@ def recorder():
     spec = importlib.util.spec_from_file_location("cpu_recorder", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # These fake-child contracts target Linux signals even when collected on Windows.
+    module.signal = SimpleNamespace(SIGTERM=signal.SIGTERM, SIGKILL=POSIX_KILL)
     return module
 
 
@@ -219,7 +224,7 @@ def test_command_success_or_crash_preserves_raw_and_receipt(
     assert receipt["execution"] == observed
     assert observed["exitCode"] == code
     assert observed["measurementComplete"] is True and observed["recorderErrors"] == []
-    assert signals == [(child.pid, signal.SIGTERM), (child.pid, signal.SIGKILL)]
+    assert signals == [(child.pid, signal.SIGTERM), (child.pid, POSIX_KILL)]
 
 
 def test_timeout_kills_owned_process_group_and_retains_failure(
@@ -235,7 +240,7 @@ def test_timeout_kills_owned_process_group_and_retains_failure(
     )
     assert_receipt(recorder, tmp_path, output)
     assert observed["timedOut"] and observed["exitCode"] == -signal.SIGTERM
-    assert child.waits and signals[-1] == (child.pid, signal.SIGKILL)
+    assert child.waits and signals[-1] == (child.pid, POSIX_KILL)
 
 
 @pytest.mark.parametrize(
@@ -368,12 +373,12 @@ def test_cleanup_escalates_to_kill_after_term_timeout(recorder, monkeypatch):
         calls.append(timeout)
         if len(calls) == 1:
             raise subprocess.TimeoutExpired("synthetic", timeout)
-        child.returncode = -signal.SIGKILL
+        child.returncode = -POSIX_KILL
         return child.returncode
 
     child.wait = wait
     signals = []
     monkeypatch.setattr(recorder.os, "killpg", lambda pid, sig: signals.append(sig), raising=False)
     recorder.stop_child(child)
-    assert signals == [signal.SIGTERM, signal.SIGKILL]
-    assert child.returncode == -signal.SIGKILL
+    assert signals == [signal.SIGTERM, POSIX_KILL]
+    assert child.returncode == -POSIX_KILL

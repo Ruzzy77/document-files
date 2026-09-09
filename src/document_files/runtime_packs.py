@@ -353,7 +353,11 @@ class PackStore:
                     raise PackError("pack_archive_limit")
                 names = set()
                 for info in infos:
-                    name = safe_relative(info.filename)
+                    # ZipInfo may normalize Windows separators or truncate a NUL.
+                    # Validate the original archive name before accepting any rewritten name.
+                    name = safe_relative(info.orig_filename)
+                    if name != info.filename:
+                        raise PackError("pack_unsafe_path")
                     mode = info.external_attr >> 16
                     if (
                         info.is_dir()

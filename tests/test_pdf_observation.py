@@ -1151,7 +1151,11 @@ def test_ocr_spooled_stdout_enforces_byte_limit_and_timeout():
     from document_files.document_model.table_ocr_repair import bounded_tsv, parse_tsv
 
     assert (
-        bounded_tsv([sys.executable, "-c", "print('public')"], timeout=3, max_bytes=100)
+        bounded_tsv(
+            [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'public\\n')"],
+            timeout=3,
+            max_bytes=100,
+        )
         == b"public\n"
     )
     with pytest.raises(ValueError, match="output budget"):

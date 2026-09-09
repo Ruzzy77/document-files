@@ -344,8 +344,13 @@ def artifact_inventory(document: dict, root: Path, commit: str, version: str) ->
             if (
                 build.get("schemaVersion") != "document-files.image-build.v1"
                 or build.get("archiveSha256") != asset["sha256"]
-                or not re.fullmatch(r"sha256:[a-f0-9]{64}", asset.get("imageDigest", ""))
-                or build.get("imageDigest") != asset["imageDigest"]
+                or (
+                    asset.get("imageDigest") is not None
+                    and not re.fullmatch(r"sha256:[a-f0-9]{64}", asset["imageDigest"])
+                )
+                or build.get("imageDigest") != asset.get("imageDigest")
+                or not re.fullmatch(r"sha256:[a-f0-9]{64}", asset.get("imageId", ""))
+                or build.get("imageId") != asset["imageId"]
             ):
                 raise ValueError("Image artifact identity mismatch")
         elif kind != "metadata":
@@ -537,6 +542,58 @@ def _execution(
     return {**report, "execution": receipt["execution"]}
 
 
+def _container_identity(report: dict, item: dict, root: Path, assets: dict) -> None:
+    ref = item.get("containerIdentityReceipt")
+    if not isinstance(ref, dict):
+        raise ValueError("Independent host Docker identity receipt required")
+    _, host = _linked(root, ref["path"], ref["sha256"])
+    _identity(host, report["sourceCommit"], report["version"])
+    image = assets.get(host.get("imageArtifactId"), {})
+    actual = host.get("dockerInspect", {})
+    if (
+        host.get("schemaVersion") != "document-files.container-identity.v1"
+        or host.get("collectorSha256")
+        != hashlib.sha256((ROOT / "scripts/capture_container_identity.py").read_bytes()).hexdigest()
+        or host.get("artifacts") != report["artifacts"]
+        or host.get("artifactInventory") != report["artifactInventory"]
+        or host.get("executionRunId") != report["executionRunId"]
+        or host.get("executionReceipt") != item["executionReceipt"]
+        or host.get("containerReceiptSha256") != item["executionReceipt"]["sha256"]
+        or host.get("imageArtifactId") not in report["artifacts"]
+        or image.get("kind") != "image"
+        or host.get("imageArtifactSha256") != image.get("sha256")
+        or host.get("imageId") != image.get("imageId")
+        or actual.get("imageId") != image.get("imageId")
+        or host.get("imageInspect", {}).get("imageId") != image.get("imageId")
+        or not re.fullmatch(r"[a-f0-9]{64}", host.get("containerId", ""))
+        or actual.get("containerId") != host["containerId"]
+    ):
+        raise ValueError("Host receipt does not bind this actual container/image/run")
+    execution = report["execution"]
+    if (
+        actual.get("status") not in {"running", "exited"}
+        or not actual.get("startedAt")
+        or actual["startedAt"].startswith("0001-")
+        or actual.get("networkMode") != "none"
+        or actual.get("readOnlyRoot") is not True
+        or actual.get("privileged") is not False
+        or actual.get("memory") != execution["memoryCeilingBytes"]
+        or actual.get("memorySwap") != execution["memoryCeilingBytes"]
+        or type(actual.get("deviceCount")) is not int
+        or actual["deviceCount"] != 0
+        or type(actual.get("deviceRequestCount")) is not int
+        or actual["deviceRequestCount"] != 0
+    ):
+        raise ValueError("Actual host container isolation differs from measured CPU run")
+    for mount in actual.get("mounts", []):
+        destination = mount["destination"]
+        if destination == "/" or any(
+            destination == prefix or destination.startswith(prefix + "/")
+            for prefix in ("/usr", "/opt", "/lib", "/bin", "/sbin")
+        ):
+            raise ValueError("Container mount overrides image executable content")
+
+
 def check(manifest: Path, evidence_root: Path, source_commit: str, version: str) -> None:
     document = json.loads(manifest.read_text(encoding="utf-8"))
     if (
@@ -580,6 +637,7 @@ def check(manifest: Path, evidence_root: Path, source_commit: str, version: str)
                     item["evidence"]["sha256"],
                     item["executionReceipt"],
                 )
+                _container_identity(report, item, evidence_root, assets)
             _actual_model(report, name, path, evidence_root)
         else:
             _operational(report, name, evidence_root, assets)

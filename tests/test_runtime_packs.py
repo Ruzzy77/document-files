@@ -113,7 +113,10 @@ def test_hostile_paths_rejected_before_install(tmp_path, name):
     store = PackStore(tmp_path / "store")
     archive = fixture_pack(tmp_path)
     with zipfile.ZipFile(archive, "a") as bundle:
-        bundle.writestr(name, b"evil")
+        # ZipInfo constructor normalizes backslashes on Windows; keep raw hostile bytes.
+        info = zipfile.ZipInfo()
+        info.filename = info.orig_filename = name
+        bundle.writestr(info, b"evil")
     with pytest.raises(PackError, match="unsafe_path"):
         install(store, archive)
     assert not (store.root / "packs").exists()
@@ -215,6 +218,9 @@ def installed_cpu_packs(tmp_path):
 def test_private_cpu_command_and_guaranteed_shutdown(tmp_path):
     store = installed_cpu_packs(tmp_path)
     with (
+        # Isolate launch-command assertions from private_fs's real SID subprocess.
+        # Native private-storage behavior is exercised by PackStore above and its tests.
+        patch("document_files.runtime_packs.private_path"),
         patch("document_files.runtime_packs.subprocess.Popen") as popen,
         patch("document_files.runtime_packs.WindowsJob") as job,
         patch("document_files.runtime_packs.kill_process_tree") as kill,
@@ -246,6 +252,9 @@ def test_private_cpu_command_and_guaranteed_shutdown(tmp_path):
 def test_thread_settings_are_explicit_flags_and_fail_closed(tmp_path):
     store = installed_cpu_packs(tmp_path)
     with (
+        # Isolate launch-command assertions from private_fs's real SID subprocess.
+        # Native private-storage behavior is exercised by PackStore above and its tests.
+        patch("document_files.runtime_packs.private_path"),
         patch("document_files.runtime_packs.subprocess.Popen") as popen,
         patch("document_files.runtime_packs.WindowsJob"),
         patch("document_files.runtime_packs.kill_process_tree"),

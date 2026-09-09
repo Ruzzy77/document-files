@@ -158,6 +158,16 @@ and network-isolation checks, child-process termination and pack integrity. A
 resource-bounded process that loses content is **not** a quality pass. A good result
 with an OOM event, swap use or missing bound evidence is **not** a 16 GiB pass.
 
+Before stopping/removing the dedicated container, collect its host-side identity
+with `scripts/capture_container_identity.py` using the explicit full Docker container
+ID, trusted aggregate inventory SHA256, selected image artifact ID, host recorder
+receipt and that same receipt's container path. Add its immutable reference as the
+`local_model` check's `containerIdentityReceipt`. See [release identity instructions](RELEASE.md#actual-container-image-identity-is-collected-on-its-host).
+The collector compares actual Docker `.Image` to the inventory/build receipt's
+`imageId`; registry RepoDigests are recorded separately. It does not obtain image
+identity from an in-container environment variable or claim that a prepared image
+was actually built/qualified. Do not substitute the plain-image CI preflight.
+
 Stop the dedicated container after collecting evidence. Keep the image, immutable
 packs, original provision and result/receipt; remove only this run's temporary
 container and scratch copies. Docker install/upgrade/rollback and host-published

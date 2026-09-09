@@ -63,9 +63,14 @@ pipeline artifact. Kinds are `core`, `runtime`, `recognition`, `model`, `image` 
 `metadata`. Pack entries also require `manifestSha256` and `target`; the actual
 archive's manifest and clean product build identity are checked. Model target is
 `any`. Core receipts must be stable `document-files.build-inventory.v2` receipts
-whose target and filename/hash match. Image entries require `imageDigest` and a
-`document-files.image-build.v1` build receipt containing the clean product identity,
-`archiveSha256` and matching `imageDigest`.
+whose target and filename/hash match. Image entries require the actual Docker
+`imageId` and a `document-files.image-build.v1` build receipt containing the clean
+product identity, `archiveSha256` and matching `imageId`. `imageId` is Docker's
+content-addressed configuration ID, not a registry manifest digest. Optional
+`imageDigest` must agree with the build receipt when an independently established
+manifest digest exists; do not invent it for a locally built image with no registry
+RepoDigest. The final image build/export wrapper and a qualified final image remain
+unimplemented/unverified; these fields define evidence requirements, not completion.
 
 Every execution/installed report lists the **used** inventory IDs in `artifacts` and
 repeats the exact aggregate `artifactInventory` reference. Bind core + runtime +
@@ -114,6 +119,38 @@ ChatGPT may instead declare `aiExtraction: "not-supported"`, with actual native
 processing and `unsupported_ai_is_explicit` checks, no `aiResult`, and no successful
 `extraction_result` check. This does not qualify ChatGPT AI extraction or reduce CPU
 model coverage.
+
+## Actual container image identity is collected on its host
+
+The `local_model` check also requires `containerIdentityReceipt: {path, sha256}`.
+After the recorder finishes and before removing its dedicated container, run on the
+Docker host (not inside the container):
+
+```sh
+python scripts/capture_container_identity.py \
+  --evidence-root /evidence --artifact-inventory /evidence/artifact-inventory.json \
+  --inventory-sha256 TRUSTED_INVENTORY_SHA256 --image-artifact product-image \
+  --execution-receipt /evidence/cpu-run/receipt.json \
+  --container-id FULL_64_HEX_CONTAINER_ID \
+  --container-receipt-path /evidence/cpu-run/receipt.json \
+  --output /evidence/container-identity.json
+```
+
+The host path and container path may differ; name the same original recorder receipt
+at both locations. The tool reads only a fixed `docker inspect` projection and that
+explicit receipt from the container. It records actual `.Image`, container ID,
+separate image `RepoDigests`, limited isolation fields and mount destinations. It
+never requests environment variables, full commands or mount-source paths. The
+container must have actually started; names, supplied environment claims, changed
+container state and a different receipt fail closed. The tool does not start,
+modify or remove containers, and existing evidence is not overwritten.
+
+The gate binds this host receipt to the original run ID, resource receipt SHA256,
+selected image archive and actual image ID. It also rejects mounts that override
+image executable directories. This is image/run identity evidence, not a model
+quality pass, source-build attestation or proof of a hostile operator's honesty.
+The plain preparation-image CPU preflight still does not qualify a final product
+image or local model, and this tool must not relabel that preflight as such.
 
 ## Large archives: transport parts only
 
