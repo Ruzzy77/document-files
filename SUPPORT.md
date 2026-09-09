@@ -79,7 +79,7 @@ not trigger another attempt without an explicit grant. Repair feedback now inclu
 the exact remaining source ranges, their text and hashes, not only source IDs.
 The program does not decide that a title has no further meaning or repair a wrong
 quote occurrence automatically. This scheduling change has scripted regression
-coverage; its fresh full-path model check remains pending.
+coverage; the fresh model run described below did not reach post-acceptance review.
 
 Two full-path development runs used 2 calls each (148.2 and 146.5 seconds) within a
 preselected 5-call / 900-second limit. Both reported complete but failed separate
@@ -131,6 +131,16 @@ complete extraction or independent/final-candidate qualification. Repeat-level d
 cell references were reviewed as relevant evidence of the same table's rows/structure;
 their presence alone is not an unrelated-source failure. Column-name and value
 provenance were checked separately.
+
+At clean source 4f07271, one new full-path run stopped at the same 900-second budget
+after two calls (900.94 seconds including cleanup). Structure was accepted after
+797.99 seconds with exact rows, precision and header/value sources; meaning timed
+out in the remaining 101.92 seconds. Thus neither full meaning quality nor the new
+post-acceptance review was verified. The first request differed only in table protocol
+version and again had 2,088 input tokens. Measured prompt processing was 12.05 tok/s
+and generation 2.61 tok/s, substantially slower than the previous run. A single host
+snapshot recorded swap use, but does not establish the cause. No automatic rerun or
+budget increase followed; the server was closed and the partial result preserved.
 
 Recognition adapter v12 added measured framework render/crop/rotation and cell-input
 links to the serialized single-page PDF and original page. A fresh two-page OCR run
@@ -203,11 +213,15 @@ Windows native preparation passed. Candidate attestation was skipped. At 1da72ad
 native preparation and the Linux-only delivery step also passed. The downloaded ZIP
 matched the API SHA, and its files, sources, notices and recorded startup image were
 checked against that exact source. Full recognition-stage and redistribution review
-remain pending. Core CI passed Linux, Windows and Apple Silicon; Intel Mac was still
-running at the latest check. Different commits are not combined into one candidate.
+remain pending. Core CI subsequently passed all four platforms at 1da72ad. New 4f07271
+CI passed pack contracts and three OS regression suites, but Windows regression
+failed because Linux ZIP execute bits were checked through Windows-extracted file
+permissions. The builder now checks the safe archive's recorded mode; actual image
+execution checks remain unchanged. Direct regressions pass without adding skips,
+but Windows CI must rerun. These are development runs, not one final candidate.
 
 After table protocol v8, adapter v17 and image-build v2 integration, core regression
-passed **1,073 tests, with 70 skipped and 12 subtests**; full Ruff and formatting checks
+passed **1,075 tests, with 70 skipped and 12 subtests**; full Ruff and formatting checks
 passed. The separate recognition-runtime overlay passed 127 PDF/OCR tests. Core skips include optional recognition dependencies and actual
 Windows process checks; they do not waive target-environment verification. No final
 candidate has been fixed or published, and Toolkit/Sync consumption is unchanged.

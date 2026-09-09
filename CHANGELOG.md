@@ -32,7 +32,8 @@
 - Separate initial meaning retries from one post-acceptance review within the existing
   document budget. Supply exact remaining source ranges and preserve accepted content
   on failure or no progress; reject incompatible old stage checkpoints. The new path
-  has scripted regression coverage, not yet a fresh full-model qualification.
+  has scripted regression coverage. Its fresh full run retained exact structure but
+  timed out before returning meaning, so actual post-acceptance review remains unverified.
 - Add an optional finite per-block reasoning limit for managed inference, consistently
   applied to template checks, inference and checkpoint identity. Keep the non-thinking
   default and total output ceiling; incomplete final answers remain failures.
@@ -51,6 +52,9 @@
 - Include the exact portable core's patched Linux HWP backend and notices in images.
   Image-build v2 binds core ZIP/source/wheel and actual installed native checks;
   real Docker/HWP execution and full license approval remain pending.
+- Inspect portable Linux executable permissions from the verified ZIP, not a Windows
+  extraction host's file mode. Preserve actual image execution checks and add direct
+  cross-host permission regressions; actual Windows rerun remains pending.
 
 - Require explicit roles for actual non-fixed table rows and distinguish native
   header declarations from OCR predictions (prompt v19, planner v13, table protocol v5).

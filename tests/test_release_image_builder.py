@@ -659,6 +659,37 @@ def test_native_inputs_are_checked_even_with_updated_core_archive_hash(
     assert receipt["status"] == "failed" and receipt["imageId"] is None
 
 
+@pytest.mark.parametrize("archive_mode,host_mode", [(0o755, 0o644), (0o644, 0o755)])
+def test_portable_native_permissions_come_from_zip_not_extraction_host(
+    inputs, monkeypatch, archive_mode, host_mode
+):
+    def change(entries):
+        for info, _ in entries:
+            if info.filename == "document-files/rhwp/rhwp":
+                info.external_attr = (0o100000 | archive_mode) << 16
+        return entries
+
+    rewrite_portable(inputs, change)
+    original_chmod = Path.chmod
+    applied = []
+
+    def host_chmod(path, mode, **kwargs):
+        if path.name == "rhwp" and path.parent.name == "rhwp":
+            applied.append(mode)
+            mode = host_mode
+        return original_chmod(path, mode, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", host_chmod)
+    args = (inputs.core_archive, COMMIT, "1.8.0", builder.sha(inputs.wheel))
+    if archive_mode & 0o111:
+        files, identity = builder.portable_rhwp(*args)
+        assert hashlib.sha256(files["rhwp"]).hexdigest() == identity["files"]["rhwp"]
+    else:
+        with pytest.raises(ValueError, match="Portable rhwp bytes, executable target"):
+            builder.portable_rhwp(*args)
+    assert applied == [archive_mode]
+
+
 @pytest.mark.parametrize("field", ["path", "version", "files"])
 def test_wrong_installed_native_proof_removes_probe_and_rejects_image(inputs, monkeypatch, field):
     original = fake_docker(inputs, [])

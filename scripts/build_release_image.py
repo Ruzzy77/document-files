@@ -171,6 +171,11 @@ def portable_rhwp(archive, commit, version, wheel_sha, patch_sha=None):
     with tempfile.TemporaryDirectory(prefix="document-files-image-core-") as folder:
         unpacked = Path(folder)
         helper.unpack(archive, unpacked)
+        # The bounded unpacker has checked paths, duplicates and file types.
+        # Windows extraction cannot preserve Unix execute bits; inspect the
+        # Linux archive's declared mode, not this inspection host's stat mode.
+        with zipfile.ZipFile(archive) as source:
+            executable_mode = source.getinfo("document-files/rhwp/rhwp").external_attr >> 16
         base = unpacked / "document-files"
         build = read_json(base / "BUILD.json")
         native = read_json(base / "rhwp/build.json")
@@ -195,7 +200,7 @@ def portable_rhwp(archive, commit, version, wheel_sha, patch_sha=None):
             len(raw) < 20
             or raw[:6] != b"\x7fELF\x02\x01"
             or int.from_bytes(raw[18:20], "little") != 62
-            or not (base / "rhwp/rhwp").stat().st_mode & 0o111
+            or not executable_mode & 0o111
             or hashlib.sha256(raw).hexdigest() != native.get("binarySha256")
             or not files["LICENSE"].strip()
         ):
