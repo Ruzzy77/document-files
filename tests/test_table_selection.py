@@ -24,17 +24,53 @@ from document_files.interpretation.table_selection import (
 CAPTION = HTML.replace(b"<table>", b"<table><caption>Size uses mm.</caption>")
 
 
+def scripted_size_scope(payload):
+    """Explicit fixture answer to a separately charged applicability request."""
+    if "tasks" in payload:
+        return {"decisions": [scripted_size_scope(task) for task in payload["tasks"]]}
+    record = next(c for c in payload["candidates"] if "rowOptions" in c)
+    size = next(c for c in record["rowOptions"]["columns"] if c["label"] == "Size")
+    return {
+        "taskId": payload["taskId"],
+        "decision": "apply",
+        "selections": [
+            {
+                "kind": "record",
+                "recordHandle": record["targetHandle"],
+                "parts": [
+                    {
+                        "rowCoverage": {"kind": "allDataRows"},
+                        "columnCoverage": {
+                            "kind": "selectedColumns",
+                            "columnHandles": [size["columnHandle"]],
+                        },
+                    }
+                ],
+            }
+        ],
+        "explanation": "Scripted Size-only applicability, not a model quality result",
+    }
+
+
 class SelectionModel:
     identity = {"adapter": "selection-scripted-fixture", "model": "not-quality-qualified"}
 
     def __init__(self, *, wrong_choice=False, fail_details=False, malicious_quote=False):
-        self.requests = []
+        self.requests = []  # Table-phase requests; scope requests are counted separately.
+        self.scope_requests = []
         self.wrong_choice = wrong_choice
         self.fail_details = fail_details
         self.malicious_quote = malicious_quote
 
     def infer(self, request):
         payload = json.loads(request.messages[-1]["content"])
+        if "tableStage" not in payload:
+            self.scope_requests.append(payload)
+            value = scripted_size_scope(payload)
+            Draft202012Validator(request.output_schema).validate(value)
+            return InferenceResponse(
+                json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20}
+            )
         self.requests.append(payload)
         sources = payload.get("meaningSources", [])
         if payload["tableStage"] == "structure":
@@ -81,7 +117,6 @@ class SelectionModel:
                             "kind": "unit",
                             "description": "Size uses millimeters",
                             "sourceQuotes": [{"sourceRef": s["sourceRef"], "text": s["text"]}],
-                            "scope": {"kind": "columns", "columnIds": ["size"]},
                             "status": "interpreted",
                         }
                         for s in sources
@@ -182,7 +217,7 @@ def test_detail_response_reuses_exact_saved_choices_and_only_reviews_positive_re
     class Capture(SelectionModel):
         def infer(self, request):
             response = super().infer(request)
-            if self.requests[-1].get("meaningPhase") == "details":
+            if json.loads(request.messages[-1]["content"]).get("meaningPhase") == "details":
                 self.details = json.loads(response.text)
                 self.detail_schema = request.output_schema
             return response
@@ -282,7 +317,7 @@ def test_global_pause_after_selection_resumes_details_without_reselecting():
         model,
         restore=states[-1],
         maxModelCalls=2,
-        additional_budget={"maxModelCalls": 1},
+        additional_budget={"maxModelCalls": 2},
         states=states,
     )
     assert result["extraction"]["status"] == "complete", result["issues"]
@@ -349,7 +384,7 @@ def test_zero_duration_scripted_calls_can_resume_without_inventing_elapsed_usage
         for state in states[-1]["tableStages"].values()
         for stage in ("structure", "meaning")
     )
-    result = run(model, restore=states[-1], maxModelCalls=2, additional_budget={"maxModelCalls": 1})
+    result = run(model, restore=states[-1], maxModelCalls=2, additional_budget={"maxModelCalls": 2})
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["extraction"]["usage"]["elapsedSeconds"] == 0
     assert len(model.requests) == 3
@@ -386,7 +421,7 @@ def test_explicit_selection_revision_is_durable_and_shares_the_same_allowance():
         states=states,
         restore=states[-1],
         maxModelCalls=3,
-        additional_budget={"maxModelCalls": 1},
+        additional_budget={"maxModelCalls": 2},
     )
     assert done["extraction"]["status"] == "complete", done["issues"]
     assert progress(states[-1])["meaningSelections"] == [state["sourceSelections"][-1]["sha256"]]

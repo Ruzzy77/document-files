@@ -108,6 +108,7 @@ from .table_selection import (
     complete_selected_meaning,
     negative_meaning_response,
     revise_selection,
+    selected_meaning_feedback,
     selected_meaning_schema,
     selection_record,
     selection_schema,
@@ -157,7 +158,7 @@ def _meaning_feedback(ir, fragment, inventory, extra=()):
         ],
         "instruction": (
             "Review the reported source gaps and the prior interpretation together. "
-            "Correct mistaken kind, description, scope or status; split, merge or withdraw "
+            "Correct mistaken kind, description or status; split, merge or withdraw "
             "mistaken meanings with explicit changes. Keep source text and reviewed ranges. "
             "For a withdrawal, review its source as no_additional_meaning or unresolved. "
             "Return the full replacement, not a patch. Do not change frozen structure or values."
@@ -1314,6 +1315,8 @@ def extract_schema_from_stream(
                                     else None
                                 ),
                             )
+                    if phase == "details":
+                        feedback = selected_meaning_feedback(feedback)
                     if local_selection:
                         if cancelled and cancelled():
                             raise ModelError("ai_cancelled")
@@ -1741,6 +1744,16 @@ def extract_schema_from_stream(
                     "sourceBinding": traces[task.id],
                     "request": scope_request_identity(batch, wire, scope_execution),
                 }
+                # A legitimate content revision may withdraw a former batch sibling.
+                # Only this freshly validated replacement clears its stale diagnostic;
+                # replay of incompatible stored provenance still fails above.
+                issues[:] = [
+                    item
+                    for item in issues
+                    if not (
+                        item.get("code") == "scope_decision_stale" and item.get("taskId") == task.id
+                    )
+                ]
             except (StopIteration, ValueError, TypeError):
                 scope_decisions[task.id] = {"fingerprint": task.fingerprint, "invalid": True}
                 issue("scope_decision_invalid", taskId=task.id)

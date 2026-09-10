@@ -43,7 +43,7 @@ clients keep their own reasoning policy; no llama-specific parameters are sent.
 Complete-only clients retain their own output limits, recorded distinctly in the
 checkpoint. All calls and elapsed time share the existing cumulative document budget.
 
-Prompt v24 / table protocol v16 distinguish a meaning's own uncertainty from
+Prompt v24 / table protocol v17 distinguish a meaning's own uncertainty from
 unknown applicability. Internal `Meaning.status` describes its kind and content;
 an unresolved `scope` no longer overwrites that status. The compiler retains this
 private status in task identity and marks the public result uncertain until both
@@ -285,7 +285,7 @@ They are optional measurements, not an accuracy certificate or timeout usage rec
 
 ### Internal table stages
 
-Prompt v24 / planner v14 / table protocol v16 use a structural classification first.
+Prompt v24 / planner v14 / table protocol v17 use a structural classification first.
 Record tables compile one record definition before interpreting meanings over fixed
 IDs; scalar forms retain their binding-based path. `coverage.tableInterpretation`
 records each stage's attempts, status and usage. `structure_compiled` means retained
@@ -342,9 +342,16 @@ Text truncation, missing nodes and candidates omitted by the budget remain expli
 they cannot be promoted to a complete applicability decision. The context and target
 mapping remain part of the task fingerprint, and older scope checkpoints are rejected.
 
-Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
-`rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
-Table protocol v16 first asks for source selection in a separate call inside the
+The active record-table detail response contains content, status and exact quotes,
+not applicability. Both its schema and decoder reject `scope`, `fieldIds`, `groupIds`,
+`repeatIds` and row bounds, even an explicitly unresolved scope. The compiler inserts
+unresolved applicability internally. Every extracted meaning must then use the
+separate scope-selection protocol; content extraction alone cannot finish that work.
+Repair feedback omits the compiler-only unresolved scope. General IR converters keep
+their existing capabilities, but cannot bypass this active request boundary. Scalar
+forms keep their prior interpretation path. Scope calls use the remaining document
+budget, not a new allowance; exhaustion preserves content as a partial result.
+Table protocol v17 first asks for source selection in a separate call inside the
 existing meaning stage. Every owned `meaningSources` reference receives a `decision`
 and short `explanation`: `no_additional_meaning`, `unresolved`, `unreviewed`, or
 `has_meaning`. A literal empty source cannot select `has_meaning`. This does not
@@ -395,7 +402,7 @@ A failed initial detail may therefore exhaust the stage after one successful sel
 it is not automatically retried with a fresh substep budget.
 The detail response requires `regionId`, `meanings`, `remainderReviews`, `baseRevision`
 and `changes`, without repeating `sourceDecisions`. The compiler still uses source
-decisions v3 internally. Older table-protocol checkpoints cannot resume as v16.
+decisions v3 internally. Older table-protocol checkpoints cannot resume as v17.
 The program pins `baseRevision` in the output contract: null with empty `changes`
 before any meaning is accepted, or exactly the accepted meaning revision afterward.
 It is not the selection hash and is not left for the model to invent. Repairs cite the accepted

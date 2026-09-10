@@ -34,18 +34,44 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Unified selection engine implementation
+### Current content and scope separation
 
-Scope-axis protocol v2 now activates selection wire v1 in the engine and checkpoint
-replay. One selection list retains record and standalone choices, using the same
-column handle in candidates and output. Scalar-only/mixed selections, multiple
-records, owned/unowned header groups, bounded discovery, source-row gaps and up to
-eight batched tasks keep their existing compiler checks. The demonstrated prototype
-system and schema are byte/value-identical for the two prior cases; only the wire
-format label changes. Current regression is **2,562 passed / 227 skipped / 12 subtests**,
-with **672 related tests** passing under warnings-as-errors and **221 files** passing
-Ruff/format. Actual Spark calls and checkpoint resume for this engine revision are
-pending; the preceding prototype controls are not engine or release qualification.
+Scope-axis protocol v2 activates selection wire v1: one selection list retains record
+and standalone choices, with the same column handle in candidates and output. The
+implementation preserves scalar-only/mixed/batched choices, multiple records, groups,
+bounded discovery, source-row gaps and checkpoint provenance. Its source `840db5a`
+passed 2,562 local tests (227 skipped, 12 subtests) and 672 related ARM tests per runner.
+
+Actual development checks did **not** qualify that source:
+- Four simultaneous scope controls returned no final model answer: three exhausted
+  their fixed 300-second limit and one model process was OOM-killed. All retained
+  values and partial checkpoints; semantic quality could not be judged.
+- A single full native HTML run used three actual calls, 268.55 product seconds and
+  7,426,969,600 bytes cgroup peak, with no container swap/OOM/GPU/network. Exact two
+  rows, precision, headers, quotes and separate unit/condition content survived.
+  However, both meanings selected the whole record, incorrectly including Sample ID.
+  The engine returned complete without requesting the separate scope phase. Fresh
+  no-call checkpoint resume preserved that wrong result, not a quality success.
+
+Table protocol v17 now removes applicability from the active detail contract and
+rejects it in decoding. The compiler retains content with unresolved targets until
+separate scope selection. It does not infer units or choose target columns itself.
+Content uncertainty, scalar forms, public v1 and cumulative budgets remain unchanged;
+old table identities cannot resume. Current local regression is **2,574 passed /
+227 skipped / 12 subtests**, with **684 related tests** under warnings-as-errors and
+**222 files** passing Ruff/format. Actual full-path v17 quality remains pending.
+
+Long-range provenance also remains open. Synthetic diagnosis found a 50-row request
+already exceeds 16,000 serialized characters; a 100-row subset exceeds the 100-source
+binding cap even with a diagnostic-only enlarged context. That enlarged context is
+not adopted. Do not raise limits or drop evidence to claim completion. The existing
+cgroup recorder/release checks already reject child OOM even if the launcher exits zero.
+
+Evidence: `scope-selection-engine-01`, `arm-scope-selection-engine-01`,
+`arm-selection-v2-html-product-01`, `table-content-scope-separation-01`, and
+`long-range-provenance-audit-01` beneath the private DGX qualification directory.
+The following implementation/call sections are dated development history, not the
+current protocol, completed release qualification or instructions to rerun old jobs.
 
 ### Previous scalar-origin implementation and selection comparison
 
@@ -85,7 +111,7 @@ changes the syntax and its instructions together; it does not isolate a single
 cause. Pinned converter inspection also permits an empty standalone array in the
 old contract, so a grammar-forced subtotal is not established.
 
-**This codec is not active in the product engine.** It has not passed general
+**At that earlier comparison, the codec was not yet active in the product engine.** It has not passed general
 batch/multiple-record/standalone/mixed compatibility or product checkpoint resume.
 It reused frozen observed inputs and given content; it is not an independent
 holdout or whole-document result. Next work is to generalize and integrate this
@@ -1612,7 +1638,7 @@ not remove meaning-bearing source content or repeatedly rerun full extraction.
 | Gate | Required next step, without restarting all evaluation |
 |---|---|
 | Scanned table correctness | Recognition, literal image reading and source-bound pixel display have separate development evidence. The latest full review returned but mislabeled seven rule-edge masks as text; a mask-only diagnostic classified them correctly, without validating the full product contract. Application v4 links reviewed replacement tables and blanks, but actual model accuracy, header/record/meaning checks and independent scans remain open. |
-| Semantic scope quality | The two-step table protocol is implemented. A development result preserved two rows, unit and condition scope, but source review remained partial. Source-first meaning review v10 awaits its bounded actual-model check. The extra call is authorized but not yet executed; preserve output/context failures. No independent holdout has passed. |
+| Semantic scope quality | The two-step table protocol is implemented. A development result preserved two rows, unit and condition scope, but source review remained partial. Protocol v17 now requires separate applicability after details; actual v17 full-path quality is pending. Preserve prior output/context/scope failures. No independent holdout has passed. |
 | Long documents | Use affected long/continued-table cases to check complete repeat ranges, heading/note scope and source-view accounting; keep indivisible-context limits explicit. |
 | 16 GB / GPU-free operation | Two ARM64 Sparks are reachable through Tailscale and existing Docker. ARM recognition and review components ran under 4 CPU / 16 GiB without swap/OOM, but both Linux x64 and ARM64 still require same-candidate whole recognition-plus-inference qualification. Follow the [bounded CPU procedure](deployment/CPU_QUALIFICATION.md); component peaks do not substitute for it. |
 | Delivery | Install/update/rollback and actual client processing still need Windows, Linux, Intel Mac, installed Codex/Claude and ChatGPT-host evidence. |

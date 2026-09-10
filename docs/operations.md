@@ -38,6 +38,19 @@ complete-only clients retain their client-owned output limits. None of this is
 independent quality qualification. Long-range provenance and content-stage accuracy
 still require further work.
 
+Record-table details under protocol v17 no longer select scope. Each retained meaning
+uses the separate applicability phase within the same cumulative budget. A document
+may therefore pause after successful content extraction while scope is still pending;
+this is not complete extraction or independent quality approval. Older table-protocol
+checkpoints are rejected rather than silently converted.
+
+On shared Spark hosts, development runs first check available host memory and retain
+host pressure/OOM samples as well as cgroup measurements. The four-concurrent-model
+trial lost one child to OOM and timed out three calls; nominal 128 GB host capacity was
+not available workload headroom. Existing host swap and unrelated jobs are not changed.
+A subsequent single-job run had no OOM or container swap, but still failed semantic
+scope quality. These component checks do not qualify full recognition-plus-inference.
+
 An administrator may explicitly set `reasoningBudgetTokens` on a local-pack profile.
 For example, `1024` enables thinking with that finite **per-block** limit while keeping
 greedy sampling and the existing 3,072-token total output ceiling. Omitting the setting

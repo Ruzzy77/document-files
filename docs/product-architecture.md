@@ -120,6 +120,14 @@ column identifier on both sides of the boundary. The compiler still owns canonic
 column IDs and destination pointers. All offered capabilities remain available;
 old internal policy/wire identities cannot resume through the new request format.
 
+Table protocol v17 removes applicability from active record-table detail replies.
+Content is retained with deferred targets; the independent scope request is mandatory,
+not merely a fallback for models that happened to answer unresolved. The input schema,
+decoder, repair feedback and restored accepted-content checks enforce this boundary.
+No field-specific unit rule or automatic target choice is introduced. A content repair
+can invalidate a saved batch by withdrawing a sibling; a freshly validated replacement
+clears only the stale diagnostic for its own task. Existing provenance checks remain.
+
 ### Source review and revisable table meaning
 
 Table protocol v6 separates immutable source ranges from model conclusions. Literal

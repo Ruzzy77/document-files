@@ -6,6 +6,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from test_table_selection import scripted_size_scope
 
 from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.interpretation import engine
@@ -27,12 +28,16 @@ class CaptionModel:
     identity = {"adapter": "caption-repair-fixture", "model": "scripted-not-qualified"}
 
     def __init__(self, mode="fix"):
-        self.requests = []
+        self.requests = []  # Table phase only; separately metered scope requests follow.
+        self.scope_requests = []
         self.meaning_calls = 0
         self.mode = mode
 
     def infer(self, request):
         payload = json.loads(request.messages[-1]["content"])
+        if "tableStage" not in payload:
+            self.scope_requests.append(payload)
+            return InferenceResponse(json.dumps(scripted_size_scope(payload)), {})
         self.requests.append(payload)
         if payload["tableStage"] == "structure":
             table_ref, table = next(iter(payload["tables"].items()))
@@ -123,6 +128,9 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
 
     def current_wire(request):
         payload = json.loads(request.messages[-1]["content"])
+        if "tableStage" not in payload and not hasattr(model, "scope_calls"):
+            model.scope_requests.append(payload)
+            return InferenceResponse(json.dumps(scripted_size_scope(payload)), {})
         if payload.get("meaningPhase") == "selection":
             model.requests.append(payload)
             # Explicit fixture behavior for the new call, counted in requests/usage.
@@ -175,6 +183,12 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
                 json.loads(response.text), {"sources": payload["meaningSources"]}
             )
             value.pop("sourceDecisions")
+            for meaning in value["meanings"]:
+                # Existing content fixtures retain generic-IR scopes internally;
+                # the active table detail wire no longer carries them. The explicit
+                # malicious scope mutation remains a decoder rejection test.
+                if not (model.mode == "scope" and model.meaning_calls >= 2):
+                    meaning.pop("scope", None)
             positive = {
                 ref
                 for ref, choice in payload["sourceSelection"]["sourceDecisions"].items()
@@ -258,9 +272,7 @@ def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_cont
         flat_accepted_feedback(model.requests[-1])["meanings"][0]["description"]
         == "Size uses millimeters"
     )
-    assert flat_accepted_feedback(model.requests[-1])["meanings"][0]["scope"]["columnIds"] == [
-        "size"
-    ]
+    assert "scope" not in flat_accepted_feedback(model.requests[-1])["meanings"][0]
     assert "Correct mistaken" in feedback["instruction"]
     assert feedback["baseRevision"]
     assert "sourceQuotes" in flat_accepted_feedback(model.requests[-1])["meanings"][0]
@@ -320,11 +332,12 @@ def test_selection_and_invalid_detail_share_initial_budget_until_explicit_grant(
         restore=states[-1],
         maxModelCalls=3,
         completionSeconds=900,
-        additional_budget={"maxModelCalls": 2},
+        additional_budget={"maxModelCalls": 3},
     )
     assert result["extraction"]["status"] == "complete", result["issues"]
-    assert result["extraction"]["budget"] == {"maxModelCalls": 5, "completionSeconds": 900}
+    assert result["extraction"]["budget"] == {"maxModelCalls": 6, "completionSeconds": 900}
     assert len(model.requests) == 5 and model.meaning_calls == 3
+    assert len(model.scope_requests) == 1 and result["extraction"]["modelCalls"] == 6
     assert model.requests[3]["repairFeedback"] == ["quote_occurrence_required_or_invalid"]
     assert (
         model.requests[4]["repairFeedback"]["remainingSourceRanges"][0]["text"] == "Measurements; "
@@ -374,7 +387,7 @@ def test_content_review_never_exceeds_global_calls_and_grant_is_explicit():
     assert progress["reviewAttempts"] == 0 and progress["acceptedResponse"]
     run(model, restore=states[-1], maxModelCalls=3)
     assert len(model.requests) == 3
-    fixed = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 1})
+    fixed = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 2})
     assert fixed["extraction"]["status"] == "complete" and len(model.requests) == 4
 
 
@@ -420,7 +433,8 @@ def test_unexplained_change_cannot_replace_the_previous_source_bound_meaning(mod
     ir = next(iter(states[-1]["accepted"].values()))
     assert ir["meanings"][0]["description"] == "Size uses millimeters"
     assert ir["meanings"][0]["status"] == "interpreted"
-    assert ir["meanings"][0]["fieldIds"] == ["size"]
+    assert ir["meanings"][0]["fieldIds"] == []
+    assert len(states[-1]["scopeDecisions"]) == 1
     assert not ir["dispositions"]
     assert any(i["code"] == "table_stage_invalid" for i in result["issues"])
     run(model, restore=states[-1])
@@ -436,7 +450,7 @@ def test_global_budget_pause_resumes_only_accounting_repair_with_accepted_statem
     result = run(model, states=states, maxModelCalls=3)
     assert len(model.requests) == 3 and result["extraction"]["status"] == "partial"
     assert next(iter(states[-1]["tableStages"].values()))["meaning"]["acceptedResponse"] is True
-    fixed = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 1})
+    fixed = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 2})
     assert fixed["extraction"]["status"] == "complete", fixed["issues"]
     assert len(model.requests) == 4
     assert flat_accepted_feedback(model.requests[-1])["meanings"]
@@ -767,7 +781,7 @@ def test_direct_quote_scope_resolution_preserves_independent_content_status(cont
     "mode,code",
     [
         ("source", "table_meaning_source_unresolved"),
-        ("uncertain", "semantic_scope_uncertain"),
+        ("uncertain", "semantic_interpretation_uncertain"),
     ],
 )
 def test_explicit_source_or_valid_target_uncertainty_remains_partial(mode, code):
@@ -776,6 +790,6 @@ def test_explicit_source_or_valid_target_uncertainty_remains_partial(mode, code)
     assert result["extraction"]["status"] == "partial"
     assert any(i["code"] == code for i in result["issues"])
     assert result["data"]["rows"][0]["size"] == "001.2300"
-    assert model.scope_calls == 0
+    assert model.scope_calls == 1
     review = result["coverage"]["semanticSourceReviews"][0]
     assert bool(review["unresolved"]) is (mode == "source")

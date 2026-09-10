@@ -8,6 +8,7 @@ from copy import deepcopy
 
 from .compiler import CompileError
 from .semantic_types import _compact_contract
+from .table_meaning import LEGACY_SCOPE_FIELDS
 
 VERSION = "document-files.table-source-selection.v1"
 ROLES = {"has_meaning", "no_additional_meaning", "unresolved", "unreviewed"}
@@ -187,6 +188,11 @@ def selected_meaning_schema(schema, selection, sources, revision, *, base_revisi
     """Only selected sources can be quoted; an explicit reselection is a separate reply."""
     schema = deepcopy(schema)
     decisions = selection["sourceDecisions"]
+    # The details response extracts content; only the later scope protocol
+    # selects applicability. Keep the general IR converter separate from this wire.
+    meaning = schema["$defs"]["Meaning"]
+    meaning["properties"].pop("scope")
+    meaning["required"].remove("scope")
     props = schema["properties"]
     schema["properties"] = {
         **{key: props[key] for key in ("regionId", "meanings")},
@@ -260,6 +266,14 @@ def complete_selected_meaning(value, record):
         for ref, d in choices.items()
         if ref not in positive
     ]
+    _require(isinstance(result.get("meanings"), list), "table_selection_meaning_shape")
+    for meaning in result["meanings"]:
+        _require(isinstance(meaning, dict), "table_selection_meaning_shape")
+        _require(
+            not {"scope", *LEGACY_SCOPE_FIELDS}.intersection(meaning),
+            "table_content_scope_must_be_deferred",
+        )
+        meaning["scope"] = {"kind": "unresolved"}
     check_selected_meaning(result, record)
     return result
 
@@ -316,6 +330,11 @@ def check_selected_meaning(value, record):
     _require(isinstance(meanings, list), "table_selection_meaning_shape")
     for meaning in meanings:
         _require(isinstance(meaning, dict), "table_selection_meaning_shape")
+        _require(
+            meaning.get("scope") == {"kind": "unresolved"}
+            and not LEGACY_SCOPE_FIELDS.intersection(meaning),
+            "table_content_scope_must_be_deferred",
+        )
         quotes = meaning.get("sourceQuotes", [])
         _require(isinstance(quotes, list), "table_selection_meaning_shape")
         for quote in quotes:
@@ -325,3 +344,17 @@ def check_selected_meaning(value, record):
                 and choices[quote["sourceRef"]]["decision"] == "has_meaning",
                 "table_selection_unselected_quote",
             )
+
+
+def selected_meaning_feedback(feedback):
+    """Expose accepted content without an obsolete second applicability contract."""
+    if not isinstance(feedback, dict):
+        return deepcopy(feedback)
+    result = deepcopy(feedback)
+    for meaning in result.get("acceptedResponse", {}).get("meanings", []):
+        _require(
+            meaning.pop("scope", None) == {"kind": "unresolved"}
+            and not LEGACY_SCOPE_FIELDS.intersection(meaning),
+            "table_content_scope_must_be_deferred",
+        )
+    return result

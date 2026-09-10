@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Table protocol v17 makes record-table details content-only. Its actual request
+  contract and decoder reject applicability fields; the compiler retains unresolved
+  targets until the separate scope protocol chooses them. Repair feedback follows
+  the same boundary. Explicit content uncertainty, scalar forms, source quotes and
+  cumulative budgets remain unchanged. Reject old table identities on resume.
+  A newly validated scope replacement clears only that task's stale-batch diagnostic
+  after a legitimate content revision; incompatible stored provenance still fails.
+
 - Activate scope-selection wire v1 under scope-axis protocol v2: one selection
   list for record/standalone choices and one shared column handle on display and
   output. Preserve scalar/mixed/batched decisions, multiple records, groups,

@@ -35,7 +35,7 @@ from .table_source_decisions import (
 )
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v16"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v17"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -78,8 +78,7 @@ the saved model choices and reasons. Use sourceQuotes with the smallest exact
 phrases and their owned sourceRefs. Every has_meaning source must have a direct
 quote in meanings; other sources cannot be quoted. Do not restate the plain labels
 or values already reviewed. Describing a unit or condition only in a review
-explanation does not extract it: its kind, description, quote and scope must be
-in meanings.
+explanation does not extract it: its kind, description and quote must be in meanings.
 If a source choice is wrong, return only the revise_selection response with the
 current selectionSHA256 as baseSelectionSHA256, a reason and every new source
 choice with its short explanation. This is a separate response, not a way to quote
@@ -92,13 +91,12 @@ clauses separate, including a unit and a condition in the same caption. A note
 is not a substitute for either. Joint and noncontiguous evidence is allowed;
 do not copy the same meaning under each quoted source. For repeated exact phrases
 supply the zero-based occurrence, counting overlapping matches. Never return offsets.
-Choose scope: columns with frozen columnIds; record for the whole record; rows
-with inclusive actual rowStart/rowEnd and columnIds (empty means all columns);
-or unresolved. A group header concerns its descendants, not unrelated columns.
-Do not broaden scope merely because a note is in a caption. Use unresolved scope
-when applicability is unknown. Status describes the meaning's kind and content,
-not its applicability: interpreted when these are clear, uncertain when ambiguous.
-A clear meaning may have unresolved scope; choosing a scope cannot clear content uncertainty.
+Extract content only; do not choose its applicability in this response. Never return
+scope, fieldIds, groupIds, repeatIds or row bounds. The program preserves each
+meaning independently for a later applicability request over the compiled structure.
+Do not embed applicability choices in another field to bypass that request. Status
+describes certainty of the meaning's kind and content: interpreted when clear,
+uncertain when ambiguous. The later scope decision cannot clear content uncertainty.
 Finally remainderReviews must cover each has_meaning source once, and no others.
 Review its text outside the direct quotes, even when a meaning quotes the whole
 source. Group sources only when their review role and explanation are the same.
