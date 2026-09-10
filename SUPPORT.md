@@ -154,8 +154,20 @@ candidates from measured cells and existing text regions without providing OCR s
 as answers. Partial results preserve those candidates with source-pixel identities;
 they do not rewrite original nodes/tables, clear issues or become final values. Unstarted
 reads can resume within explicit remaining budget, while completed/failed/interrupted
-attempts cannot be silently repeated. Actual model accuracy and reviewed application
-of competing text/table structures still require verification and implementation.
+attempts cannot be silently repeated. Independent quality approval and reviewed application of competing text/table
+structures still require verification and implementation.
+
+A bounded ARM64 development read on clean source `66feddb` used the previously saved
+full-page image plus a new lossless detail, without OCR, recognition or rendering.
+One managed greedy CPU call returned eight candidates in 159.78 seconds (3,205 input,
+285 output tokens). All six grid-cell strings and the caption matched the prior expected
+text, recovering `Item`, `Length`, `8.25` and `Unit:`; the title region had one additional
+line break. That difference is retained, not normalized into an exact-match claim.
+The whole cgroup peaked at 7,153,172,480 bytes under 4 CPUs / 16 GiB with no swap/OOM,
+GPU or external network. Saved inputs and existing read-only packs were reused, so this
+is not full recognition-plus-inference resource qualification or an independent holdout.
+Original observations and the two-row recognized table stayed unchanged; applying a
+reviewed three-row alternative and completing semantic extraction remain unfinished.
 
 ### Source-first table meaning review
 
