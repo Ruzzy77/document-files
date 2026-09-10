@@ -2,6 +2,13 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Scope integration v9 uses short typed target aliases at the model boundary.
+  Candidate order, complete context, original text and source references are
+  unchanged. Decode only target fields before validation; checkpoints retain
+  canonical handles, and malformed/foreign aliases do not discard valid siblings.
+  Wire version v1 is part of checkpoint identity; older scope identities cannot
+  resume. This does not infer applicability or add row-scope capability.
+
 - Scope integration v8 retains short definition references within the existing
   encoded request budget instead of silently cutting context after eight references.
   Truncated text, absent nodes and budget-omitted candidates remain explicitly

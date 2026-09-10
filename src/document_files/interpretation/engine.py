@@ -38,9 +38,7 @@ from .integration import (
     apply_scope_decision,
     build_scope_tasks,
     parse_scope_choices,
-    scope_batch_payload,
     scope_batches,
-    scope_output_schema,
 )
 from .legacy_engine import _has_unread_visuals as _has_unread_visuals
 from .legacy_engine import decode, encode
@@ -54,6 +52,8 @@ from .regions import (
     region_payload,
     route_table_values,
 )
+from .scope_reference_wire import VERSION as SCOPE_REFERENCE_WIRE_VERSION
+from .scope_reference_wire import prepare_scope_wire
 from .semantic_prompts import INTEGRATE, PROMPT_VERSION, SYSTEM
 from .semantic_types import (
     COMPILER_VERSION,
@@ -411,6 +411,7 @@ def extract_schema_from_stream(
         "promptVersion": PROMPT_VERSION,
         "compilerVersion": COMPILER_VERSION,
         "scopeVersion": SCOPE_VERSION,
+        "scopeReferenceWireVersion": SCOPE_REFERENCE_WIRE_VERSION,
         "tableProtocolVersion": TABLE_PROTOCOL_VERSION,
         "tableReferenceWireVersion": TABLE_REFERENCE_WIRE_VERSION,
         "regionPlanVersion": REGION_PLAN_VERSION,
@@ -1672,8 +1673,9 @@ def extract_schema_from_stream(
         ),
     ):
         try:
-            response = invoke(SCOPE_SYSTEM, scope_batch_payload(batch), scope_output_schema(batch))
-            choices, invalid = parse_scope_choices(response, batch)
+            wire = prepare_scope_wire(batch)
+            response = invoke(SCOPE_SYSTEM, wire.payload, wire.contract)
+            choices, invalid = parse_scope_choices(wire.decode(response), batch)
             if invalid:
                 issue("scope_batch_invalid_decision")
         except ModelError as exc:

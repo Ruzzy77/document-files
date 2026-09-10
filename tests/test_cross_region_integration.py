@@ -2,6 +2,7 @@
 
 import copy
 import json
+from dataclasses import replace
 
 import pytest
 from pydantic import ValidationError
@@ -13,6 +14,7 @@ from document_files.interpretation.integration import (
     apply_scope_decision,
     build_scope_tasks,
 )
+from document_files.interpretation.scope_reference_wire import prepare_scope_wire
 
 
 def fixture():
@@ -132,6 +134,99 @@ def test_apply_preserves_data_and_other_unit_in_the_same_paragraph():
     assert "usd" in result[1].schema_evidence[0]["semanticIds"]
     assert "usd" not in result[1].value_evidence[1]["semanticIds"]
     assert apply_scope_decision(result, task, decision(task)) == (result, False)
+
+
+def test_scope_wire_changes_only_typed_target_references():
+    from document_files.interpretation.integration import scope_batch_payload, scope_output_schema
+
+    obs, regions, compiled = grouped_table_fixture()
+    compiled[0].semantics[1]["description"] = "Literal @column0 and scope-target-unchanged"
+    compiled[0].semantic_details[1]["sourceText"] = ["Literal @headerGroup2"]
+    task = build_scope_tasks(obs, regions, compiled)[1]
+    before = copy.deepcopy(task)
+    wire = prepare_scope_wire([task])
+    restored = copy.deepcopy(wire.payload)
+    for candidate in restored["candidates"]:
+        candidate["targetHandle"] = wire.targets[candidate["targetHandle"]]
+        if "coversCandidates" in candidate:
+            candidate["coversCandidates"] = [wire.targets[h] for h in candidate["coversCandidates"]]
+    assert restored == scope_batch_payload([task]) and task == before
+    contract = copy.deepcopy(wire.contract)
+    handles = contract["properties"]["targetHandles"]["items"]["enum"]
+    contract["properties"]["targetHandles"]["items"]["enum"] = [wire.targets[h] for h in handles]
+    assert contract == scope_output_schema([task])
+    assert len(json.dumps(wire.payload)) < len(json.dumps(task.payload))
+    group = next(c for c in wire.payload["candidates"] if c["candidateKind"] == "headerGroup")
+    assert group["targetHandle"].startswith("@headerGroup")
+    assert all(h.startswith("@column") for h in group["coversCandidates"])
+    choice = decision(task, "Measurements")
+    encoded = copy.deepcopy(choice)
+    encoded["targetHandles"] = [group["targetHandle"]]
+    encoded["explanation"] = choice["explanation"] = "Literal @headerGroup2 and scope-target-text"
+    assert wire.decode(encoded) == choice
+    actual, changed = apply_scope_decision(compiled, task, wire.decode(encoded))
+    expected, _ = apply_scope_decision(compiled, task, choice)
+    assert changed and actual == expected
+
+
+@pytest.mark.parametrize("bad_handle", ["@unknown", "canonical", None, ["@field0"]])
+def test_scope_wire_invalid_sibling_does_not_discard_valid_decision(bad_handle):
+    from document_files.interpretation.integration import parse_scope_choices
+
+    obs, regions, compiled = fixture()
+    tasks = build_scope_tasks(obs, regions, compiled)
+    wire = prepare_scope_wire(tasks)
+    choices = [decision(t) for t in tasks]
+    inverse = {handle: alias for alias, handle in wire.targets.items()}
+    for choice in choices:
+        choice["targetHandles"] = [inverse[h] for h in choice["targetHandles"]]
+    canonical = decision(tasks[1])["targetHandles"][0]
+    choices[1]["targetHandles"] = [canonical if bad_handle == "canonical" else bad_handle]
+    valid, invalid = parse_scope_choices(wire.decode({"decisions": choices}), tasks)
+    assert invalid and [c.taskId for c in valid] == [tasks[0].id]
+    assert valid[0].model_dump() == decision(tasks[0])
+    # Bad alias decoding must not hide a duplicate task from batch validation.
+    choices[1]["taskId"] = choices[0]["taskId"]
+    valid, invalid = parse_scope_choices(wire.decode({"decisions": choices}), tasks)
+    assert invalid and valid == []
+
+
+def test_scope_wire_rejects_another_tasks_alias_and_preserves_boundedness():
+    from document_files.interpretation.integration import parse_scope_choices
+
+    obs, regions, compiled = fixture()
+    tasks = build_scope_tasks(obs, regions, compiled, max_candidates=1)
+    full = build_scope_tasks(obs, regions, compiled)[1]
+    assert not tasks[0].complete_candidates
+    other = next(
+        c for c in full.payload["candidates"] if c["targetHandle"] not in tasks[0].target_map
+    )
+    payload = copy.deepcopy(full.payload)
+    payload["candidates"] = [other]
+    tasks[1] = replace(
+        full,
+        payload=payload,
+        target_map={other["targetHandle"]: full.target_map[other["targetHandle"]]},
+    )
+    wire = prepare_scope_wire(tasks)
+    assert wire.payload["tasks"][0]["candidateCoverage"] == "bounded"
+    other_alias = next(a for a, h in wire.targets.items() if h == other["targetHandle"])
+    choice = decision(full, other["label"])
+    choice.update(taskId=tasks[0].id, targetHandles=[other_alias])
+    valid, invalid = parse_scope_choices(wire.decode({"decisions": [choice]}), tasks)
+    assert invalid and not valid
+
+
+def test_scope_wire_escapes_canonical_alias_collision_without_changing_literals():
+    obs, regions, compiled = fixture()
+    task = build_scope_tasks(obs, regions, compiled, max_candidates=1)[0]
+    payload = copy.deepcopy(task.payload)
+    original = payload["candidates"][0]["targetHandle"]
+    payload["candidates"][0].update(targetHandle="@field0", label="Literal @field0")
+    task = replace(task, payload=payload, target_map={"@field0": task.target_map[original]})
+    wire = prepare_scope_wire([task])
+    assert wire.targets == {"@@field0": "@field0"}
+    assert wire.payload["candidates"][0]["label"] == "Literal @field0"
 
 
 def test_explicit_note_reference_offers_nonadjacent_definition():

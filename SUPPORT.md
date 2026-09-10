@@ -53,7 +53,40 @@ the record had eleven short definition references that fit the request budget, y
 the omitted tail forced `candidateCoverage: bounded`. Scope integration v8 now bounds
 encoded context by the existing request allowance instead of reference count. Text
 truncation, absent nodes and omitted candidates still prevent full resolution.
-This fixes context delivery, not meaning quality; the actual scope-only check is pending.
+Three bounded scope-only comparisons then kept those five complete candidates.
+Non-thinking selected overlapping record/column scopes for both meanings; the
+existing compiler rejected both atomically. With 512-token bounded thinking, the
+condition selected Length correctly but the unit still selected the whole record.
+Increasing reasoning alone therefore did not pass this development comparison.
+
+A final non-thinking control changed **only typed target IDs** to short aliases
+such as `@column2` and `@headerGroup3`. Original wording, source references, candidate
+order, containment and all five options stayed identical, verified by exact inverse
+translation. Condition then applied to Length alone; unit applied to Length and
+Width, never Sample ID or the record. The unit also selected its header group;
+existing exact-target deduplication retained the same four value targets. Each had
+one 300-second / 1,536-output-token cap: 67.84/70.33 inference seconds,
+81.13/83.08 host seconds, and cgroup peaks 6,781,837,312/6,781,943,808 bytes under
+4 CPU/16GiB/no-swap/no-OOM/no-GPU/no-external-network limits. These overlapping
+runs are not a speed benchmark. No original quality budget was increased.
+
+Scope integration v9 / scope reference wire v1 now performs that target-only
+translation at the product model boundary, then decodes before validation and
+stores only canonical decisions. Foreign aliases, canonical-ID bypasses and
+malformed siblings remain invalid without losing valid sibling decisions; old
+checkpoint identities are rejected. Values, quotations, source IDs and literal
+alias-like text are not translated. Local replay of the saved responses through
+the product codec matches the reviewed scopes, values, schema and provenance;
+existing unordered disposition entries are compared as a multiset only.
+
+**This is not a complete product or independent document pass.** The scope controls
+reuse content from the thinking detail response and explicitly defer all scopes in
+a separate diagnostic copy. Original replies/checkpoints are unchanged. The product
+still sends only unresolved meanings to applicability review; a confidently wrong
+record scope can bypass it. Mandatory separate content/applicability decisions need
+a design that preserves row-specific and row/column scopes, record scope and
+cross-region references. The codec does not add those capabilities or change the
+production non-thinking profile.
 
 Table protocol v15 uses separate, durable source selection inside the
 meaning stage. Selection and detail use the existing shared finite allowances, not
@@ -65,7 +98,8 @@ now contains meanings and selected-source remainder reviews only; saved choices 
 other reviews are reused without model regeneration. Positive selections cannot
 return an empty meaning list. The program also fixes the meaning revision baseline
 in the output contract, rather than allowing the model to copy the selection hash.
-That v15 bookkeeping fix is regression-tested; a v15 actual model run is pending.
+That v15 bookkeeping fix passed actual controlled detail calls above; a successful
+fresh full-document product run is still pending.
 Regression checks alone do not establish quality or release qualification.
 
 The v14 source `2df5f12` completed the same bounded fresh-HTML/restart path in 4 calls,

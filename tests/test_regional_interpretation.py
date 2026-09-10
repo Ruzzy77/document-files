@@ -200,6 +200,23 @@ def test_resume_checks_source_model_options_and_checkpoint_version():
         run(restore=state)
 
 
+@pytest.mark.parametrize("mutation", ["scope-v8", "missing-wire", "different-wire"])
+def test_scope_wire_checkpoint_identity_rejects_old_or_changed_contract_before_call(mutation):
+    states = []
+    run(model=ReferenceModel(fail=True), checkpoint=states.append)
+    state = states[-1]
+    if mutation == "scope-v8":
+        state["identity"]["scopeVersion"] = "document-files.scope-integration.v8"
+    elif mutation == "missing-wire":
+        del state["identity"]["scopeReferenceWireVersion"]
+    else:
+        state["identity"]["scopeReferenceWireVersion"] = "unknown-wire"
+    model = ReferenceModel()
+    with pytest.raises(ValueError, match="incompatible"):
+        run(model=model, restore=state, additional_budget={"maxModelCalls": 1})
+    assert model.calls == 0
+
+
 @pytest.mark.parametrize("elapsed", [float("nan"), float("inf"), -1, True])
 def test_checkpoint_cannot_reset_or_corrupt_accumulated_usage(elapsed):
     states = []
@@ -964,6 +981,17 @@ def test_local_scope_batch_resumes_without_repeating_region_interpretation(inval
         additional_budget={"maxModelCalls": 1},
     )
     assert model.calls == 2 and len(json.loads(model.messages[-1][-1]["content"])["tasks"]) == 3
+    for task in json.loads(model.messages[-1][-1]["content"])["tasks"]:
+        assert all(c["targetHandle"].startswith("@") for c in task["candidates"])
+    assert (
+        states[-1]["identity"]["scopeReferenceWireVersion"]
+        == "document-files.scope-reference-wire.v1"
+    )
+    assert all(
+        handle.startswith("scope-target-")
+        for stored in states[-1]["scopeDecisions"].values()
+        for handle in stored.get("decision", {}).get("targetHandles", [])
+    )
     assert (
         result["data"] == first["data"] == {"identifier": "000123", "count": "0", "flag": "false"}
     )

@@ -1,5 +1,11 @@
 # Python, CLI and MCP integration
 
+Internal applicability calls use scope integration v9 and scope reference wire v1.
+Short typed target aliases exist only in model requests/replies; validation and
+checkpoints use canonical handles. Source references and literal text are unchanged.
+Old scope/wire identities cannot resume under this contract. Public v1 APIs and
+row/column applicability semantics are unchanged; this is not a quality certification.
+
 The supported Python import is `document_files.api`. The engine, CLI, local MCP and
 HTTP service call the same document interpretation implementation. A host chat
 subscription is not an API credential. Nothing falls back to an unconfigured model.
