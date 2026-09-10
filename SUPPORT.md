@@ -138,6 +138,16 @@ check supplied text and empty slots, but still cannot transcribe missing or
 incorrect text. Source-pixel-bound text recovery remains required; relaxing the
 guard or repeating the current review request is not a solution.
 
+A bounded component capture now measured six slots (3 rows, 2 columns) from
+the actual cached renderer image, with no new OCR or model call. The independent
+full-page renderer has different pixels and remains separately identified. The
+first import exposed a decimal/binary32 dimension mismatch; adapter v29 permits
+only the same binary32 representation within 0.001 canvas pixel, retaining other
+coordinate checks. Revalidating the saved measurement verified its original-page
+coordinates without rerendering or rewriting observations. The 3-row grid remains
+unlinked to the original 2-row table; this is not repaired text or a complete
+recognition/interpretation execution. Both failed probe records are retained.
+
 ### Source-first table meaning review
 
 Table protocol v10 asks for one decision per owned source before any meanings.

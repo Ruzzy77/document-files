@@ -26,6 +26,11 @@ def fixture(mode="RGB"):
         "horizontalLines": [[0, y, 60, 2, 120] for y in (0, 19, 38)],
         "verticalLines": [[x, 0, 2, 40, 80] for x in (0, 29, 58)],
     }
+    frame, mapping = coordinate_fixture(image_identity(image))
+    return image, frame, grid, mapping
+
+
+def coordinate_fixture(canvas):
     source = {
         "status": "captured",
         "sourceSha256": "a" * 64,
@@ -58,14 +63,14 @@ def fixture(mode="RGB"):
         "normalizedMediaBox": [0, 0, 60, 40],
         "normalizedCropBox": [0, 0, 60, 40],
         "normalizedAngle": 0,
-        "canvas": image_identity(image),
+        "canvas": canvas,
         "requestedCropTopLeft": None,
         "cropPixelBounds": [0, 0, 60, 40],
         "pixelCoordinateOrigin": "TOPLEFT",
         "rounding": "python_round_then_clamp",
         "ocrTruthVerified": False,
     }
-    return image, frame, grid, mapping
+    return frame, mapping
 
 
 def collect(image, frame, grid, **kw):
@@ -421,3 +426,72 @@ def test_large_synthetic_canvas_twelve_slots_fit_single_pass_budget(monkeypatch)
         # The old separate full-frame hash alone would exceed this same budget.
         assert record["usage"]["totalExaminedPixels"] + 8702320 > 16000000
         assert record["blankValueProven"] is False and record["contentCoverageVerified"] is False
+
+
+@pytest.mark.parametrize("angle", [0, 90, 180, 270])
+def test_decimal_framework_dimensions_match_pdfium_binary32_without_pixel_equality(angle):
+    import struct
+
+    from document_files.document_model.recognition_coordinates import _frame_to_page
+
+    frame, mapping = coordinate_fixture({"size": [60, 40], "mode": "RGB", "sha256": "d" * 64})
+
+    def to_float32(n):
+        return struct.unpack("!f", struct.pack("!f", n))[0]
+
+    width, height = 595.2, 841.92
+    source_width, source_height = to_float32(width), to_float32(height)
+    page = mapping["subsetRender"]
+    page["pageBoxes"].update(
+        mediaDeclared=[0, 0, source_width, source_height],
+        cropDeclared=None,
+        effective=[0, 0, source_width, source_height],
+    )
+    page["intrinsicRotation"] = angle
+    dimensions = [height, width] if angle in (90, 270) else [width, height]
+    source_dimensions = [to_float32(n) for n in dimensions]
+    frame.update(
+        pageSize=dimensions,
+        normalizedMediaBox=[0, 0, *dimensions],
+        normalizedCropBox=[0, 0, *dimensions],
+    )
+    page["pageSizeCanvasUnits"] = source_dimensions
+    frame["canvas"]["size"] = page["pixelSize"] = [1786, 2526]
+    frame["cropPixelBounds"] = [0, 0, 1786, 2526]
+    frozen_frame, frozen_page = deepcopy(frame), deepcopy(page)
+    assert _frame_to_page(frame, mapping) == page["renderCoordinates"]["pixelToPageAffine"]
+    assert frame == frozen_frame and page == frozen_page
+    # Independent renderer bytes are not declared identical by coordinate matching.
+    assert frame["canvas"]["sha256"] != page["pixelSha256"]
+
+
+@pytest.mark.parametrize(
+    ("actual", "expected", "scale", "matched"),
+    [
+        ([841.92], [841.9199829101562], 3, True),
+        ([1.000001, 841.92], [1, 841.9199829101562], 3, True),
+        ([841.92], [841.9199829101562], 100, False),
+        ([841.92], [841.919921875], 3, False),
+        ([841.9201], [841.9199829101562], 3, False),
+        ([float("nan")], [841.9199829101562], 3, False),
+        ([float("inf")], [841.9199829101562], 3, False),
+        ([True], [1], 3, False),
+        ([1e300], [1e300 - 1e285], 1e-300, False),
+        ([841.92], [841.9199829101562, 0], 3, False),
+    ],
+)
+def test_binary32_dimension_equivalence_is_not_a_general_tolerance(
+    actual, expected, scale, matched
+):
+    from document_files.document_model.recognition_coordinates import _framework_dimensions_close
+
+    assert _framework_dimensions_close(actual, expected, scale) is matched
+
+
+def test_binary32_dimensions_do_not_accept_nonzero_original_media_origin():
+    from document_files.document_model.recognition_coordinates import _frame_to_page
+
+    frame, mapping = coordinate_fixture({"size": [60, 40], "mode": "RGB", "sha256": "d" * 64})
+    mapping["subsetRender"]["pageBoxes"]["mediaDeclared"][0] = 0.00002
+    with pytest.raises(ValueError):
+        _frame_to_page(frame, mapping)

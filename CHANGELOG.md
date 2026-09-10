@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Match decimal parser page dimensions with PDFium binary32 dimensions only when
+  they have the same binary32 representation and differ by at most 0.001 pixel.
+  Retain source, boundary, pixel and crop checks; do not equate renderer pixels
+  or rewrite table structure. Adapter v29 prevents older checkpoint reuse.
+
 - Collect missing table cell geometry from existing cached page pixels independently
   of optional OCR repair. Reuse prior complete/partial/unavailable observations,
   retain shared pixel/cell limits, and report unavailable cache/layout evidence

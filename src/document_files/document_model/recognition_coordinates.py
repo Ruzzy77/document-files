@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import struct
 from contextlib import contextmanager
 from copy import deepcopy
 
@@ -163,6 +164,31 @@ def _close(actual, expected):
     )
 
 
+def _framework_dimensions_close(actual, expected, pixel_scale):
+    # PDFium page boxes use binary32; the parser retains decimal page sizes.
+    # Accept only the same binary32 representation, bounded to at most 0.001 pixel.
+    # This is not a general relative tolerance or evidence of matching pixels.
+    if _close(actual, expected):
+        return True
+    try:
+        return len(actual) == len(expected) and all(
+            type(a) in (int, float)
+            and type(b) in (int, float)
+            and math.isfinite(a)
+            and math.isfinite(b)
+            and (
+                math.isclose(a, b, rel_tol=0, abs_tol=1e-5)
+                or (
+                    abs(a - b) * pixel_scale <= 0.001
+                    and struct.pack("!f", a) == struct.pack("!f", b)
+                )
+            )
+            for a, b in zip(actual, expected, strict=True)
+        )
+    except (OverflowError, struct.error):
+        return False
+
+
 def _compose(outer, inner):
     a, b, c, d, e, f = outer
     g, h, i, j, k, offset_y = inner
@@ -215,14 +241,17 @@ def _frame_to_page(frame, mapping):
         270: [h - t, left, h - b, r],
     }[angle]
     expected_media = [0, 0, h, w] if angle in (90, 270) else [0, 0, w, h]
-    if (
-        not _close(frame["normalizedMediaBox"], expected_media)
-        or not _close(frame["normalizedCropBox"], normalized)
-        or not _close(frame["pageSize"], page["pageSizeCanvasUnits"])
-    ):
-        raise ValueError
     width, height = frame["canvas"]["size"]
     if not all(type(v) is int and v > 0 for v in (width, height)):
+        raise ValueError
+    pixel_scale = max(width / fw, height / fh)
+    if (
+        not _framework_dimensions_close(frame["normalizedMediaBox"], expected_media, pixel_scale)
+        or not _framework_dimensions_close(frame["normalizedCropBox"], normalized, pixel_scale)
+        or not _framework_dimensions_close(
+            frame["pageSize"], page["pageSizeCanvasUnits"], pixel_scale
+        )
+    ):
         raise ValueError
     requested = frame["requestedCropTopLeft"]
     expected_bounds = [0, 0, width, height]

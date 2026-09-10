@@ -332,6 +332,14 @@ pixel/cell budgets. The cell observation format stays v2, and adapter v27 and ol
 checkpoints cannot resume as v28. This does not implement image text recovery or
 turn geometry into blank-value, OCR-accuracy or completeness approval.
 
+Adapter v29 additionally handles the decimal/binary32 page-dimension difference
+between the parser and PDFium. Beyond the existing absolute comparison, values
+must have the same binary32 representation and differ by at most 0.001 canvas
+pixel. Original nonzero media origins, source identity, crop, rotation and pixel
+checks are unchanged. This does not establish equality between two renderers
+or associate grids with different row counts. Adapter v28 and older checkpoints
+cannot resume as v29; coordinate v1 and public result contracts retain their shape.
+
 Recognition adapter v18 introduced explicit `ruled_cells_v2` file-list repair.
 Administrator `repairBudget` accepts `batchSize` (1–2), `maxImages` (1–64) and
 `maxInputPixels` (1–64,000,000), all integers excluding booleans. Defaults remain
