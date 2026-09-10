@@ -563,6 +563,35 @@ def test_scalar_target_root_preserves_falsey_observed_values(
     assert result["schemaEvidence"][0]["target"]["path"] == ""
 
 
+@pytest.mark.parametrize(
+    "value_type", ["string", "decimal", "integer", "number", "boolean", "null", "native"]
+)
+@pytest.mark.parametrize("text", ["amount: ", "amount: 0", "amount: false", "amount: null"])
+def test_scalar_blank_preserves_observation_and_never_coerces_nonempty_values(value_type, text):
+    class BlankModel(ReferenceModel):
+        def complete(self, messages, *, timeout):
+            answer = json.loads(super().complete(messages, timeout=timeout))
+            answer["fields"][0].update(valueType=value_type, status="blank")
+            return json.dumps(answer)
+
+    result = run(text.encode(), BlankModel())
+    if text == "amount: ":
+        assert result["data"] == {"amount": ""}
+        assert result["extraction"]["status"] == "complete", result["issues"]
+        evidence = result["valueEvidence"][0]
+        assert evidence["status"] == "blank" and evidence["raw"] == ""
+        assert evidence["binding"]["representation"] == "text"
+        assert evidence["binding"]["start"] == evidence["binding"]["end"]
+        assert result["dataSchema"]["properties"]["amount"] == {"type": "string"}
+    else:
+        assert result["extraction"]["status"] == "partial"
+        assert not result["valueEvidence"]
+        assert any(
+            "blank_status_disagrees_with_observation" in i.get("errors", [])
+            for i in result["issues"]
+        )
+
+
 def test_repeat_can_populate_array_target_root():
     doc, region, ir = _table()
     schema = {

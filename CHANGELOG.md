@@ -2,6 +2,12 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Compiler v19 preserves observed blank scalar values for decimal, numeric,
+  boolean and null field declarations, matching blank repeat-cell behavior. Keep
+  empty text and its binding instead of treating it as failed conversion. Nonempty
+  sources still reject blank status; absence, uncertainty and typed null are not
+  converted to blank. Old compiler checkpoint identities are rejected.
+
 - Activate scope-axis protocol v1 and regional checkpoint v3. Use actual wire/schema
   size for batches; bind compiler provenance separately from model selections and
   regenerate it on resume. Save the original batch/context and execution policy.

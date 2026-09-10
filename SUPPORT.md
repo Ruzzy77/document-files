@@ -49,16 +49,24 @@ installed manifests are not mutated. Generic/cloud reasoning remains client-owne
 and complete-only output limits remain client-owned and are recorded as such. All
 stages still share cumulative document call/time budgets. The scope batcher measures
 the actual serialized system, payload and schema and separates a shared caption's
-meanings. Prompt v24 / table protocol v16 / compiler v18 / canonical scope integration
+meanings. Prompt v24 / table protocol v16 / compiler v19 / canonical scope integration
 v11 / reference wire v2 and public API v1 remain unchanged.
 
-Local full regression passed **2,496** (227 skipped, 12 subtests). Scripted engine
+Local full regression passed **2,524** (227 skipped, 12 subtests); 634 related
+tests passed with warnings as errors, and Ruff/format passed for 218 files. Scripted engine
 coverage includes column/row selection, content uncertainty, bounded request policy,
 invalid siblings, explicit grants, call-free resume and altered source/trace/policy
 rejection. Transport tests verify request-scoped text/image context checks, no mode
 leak to later requests, incomplete usage preservation and unsupported-cloud rejection.
-Current-source ARM regression and actual integrated model calls are not yet complete.
+The initial scope activation source passed 606 related tests on Spark ARM.
+The subsequent compiler v19 fix and actual integrated model calls still await ARM checks.
 The earlier development successes below do not automatically qualify this activation.
+
+Integrated preflight exposed an existing scalar-blank defect: subtotal decimal blanks
+outside the repeat became uncertain with lost bindings. Compiler v19 now reads a
+declared blank as source text, verifies actual emptiness, and preserves its empty
+string/status/binding consistently with repeat cells. Nonempty zero/false/null remain
+invalid blank claims. This adds 28 regression cases without rewriting observations.
 
 #### Prepared components and previous development calls
 

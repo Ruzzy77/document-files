@@ -1,7 +1,7 @@
 # Python, CLI and MCP integration
 
 Internal applicability uses scope-axis protocol v1, axis wire v1 and compiler-owned
-source-binding v1 over scope integration v11 / reference wire v2 / compiler v18.
+source-binding v1 over scope integration v11 / reference wire v2 / compiler v19.
 Private regional checkpoint v3 records the actual scope policy, batch context,
 citation-free selection and compiler source trace. Replay regenerates the request
 identity and source bindings before applying a saved decision; incompatible older

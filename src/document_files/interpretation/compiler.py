@@ -331,10 +331,15 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             if candidate.get("candidateStatus") == "unresolved_conflict":
                 raise CompileError("binding_has_unresolved_observation_conflict")
             source_refs = list(dict.fromkeys([candidate["sourceRef"], *source_refs]))
-            value, raw, binding = _read(candidate, value_type, nodes)
+            # Blank is an observed empty source, not a failed numeric conversion.
+            # Use the same text representation as blank repeat cells; nonempty
+            # candidates must still fail the status/observation comparison below.
+            value, raw, binding = _read(
+                candidate, "string" if status == "blank" else value_type, nodes
+            )
             if (status == "blank") != (raw == ""):
                 raise CompileError("blank_status_disagrees_with_observation")
-            if value_type == "decimal" and not _decimal_literal(raw):
+            if status == "present" and value_type == "decimal" and not _decimal_literal(raw):
                 # Keep source text/evidence without accepting a header, localised
                 # separator or unit-bearing string as a verified decimal value.
                 value, status, binding = None, "uncertain", None
@@ -376,7 +381,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 binding=binding,
             ).model_dump()
         )
-        shape = _schema(value_type, status)
+        shape = _schema("string" if status == "blank" else value_type, status)
         if value_type == "native" and value is None and status == "present":
             shape["type"] = "null"
         if value_type == "native" and value is not None:
