@@ -281,26 +281,32 @@ and representation, not merely the same cell reference.
 
 Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
-The model supplies `sourceDecisions`, keyed by every owned `meaningSources` reference.
-Each decision is `no_additional_meaning`, `unresolved`, `unreviewed`, or `has_meaning`.
-The first three require an explanation and forbid meanings. `has_meaning` requires
-`meanings` plus `remainderReview` (role and explanation). A meaning has `quotes`
-(exact local text, optional zero-based `occurrence`) and optional `additionalQuotes`
-with other owned `sourceRef` values. No model-generated offsets are accepted.
-Joint evidence is anchored once at the earliest quoted source in inventory order;
-multiple meanings per source and noncontiguous quotes remain valid. The program
-records original Unicode ranges/hashes and canonical `sourceReviews` (review v2).
-Successful value/header reads do not replace review, and reference context is not
-direct evidence. Duplicate meaning IDs or identical meaning copies are rejected.
-Table protocol v11 asks for meaning beyond the labels and ordinary values already
-represented by the frozen structure, not a per-cell paraphrase. Sources used as
-values or definitions are still reviewed for embedded notes, units and conditions.
-A literal empty source offers only the first three review choices, since it cannot
-contain a nonempty exact quote. This is a quotation constraint, not an automatic
-negative review or a new blank-cell decision. Whitespace is not normalized. Older
-table-protocol checkpoints cannot resume as v11; the source wire is v2.
+Table protocol v12 asks for all `sourceDecisions` before generating meaning details.
+Every owned `meaningSources` reference appears once, with only a `decision`:
+`no_additional_meaning`, `unresolved`, `unreviewed`, or `has_meaning`. A literal empty
+source cannot select `has_meaning`. This does not normalize whitespace or infer a
+negative review, a blank cell, or a unit from transcribed text.
 
-The full response requires `regionId`, `sourceDecisions`, `baseRevision` and `changes`.
+Meanings are then returned once in a separate `meanings` array. Each has `sourceQuotes`
+(exact text and an owned `sourceRef`, with optional zero-based `occurrence`). Every
+quoted source must select `has_meaning`; every such selection must be directly quoted.
+Joint evidence and noncontiguous quotes remain valid without duplicating the meaning.
+The program resolves original Unicode ranges and rejects invented/ambiguous quotes,
+duplicate IDs or identical meaning copies. Reference context is never direct evidence.
+A transcribed label such as a unit-bearing header is still reviewed for annotations;
+ordinary labels and values are not automatically excluded or promoted to definitions.
+
+`sourceReviews` must explicitly cover every source exactly once with `sourceRefs`,
+`role` and `explanation`. Sources sharing a role and explanation may be grouped. For
+quoted sources this reviews the remainder, even when quotes cover the entire text.
+For other sources the review role must match the decision. Deferred or unresolved
+review is preserved, including fully quoted and empty sources. Program validation
+does not establish semantic accuracy.
+
+This source wire is v3; the canonical meaning/source-review IR is unchanged. Selection
+and details are parts of one model response, not a new model stage or an extra budget.
+The full response requires `regionId`, `sourceDecisions`, `meanings`, `sourceReviews`,
+`baseRevision` and `changes`. Older table-protocol checkpoints cannot resume as v12.
 The first response uses a null base and empty changes. Repairs cite the accepted
 revision and account for every changed or withdrawn meaning with replacements and/or
 source reviews. Kind, description, scope and status may change; prior source coverage

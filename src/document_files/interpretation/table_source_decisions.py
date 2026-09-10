@@ -13,7 +13,7 @@ from .compiler import CompileError
 from .semantic_types import _compact_contract
 from .table_sources import SourceReviewError, resolve_quotes
 
-VERSION = "document-files.table-source-decisions.v2"
+VERSION = "document-files.table-source-decisions.v3"
 _REVIEW_ROLES = {"no_additional_meaning", "unresolved", "unreviewed"}
 
 
@@ -27,66 +27,28 @@ def _refs(inventory):
 
 
 def source_decisions_schema(flat_schema, inventory):
-    """Shared branch definitions keep per-source ownership finite without answer hints."""
+    """Finish all source choices before generating any lengthy meaning details."""
     schema = copy.deepcopy(flat_schema)
     definitions = schema["$defs"]
-    meaning = definitions["Meaning"]
-    original_quotes = meaning["properties"].pop("sourceQuotes")
-    quote = copy.deepcopy(definitions["SourceQuote"])
-    quote["properties"].pop("sourceRef")
-    quote["required"].remove("sourceRef")
-    definitions["OwnedQuote"] = quote
-    meaning["properties"]["quotes"] = {**original_quotes, "items": {"$ref": "#/$defs/OwnedQuote"}}
-    meaning["properties"]["additionalQuotes"] = {**original_quotes, "minItems": 0}
-    meaning["required"] = [k for k in meaning["required"] if k != "sourceQuotes"] + ["quotes"]
-    explanation = {"type": "string", "minLength": 1, "maxLength": 500}
-    review = {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "role": {"type": "string", "enum": sorted(_REVIEW_ROLES)},
-            "explanation": explanation,
-        },
-        "required": ["role", "explanation"],
-    }
-    definitions["SourceRemainderReview"] = review
-    definitions["SourceWithoutNewMeaning"] = {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "decision": {"type": "string", "enum": sorted(_REVIEW_ROLES)},
-            "explanation": explanation,
-        },
-        "required": ["decision", "explanation"],
-    }
-    definitions["SourceWithMeanings"] = {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "decision": {"type": "string", "const": "has_meaning"},
-            "meanings": {**schema["properties"]["meanings"], "minItems": 1},
-            "remainderReview": {"$ref": "#/$defs/SourceRemainderReview"},
-        },
-        "required": ["decision", "meanings", "remainderReview"],
-    }
-    definitions["SourceDecision"] = {
-        "anyOf": [
-            {"$ref": "#/$defs/SourceWithoutNewMeaning"},
-            {"$ref": "#/$defs/SourceWithMeanings"},
-        ]
-    }
+    for name, roles in (
+        ("SourceDecision", _REVIEW_ROLES | {"has_meaning"}),
+        ("EmptySourceDecision", _REVIEW_ROLES),
+    ):
+        definitions[name] = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"decision": {"type": "string", "enum": sorted(roles)}},
+            "required": ["decision"],
+        }
     props = schema["properties"]
     schema["properties"] = {
         "regionId": props["regionId"],
         "sourceDecisions": {
             "type": "object",
             "additionalProperties": False,
-            # An exact nonempty quote is impossible in a zero-length source.
-            # Retain all three review choices; do not infer a negative review,
-            # normalize whitespace, or remove the source from accounting.
             "properties": {
                 source["sourceRef"]: {
-                    "$ref": "#/$defs/SourceWithoutNewMeaning"
+                    "$ref": "#/$defs/EmptySourceDecision"
                     if source["text"] == ""
                     else "#/$defs/SourceDecision"
                 }
@@ -94,10 +56,116 @@ def source_decisions_schema(flat_schema, inventory):
             },
             "required": _refs(inventory),
         },
-        **{k: v for k, v in props.items() if k not in {"regionId", "meanings", "sourceReviews"}},
+        **{k: props[k] for k in ("meanings", "sourceReviews", "baseRevision", "changes")},
+        **{
+            k: v
+            for k, v in props.items()
+            if k not in {"regionId", "meanings", "sourceReviews", "baseRevision", "changes"}
+        },
     }
-    schema["required"] = ["regionId", "sourceDecisions", "baseRevision", "changes"]
+    schema["required"] = [
+        "regionId",
+        "sourceDecisions",
+        "meanings",
+        "sourceReviews",
+        "baseRevision",
+        "changes",
+    ]
     return _compact_contract(schema)
+
+
+def source_decisions_to_flat(value, inventory):
+    """Require consistent selection, direct quotes and an explicit review per source."""
+    _require(
+        isinstance(value, dict)
+        and {"sourceDecisions", "meanings", "sourceReviews"} <= value.keys(),
+        "table_source_decisions_required",
+    )
+    refs = _refs(inventory)
+    decisions = value["sourceDecisions"]
+    _require(
+        isinstance(decisions, dict) and set(decisions) == set(refs),
+        "table_source_decision_inventory",
+    )
+    for decision in decisions.values():
+        _require(
+            isinstance(decision, dict)
+            and set(decision) == {"decision"}
+            and isinstance(decision["decision"], str)
+            and decision["decision"] in _REVIEW_ROLES | {"has_meaning"},
+            "table_source_decision_shape",
+        )
+    flat = {k: copy.deepcopy(v) for k, v in value.items() if k != "sourceDecisions"}
+    _require(isinstance(flat["sourceReviews"], list), "table_source_review_shape")
+    reviews = {}
+    for item in flat["sourceReviews"]:
+        _require(
+            isinstance(item, dict)
+            and set(item) == {"sourceRefs", "role", "explanation"}
+            and isinstance(item["sourceRefs"], list)
+            and 0 < len(item["sourceRefs"]) <= 1000,
+            "table_source_review_shape",
+        )
+        review = _review({"role": item["role"], "explanation": item["explanation"]})
+        for ref in item["sourceRefs"]:
+            _require(isinstance(ref, str) and ref in refs, "unknown_review_source")
+            _require(ref not in reviews, "duplicate_source_review")
+            reviews[ref] = review
+    _require(set(reviews) == set(refs), "table_source_review_inventory")
+    _require(
+        isinstance(flat["meanings"], list) and len(flat["meanings"]) <= 100,
+        "table_meaning_count_limit",
+    )
+    for item in flat["meanings"]:
+        _require(
+            isinstance(item, dict)
+            and not {"sourceRefs", "sourceRanges", "quotes", "additionalQuotes"} & item.keys(),
+            "table_source_meaning_shape",
+        )
+    # Existing canonical grouping retains joint evidence and duplicate-content
+    # checks. It never chooses which sources need meaning interpretation.
+    checked = _flatten_source_quotes(_group_source_quotes(flat, inventory), inventory)
+    quoted = {quote["sourceRef"] for item in checked["meanings"] for quote in item["sourceQuotes"]}
+    for ref in refs:
+        choice = decisions[ref]["decision"]
+        _require(
+            (choice == "has_meaning") == (ref in quoted),
+            "table_source_decision_quote_mismatch",
+        )
+        if ref not in quoted:
+            _require(choice == reviews[ref]["role"], "table_source_decision_review_mismatch")
+    return checked
+
+
+def source_decisions_from_flat(value, inventory):
+    """Encode a full accepted snapshot; absent reviews stay explicitly deferred."""
+    _require(
+        isinstance(value, dict) and "sourceDecisions" not in value,
+        "table_source_decisions_already_encoded",
+    )
+    grouped = _group_source_quotes(value, inventory)
+    reviews = []
+    for ref, item in grouped["sourceDecisions"].items():
+        review = (
+            item["remainderReview"]
+            if item["decision"] == "has_meaning"
+            else {"role": item["decision"], "explanation": item["explanation"]}
+        )
+        reviews.append({"sourceRefs": [ref], **copy.deepcopy(review)})
+    quoted = {
+        quote["sourceRef"]
+        for meaning in value.get("meanings", [])
+        for quote in meaning["sourceQuotes"]
+    }
+    decisions = {
+        ref: {"decision": "has_meaning" if ref in quoted else review["role"]}
+        for ref, review in zip(_refs(inventory), reviews, strict=True)
+    }
+    return (
+        {"regionId": value["regionId"], "sourceDecisions": decisions}
+        | {k: copy.deepcopy(v) for k, v in value.items() if k not in {"regionId", "sourceReviews"}}
+        | {"sourceReviews": reviews}
+    )
 
 
 def _review(value):
@@ -116,7 +184,7 @@ def _review(value):
     return copy.deepcopy(value)
 
 
-def source_decisions_to_flat(value, inventory):
+def _flatten_source_quotes(value, inventory):
     """Restore explicit ownership before existing quote, revision and compiler checks."""
     _require(
         isinstance(value, dict)
@@ -234,7 +302,7 @@ def source_decisions_to_flat(value, inventory):
     }
 
 
-def source_decisions_from_flat(value, inventory):
+def _group_source_quotes(value, inventory):
     """Encode accepted feedback without inventing reviews of still-unreviewed text."""
     refs = _refs(inventory)
     rank = {ref: i for i, ref in enumerate(refs)}

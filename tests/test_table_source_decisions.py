@@ -130,7 +130,8 @@ def test_empty_source_still_requires_an_explicit_review_without_quotes(sample, r
     before = copy.deepcopy((doc, frozen, inventory))
     schema = meaning_decision_schema(doc, region, frozen)
     wire = source_decisions_from_flat(flat, inventory)
-    wire["sourceDecisions"]["empty"] = {"decision": role, "explanation": "Scripted review"}
+    wire["sourceDecisions"]["empty"] = {"decision": role}
+    wire["sourceReviews"][-1]["role"] = role
     Draft202012Validator(schema).validate(wire)
     ir = meaning_decision_ir(wire, frozen, inventory)
     assert ir.tableMeaningState.sourceReviews[-1].role == role
@@ -144,17 +145,14 @@ def test_empty_source_cannot_offer_a_meaning_branch_or_fabricated_space(sample):
     doc, region, frozen, inventory, flat = sample
     schema = meaning_decision_schema(doc, region, frozen)
     props = schema["properties"]["sourceDecisions"]["properties"]
-    assert props["empty"] == {"$ref": "#/$defs/SourceWithoutNewMeaning"}
+    assert props["empty"] == {"$ref": "#/$defs/EmptySourceDecision"}
     assert all(props[ref] == {"$ref": "#/$defs/SourceDecision"} for ref in ["h", "v", "a", "b"])
     wire = source_decisions_from_flat(flat, inventory)
     item = meaning("blank", "note", " ")
     item.pop("sourceQuotes")
-    item["quotes"] = [{"text": " "}]
-    wire["sourceDecisions"]["empty"] = {
-        "decision": "has_meaning",
-        "meanings": [item],
-        "remainderReview": {"role": "no_additional_meaning", "explanation": "Scripted review"},
-    }
+    item["sourceQuotes"] = [{"sourceRef": "empty", "text": " "}]
+    wire["sourceDecisions"]["empty"] = {"decision": "has_meaning"}
+    wire["meanings"] = [item]
     assert list(Draft202012Validator(schema).iter_errors(wire))
     with pytest.raises(CompileError, match="quote_not_in_source"):
         meaning_decision_ir(wire, frozen, inventory)
@@ -196,10 +194,10 @@ def test_joint_and_multiple_meanings_keep_exact_noncontiguous_quotes_and_scope(s
     ]
     before = copy.deepcopy((doc, frozen, inventory, flat))
     wire = source_decisions_from_flat(flat, inventory)
-    assert len(wire["sourceDecisions"]["a"]["meanings"]) == 2
-    assert len(wire["sourceDecisions"]["a"]["meanings"][0]["quotes"]) == 2
-    assert len(wire["sourceDecisions"]["a"]["meanings"][0]["additionalQuotes"]) == 1
-    assert wire["sourceDecisions"]["b"]["decision"] == "no_additional_meaning"
+    assert len(wire["meanings"]) == 2
+    assert len(wire["meanings"][0]["sourceQuotes"]) == 3
+    assert [q["sourceRef"] for q in wire["meanings"][0]["sourceQuotes"]] == ["a", "a", "b"]
+    assert wire["sourceDecisions"]["b"]["decision"] == "has_meaning"
     Draft202012Validator(meaning_decision_schema(doc, region, frozen)).validate(wire)
     ir = meaning_decision_ir(wire, frozen, inventory)
     assert [m.id for m in ir.meanings] == ["unit", "condition"]
@@ -227,22 +225,22 @@ def test_bad_evidence_anchor_and_duplicates_are_rejected(sample, bad):
     _, _, frozen, inventory, flat = sample
     flat["meanings"] = [meaning()]
     wire = source_decisions_from_flat(flat, inventory)
-    item = wire["sourceDecisions"]["a"]["meanings"][0]
+    item = wire["meanings"][0]
     if bad in {"owner", "context"}:
-        item["additionalQuotes"] = [
+        item["sourceQuotes"] = [
             {"sourceRef": "h" if bad == "owner" else "context", "text": "Length"}
         ]
     elif bad == "missing_text":
-        item["quotes"][0]["text"] = "Text not in source"
+        item["sourceQuotes"][0]["text"] = "Text not in source"
     elif bad == "duplicate_quote":
-        item["quotes"].append(copy.deepcopy(item["quotes"][0]))
+        item["sourceQuotes"].append(copy.deepcopy(item["sourceQuotes"][0]))
     else:
         other = copy.deepcopy(item)
         if bad == "duplicate_meaning":
             other["id"] = "different-id"
         else:
             other["kind"] = "note"
-        wire["sourceDecisions"]["a"]["meanings"].append(other)
+        wire["meanings"].append(other)
     with pytest.raises(CompileError):
         meaning_decision_ir(wire, frozen, inventory)
 
@@ -384,3 +382,87 @@ def test_reviewed_source_cannot_be_deferred_during_repair_or_history_restore(
     }
     with pytest.raises(MeaningRevisionError, match="table_meaning_review_coverage_regressed"):
         engine._validate_meaning_history(progress, new, doc, region, None)
+
+
+def test_all_choices_precede_details_without_losing_grouped_source_reviews(sample):
+    doc, region, frozen, inventory, flat = sample
+    schema = meaning_decision_schema(doc, region, frozen)
+    assert list(schema["properties"])[:4] == [
+        "regionId",
+        "sourceDecisions",
+        "meanings",
+        "sourceReviews",
+    ]
+    wire = source_decisions_from_flat(flat, inventory)
+    assert all(set(item) == {"decision"} for item in wire["sourceDecisions"].values())
+    wire["sourceReviews"] = [
+        {
+            "sourceRefs": region["nodeIds"],
+            "role": "no_additional_meaning",
+            "explanation": "Scripted shared review",
+        }
+    ]
+    before = copy.deepcopy(wire)
+    Draft202012Validator(schema).validate(wire)
+    result = meaning_decision_ir(wire, frozen, inventory)
+    assert not result.meanings
+    assert [r.sourceRefs for r in result.tableMeaningState.sourceReviews] == [
+        [ref] for ref in region["nodeIds"]
+    ]
+    assert wire == before
+
+
+def test_encoding_cannot_overwrite_derived_choices_with_an_existing_wire(sample):
+    _, _, _, inventory, flat = sample
+    wire = source_decisions_from_flat(flat, inventory)
+    with pytest.raises(CompileError, match="already_encoded"):
+        source_decisions_from_flat(wire, inventory)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "unquoted_choice",
+        "quoted_negative",
+        "review_mismatch",
+        "review_missing",
+        "review_duplicate",
+        "nested_old_shape",
+    ],
+)
+def test_choice_quote_and_review_consistency_is_not_optional(sample, mutation):
+    doc, region, frozen, inventory, flat = sample
+    flat["meanings"] = [meaning()]
+    wire = source_decisions_from_flat(flat, inventory)
+    if mutation == "unquoted_choice":
+        wire["sourceDecisions"]["v"]["decision"] = "has_meaning"
+    elif mutation == "quoted_negative":
+        wire["sourceDecisions"]["a"]["decision"] = "no_additional_meaning"
+    elif mutation == "review_mismatch":
+        wire["sourceDecisions"]["v"]["decision"] = "unresolved"
+    elif mutation == "review_missing":
+        wire["sourceReviews"].pop()
+    elif mutation == "review_duplicate":
+        wire["sourceReviews"].append(copy.deepcopy(wire["sourceReviews"][0]))
+    else:
+        wire["sourceDecisions"]["a"]["meanings"] = wire.pop("meanings")
+        wire.pop("sourceReviews")
+    before = copy.deepcopy(frozen)
+    with pytest.raises(CompileError):
+        meaning_decision_ir(wire, frozen, inventory)
+    assert frozen == before
+
+
+def test_transcribed_header_can_still_supply_an_explicit_unit(sample):
+    doc, region, frozen, _, flat = sample
+    doc.nodes["h"]["text"] = "Length (mm)"
+    inventory = source_inventory(doc, region)
+    flat["meanings"] = [meaning(sourceQuotes=[{"sourceRef": "h", "text": "mm"}])]
+    wire = source_decisions_from_flat(flat, inventory)
+    assert wire["sourceDecisions"]["h"]["decision"] == "has_meaning"
+    Draft202012Validator(meaning_decision_schema(doc, region, frozen)).validate(wire)
+    result = meaning_decision_ir(wire, frozen, inventory)
+    assert result.meanings[0].kind == "unit"
+    assert result.meanings[0].sourceRanges[0].text == "mm"
+    assert result.meanings[0].fieldIds == ["length"]
+    assert compile_region(result, doc, region).data == compile_region(frozen, doc, region).data

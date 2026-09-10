@@ -2,6 +2,15 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Table meaning protocol v12 / source decisions v3 finish all source choices before
+  generating a separate meaning list and explicit source reviews in the same call.
+  Selection must match direct quoted sources; other review roles must match their
+  decisions. Grouped reviews cover every source once, and unresolved/deferred states
+  survive even for fully quoted or empty text. Joint evidence, exact quotations,
+  duplicate checks, revision history and frozen structure are preserved. Transcribed
+  unit-bearing labels still require semantic review. No added stage or budget;
+  older table checkpoints are incompatible and public v1 remains unchanged.
+
 - Table meaning protocol v11 distinguishes already represented labels and ordinary
   values from additional meaning, while still requiring review of embedded notes,
   units and conditions. A literal empty source cannot offer `has_meaning` because
