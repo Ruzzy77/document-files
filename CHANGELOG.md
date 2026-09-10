@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Activate scope-selection wire v1 under scope-axis protocol v2: one selection
+  list for record/standalone choices and one shared column handle on display and
+  output. Preserve scalar/mixed/batched decisions, multiple records, groups,
+  bounded discovery and source row gaps through the existing axis validation.
+  Fingerprint the exact new request/map and reject previous internal identities
+  before resume. Public v1 and document budgets are unchanged. Actual-engine
+  model quality and resume checks on this new source are still required.
+
 - Scope integration v12 adds scalar value origins to applicability candidates:
   exact binding/status, bounded value text, observed table coordinates and separately
   labeled compiled row roles. Keep legitimate subtotal fields available; geometry

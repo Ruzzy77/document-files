@@ -105,7 +105,7 @@ with a new explicit model-call budget grant; a valid unchanged unresolved decisi
 is not automatically repeated. This repair stage never asks for the full schema or
 values again. Scope integration v5 includes observed header-group membership and current statement context in checkpoint identity.
 
-Scope-axis protocol v1 now connects the generalized row/column wire and compiler
+Scope-axis protocol v2 now connects selection wire v1 and compiler
 source binding to the engine. It batches against the actual serialized system,
 payload and schema, keeping meanings from a shared source in separate calls. The
 model selects scope only; compiler provenance remains independently identified.
@@ -114,7 +114,11 @@ policy and source trace. Resume rebinds and compares the trace against current
 compiled observations before any new call. Changed evidence cannot be accepted by
 trusting a stored success flag. This preserves public v1 contracts and the document's
 cumulative call/time budget. Managed inference uses bounded reasoning only in this
-phase; no profile-wide mode change is implied.
+phase; no profile-wide mode change is implied. The model uses a single
+selection list for record intersections and standalone candidates, with one shared
+column identifier on both sides of the boundary. The compiler still owns canonical
+column IDs and destination pointers. All offered capabilities remain available;
+old internal policy/wire identities cannot resume through the new request format.
 
 ### Source review and revisable table meaning
 

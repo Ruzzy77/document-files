@@ -11,7 +11,6 @@ from document_files.interpretation.backends import ManagedPackClient
 from document_files.interpretation.compiler import CompileError
 from document_files.interpretation.integration import build_scope_tasks
 from document_files.interpretation.legacy_engine import contract_messages
-from document_files.interpretation.scope_axis_wire import prepare_scope_axis_wire
 from document_files.interpretation.scope_protocol import (
     SYSTEM,
     replay_scope_record,
@@ -19,6 +18,7 @@ from document_files.interpretation.scope_protocol import (
     scope_policy,
     scope_request_identity,
 )
+from document_files.interpretation.scope_selection_wire import prepare_scope_selection_wire
 from document_files.interpretation.scope_source_binding import bind_scope_choices
 
 
@@ -43,7 +43,7 @@ def independent_tasks(count):
 
 
 def message_size(tasks):
-    wire = prepare_scope_axis_wire(tasks)
+    wire = prepare_scope_selection_wire(tasks)
     return sum(len(m["content"]) for m in contract_messages(SYSTEM, wire.payload, wire.contract))
 
 
@@ -82,14 +82,16 @@ def test_policy_does_not_guess_managed_capabilities_or_change_client_defaults():
 def test_saved_batch_rebinds_before_reuse_and_checks_full_context(mutation):
     obs, regions, compiled = fixture()
     tasks = build_scope_tasks(obs, regions, compiled)
-    wire = prepare_scope_axis_wire(tasks)
+    wire = prepare_scope_selection_wire(tasks)
     policy = scope_policy(SimpleNamespace())
     raw = {
         "decisions": [
             {
                 "taskId": t.id,
                 "decision": "apply",
-                "targetHandles": [wire.standalone[t.id][0]],
+                "selections": [
+                    {"kind": "standalone", "targetHandle": wire.base.standalone[t.id][0]}
+                ],
                 "explanation": "Scripted scope",
             }
             for t in tasks

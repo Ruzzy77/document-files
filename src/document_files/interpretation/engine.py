@@ -50,7 +50,6 @@ from .regions import (
     region_payload,
     route_table_values,
 )
-from .scope_axis_wire import prepare_scope_axis_wire
 from .scope_protocol import SYSTEM as SCOPE_SYSTEM
 from .scope_protocol import (
     replay_scope_record,
@@ -59,6 +58,7 @@ from .scope_protocol import (
     scope_request_identity,
 )
 from .scope_reference_wire import VERSION as SCOPE_REFERENCE_WIRE_VERSION
+from .scope_selection_wire import prepare_scope_selection_wire
 from .scope_source_binding import bind_scope_choices
 from .semantic_prompts import INTEGRATE, PROMPT_VERSION, SYSTEM
 from .semantic_types import (
@@ -1710,7 +1710,7 @@ def extract_schema_from_stream(
         ),
     ):
         try:
-            wire = prepare_scope_axis_wire(batch)
+            wire = prepare_scope_selection_wire(batch)
             response = invoke(SCOPE_SYSTEM, wire.payload, wire.contract, scope_phase=True)
             decoded = wire.decode(response)
             bound, traces = bind_scope_choices(decoded, batch, linked)

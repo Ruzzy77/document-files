@@ -229,13 +229,15 @@ def test_resume_checks_source_model_options_and_checkpoint_version():
         run(restore=state)
 
 
-@pytest.mark.parametrize("mutation", ["scope-v9", "missing-wire", "different-wire"])
+@pytest.mark.parametrize("mutation", ["scope-v9", "missing-wire", "different-wire", "axis-v1"])
 def test_scope_wire_checkpoint_identity_rejects_old_or_changed_contract_before_call(mutation):
     states = []
     run(model=ReferenceModel(fail=True), checkpoint=states.append)
     state = states[-1]
     if mutation == "scope-v9":
         state["identity"]["scopeVersion"] = "document-files.scope-integration.v10"
+    elif mutation == "axis-v1":
+        state["identity"]["scopeProtocol"]["wireVersion"] = "document-files.scope-axis-wire.v1"
     elif mutation == "missing-wire":
         del state["identity"]["scopeReferenceWireVersion"]
     else:
@@ -894,15 +896,18 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
                     {
                         "taskId": payload["taskId"],
                         "decision": "apply",
-                        "recordScopes": [
+                        "selections": [
                             {
+                                "kind": "record",
                                 "recordHandle": record["targetHandle"],
                                 "parts": [
                                     {
                                         "rowCoverage": rows,
                                         "columnCoverage": {
                                             "kind": "selectedColumns",
-                                            "columnIds": ["length"],
+                                            "columnHandles": [
+                                                record["rowOptions"]["columns"][0]["columnHandle"]
+                                            ],
                                         },
                                     }
                                 ],
@@ -1101,7 +1106,9 @@ def test_local_scope_batch_resumes_without_repeating_region_interpretation(inval
                         {
                             "taskId": task["taskId"],
                             "decision": "apply",
-                            "targetHandles": [chosen["targetHandle"]],
+                            "selections": [
+                                {"kind": "standalone", "targetHandle": chosen["targetHandle"]}
+                            ],
                             "explanation": "Scripted exact label definition applicability.",
                         }
                     )

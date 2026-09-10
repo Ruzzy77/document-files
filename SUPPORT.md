@@ -34,9 +34,22 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Latest scalar-origin implementation and selection comparison
+### Unified selection engine implementation
 
-Current product source is `ba4712e`: scope integration v12 / source-binding v2,
+Scope-axis protocol v2 now activates selection wire v1 in the engine and checkpoint
+replay. One selection list retains record and standalone choices, using the same
+column handle in candidates and output. Scalar-only/mixed selections, multiple
+records, owned/unowned header groups, bounded discovery, source-row gaps and up to
+eight batched tasks keep their existing compiler checks. The demonstrated prototype
+system and schema are byte/value-identical for the two prior cases; only the wire
+format label changes. Current regression is **2,562 passed / 227 skipped / 12 subtests**,
+with **672 related tests** passing under warnings-as-errors and **221 files** passing
+Ruff/format. Actual Spark calls and checkpoint resume for this engine revision are
+pending; the preceding prototype controls are not engine or release qualification.
+
+### Previous scalar-origin implementation and selection comparison
+
+The preceding product source was `ba4712e`: scope integration v12 / source-binding v2,
 with compiler v19, axis wire v1, scope-axis protocol v1 and regional checkpoint v3.
 Scalar candidates expose existing value bindings, blank/missing status, bounded
 source text, observed table geometry and separately labeled compiled row roles.

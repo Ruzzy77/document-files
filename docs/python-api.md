@@ -1,11 +1,20 @@
 # Python, CLI and MCP integration
 
-Internal applicability uses scope-axis protocol v1, axis wire v1 and compiler-owned
+Internal applicability uses scope-axis protocol v2, selection wire v1 and compiler-owned
 source-binding v2 over scope integration v12 / reference wire v2 / compiler v19.
 Private regional checkpoint v3 records the actual scope policy, batch context,
 citation-free selection and compiler source trace. Replay regenerates the request
 identity and source bindings before applying a saved decision; incompatible older
 checkpoints are rejected. Public v1 APIs remain unchanged. This is not quality approval.
+
+The model returns one `selections` list, choosing record intersections or standalone
+candidates without being required to fill two unrelated lists. Record selections
+use the same `columnHandle` identifiers displayed with column candidates and record
+columns, not a second set of column IDs. Only typed selection fields are translated;
+source text, labels and explanations remain literal. The general codec retains
+scalar-only/mixed decisions, multiple records, header groups, bounded candidates,
+missing rows and up to eight independent tasks. The axis codec still validates the
+canonical intersections; overlaps and foreign references remain invalid.
 
 For records the model independently selects rowCoverage and columnCoverage and the
 compiler applies their intersection. allDataRows is not allMappedColumns. Row

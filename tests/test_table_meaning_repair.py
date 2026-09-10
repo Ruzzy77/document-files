@@ -694,15 +694,20 @@ class ScopeAfterSourceReview(CaptionModel):
                     {
                         "taskId": payload["taskId"],
                         "decision": "apply",
-                        "recordScopes": [
+                        "selections": [
                             {
+                                "kind": "record",
                                 "recordHandle": candidate["targetHandle"],
                                 "parts": [
                                     {
                                         "rowCoverage": {"kind": "allDataRows"},
                                         "columnCoverage": {
                                             "kind": "selectedColumns",
-                                            "columnIds": ["size"],
+                                            "columnHandles": [
+                                                candidate["rowOptions"]["columns"][0][
+                                                    "columnHandle"
+                                                ]
+                                            ],
                                         },
                                     }
                                 ],

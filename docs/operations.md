@@ -26,7 +26,9 @@ ten generation threads slowed generation by about a third. Under a container CPU
 quota keep both values within the quota. These values are part of the profile
 fingerprint and of the recorded model identity, like the other profile settings.
 
-The scope-axis phase now has an engine-owned managed request policy: reasoning budget
+Scope-axis protocol v2 / selection wire v1 use one list for record and standalone
+selections, with shared column handles. Old policy/wire identities are rejected on
+resume, not silently translated. The phase has an engine-owned managed request policy: reasoning budget
 512, within a total output cap of 1,536 tokens or a smaller client ceiling. This does
 not enable reasoning globally or rewrite the installed model/profile. Other phases
 inherit the profile setting. Context checks, generation, diagnostics and private
