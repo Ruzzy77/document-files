@@ -57,8 +57,11 @@ There are 35 new deterministic boundary tests. Local full tests passed **2,471**
 Ruff and format checks passed for 216 files. Previous baseline CI run
 [34513936824](https://github.com/Ruzzy77/document-files/actions/runs/34513936824)
 completed successfully on all five targets; that older run does not certify these
-new files. Current-source ARM/CI checks are tracked separately. None of these counts
-is independent document quality, installed-client or release approval.
+new files. Current-source Spark ARM passed the same 501 related tests with no skips. In new
+CI run [34525572826](https://github.com/Ruzzy77/document-files/actions/runs/34525572826),
+all five regression steps succeeded; portable builds were still running at the
+last check. None of these counts is independent document quality, installed-client
+or release approval.
 
 Two further Spark calls kept the successful strict axis contract, program-bound
 provenance and reasoning setting 512 fixed, and supplied the original caption's
@@ -75,9 +78,24 @@ The general codec reproduced the exact payload, schema and canonical choice for
 all four successful development responses (row, column, unit and condition).
 Local compiler replay matched the recorded results, normalizing only coverage
 set order. This is a zero-call compatibility check, not four new model successes.
-Next are current-source ARM checks, actual interval/blank controls, compact
-long-range provenance, engine/budget/checkpoint integration, and content-stage
-quality before the new bounded full HTML run.
+Two additional calls then used the committed general components directly on Spark
+(source `f2c4925`), with three data rows and an intervening subtotal. The first chose
+Width in only the first two samples; the second chose the observed blank Width in
+the third sample. Both matched the predeclared value scopes, added no whole-column
+schema link, kept exactly three records and preserved the blank as empty string
+with `blank` status, not zero/null/absence. Inference took 145.15/147.94 seconds;
+host time was 159.03/161.88 seconds. Each used one 300-second / 1,536-total-token
+call with reasoning setting 512, unchanged 4 CPU / 16GiB isolation and no repairs.
+These calls exercised the general components, not the active extraction engine,
+and still received the known structure/content. An initial preparation incorrectly
+expected null for the observed blank; it failed before any model call. The corrected
+truth was frozen in a separate preparation before dispatch; no product behavior
+or old response was changed to make the result pass.
+
+Next are compact long-range provenance, engine/budget/checkpoint integration and
+content-stage quality before the new bounded full HTML run. The old source snapshot
+was hash-checked, verified unused and retired after the new source passed ARM tests;
+its Git commit, manifest, inputs and failure/results evidence remain reproducible.
 
 #### Earlier applicability and output-constraint controls
 
