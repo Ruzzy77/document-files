@@ -13,7 +13,7 @@ from .compiler import CompileError
 from .semantic_types import _compact_contract
 from .table_sources import SourceReviewError, resolve_quotes
 
-VERSION = "document-files.table-source-decisions.v1"
+VERSION = "document-files.table-source-decisions.v2"
 _REVIEW_ROLES = {"no_additional_meaning", "unresolved", "unreviewed"}
 
 
@@ -81,7 +81,17 @@ def source_decisions_schema(flat_schema, inventory):
         "sourceDecisions": {
             "type": "object",
             "additionalProperties": False,
-            "properties": {ref: {"$ref": "#/$defs/SourceDecision"} for ref in _refs(inventory)},
+            # An exact nonempty quote is impossible in a zero-length source.
+            # Retain all three review choices; do not infer a negative review,
+            # normalize whitespace, or remove the source from accounting.
+            "properties": {
+                source["sourceRef"]: {
+                    "$ref": "#/$defs/SourceWithoutNewMeaning"
+                    if source["text"] == ""
+                    else "#/$defs/SourceDecision"
+                }
+                for source in inventory["sources"]
+            },
             "required": _refs(inventory),
         },
         **{k: v for k, v in props.items() if k not in {"regionId", "meanings", "sourceReviews"}},

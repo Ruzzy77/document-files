@@ -292,6 +292,13 @@ multiple meanings per source and noncontiguous quotes remain valid. The program
 records original Unicode ranges/hashes and canonical `sourceReviews` (review v2).
 Successful value/header reads do not replace review, and reference context is not
 direct evidence. Duplicate meaning IDs or identical meaning copies are rejected.
+Table protocol v11 asks for meaning beyond the labels and ordinary values already
+represented by the frozen structure, not a per-cell paraphrase. Sources used as
+values or definitions are still reviewed for embedded notes, units and conditions.
+A literal empty source offers only the first three review choices, since it cannot
+contain a nonempty exact quote. This is a quotation constraint, not an automatic
+negative review or a new blank-cell decision. Whitespace is not normalized. Older
+table-protocol checkpoints cannot resume as v11; the source wire is v2.
 
 The full response requires `regionId`, `sourceDecisions`, `baseRevision` and `changes`.
 The first response uses a null base and empty changes. Repairs cite the accepted

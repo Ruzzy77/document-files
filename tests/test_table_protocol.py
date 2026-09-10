@@ -339,12 +339,14 @@ def test_stage_repairs_are_finite_across_resume_and_explicit_grants():
 def test_prior_protocol_checkpoint_rejected_before_dispatch():
     model, states = TableModel(), []
     execute(model, states=states)
-    for mutation in ("version", "protocol"):
+    for mutation in ("version", "protocol", "previous_protocol"):
         checkpoint = copy.deepcopy(states[-1])
         if mutation == "version":
             checkpoint["version"] = "document-files.regional-checkpoint.v1"
-        else:
+        elif mutation == "protocol":
             checkpoint["identity"].pop("tableProtocolVersion")
+        else:
+            checkpoint["identity"]["tableProtocolVersion"] = "document-files.table-protocol.v10"
         with pytest.raises(ValueError, match="incompatible"):
             execute(model, restore=checkpoint)
     assert len(model.requests) == 2

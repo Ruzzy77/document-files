@@ -2,6 +2,13 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Table meaning protocol v11 distinguishes already represented labels and ordinary
+  values from additional meaning, while still requiring review of embedded notes,
+  units and conditions. A literal empty source cannot offer `has_meaning` because
+  no nonempty exact quote can exist there; explicit negative, unresolved and deferred
+  reviews remain available and required. Whitespace and source text are not normalized.
+  Older table checkpoints are incompatible; public v1 contracts remain unchanged.
+
 - PDF review v11 / unit display v2 also display residual groups that share an
   original pixel component with measured table rules, even when those groups
   have no edge-candidate status. This exposes mixed lettering and residual marks

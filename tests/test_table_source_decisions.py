@@ -124,6 +124,48 @@ def test_schema_requires_each_owned_source_and_branches_before_meaning(sample):
         meaning_decision_ir(wire, frozen, inventory)
 
 
+@pytest.mark.parametrize("role", ["no_additional_meaning", "unresolved", "unreviewed"])
+def test_empty_source_still_requires_an_explicit_review_without_quotes(sample, role):
+    doc, region, frozen, inventory, flat = sample
+    before = copy.deepcopy((doc, frozen, inventory))
+    schema = meaning_decision_schema(doc, region, frozen)
+    wire = source_decisions_from_flat(flat, inventory)
+    wire["sourceDecisions"]["empty"] = {"decision": role, "explanation": "Scripted review"}
+    Draft202012Validator(schema).validate(wire)
+    ir = meaning_decision_ir(wire, frozen, inventory)
+    assert ir.tableMeaningState.sourceReviews[-1].role == role
+    assert compile_region(ir, doc, region).data == {"rows": [{"length": "001.2300"}]}
+    assert (doc, frozen, inventory) == before
+    del wire["sourceDecisions"]["empty"]
+    assert list(Draft202012Validator(schema).iter_errors(wire))
+
+
+def test_empty_source_cannot_offer_a_meaning_branch_or_fabricated_space(sample):
+    doc, region, frozen, inventory, flat = sample
+    schema = meaning_decision_schema(doc, region, frozen)
+    props = schema["properties"]["sourceDecisions"]["properties"]
+    assert props["empty"] == {"$ref": "#/$defs/SourceWithoutNewMeaning"}
+    assert all(props[ref] == {"$ref": "#/$defs/SourceDecision"} for ref in ["h", "v", "a", "b"])
+    wire = source_decisions_from_flat(flat, inventory)
+    item = meaning("blank", "note", " ")
+    item.pop("sourceQuotes")
+    item["quotes"] = [{"text": " "}]
+    wire["sourceDecisions"]["empty"] = {
+        "decision": "has_meaning",
+        "meanings": [item],
+        "remainderReview": {"role": "no_additional_meaning", "explanation": "Scripted review"},
+    }
+    assert list(Draft202012Validator(schema).iter_errors(wire))
+    with pytest.raises(CompileError, match="quote_not_in_source"):
+        meaning_decision_ir(wire, frozen, inventory)
+    # Only literal empty text changes the branch, never a semantic or whitespace heuristic.
+    doc.nodes["empty"]["text"] = " "
+    spaced = meaning_decision_schema(doc, region, frozen)
+    assert spaced["properties"]["sourceDecisions"]["properties"]["empty"] == {
+        "$ref": "#/$defs/SourceDecision"
+    }
+
+
 @pytest.mark.parametrize("mutation", ["missing", "extra", "context"])
 def test_inventory_and_old_flat_response_cannot_bypass_source_decisions(sample, mutation):
     _, _, frozen, inventory, flat = sample
