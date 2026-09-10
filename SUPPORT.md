@@ -148,7 +148,7 @@ coordinates without rerendering or rewriting observations. The 3-row grid remain
 unlinked to the original 2-row table; this is not repaired text or a complete
 recognition/interpretation execution. Both failed probe records are retained.
 
-PDF review v6 now has a reachable, budgeted image-reading stage after an unresolved
+PDF review v7 now has a reachable, budgeted image-reading stage after an unresolved
 review or a missing-slot inventory failure. It obtains literal text/empty/uncertain
 candidates from measured cells and existing text regions without providing OCR strings
 as answers. Partial results preserve those candidates with source-pixel identities;
@@ -189,6 +189,21 @@ component evidence, not an independent holdout or whole-pipeline resource qualif
 The source-preserving projection and budgeted review were exercised on ARM; they do not
 establish completed extraction. Old observations, responses and the rejected applied
 view remain as development evidence, not a final active document.
+
+A subsequent saved-pixel diagnosis found multiple near-white parallel stripes around
+the visible lines; the input PDF uses DCTDecode. The all-non-white measurement treated
+these as ambiguous stripes. Pixel/grid v2 add a separate contrast-core measurement,
+retaining all original pixels. The same saved source now yields all seven line cores
+under the unchanged 8-pixel search / 7-pixel maximum-width limits. Of 257,034 original
+foreground pixels, 37,597 belong to the measured cores and 219,437 remain unassigned;
+none are discarded or automatically called noise/blank. Pure faint lines still use the
+original path. V7 separates those exact core pixels from text candidates.
+
+This fixes the grid-location failure, not the remaining image-content review or semantic
+extraction. The unassigned table component still contains 61,318 pixels, including
+57,238 low-contrast pixels and 4,080 core pixels; it must not be silently treated as
+background or correct text. The saved reading and v5 quality failure remain unchanged.
+No additional model, OCR or render call was used for this diagnosis and implementation.
 
 ### Source-first table meaning review
 

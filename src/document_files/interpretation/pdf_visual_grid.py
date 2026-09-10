@@ -9,7 +9,7 @@ import time
 from bisect import bisect_left
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-grid.v1"
+VERSION = "document-files.pdf-visual-grid.v2"
 SEARCH_RADIUS = 8
 MAX_BAND_WIDTH = 7
 MIN_LINE_LENGTH = 32
@@ -91,7 +91,7 @@ def measure_grid_candidates(pixels, *, expected_grids, deadline, cancelled=None)
         _require(len(expected_grids) <= MAX_GRIDS)
         # Inputs are copied before any caller-visible callback can run again.
         pixels, requested = deepcopy(pixels), deepcopy(expected_grids)
-        _require(pixels.get("version") == "document-files.pdf-visual-pixels.v1")
+        _require(pixels.get("version") == "document-files.pdf-visual-pixels.v2")
         _require(_hash(pixels.get("rgbSha256")) and _hash(pixels.get("fingerprint")))
         _require(
             pixels["fingerprint"]
@@ -126,6 +126,42 @@ def measure_grid_candidates(pixels, *, expected_grids, deadline, cancelled=None)
         count = sum(end - start for _, start, end in runs)
         _require(count == pixels["foregroundPixelCount"])
         row_numbers = sorted(rows)
+        original_rows = rows
+        core = pixels["contrastCore"]
+        _require(
+            core["rule"] == "min(R,G,B)<224"
+            and core["purpose"] == "additional_geometry_mask_not_foreground_replacement"
+        )
+        _require(
+            isinstance(core["runs"], list) and len(core["runs"]) + len(runs) <= MAX_RUNS,
+            "visual_grid_run_budget",
+        )
+        _require(
+            core["runsSha256"] == _digest(core["runs"]) and _hash(core["maskSha256"]),
+            "visual_grid_core_changed",
+        )
+        contrast_rows, core_count = {}, 0
+        for item in core["runs"]:
+            spend()
+            _require(
+                isinstance(item, list) and len(item) == 3 and all(type(v) is int for v in item)
+            )
+            y, start, end = item
+            _require(0 <= y < height and 0 <= start < end <= width)
+            values = contrast_rows.setdefault(y, [])
+            _require(not values or values[-1][1] < start, "visual_grid_core_changed")
+            applicable = original_rows.get(y, [])
+            spend(len(applicable))
+            _require(
+                any(left <= start < end <= right for left, right in applicable),
+                "visual_grid_core_changed",
+            )
+            values.append([start, end])
+            core_count += end - start
+        _require(
+            core_count == core["pixelCount"] == count - pixels["lowContrastPixelCount"],
+            "visual_grid_core_changed",
+        )
 
         def intersect(box):
             left, top, right, bottom = box
@@ -206,165 +242,192 @@ def measure_grid_candidates(pixels, *, expected_grids, deadline, cancelled=None)
                 )
                 slot_keys.add(key)
                 slot_positions.add((row, col))
-            bands = []
-            for axis, positions, ends, extent in (
-                ("horizontal", ys, xs, height),
-                ("vertical", xs, ys, width),
-            ):
-                for index, center in enumerate(positions):
-                    spend()
-                    low, high = (
-                        max(0, math.floor(center - SEARCH_RADIUS)),
-                        min(extent, math.ceil(center + SEARCH_RADIUS)),
-                    )
-                    core_start, core_end = (
-                        math.ceil(ends[0] + SEARCH_RADIUS),
-                        math.floor(ends[-1] - SEARCH_RADIUS),
-                    )
-                    band = {
-                        "id": f"{axis[0]}{index}",
-                        "axis": axis,
-                        "index": index,
-                        "status": "unresolved",
-                        "bounds": None,
-                        "runs": [],
-                        "pixelCount": 0,
-                        "reasons": [],
-                        "semanticClassificationVerified": False,
-                    }
-                    bands.append(band)
-                    if core_end - core_start < MIN_LINE_LENGTH:
-                        band["reasons"] = ["insufficient_continuous_length"]
-                        continue
-                    continuous = []
-                    intervals_by_cross = {}
-                    if axis == "horizontal":
-                        for cross in range(low, high):
-                            intervals_by_cross[cross] = rows.get(cross, [])
-                    else:
-                        for cross in range(low, high):
-                            intervals_by_cross[cross] = []
-                        for y in row_numbers:
-                            for left, right in rows[y]:
-                                spend()
-                                for cross in range(max(low, left), min(high, right)):
-                                    spend()
-                                    intervals_by_cross[cross].append(y)
-                        intervals_by_cross = {
-                            cross: _segments(values) for cross, values in intervals_by_cross.items()
-                        }
-                    for cross, intervals in intervals_by_cross.items():
-                        for left, right in intervals:
-                            spend()
-                            if left <= core_start and right >= core_end:
-                                continuous.append(cross)
-                                break
-                    stripes = _segments(continuous)
-                    if len(stripes) != 1:
-                        band["reasons"] = ["broken_or_ambiguous_stripe"]
-                        continue
-                    cross_start, cross_end = stripes[0]
-                    if cross_end - cross_start > MAX_BAND_WIDTH:
-                        band["reasons"] = ["stripe_width_exceeded"]
-                        continue
-                    longitudinal = []
-                    for cross in range(cross_start, cross_end):
-                        for left, right in intervals_by_cross[cross]:
-                            if left <= core_start and right >= core_end:
-                                longitudinal.append([left, right])
-                    start = min(item[0] for item in longitudinal)
-                    end = max(item[1] for item in longitudinal)
-                    if abs(start - ends[0]) > SEARCH_RADIUS or abs(end - ends[-1]) > SEARCH_RADIUS:
-                        band["reasons"] = ["endpoint_protrusion_or_truncation"]
-                        continue
-                    bounds = (
-                        [start, cross_start, end, cross_end]
-                        if axis == "horizontal"
-                        else [cross_start, start, cross_end, end]
-                    )
-                    exact = intersect(bounds)
-                    band.update(
-                        status="candidate",
-                        bounds=bounds,
-                        runs=exact,
-                        pixelCount=sum(r - x for _, x, r in exact),
-                    )
-            # A stable continuous stripe does not authorize nearby dots or glyphs.
-            # At intersections only pixels actually inside measured perpendicular
-            # stripes are excepted. All remaining search-halo ink blocks this band.
-            provisional = [deepcopy(b) for b in bands if b["status"] == "candidate"]
-            for band in bands:
-                if band["status"] != "candidate":
-                    continue
-                perpendicular = "vertical" if band["axis"] == "horizontal" else "horizontal"
-                endpoint_index = 0 if band["axis"] == "horizontal" else 1
-                last_index = len(xs) - 1 if perpendicular == "vertical" else len(ys) - 1
-                endpoint_bands = {
-                    b["index"]: b
-                    for b in provisional
-                    if b["axis"] == perpendicular and b["index"] in (0, last_index)
-                }
-                if len(endpoint_bands) != 2:
-                    band.update(
-                        status="unresolved",
-                        reasons=["endpoint_support_unresolved"],
-                        bounds=None,
-                        runs=[],
-                        pixelCount=0,
-                    )
-                    continue
-                # Search tolerance locates an expected stripe; it is not license
-                # to swallow short protrusions beyond the actual outer cross-stripes.
-                if (
-                    band["bounds"][endpoint_index] < endpoint_bands[0]["bounds"][endpoint_index]
-                    or band["bounds"][endpoint_index + 2]
-                    > endpoint_bands[last_index]["bounds"][endpoint_index + 2]
+            strict_bands = None
+            measurement_basis = "all_foreground"
+            alternatives = [("all_foreground", original_rows)]
+            if 0 < core_count < count:
+                alternatives.append(("contrast_core", contrast_rows))
+            for basis, selected_rows in alternatives:
+                rows = selected_rows
+                row_numbers = sorted(rows)
+                bands = []
+                for axis, positions, ends, extent in (
+                    ("horizontal", ys, xs, height),
+                    ("vertical", xs, ys, width),
                 ):
-                    band.update(
-                        status="unresolved",
-                        reasons=["endpoint_outside_cross_stripes"],
-                        bounds=None,
-                        runs=[],
-                        pixelCount=0,
-                    )
-                    continue
-                axis, center = (
-                    band["axis"],
-                    (ys if band["axis"] == "horizontal" else xs)[band["index"]],
-                )
-                bounds = band["bounds"]
-                halo = (
-                    [
-                        bounds[0],
-                        max(0, math.floor(center - SEARCH_RADIUS)),
-                        bounds[2],
-                        min(height, math.ceil(center + SEARCH_RADIUS)),
-                    ]
-                    if axis == "horizontal"
-                    else [
-                        max(0, math.floor(center - SEARCH_RADIUS)),
-                        bounds[1],
-                        min(width, math.ceil(center + SEARCH_RADIUS)),
-                        bounds[3],
-                    ]
-                )
-                accepted = [band] + [b for b in provisional if b["axis"] != axis]
-                for y, start, end in intersect(halo):
-                    allowed = []
-                    for other in accepted:
+                    for index, center in enumerate(positions):
                         spend()
-                        x, top, right, bottom = other["bounds"]
-                        if top <= y < bottom and x < end and start < right:
-                            allowed.append([max(start, x), min(end, right)])
-                    if sum(right - left for left, right in _merge(allowed)) != end - start:
+                        low, high = (
+                            max(0, math.floor(center - SEARCH_RADIUS)),
+                            min(extent, math.ceil(center + SEARCH_RADIUS)),
+                        )
+                        core_start, core_end = (
+                            math.ceil(ends[0] + SEARCH_RADIUS),
+                            math.floor(ends[-1] - SEARCH_RADIUS),
+                        )
+                        band = {
+                            "id": f"{axis[0]}{index}",
+                            "axis": axis,
+                            "index": index,
+                            "status": "unresolved",
+                            "bounds": None,
+                            "runs": [],
+                            "pixelCount": 0,
+                            "reasons": [],
+                            "semanticClassificationVerified": False,
+                        }
+                        bands.append(band)
+                        if core_end - core_start < MIN_LINE_LENGTH:
+                            band["reasons"] = ["insufficient_continuous_length"]
+                            continue
+                        continuous = []
+                        intervals_by_cross = {}
+                        if axis == "horizontal":
+                            for cross in range(low, high):
+                                intervals_by_cross[cross] = rows.get(cross, [])
+                        else:
+                            for cross in range(low, high):
+                                intervals_by_cross[cross] = []
+                            for y in row_numbers:
+                                for left, right in rows[y]:
+                                    spend()
+                                    for cross in range(max(low, left), min(high, right)):
+                                        spend()
+                                        intervals_by_cross[cross].append(y)
+                            intervals_by_cross = {
+                                cross: _segments(values)
+                                for cross, values in intervals_by_cross.items()
+                            }
+                        for cross, intervals in intervals_by_cross.items():
+                            for left, right in intervals:
+                                spend()
+                                if left <= core_start and right >= core_end:
+                                    continuous.append(cross)
+                                    break
+                        stripes = _segments(continuous)
+                        if len(stripes) != 1:
+                            band["reasons"] = ["broken_or_ambiguous_stripe"]
+                            continue
+                        cross_start, cross_end = stripes[0]
+                        if cross_end - cross_start > MAX_BAND_WIDTH:
+                            band["reasons"] = ["stripe_width_exceeded"]
+                            continue
+                        longitudinal = []
+                        for cross in range(cross_start, cross_end):
+                            for left, right in intervals_by_cross[cross]:
+                                if left <= core_start and right >= core_end:
+                                    longitudinal.append([left, right])
+                        start = min(item[0] for item in longitudinal)
+                        end = max(item[1] for item in longitudinal)
+                        if (
+                            abs(start - ends[0]) > SEARCH_RADIUS
+                            or abs(end - ends[-1]) > SEARCH_RADIUS
+                        ):
+                            band["reasons"] = ["endpoint_protrusion_or_truncation"]
+                            continue
+                        bounds = (
+                            [start, cross_start, end, cross_end]
+                            if axis == "horizontal"
+                            else [cross_start, start, cross_end, end]
+                        )
+                        exact = intersect(bounds)
+                        band.update(
+                            status="candidate",
+                            bounds=bounds,
+                            runs=exact,
+                            pixelCount=sum(r - x for _, x, r in exact),
+                        )
+                # A stable continuous stripe does not authorize nearby dots or glyphs.
+                # At intersections only pixels actually inside measured perpendicular
+                # stripes are excepted. All remaining search-halo ink blocks this band.
+                provisional = [deepcopy(b) for b in bands if b["status"] == "candidate"]
+                for band in bands:
+                    if band["status"] != "candidate":
+                        continue
+                    perpendicular = "vertical" if band["axis"] == "horizontal" else "horizontal"
+                    endpoint_index = 0 if band["axis"] == "horizontal" else 1
+                    last_index = len(xs) - 1 if perpendicular == "vertical" else len(ys) - 1
+                    endpoint_bands = {
+                        b["index"]: b
+                        for b in provisional
+                        if b["axis"] == perpendicular and b["index"] in (0, last_index)
+                    }
+                    if len(endpoint_bands) != 2:
                         band.update(
                             status="unresolved",
-                            reasons=["nearby_ink_or_incomplete_stripe"],
+                            reasons=["endpoint_support_unresolved"],
                             bounds=None,
                             runs=[],
                             pixelCount=0,
                         )
-                        break
+                        continue
+                    # Search tolerance locates an expected stripe; it is not license
+                    # to swallow short protrusions beyond the actual outer cross-stripes.
+                    if (
+                        band["bounds"][endpoint_index] < endpoint_bands[0]["bounds"][endpoint_index]
+                        or band["bounds"][endpoint_index + 2]
+                        > endpoint_bands[last_index]["bounds"][endpoint_index + 2]
+                    ):
+                        band.update(
+                            status="unresolved",
+                            reasons=["endpoint_outside_cross_stripes"],
+                            bounds=None,
+                            runs=[],
+                            pixelCount=0,
+                        )
+                        continue
+                    axis, center = (
+                        band["axis"],
+                        (ys if band["axis"] == "horizontal" else xs)[band["index"]],
+                    )
+                    bounds = band["bounds"]
+                    halo = (
+                        [
+                            bounds[0],
+                            max(0, math.floor(center - SEARCH_RADIUS)),
+                            bounds[2],
+                            min(height, math.ceil(center + SEARCH_RADIUS)),
+                        ]
+                        if axis == "horizontal"
+                        else [
+                            max(0, math.floor(center - SEARCH_RADIUS)),
+                            bounds[1],
+                            min(width, math.ceil(center + SEARCH_RADIUS)),
+                            bounds[3],
+                        ]
+                    )
+                    if basis == "contrast_core":
+                        # A measured core establishes geometry only. Nearby ink,
+                        # including faint marks, stays unassigned in the complete
+                        # original inventory; it is never absorbed as a line edge.
+                        band["surroundingPixelsClaimed"] = False
+                        continue
+                    accepted = [band] + [b for b in provisional if b["axis"] != axis]
+                    for y, start, end in intersect(halo):
+                        allowed = []
+                        for other in accepted:
+                            spend()
+                            x, top, right, bottom = other["bounds"]
+                            if top <= y < bottom and x < end and start < right:
+                                allowed.append([max(start, x), min(end, right)])
+                        if sum(right - left for left, right in _merge(allowed)) != end - start:
+                            band.update(
+                                status="unresolved",
+                                reasons=["nearby_ink_or_incomplete_stripe"],
+                                bounds=None,
+                                runs=[],
+                                pixelCount=0,
+                            )
+                            break
+                if all(b["status"] == "candidate" for b in bands):
+                    measurement_basis = basis
+                    break
+                if strict_bands is None:
+                    strict_bands = deepcopy(bands)
+            else:
+                bands = strict_bands
+            # Core geometry never claims the omitted low-contrast pixels. They stay
+            # in the original unassigned inventory and must still be reviewed.
             measured_slots = []
             lookup = {(b["axis"], b["index"]): b for b in bands}
             for slot in slots:
@@ -400,6 +463,10 @@ def measure_grid_candidates(pixels, *, expected_grids, deadline, cancelled=None)
                     "sourceSha256": grid["sourceSha256"],
                     "observationFingerprint": grid["observationFingerprint"],
                     "expectedGeometrySha256": _digest(grid),
+                    "measurementBasis": measurement_basis,
+                    "contrastMaskSha256": core["maskSha256"]
+                    if measurement_basis == "contrast_core"
+                    else None,
                     "bands": bands,
                     "slots": measured_slots,
                 }

@@ -11,7 +11,7 @@ import time
 import zlib
 from collections.abc import Callable
 
-VERSION = "document-files.pdf-visual-pixels.v1"
+VERSION = "document-files.pdf-visual-pixels.v2"
 MAX_IMAGE_BYTES = 16 * 1024**2
 MAX_PIXELS = 16000000
 MAX_RUNS = 65536
@@ -137,6 +137,8 @@ def extract_visual_pixels(
         previous = []
         foreground_hash, low_hash = hashlib.sha256(), hashlib.sha256()
         total, low_total = 0, 0
+        contrast_runs = []
+        contrast_hash = hashlib.sha256()
 
         def find(label):
             while parents[label] != label:
@@ -159,6 +161,8 @@ def extract_visual_pixels(
             row = raw[y * width * 3 : (y + 1) * width * 3]
             foreground, low_mask = bytearray(width), bytearray(width)
             current, start, low_count = [], None, 0
+            contrast_start = None
+            contrast_mask = bytearray(width)
             for x, (red, green, blue) in enumerate(
                 zip(row[0::3], row[1::3], row[2::3], strict=True)
             ):
@@ -172,9 +176,23 @@ def extract_visual_pixels(
                     low_count += low
                     if start is None:
                         start = x
+                if darkest < 224:
+                    contrast_mask[x] = 1
+                    if contrast_start is None:
+                        contrast_start = x
+                if contrast_start is not None and (darkest >= 224 or x == width - 1):
+                    _require(
+                        len(runs) + len(contrast_runs) < MAX_RUNS,
+                        "visual_pixels_run_budget_exceeded",
+                    )
+                    contrast_runs.append([y, contrast_start, x if darkest >= 224 else x + 1])
+                    contrast_start = None
                 if start is not None and (darkest == 255 or x == width - 1):
                     end = x if darkest == 255 else x + 1
-                    _require(len(runs) < MAX_RUNS, "visual_pixels_run_budget_exceeded")
+                    _require(
+                        len(runs) + len(contrast_runs) < MAX_RUNS,
+                        "visual_pixels_run_budget_exceeded",
+                    )
                     label = len(runs)
                     runs.append([y, start, end])
                     parents.append(label)
@@ -186,6 +204,7 @@ def extract_visual_pixels(
                     start, low_count = None, 0
             foreground_hash.update(foreground)
             low_hash.update(low_mask)
+            contrast_hash.update(contrast_mask)
             left = 0
             for label in current:
                 _, x0, x1 = runs[label]
@@ -228,7 +247,8 @@ def extract_visual_pixels(
         _require(
             sum(c["pixelCount"] for c in components) == total
             and sum(c["lowContrastPixelCount"] for c in components) == low_total
-            and sum(len(c["runs"]) for c in components) == len(runs),
+            and sum(len(c["runs"]) for c in components) == len(runs)
+            and sum(end - start for _, start, end in contrast_runs) == total - low_total,
             "visual_pixels_membership_inconsistent",
         )
         result = {
@@ -240,6 +260,14 @@ def extract_visual_pixels(
             "connectivity": 8,
             "boundsConvention": "half_open_pixel_edges",
             "foregroundRule": "min(R,G,B)!=255",
+            "contrastCore": {
+                "rule": "min(R,G,B)<224",
+                "runs": contrast_runs,
+                "pixelCount": total - low_total,
+                "maskSha256": contrast_hash.hexdigest(),
+                "runsSha256": _digest(contrast_runs),
+                "purpose": "additional_geometry_mask_not_foreground_replacement",
+            },
             "lowContrastRule": "foreground and min(R,G,B)>=224",
             "foregroundMaskSha256": foreground_hash.hexdigest(),
             "lowContrastMaskSha256": low_hash.hexdigest(),
@@ -264,7 +292,7 @@ def extract_visual_pixels(
             "limits": {
                 "imageBytes": MAX_IMAGE_BYTES,
                 "pixels": MAX_PIXELS,
-                "foregroundRuns": MAX_RUNS,
+                "foregroundAndContrastRuns": MAX_RUNS,
                 "components": MAX_COMPONENTS,
             },
         }

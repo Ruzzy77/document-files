@@ -184,8 +184,7 @@ def test_empty_read_is_still_missing_and_needs_pixel_border_review():
     plan = build_page_plan(view, capture, pixels, deadline=time.monotonic() + 30)
     assert len(plan["slots"]) == 1
     decision = approved(plan)
-    with pytest.raises(PdfVisualReviewError, match="visual_slot_"):
-        validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90])
+    assert validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90])["status"] == "reviewed"
     decision["slots"][0]["decision"] = "unknown"
     assert validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90])["status"] == "unresolved"
 
@@ -392,3 +391,49 @@ def test_runner_rejects_unmeasured_proposal_before_spending_review_call(monkeypa
     result, state = run()
     assert result is None and state["haltReason"] == "visual_proposal_grid_unmeasured"
     assert run(state)[0] is None and len(calls) == 1
+
+
+def test_measured_rule_pixels_cannot_be_classified_as_cell_text():
+    doc, capture, reading, _, pixels = example()
+    plan = build_page_plan(proposal(doc, reading), capture, pixels, deadline=time.monotonic() + 30)
+    boundaries = [u for u in plan["units"] if u["onlyBoundaryPixels"]]
+    assert boundaries and all(not u["sourceIds"] for u in boundaries)
+    decision = approved(plan)
+    selected = next(v for v in decision["units"] if v["id"] == boundaries[0]["id"])
+    selected["decision"] = "source_text"
+    with pytest.raises(PdfVisualReviewError, match="visual_text_without_source"):
+        validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90])
+
+
+def test_core_geometry_does_not_turn_a_faint_mark_in_an_empty_candidate_into_blank():
+    doc, capture, reading, images, _ = example(empty=True)
+    # Numeric test fixture editing only: inject a faint mark next to the inner rule.
+    with Image.open(io.BytesIO(images.png_images[0])) as image:
+        image.putpixel((35, 30), (254, 254, 254))
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        capture["pixelSha256"] = hashlib.sha256(image.tobytes()).hexdigest()
+    capture["fingerprint"] = page_render_fingerprint(capture)
+    plan = make_plan(doc, capture)
+    reading["plan"] = plan
+    reading["validation"] = validate_read(
+        plan, reading["validation"]["decision"], detail_bounds=[0, 0, 90, 90]
+    )
+    pixels = extract_visual_pixels(
+        buf.getvalue(),
+        expected_rgb_sha256=capture["pixelSha256"],
+        expected_size=[90, 90],
+        deadline=time.monotonic() + 30,
+    )
+    review = build_page_plan(
+        proposal(doc, reading), capture, pixels, deadline=time.monotonic() + 30
+    )
+    assert review["grid"]["grids"][0]["measurementBasis"] == "contrast_core"
+    unit = next(
+        u
+        for u in review["units"]
+        if any(y == 30 and x <= 35 < end for part in u["parts"] for y, x, end in part["runs"])
+    )
+    assert not unit["onlyBoundaryPixels"]
+    with pytest.raises(PdfVisualReviewError):
+        validate_decision(review, approved(review), detail_bounds=[0, 0, 90, 90])

@@ -475,7 +475,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v6` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v7` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -528,12 +528,26 @@ Original nodes, bindings, tables and region records are preserved. New nodes car
 read strings and source-pixel/reading identities. Header roles are not inferred. Proposed
 empty cells remain missing and require the existing pixel-border/detail review.
 
-Version 6 requires the original-page measurements to contain every expected horizontal
+Pixel inventory v2 adds `contrastCore` runs (`min(R,G,B)<224`) without replacing the
+complete original non-white pixel inventory. The split uses the existing low-contrast
+boundary; both masks remain source/hash-bound and share the fixed run budget. Grid v2
+keeps a successful all-foreground measurement. If that fails, a complete contrast-core
+grid may supply geometry under the same search radius, width and endpoint limits.
+Nearby pixels are not absorbed or called noise: every unclaimed pixel stays in the
+original inventory and requires review, including faint dots and short protrusions.
+Purely faint continuous rules still use the all-foreground path.
+
+Review v7 partitions runs at measured rule edges in addition to missing-cell edges.
+Pure rule units do not offer cell text references, preventing `source_text` from
+standing in for a border decision merely because a whole-cell rectangle overlaps it.
+Grid candidate status is geometric, not a semantic or empty-value approval.
+
+Version 6 and later require the original-page measurements to contain every expected horizontal
 and vertical band as a candidate. An unresolved, missing or duplicated band blocks the
 review before inference; response validation repeats the guard. Affirmative model text
 cannot substitute for unresolved measured geometry. No measurement tolerance is widened.
 
-A separate v6 review checks every proposed source string and grid, as well as the full
+A separate v7 review checks every proposed source string and grid, as well as the full
 page's pixel units and reading order. It shares the original call/time budget and records
 an attempt before inference. A successful review permits only the alternate regions to
 enter interpretation; `pdfVisualReviewApplication.selectedImageProjectionFingerprints`

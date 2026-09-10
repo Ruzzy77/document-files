@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v6"
+VERSION = "document-files.pdf-visual-review.v7"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -422,9 +422,12 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
     for component in pixels["components"]:
         partitions = {}
         for run in component["runs"]:
-            spend(len(slots) + 1)
             y, x, r = run
+            row_bands = band_rows.get(y, [])
+            spend(len(slots) + len(row_bands) + 1)
             edges = {x, r}
+            for left, right, _ in row_bands:
+                edges.update(v for v in (left, right) if x < v < r)
             for slot in slots:
                 if slot["bounds"][1] <= y < slot["bounds"][3]:
                     edges.update(v for v in (slot["bounds"][0], slot["bounds"][2]) if x < v < r)
@@ -432,10 +435,13 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
             for left, right in zip(edges, edges[1:], strict=False):
                 current = [y, left, right]
                 membership = tuple(s["id"] for s in slots if _inside_run(current, s["bounds"]))
-                partitions.setdefault(membership, []).append(current)
+                boundary_refs = tuple(
+                    sorted({ref for a, b, ref in row_bands if a <= left and right <= b})
+                )
+                partitions.setdefault((membership, boundary_refs), []).append(current)
                 split_runs += 1
                 require(split_runs <= MAX_SPLIT_RUNS, "visual_run_budget")
-        for membership, runs in partitions.items():
+        for (membership, _), runs in partitions.items():
             bounds = _bounds(runs)
             candidates = []
             for item in sources:
@@ -475,6 +481,9 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
                     related.add(ref)
                 if covered < r:
                     structural = False
+            if structural:
+                # A cell's full rectangle is not evidence of text in its rule pixels.
+                candidates = []
             key = (tuple(candidates), tuple(sorted(related)), membership, structural)
             group = groups.setdefault(
                 key,

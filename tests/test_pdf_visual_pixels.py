@@ -170,7 +170,7 @@ def test_limits_fail_without_partial_success(monkeypatch, name, limit, code):
 
 def test_exact_limits_are_allowed(monkeypatch):
     monkeypatch.setattr(pixels, "MAX_PIXELS", 12)
-    monkeypatch.setattr(pixels, "MAX_RUNS", 2)
+    monkeypatch.setattr(pixels, "MAX_RUNS", 4)
     monkeypatch.setattr(pixels, "MAX_COMPONENTS", 2)
     assert run(encoded((6, 2), {(0, 0): (0, 0, 0), (4, 0): (0, 0, 0)}))["componentCount"] == 2
 
@@ -286,3 +286,21 @@ def test_optional_cv2_reference_has_same_synthetic_geometry():
         for c in reference["components"]
     )
     assert actual == expected
+
+
+def test_additional_contrast_mask_retains_the_original_foreground_and_exact_threshold():
+    data = encoded(
+        (5, 1),
+        {
+            (0, 0): (223, 255, 255),
+            (1, 0): (224, 255, 255),
+            (2, 0): (254, 254, 254),
+            (4, 0): (0, 0, 0),
+        },
+    )
+    result = run(data)
+    assert result["foregroundPixelCount"] == 4 and result["lowContrastPixelCount"] == 2
+    core = result["contrastCore"]
+    assert core["runs"] == [[0, 0, 1], [0, 4, 5]] and core["pixelCount"] == 2
+    assert core["maskSha256"] == hashlib.sha256(bytes([1, 0, 0, 0, 1])).hexdigest()
+    assert sum(r - x for c in result["components"] for _, x, r in c["runs"]) == 4

@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Preserve an additional exact contrast-core mask alongside every original foreground
+  pixel (pixel inventory v2). Grid v2 first keeps the existing all-foreground path,
+  then may locate a complete grid from the contrast core without absorbing nearby
+  marks or changing width/search limits. All residual pixels remain unassigned.
+  Review v7 partitions actual rule runs separately from text, so full-cell bounds
+  cannot let a model classify measured rule pixels as literal text. Independent
+  text/edge review and document quality are still required.
+
 - PDF review v6 rejects alternative grids whose original-page line measurements
   remain unresolved, before spending a review call and again on response validation.
   An affirmative model answer cannot override missing/ambiguous bands. Preserve the

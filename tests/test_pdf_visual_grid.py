@@ -107,7 +107,8 @@ def test_single_pixel_faint_line_not_erased():
 def test_faint_detached_dot_is_not_a_band():
     data = fixture(alter=lambda c: c.update({(85, 55): (254, 255, 255)}))
     result = run(data)
-    assert band(result, "v1")["status"] == "unresolved"
+    assert band(result, "v1")["status"] == "candidate"
+    assert result["grids"][0]["measurementBasis"] == "contrast_core"
     assert (85, 55) in points(result["unassignedRuns"])
     assert_preserved(data, result)
 
@@ -265,6 +266,66 @@ def test_without_grid_every_foreground_pixel_remains_unassigned():
 def test_short_endpoint_protrusion_not_absorbed_by_search_tolerance():
     data = fixture(alter=lambda c: c.update({(x, 80): (254, 255, 255) for x in range(17, 20)}))
     result = run(data)
-    assert band(result, "h1")["reasons"] == ["endpoint_outside_cross_stripes"]
+    assert band(result, "h1")["status"] == "candidate"
+    assert result["grids"][0]["measurementBasis"] == "contrast_core"
+    assert {(x, 80) for x in range(17, 20)} <= points(result["unassignedRuns"])
     assert (17, 80) in points(result["unassignedRuns"])
     assert_preserved(data, result)
+
+
+def test_parallel_faint_ringing_uses_core_geometry_without_erasing_any_pixels():
+    ringing = {(x, y): (253, 254, 255) for y in (15, 17, 75, 77, 135, 137) for x in range(20, 142)}
+
+    def add_ringing(colors):
+        for point, color in list(ringing.items()):
+            if point in colors:
+                del ringing[point]
+            else:
+                colors[point] = color
+
+    data = fixture(alter=add_ringing)
+    result = run(data)
+    assert result["grids"][0]["measurementBasis"] == "contrast_core"
+    assert all(
+        b["status"] == "candidate" and b["surroundingPixelsClaimed"] is False
+        for b in result["grids"][0]["bands"]
+    )
+    assert set(ringing) <= points(result["unassignedRuns"])
+    assert_preserved(data, result)
+
+
+def test_dark_mark_near_core_is_not_absorbed_when_faint_ringing_is_present():
+    additions = {(x, 17): (254, 254, 254) for x in range(20, 142)}
+    additions[(85, 55)] = (0, 0, 0)
+    data = fixture(alter=lambda c: c.update(additions))
+    result = run(data)
+    assert result["grids"][0]["measurementBasis"] == "contrast_core"
+    assert (85, 55) in points(result["unassignedRuns"])
+    assert (85, 55) not in points(result["candidateRuns"])
+    assert_preserved(data, result)
+
+
+@pytest.mark.parametrize("change", ["run_hash", "count", "rule", "outside", "overlap", "budget"])
+def test_contrast_geometry_mask_must_match_the_original_inventory(monkeypatch, change):
+    data = fixture()
+    p = data[0]
+    core = p["contrastCore"]
+    if change == "run_hash":
+        core["runsSha256"] = "0" * 64
+    elif change == "count":
+        core["pixelCount"] -= 1
+    elif change == "rule":
+        core["rule"] = "all_pixels"
+    elif change == "outside":
+        core["runs"][0][1] = 0
+        core["runsSha256"] = grid._digest(core["runs"])
+    elif change == "overlap":
+        core["runs"].insert(1, list(core["runs"][0]))
+        core["runsSha256"] = grid._digest(core["runs"])
+    else:
+        monkeypatch.setattr(grid, "MAX_RUNS", p["foregroundRunCount"])
+    p["fingerprint"] = grid._digest(
+        {k: v for k, v in p.items() if k not in {"fingerprint", "diagnostics"}}
+    )
+    with pytest.raises(grid.VisualGridError):
+        run(data)
