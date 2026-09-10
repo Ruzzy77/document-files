@@ -35,7 +35,7 @@ from .table_source_decisions import (
 )
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v13"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v14"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -71,11 +71,15 @@ Field names and literal values are already captured. Copying a label that contai
 a unit does not extract that unit as structured meaning. Inspect headers and values
 for units, conditions, qualifications, annotations, references and relationships.
 Restating only a field name or ordinary value adds no meaning.
-sourceSelection contains the earlier source choices. Repeat only those fixed
-choices in sourceDecisions, without explanations. Interpret selected sources once
-in meanings, with sourceQuotes containing the smallest exact phrases and their
-owned sourceRefs. Every has_meaning source must have a direct quote; other sources
-cannot be quoted. Do not restate the plain labels or values already reviewed.
+sourceSelection identifies text needing interpretation; it has NOT yet extracted
+any units, conditions or other meanings. Now produce those details in meanings.
+Do not repeat sourceDecisions or reviews of unselected sources: the program retains
+the saved model choices and reasons. Use sourceQuotes with the smallest exact
+phrases and their owned sourceRefs. Every has_meaning source must have a direct
+quote in meanings; other sources cannot be quoted. Do not restate the plain labels
+or values already reviewed. Describing a unit or condition only in a review
+explanation does not extract it: its kind, description, quote and scope must be
+in meanings.
 If a source choice is wrong, return only the revise_selection response with the
 current selectionSHA256 as baseSelectionSHA256, a reason and every new source
 choice with its short explanation. This is a separate response, not a way to quote
@@ -93,13 +97,12 @@ with inclusive actual rowStart/rowEnd and columnIds (empty means all columns);
 or unresolved. A group header concerns its descendants, not unrelated columns.
 Do not broaden scope merely because a note is in a caption. Use uncertain status
 and unresolved scope when applicability is unknown.
-Finally sourceReviews must explicitly cover every source once. Group sources only
-when their review role and explanation are the same. For has_meaning sources, review
-all text outside the direct quotes, even when another meaning quotes the whole
-source. Other sources' review roles must match their decisions. Keep unresolved
-and unreviewed states; a quote or successful value read does not remove them.
+Finally remainderReviews must cover each has_meaning source once, and no others.
+Review its text outside the direct quotes, even when a meaning quotes the whole
+source. Group sources only when their review role and explanation are the same.
+Keep unresolved and unreviewed states; a quote does not remove them.
 Initial response: baseRevision:null, changes:[]. Repair: return a full replacement
-with the supplied baseRevision, including all retained meanings and source reviews.
+with the supplied baseRevision, including all retained meanings and remainder reviews.
 Review remainingSourceRanges in original context. Correct, split, merge or withdraw
 meanings with explicit changes for every changed or removed prior ID. A withdrawal
 must review its source as no_additional_meaning or unresolved. No silent deletions.

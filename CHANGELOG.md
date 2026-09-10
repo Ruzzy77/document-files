@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Table protocol v14 limits detail output to meanings and the selected sources'
+  remainder reviews. Saved model choices and other explicit source reviews are
+  reused, not regenerated or heuristically inferred. Positive selections require
+  nonempty meanings; exact quotes, complete review coverage, explicit reselection
+  and revision checks remain mandatory. Old table checkpoints cannot resume as
+  v14. Restored document usage cannot be lower than the cumulative table stages,
+  including after an explicit grant. Public v1 contracts are unchanged.
+
 - Table protocol v13 adds a durable source-selection substep before detailed meaning
   generation. Every owned source receives a model choice and reason; all-negative
   choices compile to explicit reviews without another call, including after resume.

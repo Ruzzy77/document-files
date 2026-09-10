@@ -281,7 +281,7 @@ and representation, not merely the same cell reference.
 
 Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
-Table protocol v13 first asks for source selection in a separate call inside the
+Table protocol v14 first asks for source selection in a separate call inside the
 existing meaning stage. Every owned `meaningSources` reference receives a `decision`
 and short `explanation`: `no_additional_meaning`, `unresolved`, `unreviewed`, or
 `has_meaning`. A literal empty source cannot select `has_meaning`. This does not
@@ -311,22 +311,28 @@ duplicate IDs or identical meaning copies. Reference context is never direct evi
 A transcribed label such as a unit-bearing header is still reviewed for annotations;
 ordinary labels and values are not automatically excluded or promoted to definitions.
 
-`sourceReviews` must explicitly cover every source exactly once with `sourceRefs`,
-`role` and `explanation`. Sources sharing a role and explanation may be grouped. For
-quoted sources this reviews the remainder, even when quotes cover the entire text.
-For other sources the review role must match the decision. Deferred or unresolved
-review is preserved, including fully quoted and empty sources. Program validation
-does not establish semantic accuracy.
+The detail response's `remainderReviews` must explicitly cover each selected source
+exactly once with `sourceRefs`, `role` and `explanation`, and no unselected sources.
+Sources sharing a role and explanation may be grouped. This reviews the text outside
+quotes, even when quotes cover the entire source. The program reuses the saved model
+choices and reasons for other sources and assembles the full canonical `sourceReviews`.
+It does not infer a negative review from a header/value category. Deferred or unresolved
+review is preserved, including fully quoted and empty sources. Selection alone does
+not extract meaning: positive selections require nonempty meanings and direct quotes.
+Program validation does not establish semantic accuracy.
 
 The detailed source wire remains v3; selection is v1 and the canonical meaning/source-
 review IR is unchanged. Selection and detail calls share the meaning stage's existing
 initial two-call allowance and one post-acceptance review, plus the document's finite
 call/time budget. `phaseUsage` records the selection/detail costs without resetting
-cumulative use on a grant. Selection output is capped at 1,536 tokens, detail at 3,072.
+cumulative use on a grant. A restored document total below the cumulative table-stage
+cost is rejected before dispatch, even with an additional grant. Selection output is
+capped at 1,536 tokens, detail at 3,072.
 A failed initial detail may therefore exhaust the stage after one successful selection;
 it is not automatically retried with a fresh substep budget.
-The full detail response requires `regionId`, `sourceDecisions`, `meanings`, `sourceReviews`,
-`baseRevision` and `changes`. Older table-protocol checkpoints cannot resume as v13.
+The detail response requires `regionId`, `meanings`, `remainderReviews`, `baseRevision`
+and `changes`, without repeating `sourceDecisions`. The compiler still uses source
+decisions v3 internally. Older table-protocol checkpoints cannot resume as v14.
 The first response uses a null base and empty changes. Repairs cite the accepted
 revision and account for every changed or withdrawn meaning with replacements and/or
 source reviews. Kind, description, scope and status may change; prior source coverage

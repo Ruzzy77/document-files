@@ -15,6 +15,7 @@ from document_files.interpretation.contracts import ExtractionOptions
 from document_files.interpretation.engine import extract_schema_from_stream
 from document_files.interpretation.table_selection import (
     check_selection,
+    complete_selected_meaning,
     selection_schema,
 )
 
@@ -72,9 +73,6 @@ class SelectionModel:
             else:
                 value = {
                     "regionId": payload["regionId"],
-                    "sourceDecisions": {
-                        ref: {"decision": d["decision"]} for ref, d in selection.items()
-                    },
                     "meanings": [
                         {
                             "id": "unit",
@@ -87,7 +85,7 @@ class SelectionModel:
                         for s in sources
                         if s["text"] == "Size uses mm."
                     ],
-                    "sourceReviews": [
+                    "remainderReviews": [
                         {
                             "sourceRefs": [ref],
                             "role": "no_additional_meaning"
@@ -96,6 +94,7 @@ class SelectionModel:
                             "explanation": "Every source and remainder reviewed",
                         }
                         for ref, d in selection.items()
+                        if d["decision"] == "has_meaning"
                     ],
                     "baseRevision": payload.get("repairFeedback", {}).get("baseRevision")
                     if isinstance(payload.get("repairFeedback", {}), dict)
@@ -177,6 +176,80 @@ def test_positive_selection_and_details_are_separate_charged_calls():
     assert len(model.requests) == 3
 
 
+def test_detail_response_reuses_exact_saved_choices_and_only_reviews_positive_remainders():
+    class Capture(SelectionModel):
+        def infer(self, request):
+            response = super().infer(request)
+            if self.requests[-1].get("meaningPhase") == "details":
+                self.details = json.loads(response.text)
+                self.detail_schema = request.output_schema
+            return response
+
+    model, states = Capture(), []
+    result = run(model, states=states)
+    assert result["extraction"]["status"] == "complete"
+    assert set(model.details) == {
+        "regionId",
+        "meanings",
+        "remainderReviews",
+        "baseRevision",
+        "changes",
+    }
+    assert len(model.details["remainderReviews"]) == 1
+    empty = dict(model.details, meanings=[])
+    assert not Draft202012Validator(model.detail_schema).is_valid(empty)
+    choices = progress(states[-1])["sourceSelections"][-1]["response"]["sourceDecisions"]
+    reviews = next(iter(states[-1]["accepted"].values()))["tableMeaningState"]["sourceReviews"]
+    for ref, choice in choices.items():
+        if choice["decision"] != "has_meaning":
+            assert {
+                "sourceRefs": [ref],
+                "role": choice["decision"],
+                "explanation": choice["explanation"],
+            } in reviews
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["repeated_choices", "old_reviews", "negative_review", "duplicate", "missing", "malformed"],
+)
+def test_detail_cannot_rewrite_or_omit_saved_source_reviews(mutation):
+    record = {
+        "response": {
+            "sourceDecisions": {
+                "positive": {"decision": "has_meaning", "explanation": "Unit needs interpretation"},
+                "negative": {
+                    "decision": "unresolved",
+                    "explanation": "Unclear text remains unresolved",
+                },
+            }
+        }
+    }
+    value = {
+        "regionId": "r",
+        "meanings": [],
+        "baseRevision": None,
+        "changes": [],
+        "remainderReviews": [
+            {"sourceRefs": ["positive"], "role": "unreviewed", "explanation": "Remainder deferred"}
+        ],
+    }
+    if mutation == "repeated_choices":
+        value["sourceDecisions"] = record["response"]["sourceDecisions"]
+    elif mutation == "old_reviews":
+        value["sourceReviews"] = value.pop("remainderReviews")
+    elif mutation == "negative_review":
+        value["remainderReviews"][0]["sourceRefs"].append("negative")
+    elif mutation == "duplicate":
+        value["remainderReviews"] *= 2
+    elif mutation == "missing":
+        value["remainderReviews"] = []
+    else:
+        value["remainderReviews"] = [None]
+    with pytest.raises(CompileError, match="table_selection_"):
+        complete_selected_meaning(value, record)
+
+
 def test_negative_selection_compiles_explicit_reviews_without_detail_call():
     model, states = SelectionModel(), []
     result = run(model, content=HTML, states=states)
@@ -216,6 +289,30 @@ def test_pre_dispatch_cancel_keeps_selection_and_does_not_charge_detail():
     assert progress(states[-1])["phaseUsage"]["details"]["modelCalls"] == 0
     assert run(model, restore=states[-1])["extraction"]["status"] == "complete"
     assert len(model.requests) == 3
+
+
+@pytest.mark.parametrize(
+    "counter",
+    ["modelCalls", "promptTokens", "completionTokens", "elapsedSeconds", "unreportedUsageCalls"],
+)
+@pytest.mark.parametrize("grant", [None, {"maxModelCalls": 1}])
+def test_document_usage_cannot_be_lowered_below_cumulative_table_stages(counter, grant):
+    model = SelectionModel(fail_details=counter == "unreportedUsageCalls")
+    states = []
+    max_calls = 3 if model.fail_details else 2
+    run(model, states=states, maxModelCalls=max_calls)
+    checkpoint = copy.deepcopy(states[-1])
+    total = sum(
+        state[stage]["usage"][counter]
+        for state in checkpoint["tableStages"].values()
+        for stage in ("structure", "meaning")
+    )
+    assert total > 0
+    checkpoint["usage"][counter] = 0 if counter == "elapsedSeconds" else total - 1
+    before = len(model.requests)
+    with pytest.raises(ValueError, match="checkpoint is incompatible"):
+        run(model, restore=checkpoint, maxModelCalls=max_calls, additional_budget=grant)
+    assert len(model.requests) == before
 
 
 def test_failed_detail_consumes_shared_initial_allowance_and_needs_explicit_grant():

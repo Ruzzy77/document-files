@@ -174,6 +174,17 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
             value = source_decisions_from_flat(
                 json.loads(response.text), {"sources": payload["meaningSources"]}
             )
+            value.pop("sourceDecisions")
+            positive = {
+                ref
+                for ref, choice in payload["sourceSelection"]["sourceDecisions"].items()
+                if choice["decision"] == "has_meaning"
+            }
+            value["remainderReviews"] = [
+                dict(review, sourceRefs=[ref for ref in review["sourceRefs"] if ref in positive])
+                for review in value.pop("sourceReviews")
+                if positive.intersection(review["sourceRefs"])
+            ]
             return InferenceResponse(
                 json.dumps(value), response.usage, response.finish_reason, response.timings
             )

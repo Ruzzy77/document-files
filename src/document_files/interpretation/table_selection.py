@@ -187,24 +187,28 @@ def selected_meaning_schema(schema, selection, sources, revision):
     """Only selected sources can be quoted; an explicit reselection is a separate reply."""
     schema = deepcopy(schema)
     decisions = selection["sourceDecisions"]
-    for role in sorted({d["decision"] for d in decisions.values()}):
-        schema["$defs"]["Selected_" + role] = {
-            "type": "object",
-            "properties": {"decision": {"type": "string", "const": role}},
-            "required": ["decision"],
-            "additionalProperties": False,
-        }
-    schema["properties"]["sourceDecisions"]["properties"] = {
-        ref: {"$ref": "#/$defs/Selected_" + choice["decision"]} for ref, choice in decisions.items()
+    props = schema["properties"]
+    schema["properties"] = {
+        **{key: props[key] for key in ("regionId", "meanings")},
+        "remainderReviews": props["sourceReviews"],
+        **{key: props[key] for key in ("baseRevision", "changes")},
     }
+    schema["required"] = list(schema["properties"])
     positive = [ref for ref, item in decisions.items() if item["decision"] == "has_meaning"]
     if positive:
+        schema["properties"]["meanings"]["minItems"] = 1
         schema["$defs"]["SourceQuote"]["properties"]["sourceRef"] = {
             "type": "string",
             "enum": positive,
         }
+        schema["$defs"]["MeaningSourceReview"]["properties"]["sourceRefs"]["items"] = {
+            "type": "string",
+            "enum": positive,
+        }
+        schema["properties"]["remainderReviews"]["minItems"] = 1
     else:
         schema["properties"]["meanings"]["maxItems"] = 0
+    schema["properties"]["remainderReviews"]["maxItems"] = len(positive)
     revision_schema = selection_schema(sources)
     revision_schema["properties"] = {
         "action": {"type": "string", "const": "revise_selection"},
@@ -215,6 +219,43 @@ def selected_meaning_schema(schema, selection, sources, revision):
     revision_schema["required"] = list(revision_schema["properties"])
     definitions = schema.pop("$defs") | revision_schema.pop("$defs")
     return _compact_contract({"anyOf": [schema, revision_schema], "$defs": definitions})
+
+
+def complete_selected_meaning(value, record):
+    """Reuse saved AI choices; details review only the selected sources' remainder."""
+    _require(
+        isinstance(value, dict)
+        and set(value) == {"regionId", "meanings", "remainderReviews", "baseRevision", "changes"},
+        "table_selection_detail_shape",
+    )
+    choices = record["response"]["sourceDecisions"]
+    positive = {ref for ref, d in choices.items() if d["decision"] == "has_meaning"}
+    reviews = value["remainderReviews"]
+    _require(isinstance(reviews, list), "table_selection_remainder_reviews")
+    seen = set()
+    for review in reviews:
+        _require(
+            isinstance(review, dict)
+            and isinstance(review.get("sourceRefs"), list)
+            and bool(review["sourceRefs"]),
+            "table_selection_remainder_reviews",
+        )
+        for ref in review["sourceRefs"]:
+            _require(
+                isinstance(ref, str) and ref in positive and ref not in seen,
+                "table_selection_remainder_inventory",
+            )
+            seen.add(ref)
+    _require(seen == positive, "table_selection_remainder_inventory")
+    result = {key: deepcopy(v) for key, v in value.items() if key != "remainderReviews"}
+    result["sourceDecisions"] = {ref: {"decision": d["decision"]} for ref, d in choices.items()}
+    result["sourceReviews"] = deepcopy(reviews) + [
+        {"sourceRefs": [ref], "role": d["decision"], "explanation": d["explanation"]}
+        for ref, d in choices.items()
+        if ref not in positive
+    ]
+    check_selected_meaning(result, record)
+    return result
 
 
 def revise_selection(value, previous, inventory, frozen, wire_identity, model_identity):

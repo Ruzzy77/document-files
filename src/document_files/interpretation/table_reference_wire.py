@@ -184,7 +184,11 @@ class _Translator:
                 return out
 
             result["meanings"] = self.items(result["meanings"], meaning)
-        for key, many in (("sourceReviews", {"sourceRefs"}), ("changes", {"reviewSourceRefs"})):
+        for key, many in (
+            ("sourceReviews", {"sourceRefs"}),
+            ("remainderReviews", {"sourceRefs"}),
+            ("changes", {"reviewSourceRefs"}),
+        ):
             if key in result:
                 result[key] = self.items(
                     result[key],

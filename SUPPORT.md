@@ -35,15 +35,29 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
-Table protocol v13 now implements separate, durable source selection inside the
+Table protocol v14 uses separate, durable source selection inside the
 meaning stage. Selection and detail use the existing shared finite allowances, not
 new budgets. Source/model/structure/reference identity and selection-to-meaning
 history are checked on resume. All-negative reviews compile without a detail call;
 unknown/deferred sources remain partial. Incorrect choices can be explicitly revised,
-with old meanings preserved until a valid replacement is accepted. This implementation
-has not yet completed an actual full-product model run or release qualification.
-The v12 failure and separate development diagnostics below remain evidence, not a
-qualification of the new engine path.
+with old meanings preserved until a valid replacement is accepted. Detail output
+now contains meanings and selected-source remainder reviews only; saved choices and
+other reviews are reused without model regeneration. Positive selections cannot
+return an empty meaning list. The v14 model run is pending; regression checks alone
+do not establish quality or release qualification.
+
+The preceding v13 source `8d45c94` completed a fresh native HTML product-engine run
+on Spark: 4 calls within the predeclared 900-second development budget, 429.82 seconds
+of charged product time and 445.98 seconds on the host. It saved the correct source
+selection (11/11), stopped the first server, then resumed details on a new server
+without reselecting. Both detail replies nevertheless omitted the unit and condition,
+so the compiler rejected them with `table_source_decision_quote_mismatch`. The final
+result is **partial and development quality failed**, with both rows, precise strings,
+schema and provenance preserved. There were no new OCR or render calls. Four CPU cores,
+16GiB cgroup memory, zero swap/OOM/GPU/external network and a 7,079,960,576-byte cgroup
+peak were recorded; this HTML run is not full recognition resource qualification.
+Owned servers/containers were terminated. The original exhausted HTML trial and the
+v12 failures below remain unchanged; v14 is a new candidate, not a relabeled v13 pass.
 
 Source `ac49fd2` uses table protocol v12 / source decisions v3. The same meaning
 response now lists all source choices before its meaning details and explicit
@@ -74,7 +88,8 @@ from extracted header units. These small development controls are not holdouts.
 
 An offline replay of the negative selection into the existing compiler produced
 zero meanings and 12 explicit source reviews, no issues, and unchanged data/schema/
-bindings, without another model call. **Those diagnostics alone did not implement or qualify the durable selection substep**, and the positive case has not validated detailed meaning kinds,
+bindings, without another model call. **Those diagnostics did not qualify the durable
+selection substep**, and the positive case did not validate detailed meaning kinds,
 quotes or unit/condition scopes under that workflow. Its design must retain
 correctable decisions, existing finite call/time budgets, checkpoint identity,
 partial results and frozen structure; it must not exclude headers/values by rule.

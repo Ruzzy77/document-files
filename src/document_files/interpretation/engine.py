@@ -99,6 +99,7 @@ from .table_selection import (
 )
 from .table_selection import (
     check_selected_meaning,
+    complete_selected_meaning,
     negative_meaning_response,
     revise_selection,
     selected_meaning_schema,
@@ -563,6 +564,17 @@ def extract_schema_from_stream(
             ):
                 raise ValueError
             usage = _restored_usage(restore["usage"])
+            # Stage counters are cumulative across explicit grants. A smaller
+            # document total would silently restore already spent allowance.
+            for key in _stage_usage():
+                total = sum(
+                    state[stage]["usage"][key]
+                    for state in table_states.values()
+                    for stage in ("structure", "meaning")
+                )
+                tolerance = 1e-6 if key == "elapsedSeconds" else 0
+                if total > usage[key] + tolerance:
+                    raise ValueError
             grants = list(restore["grants"])
             for prior in grants:
                 validate_additional_budget(prior)
@@ -1316,6 +1328,8 @@ def extract_schema_from_stream(
                             save("interpreting")
                             return decision.tableKind != "scalar_form"
                     else:
+                        if not local_selection:
+                            value = complete_selected_meaning(value, selection)
                         check_selected_meaning(value, selection)
                         candidate = meaning_ir(value, accepted[rid], inventory)
                     fragment = compile_region(

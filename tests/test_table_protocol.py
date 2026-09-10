@@ -28,7 +28,6 @@ from document_files.interpretation.table_protocol import (
     structure_payload,
     structure_schema,
 )
-from document_files.interpretation.table_source_decisions import source_decisions_from_flat
 from document_files.interpretation.table_sources import source_inventory
 
 HTML = (
@@ -134,7 +133,8 @@ class TableModel:
                 **({"fields": []} if self.invalid_meaning else {}),
             }
         elif payload["tableStage"] == "meaning":
-            value = source_decisions_from_flat(value, {"sources": payload["meaningSources"]})
+            value.pop("sourceReviews")
+            value["remainderReviews"] = []
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
 
@@ -350,7 +350,7 @@ def test_stage_repairs_are_finite_across_resume_and_explicit_grants():
 def test_prior_protocol_checkpoint_rejected_before_dispatch():
     model, states = TableModel(), []
     execute(model, states=states)
-    for mutation in ("version", "protocol", "v10", "v11", "v12"):
+    for mutation in ("version", "protocol", "v10", "v11", "v12", "v13"):
         checkpoint = copy.deepcopy(states[-1])
         if mutation == "version":
             checkpoint["version"] = "document-files.regional-checkpoint.v1"

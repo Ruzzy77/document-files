@@ -211,6 +211,20 @@ def test_payload_schema_and_response_round_trip_preserves_literals():
     )
 
 
+def test_selected_remainder_review_references_round_trip_without_rewriting_explanation():
+    payload, contract, response, refs, _ = fixture()
+    wire = prepare_meaning_wire(payload, contract)
+    response["remainderReviews"] = response.pop("sourceReviews")
+    forward = _Translator(wire.identity["dictionary"])
+    encoded = forward.response(response)
+    assert encoded["remainderReviews"][0]["sourceRefs"] != refs
+    assert encoded["remainderReviews"][0]["explanation"] == refs[0]
+    assert wire.decode(encoded) == response
+    encoded["remainderReviews"][0]["sourceRefs"][0] = "@s999"
+    with pytest.raises(TableReferenceWireError):
+        wire.decode(encoded)
+
+
 def test_columnar_only_reference_named_columns_translate():
     payload, contract, _, refs, table = fixture()
     wire = prepare_meaning_wire(payload, contract)
