@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v5"
+VERSION = "document-files.pdf-visual-review.v6"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -695,6 +695,31 @@ def output_schema(plan):
     return result
 
 
+def require_proposal_measurements(plan):
+    """A model cannot replace unresolved pixel geometry with an affirmative label."""
+    if "imageReadProposal" not in plan:
+        return
+    measured = (plan.get("grid") or {}).get("grids", [])
+    for proposed in plan["imageReadProposal"]["grids"]:
+        matches = [
+            g
+            for g in measured
+            if g["tableRef"] == proposed["tableRef"]
+            and g["observationFingerprint"] == proposed["observationFingerprint"]
+        ]
+        require(len(matches) == 1, "visual_proposal_grid_unmeasured")
+        bands = matches[0]["bands"]
+        expected = {("horizontal", i) for i in range(proposed["rows"] + 1)} | {
+            ("vertical", i) for i in range(proposed["columns"] + 1)
+        }
+        require(
+            len(bands) == len(expected)
+            and {(b["axis"], b["index"]) for b in bands} == expected
+            and all(b["status"] == "candidate" for b in bands),
+            "visual_proposal_grid_unmeasured",
+        )
+
+
 def validate_decision(plan, decision, *, detail_bounds):
     """Reject inconsistent decisions; acceptance is processing, not OCR truth."""
     require(plan.get("version") == VERSION, "visual_plan_version_incompatible")
@@ -712,6 +737,7 @@ def validate_decision(plan, decision, *, detail_bounds):
         "visual_response_invalid",
     )
     require(type(decision["unrepresentedContent"]) is bool, "visual_response_invalid")
+    require_proposal_measurements(plan)
 
     def entries(key, expected):
         values = decision[key]

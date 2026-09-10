@@ -49,8 +49,9 @@ def example(empty=False):
         for col in range(2):
             if empty and (row, col) == (1, 1):
                 continue
-            draw.rectangle((col * 30 + 5, row * 20 + 5, col * 30 + 12, row * 20 + 12), fill="black")
-    draw.rectangle((5, 65, 12, 70), fill="black")
+            draw.point((col * 30 + 10, row * 20 + 10), fill="black")
+    draw.rectangle((5, 77, 12, 80), fill="black")
+    doc.nodes["foot"]["sourceStructure"]["bbox"].update(top=24, bottom=28)
     out = io.BytesIO()
     image.save(out, format="PNG")
     png = out.getvalue()
@@ -183,7 +184,7 @@ def test_empty_read_is_still_missing_and_needs_pixel_border_review():
     plan = build_page_plan(view, capture, pixels, deadline=time.monotonic() + 30)
     assert len(plan["slots"]) == 1
     decision = approved(plan)
-    with pytest.raises(PdfVisualReviewError, match="borders_unresolved"):
+    with pytest.raises(PdfVisualReviewError, match="visual_slot_"):
         validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90])
     decision["slots"][0]["decision"] = "unknown"
     assert validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90])["status"] == "unresolved"
@@ -357,3 +358,37 @@ def test_failed_preparation_is_preserved_without_repeated_pixel_work(monkeypatch
     result, state = run()
     assert result is None and state["haltReason"] == "visual_comparison_budget"
     assert run(state)[0] is None and len(calls) == len(preparations) == 1
+
+
+@pytest.mark.parametrize("change", ["unresolved", "missing", "duplicate", "wrong_observation"])
+def test_model_approval_cannot_override_unverified_grid_measurements(change):
+    doc, capture, reading, _, pixels = example()
+    plan = build_page_plan(proposal(doc, reading), capture, pixels, deadline=time.monotonic() + 30)
+    measured = plan["grid"]["grids"][0]
+    if change == "unresolved":
+        measured["bands"][0]["status"] = "unresolved"
+    elif change == "missing":
+        measured["bands"].pop()
+    elif change == "duplicate":
+        measured["bands"][1] = deepcopy(measured["bands"][0])
+    else:
+        measured["observationFingerprint"] = "z" * 64
+    plan["fingerprint"] = digest({k: v for k, v in plan.items() if k != "fingerprint"})
+    with pytest.raises(PdfVisualReviewError, match="visual_proposal_grid_unmeasured"):
+        validate_decision(plan, approved(plan), detail_bounds=[0, 0, 90, 90])
+
+
+def test_runner_rejects_unmeasured_proposal_before_spending_review_call(monkeypatch):
+    run, calls, _, _, _ = setup(monkeypatch)
+    original = runner.build_page_plan
+
+    def unmeasured(doc, *args, **kwargs):
+        plan = original(doc, *args, **kwargs)
+        plan["grid"]["grids"][0]["bands"][0]["status"] = "unresolved"
+        plan["fingerprint"] = digest({k: v for k, v in plan.items() if k != "fingerprint"})
+        return plan
+
+    monkeypatch.setattr(runner, "build_page_plan", unmeasured)
+    result, state = run()
+    assert result is None and state["haltReason"] == "visual_proposal_grid_unmeasured"
+    assert run(state)[0] is None and len(calls) == 1

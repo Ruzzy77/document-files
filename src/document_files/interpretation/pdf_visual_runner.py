@@ -29,6 +29,7 @@ from .pdf_visual_plan import (
     observation_page_fingerprint,
     output_schema,
     require,
+    require_proposal_measurements,
     review_crop,
     review_payload,
     validate_decision,
@@ -405,6 +406,7 @@ def review_pdf_pages(
             plan = build_page_plan(
                 proposal, capture, pixels, deadline=deadline, cancelled=cancelled
             )
+            require_proposal_measurements(plan)
             contract = output_schema(plan)
             payload = encode({**review_payload(plan), "outputContract": contract})
             if len(SYSTEM) + len(payload) > context_chars:
@@ -544,6 +546,7 @@ def review_pdf_pages(
                 cancelled=cancelled,
             )
             plan = build_page_plan(doc, capture, pixels, deadline=deadline, cancelled=cancelled)
+            require_proposal_measurements(plan)
             contract = output_schema(plan)
             payload = encode({**review_payload(plan), "outputContract": contract})
             if len(SYSTEM) + len(payload) > context_chars:

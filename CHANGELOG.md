@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- PDF review v6 rejects alternative grids whose original-page line measurements
+  remain unresolved, before spending a review call and again on response validation.
+  An affirmative model answer cannot override missing/ambiguous bands. Preserve the
+  v5 development failure, original measurements and remaining document budget.
+
 - Add reversible image-reading projections and a separately budgeted text/grid review.
   PDF review v5 requires every proposed string and rectangular grid to be checked
   against the images before its alternate regions can enter semantic interpretation.

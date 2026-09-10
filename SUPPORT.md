@@ -148,7 +148,7 @@ coordinates without rerendering or rewriting observations. The 3-row grid remain
 unlinked to the original 2-row table; this is not repaired text or a complete
 recognition/interpretation execution. Both failed probe records are retained.
 
-PDF review v5 now has a reachable, budgeted image-reading stage after an unresolved
+PDF review v6 now has a reachable, budgeted image-reading stage after an unresolved
 review or a missing-slot inventory failure. It obtains literal text/empty/uncertain
 candidates from measured cells and existing text regions without providing OCR strings
 as answers. Partial results preserve those candidates with source-pixel identities;
@@ -172,6 +172,23 @@ GPU or external network. Saved inputs and existing read-only packs were reused, 
 is not full recognition-plus-inference resource qualification or an independent holdout.
 Original observations and the two-row recognized table stayed unchanged; applying a
 reviewed three-row alternative and completing semantic extraction remain unfinished.
+
+The following single v5 review on clean source `6ded2f9` returned in 206.36 seconds
+(4,163 input / 501 output tokens) and accepted the proposed 3x2 table. Root review
+**did not approve that result**: all seven original-page grid bands remained unresolved,
+the model labeled the border-containing unit as source text, and it missed the known
+title line-break difference. V6 now blocks unmeasured alternate grids before inference
+and when validating answers; the saved v5 decision is not migrated or replayed. The
+underlying broken/ambiguous stripe measurement and exact text quality remain unfinished.
+
+This scan has used two actual model calls and 481.34 of its initial 900 seconds,
+including prior preparation/installation execution. No additional OCR, rendering or
+recognition was performed for this review. Its whole cgroup peaked at 7,204,683,776
+bytes with 4 CPUs / 16 GiB and no swap/OOM/GPU/external network. This is reused-input
+component evidence, not an independent holdout or whole-pipeline resource qualification.
+The source-preserving projection and budgeted review were exercised on ARM; they do not
+establish completed extraction. Old observations, responses and the rejected applied
+view remain as development evidence, not a final active document.
 
 ### Source-first table meaning review
 
