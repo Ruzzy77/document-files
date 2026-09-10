@@ -205,6 +205,15 @@ extraction. The unassigned table component still contains 61,318 pixels, includi
 background or correct text. The saved reading and v5 quality failure remain unchanged.
 No additional model, OCR or render call was used for this diagnosis and implementation.
 
+On clean source `f743899`, the same saved-pixel calculation on ARM produced exactly
+this plan fingerprint and retained the original observations. The actual dependency
+suite passed 198 tests with no skips; the local full suite passed 2,228 with 227 skipped
+and 12 subtests. The diagnostic took 0.86 seconds, with 3.67 seconds for host preparation
+and tests; the cgroup peak was 110,407,680 bytes with no swap/OOM. This is a no-model
+component check, not recognition-plus-inference qualification. Including this host
+execution, the development scan has used 485.00/900 seconds and two model calls;
+about 415.00 seconds remain. No further image review or meaning call has been made.
+
 ### Source-first table meaning review
 
 Table protocol v10 asks for one decision per owned source before any meanings.
