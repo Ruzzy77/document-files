@@ -393,3 +393,67 @@ def test_bad_row_alias_preserves_valid_sibling_and_duplicate_task_detection():
     choices[1]["taskId"] = choices[0]["taskId"]
     valid, invalid = parse_scope_choices(wire.decode({"decisions": choices}), tasks)
     assert invalid and not valid
+
+
+@pytest.mark.parametrize("mode", ["rows", "column"])
+@pytest.mark.parametrize("meaning_status", ["interpreted", "uncertain", None])
+def test_scope_evidence_never_promotes_the_meaning_own_uncertainty(mode, meaning_status):
+    doc, region, ir = fixture()
+    ir.meanings[0].status = meaning_status or "interpreted"
+    compiled = compile_region(ir, doc, region)
+    if meaning_status is None:
+        compiled.meaning_statuses.clear()
+    task = task_for(doc, [region], [compiled])
+    chosen = choice(task)
+    if mode == "column":
+        chosen["rowSelections"] = []
+        chosen["targetHandles"] = [
+            next(
+                h
+                for h, c in task.target_map.items()
+                if c.get("definition", {}).get("id") == "r:amount"
+            )
+        ]
+        chosen["sourceRefs"] = ["c0:1"]
+    before = copy.deepcopy(compiled)
+    result, changed = apply_scope_decision([compiled], task, chosen)
+    assert changed and compiled == before
+    after = result[0]
+    assert after.semantic_details[0]["scope"]
+    expected = "interpreted" if meaning_status == "interpreted" else "uncertain"
+    assert after.semantic_details[0]["interpretationStatus"] == expected
+    assert next(s for s in after.semantics if s["id"] == "r:unit")["status"] == expected
+    assert after.data == before.data and after.schema == before.schema
+    assert after.value_observations == before.value_observations
+    assert not any(i["code"] == "semantic_scope_unresolved" for i in after.issues)
+    assert any(i["code"] == "semantic_interpretation_uncertain" for i in after.issues) == (
+        meaning_status != "interpreted"
+    )
+    assert apply_scope_decision(result, task, chosen) == (result, False)
+    public = json.dumps(combine_regions(result))
+    assert "meaningStatus" not in public and "meaning_statuses" not in public
+
+
+def test_meaning_status_changes_invalidate_scope_without_rewriting_model_context():
+    doc, region, ir = fixture()
+    compiled = compile_region(ir, doc, region)
+    task = task_for(doc, [region], [compiled])
+    compiled.meaning_statuses["r:unit"] = "uncertain"
+    replacement = task_for(doc, [region], [compiled])
+    assert task.payload == replacement.payload
+    assert task.fingerprint != replacement.fingerprint
+    before = copy.deepcopy(compiled)
+    with pytest.raises(CompileError, match="stale_scope_statement"):
+        apply_scope_decision([compiled], task, choice(task))
+    assert compiled == before
+
+
+def test_meaning_uncertainty_remains_visible_when_initial_scope_is_known():
+    doc, region, ir = fixture()
+    ir.meanings[0].status = "uncertain"
+    ir.meanings[0].fieldIds = ["amount"]
+    compiled = compile_region(ir, doc, region)
+    assert compiled.semantic_details[0]["scope"]
+    assert compiled.semantic_details[0]["interpretationStatus"] == "uncertain"
+    assert compiled.meaning_statuses == {"r:unit": "uncertain"}
+    assert any(i["code"] == "semantic_interpretation_uncertain" for i in compiled.issues)

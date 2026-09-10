@@ -198,6 +198,7 @@ def _meaning_repair_improves(before_ir, before, after_ir, after):
         "note_scope_unresolved",
         "semantic_scope_unresolved",
         "semantic_scope_uncertain",
+        "semantic_interpretation_uncertain",
         "table_meaning_source_unreviewed",
         "table_meaning_source_unresolved",
         "semantic_relation_unresolved",
@@ -1157,7 +1158,14 @@ def extract_schema_from_stream(
         return result
 
     def local_issues(fragment):
-        return [i for i in fragment.issues if i.get("code") != "semantic_scope_unresolved"]
+        # An explicit uncertain interpretation remains partial, but resolving its
+        # scope must not repeat an unchanged region or re-open its content review.
+        return [
+            i
+            for i in fragment.issues
+            if i.get("code")
+            not in {"semantic_scope_unresolved", "semantic_interpretation_uncertain"}
+        ]
 
     def interpret_table(region, payload):
         rid = region["id"]

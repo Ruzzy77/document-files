@@ -35,7 +35,7 @@ from .table_source_decisions import (
 )
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v15"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v16"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -95,8 +95,10 @@ supply the zero-based occurrence, counting overlapping matches. Never return off
 Choose scope: columns with frozen columnIds; record for the whole record; rows
 with inclusive actual rowStart/rowEnd and columnIds (empty means all columns);
 or unresolved. A group header concerns its descendants, not unrelated columns.
-Do not broaden scope merely because a note is in a caption. Use uncertain status
-and unresolved scope when applicability is unknown.
+Do not broaden scope merely because a note is in a caption. Use unresolved scope
+when applicability is unknown. Status describes the meaning's kind and content,
+not its applicability: interpreted when these are clear, uncertain when ambiguous.
+A clear meaning may have unresolved scope; choosing a scope cannot clear content uncertainty.
 Finally remainderReviews must cover each has_meaning source once, and no others.
 Review its text outside the direct quotes, even when a meaning quotes the whole
 source. Group sources only when their review role and explanation are the same.

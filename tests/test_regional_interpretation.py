@@ -235,7 +235,7 @@ def test_scope_wire_checkpoint_identity_rejects_old_or_changed_contract_before_c
     run(model=ReferenceModel(fail=True), checkpoint=states.append)
     state = states[-1]
     if mutation == "scope-v9":
-        state["identity"]["scopeVersion"] = "document-files.scope-integration.v9"
+        state["identity"]["scopeVersion"] = "document-files.scope-integration.v10"
     elif mutation == "missing-wire":
         del state["identity"]["scopeReferenceWireVersion"]
     else:
@@ -833,7 +833,10 @@ def test_recognition_failure_before_first_page_can_resume_without_reanalysis(mon
 
 
 @pytest.mark.parametrize("scope_mode", ["column", "rows"])
-def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(scope_mode):
+@pytest.mark.parametrize("meaning_status", ["interpreted", "uncertain"])
+def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
+    scope_mode, meaning_status
+):
     content = (
         b"<p>Lengths use millimeters.</p><table><tr><th>Length</th></tr>"
         b"<tr><td>0012.40</td></tr></table>"
@@ -930,7 +933,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(scope
                         "kind": "unit",
                         "description": "Length uses millimeters",
                         "sourceRefs": payload["nodeIds"],
-                        "status": "uncertain",
+                        "status": meaning_status,
                     }
                 ]
             else:
@@ -991,7 +994,12 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(scope
         assert len(decisions) == 1
         assert decisions[0]["rowSelections"][0]["targetHandle"].startswith("scope-target-")
     assert result["data"] == {"measurements": [{"length": "0012.40"}]}
-    assert result["extraction"]["status"] == "complete", result["issues"]
+    expected_status = "complete" if meaning_status == "interpreted" else "partial"
+    assert result["extraction"]["status"] == expected_status, result["issues"]
+    assert result["semanticDetails"][0]["interpretationStatus"] == meaning_status
+    assert any(i.get("code") == "semantic_interpretation_uncertain" for i in result["issues"]) == (
+        meaning_status == "uncertain"
+    )
     assert result["semanticDetails"][0]["scope"] == [
         {"space": "data", "path": "/measurements/0/length"}
     ]
@@ -999,7 +1007,8 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(scope
     before = model.calls
     resumed = extract_schema_from_stream(job, io.BytesIO(content), restore=states[-1], **kwargs)
     assert model.calls == before
-    assert resumed["extraction"]["status"] == "complete"
+    assert resumed["extraction"]["status"] == expected_status
+    assert resumed["semanticDetails"] == result["semanticDetails"]
 
 
 @pytest.mark.parametrize("invalid_sibling", [False, True])
@@ -1040,7 +1049,7 @@ def test_local_scope_batch_resumes_without_repeating_region_interpretation(inval
                     "kind": "definition",
                     "description": f["label"],
                     "sourceRefs": f["definitionRefs"],
-                    "status": "uncertain",
+                    "status": "interpreted",
                 }
                 for f in value["fields"]
             ]

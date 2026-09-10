@@ -150,6 +150,7 @@ class CompiledRegion:
     dispositions: list[dict] = field(default_factory=list)
     repeat_paths: dict[str, dict] = field(default_factory=dict)
     row_scopes: dict[str, dict] = field(default_factory=dict)
+    meaning_statuses: dict[str, str] = field(default_factory=dict)
     header_value_bindings: set[str] = field(default_factory=set)
     dropped_fields: dict[str, str] = field(default_factory=dict)
     meaning_review: dict | None = None
@@ -849,6 +850,9 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             fields = {t.path for fid in meaning.fieldIds for t in entity_targets[fid]}
             targets = [t for t in bounded if not fields or t.path in fields]
         sid = prefix + meaning.id
+        out.meaning_statuses[sid] = meaning.status
+        if meaning.status == "uncertain":
+            out.issues.append({"code": "semantic_interpretation_uncertain", "semanticId": sid})
         status = meaning.status if targets else "uncertain"
         assertion_targets = targets or [
             Target(space="document", path="/" + escape(ref)) for ref in source_refs

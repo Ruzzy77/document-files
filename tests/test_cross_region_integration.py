@@ -33,6 +33,7 @@ def fixture():
     observation = ObservationDocument(nodes=nodes, regions=regions)
     statement = CompiledRegion("r1")
     for identifier, description in [("usd", "Cost uses USD"), ("mm", "Length uses mm")]:
+        statement.meaning_statuses[identifier] = "interpreted"
         target = {"space": "document", "path": "/note"}
         statement.semantics.append(
             {

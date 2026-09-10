@@ -677,9 +677,10 @@ def test_embedded_note_is_still_reviewed_after_its_entire_cell_is_read_as_value(
 
 
 class ScopeAfterSourceReview(CaptionModel):
-    def __init__(self, mode="scope"):
+    def __init__(self, mode="scope", content_status="interpreted"):
         super().__init__()
         self.review_mode = mode
+        self.content_status = content_status
         self.scope_calls = 0
 
     def infer(self, request):
@@ -724,21 +725,32 @@ class ScopeAfterSourceReview(CaptionModel):
         )
         if self.review_mode == "scope":
             value["meanings"][0]["scope"] = {"kind": "unresolved"}
+            value["meanings"][0]["status"] = self.content_status
         elif self.review_mode == "uncertain":
             value["meanings"][0]["status"] = "uncertain"
         return InferenceResponse(json.dumps(value), {})
 
 
-def test_direct_quote_scope_can_be_resolved_without_stale_source_uncertainty():
-    model = ScopeAfterSourceReview()
-    result = run(model)
+@pytest.mark.parametrize("content_status", ["interpreted", "uncertain"])
+def test_direct_quote_scope_resolution_preserves_independent_content_status(content_status):
+    model, states = ScopeAfterSourceReview(content_status=content_status), []
+    result = run(model, states=states)
     assert model.meaning_calls == 1 and model.scope_calls == 1
     assert len(model.requests) == 4
-    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert result["extraction"]["status"] == (
+        "complete" if content_status == "interpreted" else "partial"
+    ), result["issues"]
+    assert any(i["code"] == "semantic_interpretation_uncertain" for i in result["issues"]) == (
+        content_status == "uncertain"
+    )
     assert result["data"]["rows"][0]["size"] == "001.2300"
     review = result["coverage"]["semanticSourceReviews"][0]
     assert review["unreviewed"] == review["unresolved"] == []
     assert not any(i["code"].startswith("table_meaning_source_") for i in result["issues"])
+    resumed = run(model, restore=states[-1])
+    assert resumed["extraction"]["status"] == result["extraction"]["status"]
+    assert resumed["issues"] == result["issues"]
+    assert len(model.requests) == 4
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,7 @@ from pydantic import Field
 from ..result_types import Contract
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v17"
+COMPILER_VERSION = "document-files.result-compiler.v18"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -109,7 +109,10 @@ class Meaning(Contract):
     repeatIds: list[str] = Field(default_factory=list, max_length=100)
     rowStart: int | None = Field(default=None, ge=0)
     rowEnd: int | None = Field(default=None, ge=0)
-    status: Literal["interpreted", "uncertain"] = "interpreted"
+    status: Literal["interpreted", "uncertain"] = Field(
+        default="interpreted",
+        description="Certainty of the meaning's kind and content, independent of applicability",
+    )
 
 
 class Disposition(Contract):

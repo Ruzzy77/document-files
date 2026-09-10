@@ -1,7 +1,7 @@
 # Python, CLI and MCP integration
 
-Internal applicability calls use scope integration v10, scope reference wire v2
-and compiler v17.
+Internal applicability calls use scope integration v11, scope reference wire v2
+and compiler v18.
 Short typed target aliases exist only in model requests/replies; validation and
 checkpoints use canonical handles. Source references and literal text are unchanged.
 Old scope/wire/compiler identities cannot resume under this contract. Public v1
@@ -17,6 +17,17 @@ values/missingness. Selected source fragments keep their original row numbering
 after table continuation, with targets remapped to the joined record. Application
 checks current definitions, row/column evidence, mapping identity, overlapping
 whole-record/column choices and a cumulative one-million row/column expansion cap.
+
+Prompt v24 / table protocol v16 distinguish a meaning's own uncertainty from
+unknown applicability. Internal `Meaning.status` describes its kind and content;
+an unresolved `scope` no longer overwrites that status. The compiler retains this
+private status in task identity and marks the public result uncertain until both
+content and applicability are resolved. Selecting valid rows or columns cannot
+clear `semantic_interpretation_uncertain`; such results stay partial, including
+after checkpoint resume. Scope-only uncertainty may be resolved normally. No new
+public result field is added, and old internal checkpoints cannot resume. The
+uncertainty issue itself does not trigger rereading unchanged content when only
+applicability was being resolved. This does not certify actual-model quality.
 
 The supported Python import is `document_files.api`. The engine, CLI, local MCP and
 HTTP service call the same document interpretation implementation. A host chat
@@ -246,7 +257,7 @@ They are optional measurements, not an accuracy certificate or timeout usage rec
 
 ### Internal table stages
 
-Prompt v23 / planner v14 / table protocol v10 use a structural classification first.
+Prompt v24 / planner v14 / table protocol v16 use a structural classification first.
 Record tables compile one record definition before interpreting meanings over fixed
 IDs; scalar forms retain their binding-based path. `coverage.tableInterpretation`
 records each stage's attempts, status and usage. `structure_compiled` means retained
@@ -305,7 +316,7 @@ mapping remain part of the task fingerprint, and older scope checkpoints are rej
 
 Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
-Table protocol v15 first asks for source selection in a separate call inside the
+Table protocol v16 first asks for source selection in a separate call inside the
 existing meaning stage. Every owned `meaningSources` reference receives a `decision`
 and short `explanation`: `no_additional_meaning`, `unresolved`, `unreviewed`, or
 `has_meaning`. A literal empty source cannot select `has_meaning`. This does not
@@ -356,7 +367,7 @@ A failed initial detail may therefore exhaust the stage after one successful sel
 it is not automatically retried with a fresh substep budget.
 The detail response requires `regionId`, `meanings`, `remainderReviews`, `baseRevision`
 and `changes`, without repeating `sourceDecisions`. The compiler still uses source
-decisions v3 internally. Older table-protocol checkpoints cannot resume as v15.
+decisions v3 internally. Older table-protocol checkpoints cannot resume as v16.
 The program pins `baseRevision` in the output contract: null with empty `changes`
 before any meaning is accepted, or exactly the accepted meaning revision afterward.
 It is not the selection hash and is not left for the model to invent. Repairs cite the accepted

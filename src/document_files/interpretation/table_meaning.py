@@ -107,9 +107,9 @@ def meaning_from_wire(value, frozen):
             "rowStart": scope.rowStart,
             "rowEnd": scope.rowEnd,
         }
-    else:
-        # An explicitly unresolved choice cannot assert interpreted applicability.
-        metadata["status"] = "uncertain"
+    # An unresolved scope leaves applicability empty. Preserve the independent
+    # content status; the compiler marks the combined result uncertain until
+    # applicability is resolved, without erasing the original distinction.
     return Meaning.model_validate(metadata | applicability)
 
 

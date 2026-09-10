@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Prompt v24 / table protocol v16 / compiler v18 / scope integration v11 separate
+  content uncertainty from unknown applicability. Table conversion preserves the
+  content status, and resolving a scope cannot promote explicitly uncertain
+  content to interpreted. Private status participates in task freshness and
+  checkpoint identity; unresolved content remains partial on resume without
+  rereading an unchanged region solely because applicability was resolved.
+  Public v1 result shapes are unchanged; older internal checkpoints are rejected.
+
 - Share the exact product message assembly with internal development checks so
   the visible output contract cannot be confused with a transport-only grammar.
   Serialized requests and repair-prefix order are unchanged; this refactor does

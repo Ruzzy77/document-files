@@ -35,54 +35,52 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
-Scope integration v10 / reference wire v2 / compiler v17 now let the separate
-applicability step select actual source rows, optionally intersected with mapped
-columns. The compiler maps those choices to existing values; it does not create
-rows, infer units or turn missing observations into blanks. Row-only scope never
-annotates the whole column schema. Continuation fragments retain original row
-geometry and source references after generated pointers are remapped. Invalid or
-stale mappings, unsupported evidence and overlapping selections are rejected
-atomically; gaps and undecided row roles remain uncertain. Local checks passed
-2,415 tests (227 skipped, 12 subtests), including 425 related tests with warnings
-as errors. The same 425 related tests passed on Spark ARM without skips. These
-checks are not actual-model or full-document qualification.
+Prompt v24 / table protocol v16 / compiler v18 / scope integration v11 now preserve
+content uncertainty independently from applicability. Earlier conversion changed
+a clear meaning to uncertain when its scope was unknown, while later scope
+application could promote an explicitly uncertain meaning to interpreted. The
+new contract distinguishes these cases: a valid scope resolves only applicability.
+Content uncertainty remains a partial result, including after checkpoint resume;
+private status is part of task freshness, not a new public result field. Old
+internal checkpoints are rejected. Local checks passed 2,435 tests (227 skipped,
+12 subtests), including 465 related tests with warnings as errors. Current-source
+ARM regression is pending; these checks are not actual-model qualification.
 
-An actual row-applicability development call on this source still failed. A new
-caption said only the second sample's Length was provisional; the model selected
-both data rows plus the whole Length column. The compiler rejected the overlap
-without changing values or evidence. This used the product's request assembly,
-codec and compiler, but the structure and note content were given component inputs,
-not fresh content extraction. The call took 78.00 inference / 90.60 host seconds,
-with a 6,730,977,280-byte cgroup peak. A separate one-call prompt clarification
-remained unresolved (75.54 / 88.45 seconds); it is not adopted. All row coordinates
-and source text were present, despite the model's explanation claiming otherwise.
-An earlier diagnostic omitted the contract from user-message content and is kept
-as a preparation failure, not an exact product-request comparison.
+Row selection still uses actual source geometry and compiler-owned value mappings.
+It creates no rows or values, preserves gaps and unresolved roles, and cannot attach
+a row-only scope to the whole column schema. Source references and original fragment
+coordinates survive continuation. Invalid or overlapping choices are rejected before
+changing values. Shared request assembly now ensures development checks include the
+same visible output contract as product calls, without changing serialization.
 
-Two additional content-only controls on source `3d00c8b` omitted scope generation
-but kept the selected original caption, other source context and frozen table.
-Non-thinking still returned only a condition; bounded thinking returned the exact
-unit and condition separately, but also added a redundant title note. Both left
-the remainder review unresolved (the thinking explanation nevertheless said no
-additional meaning remained). **Neither passed the content control.** Each used
-one call capped at 300 seconds / 1,536 output tokens, with no repair or added budget.
-Inference took 78.46/127.66 seconds; host time was 91.43/140.31 seconds; cgroup
-peaks were 6,729,674,752/6,787,366,912 bytes under 4 CPU/16GiB/no-swap/no-OOM/no-GPU/
-no-external-network limits. The diagnostic compiler copy used uniformly unresolved
-scopes; original responses, values, schema and source evidence stayed unchanged.
-Neither the content-only request nor thinking mode is a product default. Content
-extraction and mandatory separate applicability still need a successful product
-design and new bounded full-path verification.
+Four more one-call controls on source `bf58327` used the existing Spark CPU model.
+Each had a predeclared 300-second / 1,536-output-token cap and no repair or grant:
 
-A subsequent content-category-array control also failed: only the unit array was
-returned, five required arrays and the condition were missing, and the quoted
-unit's occurrence index was invalid. The reply failed both schema validation and
-the compiler. Its experimental schema combined `properties` and `anyOf` at the
-same object, a documented unsupported llama.cpp grammar combination; this is not
-a clean test of the category-array design. No product contract or quality check
-was relaxed. The next comparison must first use supported grammar and match the
-product's complete message assembly. See the pinned upstream
-[grammar limitations](https://github.com/ggml-org/llama.cpp/blob/9dcf84e5ae2718947188b539aab8b9c2b15d3ba1/grammars/README.md#json-schemas--gbnf).
+| Control | Inference / host seconds | Actual result |
+|---|---|---|
+| Supported six-category grammar | 98.03 / 111.54 | Exact unit and condition quotes; remainder review still unresolved |
+| Explicit remainder-review labels | 100.69 / 114.42 | Remainder reviewed, but the unit was misclassified as a definition |
+| Grouped observed row cells | 92.48 / 105.65 | Row applicability unresolved despite complete supplied coordinates |
+| Same grouped rows, thinking capped at 512 tokens | 126.46 / 139.75 | Row applicability still unresolved |
+
+**None passed its quality check; none of these experimental wire changes or thinking
+settings is adopted.** Content controls omitted scope generation; row controls used
+given structure and note content, so neither is a fresh full-document extraction.
+The pinned upstream Python converter confirmed that the earlier category schema's
+sibling `properties`/`anyOf` combination lost required category properties; the
+corrected schema produces all six category rules. This conversion inspection is
+not a full C++ grammar-language validation. Responses were not repaired by inferring
+roles from explanations or moving units to another category. Diagnostic compilation
+preserved values, schema and source evidence.
+
+All four containers used 4 CPU / 16GiB, with zero swap/OOM/GPU/external network.
+Cgroup peaks ranged from 6,730,346,496 to 6,734,839,808 bytes. Some runs overlapped,
+so these are not speed comparisons. No new OCR or rendering was performed, and
+this is not full recognition-plus-inference resource approval. Original failed
+product budgets are unchanged. Owned servers and containers ended; transfer archives,
+temporary pack activations and the downloaded converter were hash-checked and removed.
+Failure evidence and pinned source references remain available. The prior shared-
+assembly source passed 429 related tests on ARM; that is not verification of v16.
 
 #### Earlier v15 content and target-reference controls
 

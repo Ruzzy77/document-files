@@ -86,19 +86,20 @@ def statement(scope):
         ({"kind": "unresolved"}, [], [], (None, None)),
     ],
 )
-def test_explicit_choice_roundtrips_without_inferring_applicability(scope, fields, repeats, bounds):
+@pytest.mark.parametrize("status", ["interpreted", "uncertain"])
+def test_explicit_choice_roundtrips_without_inferring_applicability(
+    scope, fields, repeats, bounds, status
+):
     ir = frozen()
-    original = statement(scope)
+    original = statement(scope) | {"status": status}
     meaning = meaning_from_wire(original, ir)
     assert meaning.fieldIds == fields and meaning.repeatIds == repeats
     assert (meaning.rowStart, meaning.rowEnd) == bounds
     assert meaning.description == original["description"] and meaning.sourceRefs == ["note"]
     assert meaning.kind == "unit" and meaning.id == "unit"
-    expected = original | {
-        "status": "uncertain" if scope["kind"] == "unresolved" else "interpreted"
-    }
-    assert meaning_to_wire(meaning, ir) == expected
-    assert original == statement(scope)
+    assert meaning.status == status
+    assert meaning_to_wire(meaning, ir) == original
+    assert original == statement(scope) | {"status": status}
 
 
 @pytest.mark.parametrize(
