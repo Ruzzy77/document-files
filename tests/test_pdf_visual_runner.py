@@ -54,6 +54,8 @@ def setup(monkeypatch, *, failure=None):
 
     monkeypatch.setattr(runner, "prepare_pdf_review_images", render)
     monkeypatch.setattr(runner, "extract_visual_pixels", pixels)
+    # This fixture covers the established review path, not additional image reads.
+    monkeypatch.setattr(runner, "build_read_plan", lambda *a, **kw: None)
     monkeypatch.setattr(
         runner, "review_crop", lambda *a: {"pixelBounds": validation["detailBounds"]}
     )

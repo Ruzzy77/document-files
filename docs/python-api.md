@@ -475,7 +475,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v3` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v4` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -501,3 +501,23 @@ Page attempts consume the same finite model-call/time budget as semantic interpr
 The engine saves a running attempt before inference, reuses reviewed pages after resume,
 and does not automatically replay unknown, failed or interrupted page calls. The existing
 final extraction-complete predicate and public v1 result/CLI/MCP contracts are unchanged.
+
+
+When review cannot inventory missing slots, or the model leaves page content unresolved,
+`document-files.pdf-image-read.v1` can make one additional literal-reading attempt using
+the same prepared images. It lists measured rectangular cells, including grids not
+linked to a recognized table, and existing non-table recognition regions. The model
+receives pixel bounds, not original OCR strings or reference answers. It returns exactly
+one `text`, `empty`, or `uncertain` entry per candidate; text is not normalized. An empty
+cell candidate additionally requires full detail coverage. Entry count, aggregate text,
+context, output, model-call and time limits remain finite.
+
+The existing raw observations and active tables are not replaced. Partial results expose
+these readings at `provenance.observation.pdfImageReadCandidates`, with source, capture,
+plan and decision identities and `applicationStatus="requires_text_and_structure_review"`.
+They do not populate final data or resolve original issues. The runner checkpoints before
+calling the model and does not replay a completed, failed or interrupted read. A reading
+that could not start within the remaining budget is `read_pending`; an explicit resume
+may prepare the same images and perform only that unattempted stage. Older page-review
+checkpoints are incompatible. Applying and reviewing competing text/table structures
+remains unfinished; this addition is not independent quality approval.

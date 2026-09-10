@@ -1,0 +1,372 @@
+"""Synthetic image-reading contracts; not a renderer or model quality test."""
+
+import json
+import time
+from copy import deepcopy
+from types import SimpleNamespace
+
+import pytest
+
+from document_files.document_model.recognition_cell_observations import fingerprint
+from document_files.interpretation import pdf_image_read as reading
+from document_files.interpretation import pdf_visual_runner as runner
+from document_files.interpretation.backends import MANAGED_VISION_VERSION, ModelError
+from document_files.interpretation.pdf_review_images import PdfReviewImages
+from document_files.interpretation.pdf_visual_plan import PdfVisualReviewError, digest, review_crop
+
+
+def fixture():
+    from test_pdf_visual_apply import fixture as original
+
+    doc, _ = original()
+    capture = doc.provenance["pdfPageRenderCaptures"][0]["capture"]
+    item = doc.provenance["recognitionCellPixelObservations"][0]["observations"][0]
+    record = item["observation"]
+    record.update(
+        status="captured",
+        canvas={"size": [90, 90], "mode": "RGB", "sha256": "c" * 64},
+        tableCrop={"pixelBounds": [0, 0, 60, 60]},
+        geometry={"rows": 3, "cols": 2, "status": "verified_rectangular_grid"},
+        slots=[
+            {
+                "row": row,
+                "col": col,
+                "slotKey": f"slot-{row}-{col}",
+                "geometryStatus": "resolved",
+                "measurementStatus": "measured",
+                "fullPixelBox": [col * 30, row * 20, (col + 1) * 30, (row + 1) * 20],
+            }
+            for row in range(3)
+            for col in range(2)
+        ],
+    )
+    record["fingerprint"] = fingerprint(record)
+    item.update(
+        observationStatus="verified",
+        sourceCoordinateStatus="verified",
+        structureAssociation={"status": "unlinked"},
+    )
+    item["validation"]["observationFingerprint"] = record["fingerprint"]
+    return doc, capture
+
+
+def make_plan(doc, capture):
+    return reading.build_read_plan(doc, capture, deadline=time.monotonic() + 30)
+
+
+def answer(plan):
+    strings = ["Item", "Length", "A-01", "0.020", "B-02", "8.25", "Unit: mm"]
+    return {
+        "entries": [
+            {"id": e["id"], "state": "text", "text": strings[i]}
+            for i, e in enumerate(plan["entries"])
+        ]
+    }
+
+
+def test_unlinked_grid_and_text_regions_do_not_supply_reference_answers_or_replace_structure():
+    doc, capture = fixture()
+    before = deepcopy(doc)
+    plan = make_plan(doc, capture)
+    assert len(plan["entries"]) == 7
+    assert plan["grids"][0]["rows"] == 3
+    assert doc.tables["table"]["declaredRowCount"] == 1
+    assert doc == before
+    payload = json.dumps(reading.read_payload(plan))
+    assert "foot" not in payload and "sourceRef" not in payload and '"text"' not in payload
+    assert review_crop(doc, capture)["pixelBounds"] == [0, 0, 72, 72]
+    validation = reading.validate_read(plan, answer(plan), detail_bounds=[0, 0, 90, 90])
+    assert validation["status"] == "read" and validation["ocrTruthVerified"] is False
+    summary = reading.candidate_summary({"plan": plan, "validation": validation})
+    assert summary["entries"][3]["text"] == "0.020"
+    assert summary["entries"][2]["text"] == "A-01"
+    assert summary["applicationStatus"] == "requires_text_and_structure_review"
+    assert doc == before
+
+
+@pytest.mark.parametrize(
+    "state,text,status", [("uncertain", "0.0?", "unresolved"), ("empty", "", "read")]
+)
+def test_uncertainty_and_empty_candidates_are_not_final_values(state, text, status):
+    doc, capture = fixture()
+    plan = make_plan(doc, capture)
+    value = answer(plan)
+    value["entries"][0].update(state=state, text=text)
+    result = reading.validate_read(plan, value, detail_bounds=[0, 0, 90, 90])
+    assert result["status"] == status and result["independentQualityApproval"] is False
+    assert result["decision"]["entries"][0]["text"] == text
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "duplicate",
+        "missing",
+        "extra",
+        "state",
+        "blank_text",
+        "invented_empty",
+        "empty_outside",
+        "control",
+        "surrogate",
+        "oversize",
+        "plan_changed",
+    ],
+)
+def test_invalid_or_unbounded_readings_are_rejected(change):
+    doc, capture = fixture()
+    plan = make_plan(doc, capture)
+    value, detail = answer(plan), [0, 0, 90, 90]
+    if change == "duplicate":
+        value["entries"][1]["id"] = "i0"
+    elif change == "missing":
+        value["entries"].pop()
+    elif change == "extra":
+        value["complete"] = True
+    elif change == "state":
+        value["entries"][0]["state"] = "inferred"
+    elif change == "blank_text":
+        value["entries"][0]["text"] = " "
+    elif change == "invented_empty":
+        value["entries"][0].update(state="empty", text="0")
+    elif change == "empty_outside":
+        value["entries"][0].update(state="empty", text="")
+        detail = [1, 1, 90, 90]
+    elif change == "control":
+        value["entries"][0]["text"] = "A\x00"
+    elif change == "surrogate":
+        value["entries"][0]["text"] = "\ud800"
+    elif change == "oversize":
+        value["entries"][0]["text"] = "A" * (reading.MAX_TEXT_CHARS + 1)
+    elif change == "plan_changed":
+        plan["entries"][0]["bounds"][0] += 1
+    with pytest.raises(PdfVisualReviewError):
+        reading.validate_read(plan, value, detail_bounds=detail)
+
+
+def test_source_inventory_deadline_cancel_and_count_limits(monkeypatch):
+    doc, capture = fixture()
+    with pytest.raises(PdfVisualReviewError, match="timeout"):
+        reading.build_read_plan(doc, capture, deadline=time.monotonic() - 1)
+    with pytest.raises(PdfVisualReviewError, match="cancelled"):
+        reading.build_read_plan(
+            doc, capture, deadline=time.monotonic() + 30, cancelled=lambda: True
+        )
+    monkeypatch.setattr(reading, "MAX_ENTRIES", 5)
+    with pytest.raises(PdfVisualReviewError, match="budget"):
+        make_plan(doc, capture)
+
+
+def setup_runner(monkeypatch, failure=None):
+    doc, capture = fixture()
+    plan = make_plan(doc, capture)
+    descriptors = {
+        "sourceSha256": plan["sourceSha256"],
+        "sourceCaptureFingerprint": plan["captureFingerprint"],
+        "pageNo": 1,
+        "usage": {"elapsedSeconds": 0.01},
+        "images": [{"sourcePixelBounds": [0, 0, 90, 90]}, {"sourcePixelBounds": [0, 0, 72, 72]}],
+    }
+    descriptors["fingerprint"] = digest({**descriptors, "usage": {}})
+    images = PdfReviewImages((b"synthetic-full", b"synthetic-detail"), descriptors)
+    calls, checkpoints = {"render": 0, "pixel": 0, "model": 0}, []
+    usage = {
+        "modelCalls": 0,
+        "unreportedUsageCalls": 0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "elapsedSeconds": 0.0,
+    }
+
+    def render(*a, **kw):
+        calls["render"] += 1
+        return images
+
+    def pixels(*a, **kw):
+        calls["pixel"] += 1
+        if failure == "budget_before_read":
+            usage["modelCalls"] = 1
+        return {}
+
+    def review(*a, **kw):
+        raise PdfVisualReviewError("visual_slot_inventory_incomplete")
+
+    monkeypatch.setattr(runner, "prepare_pdf_review_images", render)
+    monkeypatch.setattr(runner, "extract_visual_pixels", pixels)
+    monkeypatch.setattr(runner, "build_page_plan", review)
+
+    class Client:
+        identity = {"vision": {"version": MANAGED_VISION_VERSION}}
+        max_output_tokens = 1500
+
+        def infer(self, request):
+            calls["model"] += 1
+            assert request.messages[0]["content"] == reading.SYSTEM
+            assert request.max_output_tokens == 1500 and request.timeout > 0
+            assert checkpoints[-1]["pages"]["1"]["status"] == "reading"
+            assert usage["unreportedUsageCalls"] == 1
+            if failure == "timeout":
+                raise ModelError("ai_timeout")
+            value = answer(plan)
+            if failure == "unknown":
+                value["entries"][0].update(state="uncertain", text="I?")
+            return SimpleNamespace(
+                text=json.dumps(value),
+                finish_reason="length" if failure == "length" else "stop",
+                usage={"prompt_tokens": 100, "completion_tokens": 20},
+            )
+
+    def run(*, restore=None, max_calls=2, expired=False, cancelled=None, context_chars=16000):
+        return runner.review_pdf_pages(
+            b"synthetic",
+            doc,
+            client=Client(),
+            usage=usage,
+            max_calls=max_calls,
+            deadline=time.monotonic() + (-1 if expired else 30),
+            context_chars=context_chars,
+            checkpoint=lambda s: checkpoints.append(deepcopy(s)),
+            restore=restore,
+            cancelled=cancelled,
+        )
+
+    return doc, calls, checkpoints, usage, run
+
+
+def test_reading_attempt_is_counted_and_preserved_without_applying_or_repeating(monkeypatch):
+    doc, calls, checkpoints, usage, run = setup_runner(monkeypatch)
+    before = deepcopy(doc)
+    result, state = run()
+    assert result is None and doc == before
+    assert calls == {"render": 1, "pixel": 1, "model": 1}
+    record = state["pages"]["1"]
+    assert record["imageRead"]["status"] == "read"
+    assert state["haltReason"] == "pdf_image_read_requires_review"
+    assert usage["modelCalls"] == 1 and usage["unreportedUsageCalls"] == 0
+    assert "data:image" not in json.dumps(checkpoints)
+    assert run(restore=state)[0] is None
+    assert calls == {"render": 1, "pixel": 1, "model": 1}
+    interrupted = next(s for s in checkpoints if s["pages"].get("1", {}).get("status") == "reading")
+    assert run(restore=interrupted)[1]["haltReason"] == "pdf_image_read_interrupted"
+    assert calls["model"] == 1
+
+
+@pytest.mark.parametrize(
+    "failure,code",
+    [
+        ("timeout", "ai_timeout"),
+        ("length", "ai_response_incomplete"),
+        ("unknown", "pdf_image_read_requires_review"),
+    ],
+)
+def test_failed_or_uncertain_reading_does_not_become_complete(monkeypatch, failure, code):
+    _, calls, _, _, run = setup_runner(monkeypatch, failure)
+    result, state = run()
+    assert result is None and state["haltReason"] == code
+    assert run(restore=state)[0] is None and calls["model"] == 1
+
+
+def test_unattempted_read_can_resume_without_replaying_the_review(monkeypatch):
+    _, calls, _, usage, run = setup_runner(monkeypatch, "budget_before_read")
+    result, state = run(max_calls=1)
+    assert result is None and state["pages"]["1"]["status"] == "read_pending"
+    assert calls["model"] == 0
+    assert run(restore=state, max_calls=1)[0] is None and calls["render"] == 1
+    result, resumed = run(restore=state, max_calls=2)
+    assert result is None and resumed["haltReason"] == "pdf_image_read_requires_review"
+    assert calls == {"render": 2, "pixel": 1, "model": 1}
+    assert usage["modelCalls"] == 2  # The saved earlier call was not reset.
+
+
+@pytest.mark.parametrize("change", ["text", "source", "image", "promote"])
+def test_changed_read_checkpoint_or_false_completion_is_rejected(monkeypatch, change):
+    doc, calls, _, _, run = setup_runner(monkeypatch)
+    _, state = run()
+    read = state["pages"]["1"]["imageRead"]
+    if change == "text":
+        read["validation"]["decision"]["entries"][0]["text"] = "Changed"
+    elif change == "source":
+        doc.nodes["foot"]["text"] = "Changed"
+    elif change == "image":
+        read["images"]["images"][0]["sourcePixelBounds"][2] -= 1
+    elif change == "promote":
+        state["pages"]["1"]["status"] = "reviewed"
+    with pytest.raises(ValueError, match="incompatible"):
+        run(restore=state)
+    assert calls["model"] == 1
+
+
+def test_context_budget_stops_before_the_additional_model_call(monkeypatch):
+    _, calls, _, _, run = setup_runner(monkeypatch)
+    _, state = run(context_chars=1)
+    assert state["haltReason"] == "pdf_image_read_context_budget_exceeded"
+    assert calls["model"] == 0
+
+
+def test_engine_returns_additional_readings_in_partial_result_and_resumes_without_new_calls(
+    monkeypatch,
+):
+    import io
+
+    from document_files.analysis import AnalysisInput, AnalysisJob
+    from document_files.interpretation import engine
+    from document_files.interpretation.contracts import ExtractionOptions
+
+    doc, calls, _, _, _ = setup_runner(monkeypatch)
+    plan = make_plan(doc, doc.provenance["pdfPageRenderCaptures"][0]["capture"])
+    before = deepcopy(doc)
+    checkpoints, observations = [], []
+
+    def infer(request):
+        calls["model"] += 1
+        assert request.messages[0]["content"] == reading.SYSTEM
+        assert checkpoints[-1]["phase"] == "reviewing_pdf"
+        assert checkpoints[-1]["usage"]["modelCalls"] == 1
+        return SimpleNamespace(
+            text=json.dumps(answer(plan)),
+            finish_reason="stop",
+            usage={"prompt_tokens": 100, "completion_tokens": 20},
+        )
+
+    client = SimpleNamespace(identity={"vision": {"version": MANAGED_VISION_VERSION}}, infer=infer)
+    monkeypatch.setattr(
+        engine,
+        "analyze_document",
+        lambda *a, **kw: SimpleNamespace(
+            analyzer=SimpleNamespace(to_dict=lambda: {"id": "synthetic"}),
+            extraction=SimpleNamespace(units=[]),
+        ),
+    )
+    monkeypatch.setattr(
+        engine,
+        "project_structured_extraction",
+        lambda *a, **kw: {"units": [], "issues": [], "coverage": {}},
+    )
+
+    def observe(*a, **kw):
+        observations.append(True)
+        return deepcopy(doc)
+
+    monkeypatch.setattr(engine, "observe_document", observe)
+    content = b"%PDF-synthetic-image-reading"
+    job = AnalysisJob(job_id="image-read", input=AnalysisInput.from_bytes(content, format_id="pdf"))
+    options = ExtractionOptions(reconstructionContext=False, maxModelCalls=1)
+    result = engine.extract_schema_from_stream(
+        job,
+        io.BytesIO(content),
+        model_client=client,
+        options=options,
+        checkpoint=lambda s: checkpoints.append(deepcopy(s)),
+    )
+    candidates = result["provenance"]["observation"]["pdfImageReadCandidates"]
+    assert candidates[0]["entries"][3]["text"] == "0.020"
+    assert result["extraction"]["status"] == "partial" and result["data"] is None
+    assert result["document"]["nodes"] == before.nodes
+    assert result["document"]["structure"]["tables"] == before.tables
+    assert doc == before and calls["model"] == len(observations) == 1
+    assert checkpoints[-1]["identity"]["pdfVisualReview"]["imageRead"] == reading.VERSION
+    again = engine.extract_schema_from_stream(
+        job, io.BytesIO(content), model_client=client, options=options, restore=checkpoints[-1]
+    )
+    assert again["provenance"]["observation"]["pdfImageReadCandidates"] == candidates
+    assert again["data"] is None and calls["model"] == len(observations) == 1

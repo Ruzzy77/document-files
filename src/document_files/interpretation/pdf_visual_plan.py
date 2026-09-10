@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v3"
+VERSION = "document-files.pdf-visual-review.v4"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -134,6 +134,32 @@ def review_crop(doc, capture):
                 observed.get("validation", {}),
             )
             table = doc.tables.get(association.get("tableRef"))
+            if (
+                table is None
+                and observed.get("sourceCoordinateStatus") == "verified"
+                and validation.get("status") == "verified"
+                and observed.get("observation", {}).get("status") == "captured"
+            ):
+                # A measured grid can disagree with the recognized table. Select
+                # its pixels for an additional reading, never assign its rows.
+                record = observed["observation"]
+                from ..document_model.recognition_cell_observations import fingerprint
+
+                require(
+                    record.get("fingerprint") == fingerprint(record)
+                    and validation.get("observationFingerprint") == record["fingerprint"],
+                    "visual_slot_changed",
+                )
+                boxes.append(
+                    _pixel_box(
+                        _mapped_box(
+                            record["tableCrop"]["pixelBounds"],
+                            validation["canvasPixelToOriginalPageAffine"],
+                            height,
+                        )
+                    )
+                )
+                continue
             if table is None or validation.get("status") != "verified":
                 continue
             occupied = {

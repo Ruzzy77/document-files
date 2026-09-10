@@ -133,10 +133,10 @@ render a cache miss, rewrite text or assign header roles. Existing measurements,
 including partial/unavailable ones, are retained without another attempt, under
 the same cumulative pixel/cell limits. Changed and existing repair contracts
 passed 117 warnings-as-errors tests with actual ARM recognition dependencies.
-This is not a new whole-document quality result. The existing visual review can
-check supplied text and empty slots, but still cannot transcribe missing or
-incorrect text. Source-pixel-bound text recovery remains required; relaxing the
-guard or repeating the current review request is not a solution.
+This is not a new whole-document quality result. The established visual verification
+checks supplied text and empty slots; additional image reading is described below.
+Applying and reviewing recovered text and a conflicting table structure remain
+required; relaxing the guard or repeating the old review request is not a solution.
 
 A bounded component capture now measured six slots (3 rows, 2 columns) from
 the actual cached renderer image, with no new OCR or model call. The independent
@@ -147,6 +147,15 @@ coordinate checks. Revalidating the saved measurement verified its original-page
 coordinates without rerendering or rewriting observations. The 3-row grid remains
 unlinked to the original 2-row table; this is not repaired text or a complete
 recognition/interpretation execution. Both failed probe records are retained.
+
+PDF review v4 now has a reachable, budgeted image-reading stage after an unresolved
+review or a missing-slot inventory failure. It obtains literal text/empty/uncertain
+candidates from measured cells and existing text regions without providing OCR strings
+as answers. Partial results preserve those candidates with source-pixel identities;
+they do not rewrite original nodes/tables, clear issues or become final values. Unstarted
+reads can resume within explicit remaining budget, while completed/failed/interrupted
+attempts cannot be silently repeated. Actual model accuracy and reviewed application
+of competing text/table structures still require verification and implementation.
 
 ### Source-first table meaning review
 

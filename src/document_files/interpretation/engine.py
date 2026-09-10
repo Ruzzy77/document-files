@@ -44,6 +44,7 @@ from .integration import (
 )
 from .legacy_engine import _has_unread_visuals as _has_unread_visuals
 from .legacy_engine import decode, encode
+from .pdf_image_read import candidate_summary
 from .pdf_visual_runner import review_identity, review_pdf_pages
 from .regions import (
     REGION_PLAN_VERSION,
@@ -663,6 +664,13 @@ def extract_schema_from_stream(
                 {"page": int(page), "status": value["status"]}
                 for page, value in state["pages"].items()
             ]
+            candidates = [
+                candidate_summary(value["imageRead"])
+                for value in state["pages"].values()
+                if value.get("imageRead", {}).get("status") in {"read", "unresolved"}
+            ]
+            if candidates or "pdfImageReadCandidates" in result["provenance"]["observation"]:
+                result["provenance"]["observation"]["pdfImageReadCandidates"] = candidates
             result["issues"] = [
                 *observation.issues,
                 *([{"code": state["haltReason"]}] if state.get("haltReason") else []),

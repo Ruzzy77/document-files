@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add bounded literal image-reading candidates after unresolved PDF review or an
+  unlinked grid prevents review planning. Preserve text, precision, uncertainty and
+  source-pixel references separately from original OCR and table structure. PDF
+  review v4 / image-read v1 count the attempt before inference, preserve an unstarted
+  reading for budgeted resume, and never replay completed/interrupted/failed reads.
+  Candidates are returned in partial results; reviewed structural application is
+  still required before they can become active extraction values.
+
 - Match decimal parser page dimensions with PDFium binary32 dimensions only when
   they have the same binary32 representation and differ by at most 0.001 pixel.
   Retain source, boundary, pixel and crop checks; do not equate renderer pixels
