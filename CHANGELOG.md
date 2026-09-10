@@ -2,6 +2,10 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add optional, pack-owned Linux recognition library directories to the actual
+  worker environment. Validate and bind the ordered paths to adapter v26 identity;
+  reject unsafe paths and do not inherit host loader/preload settings. This supplies
+  a controlled loading path, not dependency-closure or recognition qualification.
 - Add pack provenance v2 and recognition audit/verification v2 for locally built
   preparation artifacts. Bind original inputs, derived output hashes and shipped
   recipe/build records without falsely assigning an upstream URL to built bytes.

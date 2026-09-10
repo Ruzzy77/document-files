@@ -162,13 +162,17 @@ def test_pdf_without_recognition_retains_native_text_and_reports_gap(tmp_path):
     assert doc.coverage["status"] == "partial"
 
 
+@pytest.mark.parametrize("native_paths", [False, True])
 def test_recognition_worker_scope_releases_process_and_does_not_inherit_model_key(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, native_paths
 ):
     import json
+    import os
 
     import document_files.document_model.docling_adapter as adapter
 
+    if native_paths and os.name == "nt":
+        pytest.skip("Linux loader paths use POSIX filesystem paths")
     artifacts = tmp_path / "models"
     tessdata = tmp_path / "tessdata"
     artifacts.mkdir()
@@ -206,22 +210,120 @@ def test_recognition_worker_scope_releases_process_and_does_not_inherit_model_ke
             closed.append("job")
 
     monkeypatch.setenv("DOCUMENT_FILES_AI_API_KEY", "must-not-inherit")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/host/untrusted::/another/host/path")
+    monkeypatch.setenv("LD_PRELOAD", "/host/untrusted.so")
+    monkeypatch.setattr(adapter.sys, "platform", "linux")
     monkeypatch.setattr(adapter.subprocess, "Popen", FakeProcess)
     monkeypatch.setattr(adapter, "WindowsJob", FakeJob)
     monkeypatch.setattr(adapter, "kill_process_tree", lambda process: closed.append("tree"))
+    libraries = tmp_path / "libraries"
+    libraries.mkdir(parents=True)
     config = RecognitionConfig(
-        str(artifacts), str(executable), str(tessdata), python=str(executable)
+        str(artifacts),
+        str(executable),
+        str(tessdata),
+        python=str(executable),
+        native_library_directories=[str(libraries.resolve())] if native_paths else [],
     )
     result = DoclingRecognition(config).observe(b"public synthetic PDF")
     assert result["status"] == "complete"
     assert closed == ["tree", "wait", "job"]
     assert "DOCUMENT_FILES_AI_API_KEY" not in seen["env"]
+    assert "LD_PRELOAD" not in seen["env"]
+    if native_paths:
+        assert seen["env"]["LD_LIBRARY_PATH"] == str(libraries.resolve())
+    else:
+        assert "LD_LIBRARY_PATH" not in seen["env"]
+    raw_config = json.loads(seen["command"][seen["command"].index("--config") + 1])
+    assert RecognitionConfig(**raw_config) == config
     assert seen["env"]["HF_HUB_OFFLINE"] == "1"
     assert seen["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
     assert seen["env"]["PYTHONNOUSERSITE"] == "1"
     assert "PYTHONPATH" not in seen["env"]
     assert seen["command"][1:3] == ["-I", "-B"]
     assert seen["command"][3].endswith("recognition_bootstrap.py")
+
+
+def test_recognition_native_directories_are_frozen_and_bound_to_identity(tmp_path):
+    directories = [str(tmp_path.resolve())]
+    config = RecognitionConfig(
+        "missing", "missing", "missing", native_library_directories=directories
+    )
+    backend = DoclingRecognition(config)
+    directories.clear()
+    assert config.native_library_directories == (str(tmp_path.resolve()),)
+    assert (
+        backend.identity["configuration"]["native_library_directories"]
+        == config.native_library_directories
+    )
+    assert (
+        backend.identity
+        != DoclingRecognition(RecognitionConfig("missing", "missing", "missing")).identity
+    )
+    assert backend.identity["adapterVersion"] == "26"
+
+
+@pytest.mark.parametrize("value", [None, "python/lib", {"path": "/lib"}, [None], [[]]])
+def test_recognition_native_directories_reject_non_path_arrays(value):
+    with pytest.raises(ValueError, match="native library directories invalid"):
+        RecognitionConfig("missing", "missing", "missing", native_library_directories=value)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "empty",
+        "relative",
+        "parent",
+        "colon",
+        "semicolon",
+        "token",
+        "nul",
+        "missing",
+        "duplicate",
+        "too_many",
+        "symlink",
+        "non_linux",
+    ],
+)
+def test_invalid_native_directories_do_not_spawn(tmp_path, monkeypatch, case):
+    import os
+
+    import document_files.document_model.docling_adapter as adapter
+
+    root = tmp_path.resolve()
+    paths = [str(root)]
+    monkeypatch.setattr(adapter.sys, "platform", "linux")
+    if case == "empty":
+        paths = [""]
+    elif case == "relative":
+        paths = ["python/lib"]
+    elif case == "parent":
+        paths = [str(root / "..")]
+    elif case in {"colon", "semicolon", "token", "nul"}:
+        paths = [
+            str(root)
+            + {"colon": ":/lib", "semicolon": ";/lib", "token": "/$ORIGIN", "nul": "\0"}[case]
+        ]
+    elif case == "missing":
+        paths = [str(root / "missing")]
+    elif case == "duplicate":
+        paths *= 2
+    elif case == "too_many":
+        paths = [str(root / str(index)) for index in range(9)]
+    elif case == "symlink":
+        if os.name == "nt":
+            pytest.skip("directory symlinks require Windows privileges")
+        link = root / "linked"
+        link.symlink_to(root, target_is_directory=True)
+        paths = [str(link)]
+    elif case == "non_linux":
+        monkeypatch.setattr(adapter.sys, "platform", "darwin")
+    config = RecognitionConfig("missing", "missing", "missing", native_library_directories=paths)
+    with pytest.raises(ValueError, match="recognition native library director"):
+        config.validate()
+    monkeypatch.setattr(adapter.subprocess, "Popen", lambda *a, **kw: pytest.fail("must not spawn"))
+    assert DoclingRecognition(config).observe(b"PDF")["status"] == "unavailable"
 
 
 def test_recognition_bootstrap_does_not_import_core_siblings_or_write_bytecode(tmp_path):

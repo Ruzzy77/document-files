@@ -307,6 +307,13 @@ reason-only changes, are not progress. Exposing uncertainty can be a valid corre
 Source review, applicability validity and independent semantic approval are distinct.
 Public v1 contracts remain unchanged; these are private protocol/versioned metadata.
 
+Recognition adapter v26 binds optional `native_library_directories` to its identity.
+Linux administrator profiles resolve the manifest's `nativeLibraryDirectories`
+within the verified recognition pack; the actual worker uses only these explicit
+directories, never the host's `LD_LIBRARY_PATH` or `LD_PRELOAD`. JSON array transport
+is normalized to an immutable tuple. Older adapter checkpoints cannot resume as v26;
+the public result v1 contracts are unchanged.
+
 Recognition adapter v18 introduced explicit `ruled_cells_v2` file-list repair.
 Administrator `repairBudget` accepts `batchSize` (1–2), `maxImages` (1–64) and
 `maxInputPixels` (1–64,000,000), all integers excluding booleans. Defaults remain

@@ -31,6 +31,14 @@ def build_observation_backend(profile, *, parent_managed=False):
                 raise PackError("recognition_pack_path_invalid")
             return str(path)
 
+        def native_directory(value):
+            root = pack.root.resolve()
+            relative = safe_relative(value)
+            path = root / relative
+            if not path.is_dir() or path.resolve() != path:
+                raise PackError("recognition_pack_path_invalid")
+            return str(path)
+
         backend = DoclingRecognition(
             RecognitionConfig(
                 artifacts_path=directory("artifacts"),
@@ -45,6 +53,9 @@ def build_observation_backend(profile, *, parent_managed=False):
                 repair_max_input_pixels=repair_budget.get("maxInputPixels", 16000000),
                 repair_max_pixels=repair_budget.get("maxPixels", 16000000),
                 repair_max_seconds=repair_budget.get("maxSeconds", 60),
+                native_library_directories=tuple(
+                    native_directory(value) for value in config.get("nativeLibraryDirectories", [])
+                ),
             ),
             identity={
                 "packManifestSha256": pack.manifest_sha256,

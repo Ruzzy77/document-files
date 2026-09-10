@@ -45,8 +45,38 @@ class RecognitionConfig:
     repair_max_input_pixels: int = 16000000
     repair_max_pixels: int = 16000000
     repair_max_seconds: int = 60
+    native_library_directories: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        # JSON worker transport uses arrays; retain an immutable identity in both processes.
+        directories = self.native_library_directories
+        if not isinstance(directories, (list, tuple)) or any(
+            not isinstance(value, str) for value in directories
+        ):
+            raise ValueError("recognition native library directories invalid")
+        object.__setattr__(self, "native_library_directories", tuple(directories))
 
     def validate(self) -> None:
+        directories = self.native_library_directories
+        if len(directories) > 8 or len(set(directories)) != len(directories):
+            raise ValueError("recognition native library directories invalid")
+        if directories and sys.platform != "linux":
+            raise ValueError("recognition native library directories require Linux")
+        for value in directories:
+            path = Path(value)
+            if (
+                not value
+                or any(c in value for c in ":;$")
+                or any(ord(c) < 32 for c in value)
+                or not path.is_absolute()
+            ):
+                raise ValueError("recognition native library directory unavailable")
+            try:
+                valid = path.is_dir() and str(path.resolve()) == value
+            except (OSError, RuntimeError):
+                valid = False
+            if not valid:
+                raise ValueError("recognition native library directory unavailable")
         if self.table_ocr_repair not in {"off", "ruled_tables_v1", "ruled_cells_v2"}:
             raise ValueError("recognition repair policy invalid")
         if self.repair_batch_size == 2 and self.table_ocr_repair != "ruled_cells_v2":
@@ -144,7 +174,7 @@ class DoclingRecognition:
         self._identity = {
             **supplied,
             "adapter": "docling-offline-worker",
-            "adapterVersion": "25",
+            "adapterVersion": "26",
             "configuration": asdict(config),
             "modelPinning": (
                 "caller_supplied_manifest"
@@ -161,6 +191,26 @@ class DoclingRecognition:
     def identity(self) -> dict:
         """Configuration paths identify setup, not immutable model contents."""
         return deepcopy(self._identity)
+
+    def worker_environment(self) -> dict[str, str]:
+        """Only explicit pack directories supplement the filtered worker environment."""
+        self.config.validate()
+        environment = subprocess_environment()
+        environment.update(
+            {
+                "HF_HUB_OFFLINE": "1",
+                "TRANSFORMERS_OFFLINE": "1",
+                "HF_HUB_DISABLE_TELEMETRY": "1",
+                "DO_NOT_TRACK": "1",
+                # Imports must not modify the checksummed pack or use host user packages.
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONNOUSERSITE": "1",
+                "TESSDATA_PREFIX": self.config.tessdata_path,
+            }
+        )
+        if self.config.native_library_directories:
+            environment["LD_LIBRARY_PATH"] = ":".join(self.config.native_library_directories)
+        return environment
 
     def observe(
         self,
@@ -269,7 +319,7 @@ class DoclingRecognition:
             return result
 
         try:
-            self.config.validate()
+            environment = self.worker_environment()
         except ValueError:
             return merged(
                 {
@@ -279,20 +329,6 @@ class DoclingRecognition:
             )
         if len(content) > 128 * 1024 * 1024:
             return {"status": "partial", "issues": [{"code": "recognition_input_budget_exceeded"}]}
-        environment = subprocess_environment()
-        environment.update(
-            {
-                "HF_HUB_OFFLINE": "1",
-                "TRANSFORMERS_OFFLINE": "1",
-                "HF_HUB_DISABLE_TELEMETRY": "1",
-                "DO_NOT_TRACK": "1",
-                # Runtime packs are checksummed, immutable installations. Imports
-                # must neither add bytecode files nor pick up host user packages.
-                "PYTHONDONTWRITEBYTECODE": "1",
-                "PYTHONNOUSERSITE": "1",
-                "TESSDATA_PREFIX": self.config.tessdata_path,
-            }
-        )
         # Independently opened descriptors have independent file offsets. Never seek
         # the writer fd while the subprocess owns it, including on timeout.
         with tempfile.TemporaryDirectory(prefix="document-files-recognition-") as directory:

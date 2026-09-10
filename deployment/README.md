@@ -61,6 +61,16 @@ The product launches the pack interpreter with `-I -B` and its private
 core installation; the core's adjacent dependencies, current directory and user
 site are not added to the pack interpreter's import path. Imports cannot add
 bytecode to a checksummed pack. No copied alternate worker source is required.
+Linux packs may declare `nativeLibraryDirectories: ["python/lib"]` in `recognition`.
+This optional ordered list contains at most eight unique pack-relative directories,
+each represented by inventoried files. Absolute, escaping, symlinked and loader-token
+paths are rejected. The selected, verified pack supplies these directories to the
+actual worker's `LD_LIBRARY_PATH`; host loader paths and preload settings are never
+inherited. An absent or empty list leaves the existing filtered environment unchanged.
+Nonempty lists are rejected on other platforms. Declaring a search path is not proof
+of dependency closure: qualification must inspect actual external library mappings,
+including libraries opened dynamically. Only the documented system libraries may
+come from outside the pack.
 Recognition releases must pin a **CPU-only** wheelhouse and
 its runtime libraries. Do not reuse a generic Torch lock containing CUDA wheels.
 Intel native recognition manifests are rejected; import the Linux pack for the

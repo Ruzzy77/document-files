@@ -317,6 +317,21 @@ def validate_manifest(manifest: dict) -> dict:
                 raise PackError("pack_unapproved_recognition_configuration")
             if manifest["platform"] == "macos-x86_64":
                 raise PackError("pack_intel_recognition_requires_linux_container")
+            directories = recognition.get("nativeLibraryDirectories", [])
+            if (
+                not isinstance(directories, list)
+                or len(directories) > 8
+                or any(not isinstance(value, str) for value in directories)
+                or len(set(directories)) != len(directories)
+                or (directories and manifest["platform"] not in {"linux-aarch64", "linux-x86_64"})
+            ):
+                raise PackError("pack_invalid_native_library_directories")
+            for value in directories:
+                prefix = safe_relative(value) + "/"
+                if any(c in value for c in ";$") or not any(
+                    name.startswith(prefix) for name in listed
+                ):
+                    raise PackError("pack_invalid_native_library_directories")
             for key in ("python", "tesseract"):
                 if safe_relative(recognition[key]) not in executable_files:
                     raise PackError("pack_missing_recognition_entrypoint")

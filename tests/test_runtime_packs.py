@@ -643,6 +643,116 @@ def test_pinned_recognition_policy_reaches_the_same_backend_identity(
     assert backend.identity["packManifestSha256"] == "f" * 64
 
 
+def recognition_loader_pack(tmp_path):
+    return fixture_pack(
+        tmp_path,
+        kind="recognition",
+        extra={
+            "platform": "linux-aarch64",
+            "minimumOS": {"name": "linux", "version": "0"},
+            "recognition": {
+                "backend": "docling",
+                "offline": True,
+                "device": "cpu",
+                "layout": "heron",
+                "tableMode": "accurate",
+                "languages": ["kor", "eng"],
+                "python": "bin/server",
+                "tesseract": "bin/server",
+                "artifacts": "bin",
+                "tessdata": "data",
+                "nativeLibraryDirectories": ["python/lib"],
+            },
+        },
+        extra_files={
+            "python/lib/fixture.so": b"not an actual executable",
+            **{f"data/{language}.traineddata": b"fixture" for language in ("kor", "eng", "osd")},
+            "data/configs/tsv": b"fixture",
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "directories",
+    [
+        None,
+        "python/lib",
+        [None],
+        [[]],
+        [""],
+        ["."],
+        ["/lib"],
+        ["../lib"],
+        ["python//lib"],
+        ["python/lib", "python/lib"],
+        ["missing"],
+        ["python/lib;other"],
+        ["$ORIGIN/lib"],
+        [f"lib/{n}" for n in range(9)],
+    ],
+)
+def test_recognition_manifest_rejects_unsafe_loader_directories(tmp_path, directories):
+    from document_files.runtime_packs import validate_manifest
+
+    with zipfile.ZipFile(recognition_loader_pack(tmp_path)) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    validate_manifest(manifest)
+    manifest["recognition"]["nativeLibraryDirectories"] = directories
+    with pytest.raises(PackError):
+        validate_manifest(manifest)
+
+
+@pytest.mark.parametrize(
+    "target", ["linux-aarch64", "linux-x86_64", "macos-aarch64", "windows-x86_64"]
+)
+def test_native_loader_directories_are_linux_only_and_optional(tmp_path, target):
+    from document_files.runtime_packs import validate_manifest
+
+    with zipfile.ZipFile(recognition_loader_pack(tmp_path)) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    manifest["platform"] = target
+    manifest["minimumOS"]["name"] = target.split("-")[0]
+    if target.startswith("linux-"):
+        validate_manifest(manifest)
+    else:
+        with pytest.raises(PackError, match="invalid_native_library_directories"):
+            validate_manifest(manifest)
+    manifest["recognition"].pop("nativeLibraryDirectories")
+    validate_manifest(manifest)
+
+
+def test_verified_pack_loader_directories_reach_profile_environment(tmp_path, monkeypatch):
+    import os
+
+    from document_files import runtime_packs
+    from document_files.document_model import docling_adapter
+    from document_files.interpretation.backends import ModelError
+    from document_files.jobs import ModelProfile
+    from document_files.profiles import build_observation_backend
+
+    if os.name == "nt":
+        pytest.skip("Linux loader paths use POSIX filesystem paths")
+    monkeypatch.setattr(runtime_packs, "current_target", lambda: "linux-aarch64")
+    monkeypatch.setattr(docling_adapter.sys, "platform", "linux")
+    store = PackStore(tmp_path.resolve() / "store")
+    pack = install(store, recognition_loader_pack(tmp_path))
+    store.activate("recognition", "1")
+    profile = ModelProfile(
+        "cpu", "1", "local-pack", {"packRoot": str(store.root), "recognitionPackId": "recognition"}
+    )
+    backend = build_observation_backend(profile)
+    expected = str(pack.root / "python/lib")
+    assert backend.config.native_library_directories == (expected,)
+    assert backend.identity["configuration"]["native_library_directories"] == (expected,)
+    assert backend.identity["packManifestSha256"] == pack.manifest_sha256
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/untrusted/host")
+    assert backend.worker_environment()["LD_LIBRARY_PATH"] == expected
+    # An installed file changed after activation must not bypass PackStore verification.
+    (pack.root / "python/lib/fixture.so").write_bytes(b"changed")
+    with pytest.raises(ModelError, match="recognition_pack_unavailable"):
+        build_observation_backend(profile)
+
+
 def test_bad_zip_has_safe_typed_error(tmp_path):
     store = PackStore(tmp_path / "store")
     archive = tmp_path / "broken.zip"
