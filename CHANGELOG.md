@@ -2,6 +2,10 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Make the cumulative table-budget tampering test independent of Windows clock
+  resolution, using explicit scripted-call durations. Also retain a valid
+  zero-duration checkpoint/resume case. Product timing and budget rules are unchanged.
+
 - Prompt v24 / table protocol v16 / compiler v18 / scope integration v11 separate
   content uncertainty from unknown applicability. Table conversion preserves the
   content status, and resolving a scope cannot promote explicitly uncertain

@@ -3,12 +3,14 @@
 import copy
 import io
 import json
+from types import SimpleNamespace
 
 import pytest
 from jsonschema import Draft202012Validator
 from test_table_protocol import HTML, record_response
 
 from document_files.analysis import AnalysisInput, AnalysisJob
+from document_files.interpretation import engine
 from document_files.interpretation.backends import InferenceResponse, ModelError
 from document_files.interpretation.compiler import CompileError
 from document_files.interpretation.contracts import ExtractionOptions
@@ -302,8 +304,23 @@ def test_pre_dispatch_cancel_keeps_selection_and_does_not_charge_detail():
     ["modelCalls", "promptTokens", "completionTokens", "elapsedSeconds", "unreportedUsageCalls"],
 )
 @pytest.mark.parametrize("grant", [None, {"maxModelCalls": 1}])
-def test_document_usage_cannot_be_lowered_below_cumulative_table_stages(counter, grant):
+def test_document_usage_cannot_be_lowered_below_cumulative_table_stages(
+    counter, grant, monkeypatch
+):
     model = SelectionModel(fail_details=counter == "unreportedUsageCalls")
+    # Instant scripted replies can have zero measured duration on Windows. Give
+    # these calls explicit elapsed time instead of depending on host clock ticks.
+    clock = [100.0]
+    monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    infer = model.infer
+
+    def timed_infer(request):
+        try:
+            return infer(request)
+        finally:
+            clock[0] += 0.125
+
+    monkeypatch.setattr(model, "infer", timed_infer)
     states = []
     max_calls = 3 if model.fail_details else 2
     run(model, states=states, maxModelCalls=max_calls)
@@ -319,6 +336,23 @@ def test_document_usage_cannot_be_lowered_below_cumulative_table_stages(counter,
     with pytest.raises(ValueError, match="checkpoint is incompatible"):
         run(model, restore=checkpoint, maxModelCalls=max_calls, additional_budget=grant)
     assert len(model.requests) == before
+
+
+def test_zero_duration_scripted_calls_can_resume_without_inventing_elapsed_usage(monkeypatch):
+    monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: 100.0))
+    model, states = SelectionModel(), []
+    partial = run(model, states=states, maxModelCalls=2)
+    assert partial["extraction"]["status"] == "partial"
+    assert states[-1]["usage"]["elapsedSeconds"] == 0
+    assert all(
+        state[stage]["usage"]["elapsedSeconds"] == 0
+        for state in states[-1]["tableStages"].values()
+        for stage in ("structure", "meaning")
+    )
+    result = run(model, restore=states[-1], maxModelCalls=2, additional_budget={"maxModelCalls": 1})
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert result["extraction"]["usage"]["elapsedSeconds"] == 0
+    assert len(model.requests) == 3
 
 
 def test_failed_detail_consumes_shared_initial_allowance_and_needs_explicit_grant():
