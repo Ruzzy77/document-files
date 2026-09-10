@@ -55,26 +55,41 @@ artifact associations. It is restricted to non-executable documentation and
 cannot substitute runtime or model origins. The outer pack format stays v1;
 authorship, redistribution approval and actual execution remain separate checks.
 
-For the current normal ARM stage, 149 authored records/collections were checked
-against 181 original or derived artifacts. The prepared 135 scoped collections
-preserve 504 exact embedded-text references, including legacy-encoded upstream
-license bytes. All 29,453 planned pack files have explicit license associations;
-the existing 29,318-file remote stage has not yet received the new collections.
-This is input preparation, not a complete stage audit, installed pack, whole-path
-recognition check or redistribution approval.
-The first complete audit rejected 14 Windows installer launchers from the pinned
-pip/setuptools wheels before pack creation. Their original dispatch code selects
-them only for Windows. Linux assembly v2 now supports exact, reviewed omissions
-with matching installed RECORD updates; it does not weaken foreign-binary checks.
-A fresh assembly and full audit are still required before this pack can be built.
+At clean source `7d22c07`, a fresh Linux ARM64 assembly from 469 pinned inputs
+passed the complete v3 stage audit and produced a private preparation pack. Its
+29,439 files include 149 authored records/collections tied to 181 original or
+derived artifacts; 135 scoped collections preserve 504 exact embedded-text
+references, including legacy-encoded upstream license bytes. The first audit's
+14 Windows-only pip/setuptools launchers were explicitly omitted by assembly v2,
+with two matching RECORD rewrites. All other original file bytes/modes and all
+463 native files were retained. Foreign-binary checks were not relaxed.
 
-For the Linux ARM64 development recognition stage, 39 additional notice files were
-copied into a new stage while preserving all 32,023 original files and their modes.
-The resulting 32,062-file stage is not a new final product build. Exact Debian source
-packages for five shipped runtime libraries have also been acquired and hash-checked.
-Corresponding-source publication, remaining component notices, modified-library
-loading and final pack/full-product checks remain unfinished. Installed packs,
-Toolkit and Sync were not changed.
+The same 2,216,829,968-byte archive, SHA-256
+`e2076f65d0c060fd11334a1d1d8d6a4ea1a1518872820007ff5bf5fb45190b36`,
+was installed and activated in a separate private store, selected through the
+normal recognition profile, and used by the actual recognition worker. All
+29,439 installed files were reverified afterward. During the one-page scan test,
+20 ms process-map sampling observed 202 pack-owned ELF files and eight external
+glibc files from the existing system allowlist. This does not establish coverage
+of every transient mapping. Pack-owned libstdc++, libgcc_s, zlib and FriBidi loaded
+with normal non-executable shared-library file permissions.
+
+Installation/profile/worker execution passed, but document accuracy did not.
+The single recognition call finished in 12.98 seconds under its fixed 180-second
+limit. OCR omitted `Item`, `Length` and `8.25`, and read `Unit:` as `Unit;`.
+The header row was absent and one data position remained unobserved. Importing
+the saved result through the product correctly retained partial coverage and did
+not declare the unobserved position blank. Worker status `complete` is conversion
+completion, not complete document extraction. This new installation calibration
+is a development case, not an independent holdout; no semantic-model call or
+additional OCR attempt was made.
+
+The isolated installation/run used 4 CPUs, 16 GiB, no swap/OOM, GPU or network;
+whole-cgroup peak was 4,171,268,096 bytes. This is recognition-pack execution, not
+the final recognition-plus-inference resource qualification or a Python-free core
+installation. Redistribution approval, corresponding-source publication and the
+remaining final-candidate checks are still unfinished. Existing installed product
+packs, Toolkit, Sync and the personal 1.7.0 CLI were not changed.
 
 ### Source-first table meaning review
 
