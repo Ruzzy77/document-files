@@ -15,6 +15,35 @@ from document_files.interpretation.regions import prepare_regions
 from document_files.interpretation.semantic_types import RegionInterpretation, region_output_schema
 
 
+@pytest.mark.parametrize("feedback", [None, {}, {"issues": ["unresolved"]}])
+def test_contract_messages_match_product_assembly_and_preserve_inputs(feedback):
+    import copy
+
+    from document_files.interpretation.legacy_engine import contract_messages, encode
+
+    payload = {"source": "원문 @column0", "nested": {"outputContract": "literal source"}}
+    contract = {"type": "object", "properties": {"value": {"type": "string"}}}
+    original = copy.deepcopy((payload, contract, feedback))
+    expected = {**payload, "outputContract": contract}
+    if feedback is not None:
+        expected["repairFeedback"] = feedback
+    messages = contract_messages("System", payload, contract, feedback)
+    assert messages == [
+        {"role": "system", "content": "System"},
+        {"role": "user", "content": encode(expected)},
+    ]
+    assert (payload, contract, feedback) == original
+    if feedback is not None:
+        assert list(json.loads(messages[1]["content"]))[-1] == "repairFeedback"
+
+
+def test_contract_messages_do_not_hide_nonfinite_values():
+    from document_files.interpretation.legacy_engine import contract_messages
+
+    with pytest.raises(ValueError):
+        contract_messages("System", {"value": float("nan")}, {})
+
+
 class ReferenceModel:
     identity = {"adapter": "reference-protocol-test", "model": "not-a-real-model"}
 

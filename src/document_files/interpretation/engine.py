@@ -41,7 +41,7 @@ from .integration import (
     scope_batches,
 )
 from .legacy_engine import _has_unread_visuals as _has_unread_visuals
-from .legacy_engine import decode, encode
+from .legacy_engine import contract_messages, decode, encode
 from .pdf_image_read import candidate_summary
 from .pdf_visual_runner import review_identity, review_pdf_pages
 from .regions import (
@@ -1053,15 +1053,7 @@ def extract_schema_from_stream(
         timeout = remaining()
         if timeout <= 0:
             raise ModelError("completion_budget_exceeded")
-        content = {**payload, "outputContract": contract}
-        if feedback is not None:
-            # Feedback follows the unchanged region and contract, so a repair call
-            # shares its whole prompt prefix with the original call.
-            content["repairFeedback"] = feedback
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": encode(content)},
-        ]
+        messages = contract_messages(system, payload, contract, feedback)
         total_chars = sum(len(m["content"]) for m in messages)
         input_limit = min(
             selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)

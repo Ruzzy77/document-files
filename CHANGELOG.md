@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Share the exact product message assembly with internal development checks so
+  the visible output contract cannot be confused with a transport-only grammar.
+  Serialized requests and repair-prefix order are unchanged; this refactor does
+  not alter a protocol, checkpoint identity or interpretation quality status.
+
 - Scope integration v10 / reference wire v2 / compiler v17 add row-range and
   row/column applicability over compiler-owned source geometry. Only existing data
   targets are selected; headers, notes, subtotals and blank rows create no values,

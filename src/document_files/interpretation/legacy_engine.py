@@ -28,6 +28,21 @@ def encode(value) -> str:
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
+def contract_messages(system, payload, contract, feedback=None):
+    """Use the same visible contract and stable repair prefix in product and probes.
+
+    A transport grammar does not make its schema visible to the model. Preserve
+    the original payload, and put repair feedback after the unchanged contract.
+    """
+    content = {**payload, "outputContract": contract}
+    if feedback is not None:
+        content["repairFeedback"] = feedback
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": encode(content)},
+    ]
+
+
 def decode(text: str):
     def invalid_constant(value):
         raise ValueError("non-finite JSON number")
