@@ -126,11 +126,17 @@ under a 16 GiB cgroup with 4 CPUs, no swap/OOM, GPU or network. No inference was
 performed; this does not qualify the full recognition-plus-inference path.
 The saved scan's page review stopped before inference with
 `visual_slot_inventory_incomplete`: one missing cell had no source-bound slot
-observations. Those observations are currently coupled to optional table OCR
-repair. The existing visual review can check supplied text and empty slots, but
-cannot transcribe missing or incorrect text. Independent geometry capture and
-source-pixel-bound text recovery remain required; relaxing the guard or repeating
-the current review request is not a solution.
+observations. At adapter v27 those observations were coupled to optional table
+OCR repair. Adapter v28 now collects missing table geometry from the existing
+full-page image cache after the optional repair step. It does not invoke OCR,
+render a cache miss, rewrite text or assign header roles. Existing measurements,
+including partial/unavailable ones, are retained without another attempt, under
+the same cumulative pixel/cell limits. Changed and existing repair contracts
+passed 117 warnings-as-errors tests with actual ARM recognition dependencies.
+This is not a new whole-document quality result. The existing visual review can
+check supplied text and empty slots, but still cannot transcribe missing or
+incorrect text. Source-pixel-bound text recovery remains required; relaxing the
+guard or repeating the current review request is not a solution.
 
 ### Source-first table meaning review
 

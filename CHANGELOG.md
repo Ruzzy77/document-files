@@ -2,6 +2,12 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Collect missing table cell geometry from existing cached page pixels independently
+  of optional OCR repair. Reuse prior complete/partial/unavailable observations,
+  retain shared pixel/cell limits, and report unavailable cache/layout evidence
+  without rendering, OCR or text/structure changes. Adapter v28 rejects older
+  checkpoints; image text recovery and document quality are still incomplete.
+
 - Bind ruled-table repair orientation to the unique containing original OCR crop,
   not the last OCR region on the page. Require observed upright orientation and
   matching input-pixel evidence, record the source selection and check it on reuse.

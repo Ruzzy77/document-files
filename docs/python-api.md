@@ -322,6 +322,16 @@ repair evidence and binds reuse. Unknown, rotated, ambiguous or mismatched sourc
 remain unresolved. The default repair policy and budgets are unchanged; adapter
 v26 checkpoints do not resume as v27.
 
+Adapter v28 separates missing cell-geometry observations from optional OCR repair.
+After repair, or with repair disabled, it inspects only existing cached page pixels
+for table layout clusters without an observation. It preserves earlier complete,
+partial and unavailable records rather than retrying them. Cache misses and budget
+exhaustion remain unavailable; no extra render/OCR call or text/structure rewrite
+is permitted. Geometry and OCR ruling measurements share the existing cumulative
+pixel/cell budgets. The cell observation format stays v2, and adapter v27 and older
+checkpoints cannot resume as v28. This does not implement image text recovery or
+turn geometry into blank-value, OCR-accuracy or completeness approval.
+
 Recognition adapter v18 introduced explicit `ruled_cells_v2` file-list repair.
 Administrator `repairBudget` accepts `batchSize` (1–2), `maxImages` (1–64) and
 `maxInputPixels` (1–64,000,000), all integers excluding booleans. Defaults remain

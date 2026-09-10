@@ -260,7 +260,7 @@ def test_recognition_native_directories_are_frozen_and_bound_to_identity(tmp_pat
         backend.identity
         != DoclingRecognition(RecognitionConfig("missing", "missing", "missing")).identity
     )
-    assert backend.identity["adapterVersion"] == "27"
+    assert backend.identity["adapterVersion"] == "28"
 
 
 @pytest.mark.parametrize("value", [None, "python/lib", {"path": "/lib"}, [None], [[]]])

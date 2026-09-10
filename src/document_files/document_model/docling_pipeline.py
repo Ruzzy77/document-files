@@ -516,20 +516,54 @@ def pipeline_class(config, snapshots, restored=None):
                     ).encode()
                 ).hexdigest()
                 snapshots[page.page_no] = snapshot
-                if config.table_ocr_repair not in {"ruled_tables_v1", "ruled_cells_v2"}:
-                    yield page
-                    continue
-                try:
-                    self.repair(page, original, snapshot)
-                except subprocess.TimeoutExpired:
-                    snapshot["issues"].append({"code": "table_ocr_repair_timeout"})
-                except Exception:
-                    snapshot["issues"].append({"code": "table_ocr_repair_failed"})
+                if config.table_ocr_repair in {"ruled_tables_v1", "ruled_cells_v2"}:
+                    try:
+                        self.repair(page, original, snapshot)
+                    except subprocess.TimeoutExpired:
+                        snapshot["issues"].append({"code": "table_ocr_repair_timeout"})
+                    except Exception:
+                        snapshot["issues"].append({"code": "table_ocr_repair_failed"})
+                # Geometry is an observation, not an optional OCR retry. Prefer
+                # any measurement already made by repair; otherwise inspect only
+                # the existing full-page cache, without rendering or changing cells.
+                self._observe_missing_cached_cells(page, snapshot)
                 snapshot["cellObservationOCRLinks"] = cell_ocr_links(
                     snapshot.get("cellObservations", []), snapshot.get("rawOCRPasses", [])
                 )
                 self.apply_structure_view(page, snapshot)
                 yield page
+
+        def _observe_missing_cached_cells(self, page, snapshot):
+            layout = getattr(getattr(page, "predictions", None), "layout", None)
+            if layout is None:
+                snapshot["issues"].append(
+                    {"code": "recognition_cell_observation_layout_unavailable"}
+                )
+                return
+            observed = {
+                (item.get("localPageNumber"), item.get("clusterId"))
+                for item in snapshot.get("cellObservations", [])
+            }
+            for cluster in layout.clusters:
+                if cluster.label != DocItemLabel.TABLE:
+                    continue
+                key = (page.page_no, cluster.id)
+                # An unavailable/partial observation also consumes its reservation.
+                # Do not retry it or create competing measurements for one table.
+                if key in observed:
+                    continue
+                observed.add(key)
+                try:
+                    bbox = cluster.bbox.to_top_left_origin(page_height=page.size.height)
+                    self._observe_cached_native_cells(page, snapshot, cluster, bbox)
+                except Exception:
+                    snapshot.setdefault("cellObservations", []).append(
+                        unavailable_cell_observation(
+                            cluster_id=cluster.id,
+                            local_page_number=page.page_no,
+                            reason="cached_table_observation_failed",
+                        )
+                    )
 
         def apply_structure_view(self, page, snapshot):
             if config.table_ocr_repair != "ruled_cells_v2" or page.parsed_page is None:

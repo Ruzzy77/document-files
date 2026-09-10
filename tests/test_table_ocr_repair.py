@@ -786,7 +786,7 @@ def test_batch_configuration_identity_and_invalid_settings():
         config, table_ocr_repair="ruled_cells_v2", repair_batch_size=2, repair_max_images=16
     )
     assert DoclingRecognition(changed).identity != original
-    assert DoclingRecognition(changed).identity["adapterVersion"] == "27"
+    assert DoclingRecognition(changed).identity["adapterVersion"] == "28"
     for key, value in (
         ("repair_batch_size", 3),
         ("repair_max_images", True),
@@ -904,6 +904,162 @@ def test_native_cell_pixel_producer_without_cache_is_explicitly_unavailable(monk
     model._observe_cached_native_cells(page, snapshot, cluster, cluster.bbox)
     assert snapshot["cellObservations"][0]["reason"] == "cached_canvas_unavailable"
     assert not calls
+
+
+@pytest.mark.parametrize(
+    "policy,repair_outcome",
+    [
+        ("off", "not_called"),
+        ("ruled_tables_v1", "no_measurement"),
+        ("ruled_cells_v2", "no_measurement"),
+        ("ruled_cells_v2", "measured"),
+        ("ruled_cells_v2", "unavailable"),
+        ("ruled_cells_v2", "timeout"),
+        ("ruled_cells_v2", "failed"),
+    ],
+)
+def test_cached_cell_observation_is_independent_of_optional_ocr(
+    monkeypatch, policy, repair_outcome
+):
+    """Exercise the post-OCR seam with fixed upstream cells; never invoke OCR."""
+    fixture, page, _, ocr_calls = cell_batch_fixture(monkeypatch)
+    from docling_core.types.doc import BoundingBox, CoordOrigin
+    from docling_core.types.doc.page import BoundingRectangle, TextCell
+
+    from document_files.document_model.docling_adapter import RecognitionConfig
+    from document_files.document_model.docling_pipeline import pipeline_class
+    from document_files.document_model.recognition_cell_observations import (
+        unavailable_cell_observation,
+    )
+
+    canvas = page.get_image()
+    page._image_cache = {3.0: canvas}
+    page._backend = SimpleNamespace(_result=cell_framework_result(page))
+    page.cells = [
+        TextCell(
+            index=0,
+            text="0.020",
+            orig="0.020",
+            from_ocr=True,
+            rect=BoundingRectangle.from_bounding_box(
+                BoundingBox(l=10, t=10, r=20, b=20, coord_origin=CoordOrigin.TOPLEFT)
+            ),
+        )
+    ]
+    page.parsed_page.textline_cells = page.cells
+    before_cells = [c.model_dump() for c in page.cells]
+    before_pixels = canvas.tobytes()
+    page.get_image = lambda **_: pytest.fail("cached observation must not render")
+    snapshots = {}
+    cls = pipeline_class(
+        RecognitionConfig("/models", "/ocr", "/data", table_ocr_repair=policy), snapshots
+    )._product_ocr_type
+    model = cls.__new__(cls)
+
+    def original_stage(self, conv_res, pages):
+        self.raw_transform_seen = True
+        yield from pages
+
+    monkeypatch.setattr(cls.__mro__[1], "__call__", original_stage)
+    measured = []
+    observe = model._observe_cached_native_cells
+
+    def measure(*args):
+        measured.append(args[2].id)
+        return observe(*args)
+
+    monkeypatch.setattr(model, "_observe_cached_native_cells", measure)
+
+    def optional_repair(page, original, snapshot):
+        if repair_outcome == "not_called":
+            pytest.fail("disabled OCR repair was called")
+        if repair_outcome == "timeout":
+            import subprocess
+
+            raise subprocess.TimeoutExpired("synthetic repair", 1)
+        if repair_outcome == "failed":
+            raise ValueError("synthetic repair failure")
+        cluster = page.predictions.layout.clusters[0]
+        if repair_outcome == "measured":
+            measure(page, snapshot, cluster, cluster.bbox)
+        elif repair_outcome == "unavailable":
+            snapshot["cellObservations"].append(
+                unavailable_cell_observation(
+                    cluster_id=cluster.id, local_page_number=page.page_no, reason="prior_failure"
+                )
+            )
+
+    monkeypatch.setattr(model, "repair", optional_repair)
+    assert list(model._captured_page(None, page)) == [page]
+    snapshot = snapshots[1]
+    assert len(snapshot["cellObservations"]) == 1
+    observed = snapshot["cellObservations"][0]
+    if repair_outcome == "unavailable":
+        assert observed["reason"] == "prior_failure" and not measured
+    else:
+        assert observed["status"] == "captured" and len(observed["slots"]) == 4
+        assert measured == [1]
+    assert not observed["blankValueProven"] and not observed["ocrTruthVerified"]
+    assert [c.model_dump() for c in page.cells] == before_cells
+    assert canvas.tobytes() == before_pixels
+    assert snapshot["original"][0]["text"] == snapshot["original"][0]["raw"] == "0.020"
+    assert snapshot["supplemental"] == snapshot["repairs"] == []
+    assert (
+        snapshot["rawOCRPasses"]
+        == snapshot["rawOCRRuns"]
+        == snapshot["cellObservationOCRLinks"]
+        == []
+    )
+    assert not ocr_calls and model.repair_calls == fixture.repair_calls == 0
+    assert [i["code"] for i in snapshot["issues"]] == (
+        ["table_ocr_repair_timeout"]
+        if repair_outcome == "timeout"
+        else ["table_ocr_repair_failed"]
+        if repair_outcome == "failed"
+        else []
+    )
+
+
+@pytest.mark.parametrize("failure", ["missing_cache", "pixel_limit", "exception"])
+def test_cached_observation_fallback_failure_is_retained_without_retry(monkeypatch, failure):
+    model, page, snapshot, calls = cell_batch_fixture(monkeypatch)
+    canvas = page.get_image()
+    page.get_image = lambda **_: pytest.fail("fallback must not render on failure")
+    if failure == "pixel_limit":
+        page._image_cache = {3: canvas}
+        model.cell_observation_pixels = 16000000
+        monkeypatch.setattr(canvas, "crop", lambda *_: pytest.fail("budget exhausted"))
+    elif failure == "exception":
+
+        def fail(*args):
+            raise ValueError("synthetic cached-image access failure")
+
+        monkeypatch.setattr(model, "_observe_cached_native_cells", fail)
+    model._observe_missing_cached_cells(page, snapshot)
+    assert len(snapshot["cellObservations"]) == 1
+    observed = deepcopy(snapshot["cellObservations"])
+    assert observed[0]["status"] == "unavailable"
+    assert (
+        observed[0]["reason"]
+        == {
+            "missing_cache": "cached_canvas_unavailable",
+            "pixel_limit": "native_cell_pixel_budget_exceeded",
+            "exception": "cached_table_observation_failed",
+        }[failure]
+    )
+    monkeypatch.setattr(
+        model, "_observe_cached_native_cells", lambda *_: pytest.fail("failed observation retried")
+    )
+    model._observe_missing_cached_cells(page, snapshot)
+    assert snapshot["cellObservations"] == observed and not calls
+
+
+def test_cached_observation_missing_layout_does_not_invent_no_tables(monkeypatch):
+    model, page, snapshot, calls = cell_batch_fixture(monkeypatch)
+    page.predictions.layout = None
+    model._observe_missing_cached_cells(page, snapshot)
+    assert snapshot["issues"] == [{"code": "recognition_cell_observation_layout_unavailable"}]
+    assert not snapshot.get("cellObservations") and not calls
 
 
 def test_cell_region_failure_consumes_unknown_remaining_reservation(monkeypatch):
