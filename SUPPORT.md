@@ -112,6 +112,26 @@ installation. Redistribution approval, corresponding-source publication and the
 remaining final-candidate checks are still unfinished. Existing installed product
 packs, Toolkit, Sync and the personal 1.7.0 CLI were not changed.
 
+The product model builder has now produced a fresh preparation pack with a v2
+vision conversion receipt. Its quantized weights and F16 image projector match
+the earlier development bytes, but the new archive binds the five specific CPU
+runtime manifests. Four Unix runtime archives were downloaded and fully hashed;
+Windows has review metadata only, with binary delivery and redistribution review
+still pending. Declared compatibility is not five-platform execution approval.
+
+The new model and ARM64 runtime were installed in a separate Spark store. The
+managed CPU-only server started in 8.02 seconds and reported vision support.
+Installation, startup and page-input preparation peaked at 16,751,300,608 bytes
+under a 16 GiB cgroup with 4 CPUs, no swap/OOM, GPU or network. No inference was
+performed; this does not qualify the full recognition-plus-inference path.
+The saved scan's page review stopped before inference with
+`visual_slot_inventory_incomplete`: one missing cell had no source-bound slot
+observations. Those observations are currently coupled to optional table OCR
+repair. The existing visual review can check supplied text and empty slots, but
+cannot transcribe missing or incorrect text. Independent geometry capture and
+source-pixel-bound text recovery remain required; relaxing the guard or repeating
+the current review request is not a solution.
+
 ### Source-first table meaning review
 
 Table protocol v10 asks for one decision per owned source before any meanings.
