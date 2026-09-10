@@ -2,6 +2,16 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Visual application v4 applies fully reviewed blank cells to alternative image-read
+  tables and links each replaced recognizer-table gap to its exact reviewed replacement.
+  Validate source-slot geometry for every candidate cell and preserve original tables,
+  OCR captures, strings, bindings and issues in their original/evidence records. Only
+  the matched processing dependency is resolved; raw unknowns, unverified extents and
+  unrelated errors remain. Missing/changed ownership, incomplete grids or unknown
+  decisions preserve the original view atomically. Older application checkpoints
+  cannot acquire new resolutions on resume. Review v10/model inputs and public v1
+  contracts are unchanged. Synthetic acceptance is not document quality approval.
+
 - Add source-bound membership panel images (PDF review v10, unit display v1) within
   the existing two-image/byte/pixel limits. Keep the full source PNG and original RGB
   detail, show each required unit's exact mask separately, and bind panel coordinates,
@@ -45,8 +55,8 @@
   Original OCR, nodes, bindings, tables and issues remain available. Unknown/failed
   reviews preserve the original view and are not replayed. Visual application v2
   records selected projection fingerprints; older checkpoints remain incompatible.
-  Replacement-specific issue resolution and new blank-cell application are still
-  conservative partial paths, not completed extraction or quality qualification.
+  Replacement-specific issue resolution and new blank-cell application were still
+  conservative partial paths at v2; v4 adds these links without quality certification.
 
 - Add bounded literal image-reading candidates after unresolved PDF review or an
   unlinked grid prevents review planning. Preserve text, precision, uncertainty and

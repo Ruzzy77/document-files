@@ -574,8 +574,8 @@ preparation before a model attempt. Original bytes and observations are unchange
 `unitDisplay` in the model payload identifies panel/image coordinates. Review
 validation requires the actual display descriptor, not a caller-provided boolean.
 Checkpoints store that descriptor and `unitDisplayFingerprint`, never image data URLs;
-visual application v3 also records this fingerprint in the applied page-review provenance.
-resume and atomic application repeat the source/membership checks without rerendering
+visual application v3 and later also record it in the applied page-review provenance.
+Resume and atomic application repeat the source/membership checks without rerendering
 or calling the model again. Unprepared, changed or missing display evidence remains
 blocked. Pure source/core plans without edge candidates keep the original image path.
 These are input/ownership checks, not a claim that the model's interpretation is correct.
@@ -598,6 +598,26 @@ an attempt before inference. A successful review permits only the alternate regi
 enter interpretation; `pdfVisualReviewApplication.selectedImageProjectionFingerprints`
 identifies that selection. Unstarted reviews can resume without re-reading the image;
 failed, unresolved or interrupted attempts cannot be repeated automatically. Preparation
-failures are retained too. Original processing issues are not silently cleared: resolving
-their replacement dependencies and applying new blank cells remain conservative partial
-paths. No independent quality approval or completed document is implied.
+failures are retained too. No independent quality approval or completed document is implied.
+
+Visual application v4 verifies the exact selected projection and source-slot geometry
+of every candidate cell, then applies reviewed blank cells to that alternative table.
+The blank must still pass all existing full-detail, measured-border and pixel checks;
+an empty reading or `rule_edge` decision alone cannot create a blank value. The new
+node/binding is included in the active semantic region, not inserted into the old table.
+Proposal-only gap issues do not impersonate dependencies of the raw OCR ledger.
+
+Only a complete, source-bound replacement grid can resolve its inactive recognizer
+table's `recognition_table_cells_unobserved` issue. Its resolution records the old and
+replacement table IDs, original gap count, projection, plan and decision fingerprints.
+The original table remains unchanged, including its original missing-cell count.
+Original issues remain in projection/disposition records, and raw strings, bindings,
+OCR captures and ledger entries are preserved. Only the exact matched dependency
+is removed; unresolved raw detections, unverified extents, other tables and semantic/
+execution errors remain. Missing, duplicated or mismatched evidence aborts application
+atomically. Processing and channel completeness are recomputed by the existing rules,
+not set from the model's agreement. Independent quality approval remains false.
+
+Page checkpoints now bind `applicationVersion` as well as the review version; the
+full-engine identity already includes it. Missing/older application versions are
+incompatible rather than gaining new resolutions through automatic resume.

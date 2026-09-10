@@ -7,9 +7,12 @@ from copy import deepcopy
 from ..document_model.model import ObservationDocument
 from ..document_model.recognition_cell_observations import fingerprint
 from ..document_model.recognition_sources import page_render_fingerprint
+from .pdf_image_projection import grid_association, page_projection
+from .pdf_image_read import MAX_ENTRIES
 from .pdf_visual_display import display_argument
 from .pdf_visual_plan import (
     PdfVisualReviewError,
+    _box,
     _mapped_box,
     digest,
     observation_page_fingerprint,
@@ -17,7 +20,7 @@ from .pdf_visual_plan import (
     validate_decision,
 )
 
-VERSION = "document-files.pdf-visual-apply.v3"
+VERSION = "document-files.pdf-visual-apply.v4"
 MAX_ORDER_COMPARISONS = 1048576
 _REPLACEMENT_CODES = {
     "pdf_page_has_no_native_text",
@@ -78,6 +81,7 @@ def _validated(doc, reviews):
                 and node["sourceStructure"].get("tableRef") == item.get("tableRef"),
                 "visual_apply_source_text_changed",
             )
+        _verify_projection(doc, plan, capture)
         for slot in plan["slots"]:
             _verify_source_slot(doc, plan, capture, slot)
         require(
@@ -96,6 +100,69 @@ def _validated(doc, reviews):
     return selected
 
 
+def _verify_projection(doc, plan, capture):
+    projection = page_projection(doc, plan["page"])
+    if projection is None:
+        require("imageReadProposal" not in plan, "visual_apply_projection_changed")
+        return
+    require(
+        projection["status"] == "proposed"
+        and projection["fingerprint"]
+        == digest({k: v for k, v in projection.items() if k != "fingerprint"})
+        and plan.get("imageReadProposal")
+        == {
+            "fingerprint": projection["fingerprint"],
+            "sourceIds": [s["id"] for s in plan["sources"]],
+            "grids": projection["grids"],
+        }
+        and {s["sourceRef"] for s in plan["sources"]} == set(projection["selectedNodeIds"])
+        and len(projection["selectedNodeIds"]) + len(plan["slots"]) <= MAX_ENTRIES
+        and len(projection["grids"]) <= 128
+        and len({g["priorTableRef"] for g in projection["grids"]}) == len(projection["grids"])
+        and len(set(projection["selectedTableRefs"])) == len(projection["grids"])
+        and {g["tableRef"] for g in projection["grids"]} == set(projection["selectedTableRefs"]),
+        "visual_apply_projection_changed",
+    )
+    for grid in projection["grids"]:
+        old, new = doc.tables[grid["priorTableRef"]], doc.tables[grid["tableRef"]]
+        require(
+            grid["priorTableRef"] not in projection["selectedTableRefs"]
+            and old["page"] == new["page"] == plan["page"]
+            and new.get("basis") == "pdf_image_read_grid_candidate"
+            and (new["declaredRowCount"], new["declaredColCount"])
+            == (grid["rows"], grid["columns"]),
+            "visual_apply_projection_changed",
+        )
+        require(
+            len(new["cells"]) <= MAX_ENTRIES
+            and len({c["sourceRef"] for c in new["cells"]}) == len(new["cells"]),
+            "visual_apply_projection_inventory",
+        )
+        for cell in new["cells"]:
+            loc = doc.nodes[cell["sourceRef"]]["sourceStructure"]
+            require(
+                cell["sourceRef"] in projection["selectedNodeIds"]
+                and loc["tableRef"] == grid["tableRef"]
+                and type(cell["rowSpan"]) is type(cell["colSpan"]) is int
+                and cell["rowSpan"] == cell["colSpan"] == 1,
+                "visual_apply_projection_inventory",
+            )
+            _box(loc["bbox"], *capture["pageSizeCanvasUnits"])
+            _verify_source_slot(
+                doc,
+                plan,
+                capture,
+                {
+                    "tableRef": grid["tableRef"],
+                    "row": cell["row"],
+                    "col": cell["col"],
+                    "slotKey": loc["slotKey"],
+                    "observationFingerprint": loc["observationFingerprint"],
+                    "sourceBounds": [loc["bbox"][k] for k in ("left", "top", "right", "bottom")],
+                },
+            )
+
+
 def _verify_source_slot(doc, plan, capture, slot):
     """Original slot geometry is independent of new render-grid pixel rounding."""
     matches = []
@@ -103,7 +170,7 @@ def _verify_source_slot(doc, plan, capture, slot):
         if batch.get("page") != plan["page"] or batch.get("sourceSha256") != plan["sourceSha256"]:
             continue
         for entry in batch.get("observations", []):
-            association = entry.get("structureAssociation", {})
+            association = grid_association(doc, plan["page"], entry)
             if association.get("tableRef") != slot["tableRef"]:
                 continue
             record, validation = entry["observation"], entry["validation"]
@@ -209,6 +276,13 @@ def _add_empty_slots(doc, reviews, output):
                 len(issues) == 1 and issues[0].get("count") == len(slots), "visual_apply_slot_issue"
             )
             issue = issues[0]
+            projected = table.get("basis") == "pdf_image_read_grid_candidate"
+            if projected:
+                require(
+                    table_ref in page_projection(doc, page)["selectedTableRefs"]
+                    and issue.get("meaning") == "image_read_empty_candidate_not_proven_blank",
+                    "visual_apply_projection_slot_issue",
+                )
             require(
                 len(doc.nodes) + len(slots) <= 100000 and len(doc.bindings) + len(slots) <= 200000,
                 "visual_apply_observation_budget",
@@ -271,24 +345,91 @@ def _add_empty_slots(doc, reviews, output):
                 "basis": "owned_visual_page_review",
             }
             _record_issue(output, issue, evidence)
-            ledgers = [
-                item
-                for item in doc.provenance.get("recognitionProcessingLedgers", [])
-                if table_ref in item.get("processingDependencies", {}).get("tableRefs", [])
-            ]
-            require(len(ledgers) == 1, "visual_apply_processing_dependency")
-            ledger = ledgers[0]
-            dependencies = ledger["processingDependencies"]
+            # Proposal-only gaps never belonged to the raw recognizer's ledger.
+            if not projected:
+                _resolve_dependency(doc, table_ref, page, issue, output, evidence)
+
+
+def _resolve_dependency(doc, table_ref, page, issue, output, evidence):
+    ledgers = [
+        item
+        for item in doc.provenance.get("recognitionProcessingLedgers", [])
+        if table_ref in item.get("processingDependencies", {}).get("tableRefs", [])
+    ]
+    require(len(ledgers) == 1, "visual_apply_processing_dependency")
+    ledger = ledgers[0]
+    dependencies = ledger["processingDependencies"]
+    require(
+        dependencies["pages"] == [page] and dependencies["issues"].count(issue) == 1,
+        "visual_apply_processing_dependency",
+    )
+    dependencies["issues"].remove(issue)
+    ledger.setdefault("visualReviewResolutions", []).append(deepcopy(output["resolvedIssues"][-1]))
+    ledger["visualReviewApplicationVersion"] = VERSION
+    _update_processing(doc, ledger, output, evidence)
+
+
+def _resolve_replaced_tables(doc, reviews, output):
+    """Resolve an inactive table's gap only through its completely reviewed replacement.
+
+    The old table and raw observations remain incomplete evidence, not repaired data.
+    Unresolved OCR, extents, execution/semantic issues and other tables are untouched.
+    """
+    for page, review in sorted(reviews.items()):
+        plan = review["plan"]
+        if "imageReadProposal" not in plan:
+            continue
+        for grid in plan["imageReadProposal"]["grids"]:
+            old_ref, new_ref = grid["priorTableRef"], grid["tableRef"]
+            old, new = doc.tables[old_ref], doc.tables[new_ref]
+            rows, cols = grid["rows"], grid["columns"]
             require(
-                dependencies["pages"] == [page] and dependencies["issues"].count(issue) == 1,
-                "visual_apply_processing_dependency",
+                type(rows) is int and type(cols) is int and 0 < rows * cols <= 100000,
+                "visual_apply_projection_inventory",
             )
-            dependencies["issues"].remove(issue)
-            ledger.setdefault("visualReviewResolutions", []).append(
-                deepcopy(output["resolvedIssues"][-1])
+            require(
+                len(new["cells"]) == rows * cols
+                and new.get("unobservedCellCount") == 0
+                and all(
+                    type(c["row"]) is int
+                    and type(c["col"]) is int
+                    and c["rowSpan"] == c["colSpan"] == 1
+                    for c in new["cells"]
+                )
+                and {(c["row"], c["col"]) for c in new["cells"]}
+                == {(r, c) for r in range(rows) for c in range(cols)},
+                "visual_apply_projection_inventory",
             )
-            ledger["visualReviewApplicationVersion"] = VERSION
-            _update_processing(doc, ledger, output, evidence)
+            issues = [
+                i
+                for i in doc.issues
+                if i.get("code") == "recognition_table_cells_unobserved"
+                and i.get("tableRef") == old_ref
+            ]
+            count = old.get("unobservedCellCount", 0)
+            require(type(count) is int and count >= 0, "visual_apply_projection_prior_issue")
+            if count == 0:
+                require(not issues, "visual_apply_projection_prior_issue")
+                continue
+            require(
+                len(issues) == 1 and issues[0].get("count") == count,
+                "visual_apply_projection_prior_issue",
+            )
+            issue = issues[0]
+            evidence = {
+                "basis": "owned_visual_replacement_table",
+                "page": page,
+                "priorTableRef": old_ref,
+                "priorUnobservedCellCount": count,
+                "replacementTableRef": new_ref,
+                "replacementUnobservedCellCount": 0,
+                "projectionFingerprint": plan["imageReadProposal"]["fingerprint"],
+                "planFingerprint": plan["fingerprint"],
+                "decisionFingerprint": review["validation"]["decisionFingerprint"],
+            }
+            doc.issues.remove(issue)
+            _record_issue(output, issue, evidence)
+            _resolve_dependency(doc, old_ref, page, issue, output, evidence)
 
 
 def _processing_complete(ledger):
@@ -405,6 +546,7 @@ def apply_page_reviews(doc: ObservationDocument, reviews) -> ObservationDocument
         order = _region_order(doc, selected)
         result = deepcopy(doc)
         _add_empty_slots(result, selected, output)
+        _resolve_replaced_tables(result, selected, output)
         result.regions = [result.regions[i] for i in order]
         _replace_channel_issues(result, selected, output)
         _preserve_dispositions(result, output)

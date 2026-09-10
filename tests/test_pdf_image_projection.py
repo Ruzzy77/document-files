@@ -227,8 +227,8 @@ def test_invalid_read_or_ambiguous_replacement_is_atomic(change):
     assert doc == before
 
 
-def setup(monkeypatch, choice="accepted"):
-    doc, capture, reading, images, pixels = example()
+def setup(monkeypatch, choice="accepted", empty=False):
+    doc, capture, reading, images, pixels = example(empty=empty)
     before = deepcopy(doc)
     plan = build_page_plan(proposal(doc, reading), capture, pixels, deadline=time.monotonic() + 30)
     calls = []
@@ -292,10 +292,13 @@ def test_reachable_review_applies_only_selected_view_and_restores_without_new_mo
     assert result is not None and len(calls) == 2
     assert result.provenance["pdfVisualReviewApplication"]["status"] == "applied"
     assert result.provenance["pdfVisualReviewApplication"]["selectedImageProjectionFingerprints"]
-    assert result.tables["table"] == doc.tables["table"] and result.issues == doc.issues
-    assert (
-        result.coverage["status"] == "partial"
-    )  # Original processing issues are not silently cleared.
+    assert result.tables["table"] == doc.tables["table"] and result.issues == []
+    assert result.coverage["status"] == "observed"
+    assert result.provenance["pdfImageReadProjections"][0]["originalIssues"] == doc.issues
+    assert any(
+        r["basis"] == "owned_visual_replacement_table"
+        for r in result.provenance["pdfVisualReviewApplication"]["resolvedIssues"]
+    )
     assert run(state)[0] == result and len(calls) == 2
     interrupted = next(
         s

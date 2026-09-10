@@ -174,7 +174,12 @@ def review_pdf_pages(
     state = (
         deepcopy(restore)
         if restore is not None
-        else {"version": VERSION, "sourceSha256": doc.provenance.get("sourceSha256"), "pages": {}}
+        else {
+            "version": VERSION,
+            "applicationVersion": APPLY_VERSION,
+            "sourceSha256": doc.provenance.get("sourceSha256"),
+            "pages": {},
+        }
     )
     expected = doc.provenance.get("pdfium", {}).get("pageCount")
     if type(expected) is not int or not 0 < expected <= 500:
@@ -194,6 +199,7 @@ def review_pdf_pages(
     try:
         require(
             state["version"] == VERSION
+            and state.get("applicationVersion") == APPLY_VERSION
             and state["sourceSha256"] == doc.provenance["sourceSha256"]
             and isinstance(state["pages"], dict),
             "visual_checkpoint_incompatible",
