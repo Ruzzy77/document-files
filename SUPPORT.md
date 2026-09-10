@@ -59,7 +59,22 @@ separate scope selection. It does not infer units or choose target columns itsel
 Content uncertainty, scalar forms, public v1 and cumulative budgets remain unchanged;
 old table identities cannot resume. Current local regression is **2,574 passed /
 227 skipped / 12 subtests**, with **684 related tests** under warnings-as-errors and
-**222 files** passing Ruff/format. Actual full-path v17 quality remains pending.
+**222 files** passing Ruff/format. The ARM runner passed the same **684 / 0 skipped**
+before dispatch. Actual full native HTML then used five calls / 530.87 product seconds
+and separately requested unit and condition applicability. Condition scope was exactly
+Length; unit scope still wrongly covered the entire record, including Sample ID.
+Both original rows, precision, quotes and header provenance survived, and a fresh client
+resumed the complete checkpoint without calls. This is **development quality failure**,
+not release approval. Cgroup peak was 8,083,292,160 bytes, container swap/OOM zero, no
+GPU/network and no new host OOM; host swap settings and unrelated work were unchanged.
+
+The actual unit request offered the correct two-column header group, but the structure
+model's record label and the observed group label both read “측정값 / Measurements”.
+The model chose all mapped columns despite mentioning only Length/Width in its reason.
+That label collision is a hypothesis to compare, not an established sole cause. Next
+work distinguishes inferred record naming from observed header membership while
+retaining valid whole-record, scalar and mixed choices. No response is corrected from
+its explanation.
 
 Long-range provenance also remains open. Synthetic diagnosis found a 50-row request
 already exceeds 16,000 serialized characters; a 100-row subset exceeds the 100-source
@@ -68,7 +83,8 @@ not adopted. Do not raise limits or drop evidence to claim completion. The exist
 cgroup recorder/release checks already reject child OOM even if the launcher exits zero.
 
 Evidence: `scope-selection-engine-01`, `arm-scope-selection-engine-01`,
-`arm-selection-v2-html-product-01`, `table-content-scope-separation-01`, and
+`arm-selection-v2-html-product-01`, `arm-table-content-v17-html-product-01`,
+`table-content-scope-separation-01`, and
 `long-range-provenance-audit-01` beneath the private DGX qualification directory.
 The following implementation/call sections are dated development history, not the
 current protocol, completed release qualification or instructions to rerun old jobs.
@@ -1638,7 +1654,7 @@ not remove meaning-bearing source content or repeatedly rerun full extraction.
 | Gate | Required next step, without restarting all evaluation |
 |---|---|
 | Scanned table correctness | Recognition, literal image reading and source-bound pixel display have separate development evidence. The latest full review returned but mislabeled seven rule-edge masks as text; a mask-only diagnostic classified them correctly, without validating the full product contract. Application v4 links reviewed replacement tables and blanks, but actual model accuracy, header/record/meaning checks and independent scans remain open. |
-| Semantic scope quality | The two-step table protocol is implemented. A development result preserved two rows, unit and condition scope, but source review remained partial. Protocol v17 now requires separate applicability after details; actual v17 full-path quality is pending. Preserve prior output/context/scope failures. No independent holdout has passed. |
+| Semantic scope quality | The two-step table protocol is implemented. A development result preserved two rows, unit and condition scope, but source review remained partial. Protocol v17 separately decides applicability: the full HTML development run selected Length correctly for the condition but still applied the unit to the whole record. Preserve prior output/context/scope failures. No independent holdout has passed. |
 | Long documents | Use affected long/continued-table cases to check complete repeat ranges, heading/note scope and source-view accounting; keep indivisible-context limits explicit. |
 | 16 GB / GPU-free operation | Two ARM64 Sparks are reachable through Tailscale and existing Docker. ARM recognition and review components ran under 4 CPU / 16 GiB without swap/OOM, but both Linux x64 and ARM64 still require same-candidate whole recognition-plus-inference qualification. Follow the [bounded CPU procedure](deployment/CPU_QUALIFICATION.md); component peaks do not substitute for it. |
 | Delivery | Install/update/rollback and actual client processing still need Windows, Linux, Intel Mac, installed Codex/Claude and ChatGPT-host evidence. |

@@ -16,7 +16,8 @@
   bounded discovery and source row gaps through the existing axis validation.
   Fingerprint the exact new request/map and reject previous internal identities
   before resume. Public v1 and document budgets are unchanged. Actual-engine
-  model quality and resume checks on this new source are still required.
+  independent model quality remains unqualified; later full-path checks preserved
+  no-call resume but still failed unit scope.
 
 - Scope integration v12 adds scalar value origins to applicability candidates:
   exact binding/status, bounded value text, observed table coordinates and separately
