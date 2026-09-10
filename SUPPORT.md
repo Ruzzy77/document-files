@@ -33,6 +33,45 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
+### Latest ARM64 installation and model follow-up
+
+At source `7fc7306`, all five core CI jobs passed. The exact Linux ARM64 portable
+archive (236,268,955 bytes, SHA-256
+`d743617ec25ce4b898d68724cc7b87784727889062f89ab3608621f2d4dc932a`)
+was downloaded, fully hash checked and cryptographically verified against the
+specific GitHub-hosted build workflow and source commit. The outer CI ZIP was not
+fully downloaded or independently hash checked. Assembly attestation is not upstream
+binary reproducibility or final release qualification.
+
+A separate Spark installation preserved all 7,791 files and permissions; 98 product
+source files matched the commit. Bundled Python and an empty PATH passed native
+CLI/MCP processing, including Korean text and `001.2300`. HTTP checks passed for
+authentication, path/URL/endpoint rejection, idempotency/conflict, explicit missing
+authentication and connection failure, terminal-result persistence across restart,
+resume without increasing the one-attempt budget, and deletion. No live model was
+used by these HTTP checks, and unavailable inference was not counted as success.
+Host execution took 15.69 seconds; whole-cgroup peak was 169,869,312 bytes under
+4 CPUs / 16 GiB with no swap/OOM, GPU or external network. This does not qualify
+mid-inference cancellation, the final service image or installed user clients.
+
+The user authorized further bounded model work, preferably on Spark. The previously
+prepared scan review made one separate development call under a 360-second cap.
+It returned in 211.70 seconds but classified all seven displayed rule-edge masks as
+source text. Program status `reviewed` was rejected as development quality evidence;
+the response was not applied. A second, 240-second diagnostic used the same images,
+omitted overlapping source-string associations and asked only pixel-role questions.
+It returned all seven as table rules in 167.71 seconds. Multiple input factors changed
+together, so this does not isolate one cause, validate text/mixed/ambiguous controls,
+or establish the full review contract. Source-text, grid and semantic checks remain
+separate obligations; diagnostic labels do not overwrite the failed product response.
+
+The original scan stays at 886.39/900 seconds and four calls. Both authorized extra
+calls are separate development evidence, not original-budget or holdout success.
+No new OCR, source rendering or product application occurred. Owned servers and
+containers were stopped. Existing product packs, Toolkit, Sync and clients remain
+unchanged. Mixed-role controls, full review accuracy, actual table application and
+meaning extraction precede final independent qualification and consumer transition.
+
 ### Redistribution preparation
 
 The release gate now requires a review tied to every exact non-metadata candidate
@@ -240,7 +279,7 @@ Owned containers/servers and verified temporary transport copies were cleaned up
 original packs and clients are unchanged. The follow-up below implements exact
 unit membership display without expanding the two-image/byte/pixel or document budgets.
 
-### Current PDF review: exact pixel display, response timeout
+### PDF review v10: exact pixel display and initial timeout
 
 Source `c283538` adds PDF review v10, unit display v1 and review application v3.
 The original full-page PNG is unchanged. The second image contains separate original
@@ -279,13 +318,12 @@ component replay is not whole-pipeline resource or independent quality qualifica
 The scan's cumulative record is now 886.39/900 seconds and four model calls, leaving
 13.61 seconds. It will not be automatically retried or given a larger original budget.
 
-One separate development-only response check with the exact prepared input, at most
-one call and 360 seconds, has been proposed and awaits explicit user approval. It
-would preserve the failed original trial and would not count as its 900-second
-success, an independent holdout, automatic product retry or checkpoint migration.
-This request is separate from the pending meaning-stage call for the other PDF.
-Formal release, all five platform targets, independent cases and consumer migration
-remain open; installed packs, Toolkit, Sync and clients are unchanged.
+The prepared one-call, 360-second development follow-up was later authorized and
+executed; the latest section above records its quality failure and the subsequent
+input-isolation diagnostic. The original budget and failed evidence are unchanged.
+The other PDF's one-call meaning check is also authorized but not yet executed;
+its frozen source/input must be verified before a separate bounded dispatch.
+Formal release and consumer migration remain open.
 
 ### Reviewed replacement tables and blank-cell application
 
@@ -1121,15 +1159,15 @@ not remove meaning-bearing source content or repeatedly rerun full extraction.
 
 | Gate | Required next step, without restarting all evaluation |
 |---|---|
-| Scanned table correctness | Recognition, literal image reading and source-bound pixel display have separate development evidence. The latest actual scan review timed out without a response. Application v4 links reviewed replacement tables and blanks, but actual model accuracy, header/record/meaning checks and independent scans remain open. |
-| Semantic scope quality | The two-step table protocol is implemented. A development result preserved two rows, unit and condition scope, but source review remained partial. Source-first meaning review v10 awaits its bounded actual-model check. Keep output/context failures and the pending extra-call approval; no independent holdout has passed. |
+| Scanned table correctness | Recognition, literal image reading and source-bound pixel display have separate development evidence. The latest full review returned but mislabeled seven rule-edge masks as text; a mask-only diagnostic classified them correctly, without validating the full product contract. Application v4 links reviewed replacement tables and blanks, but actual model accuracy, header/record/meaning checks and independent scans remain open. |
+| Semantic scope quality | The two-step table protocol is implemented. A development result preserved two rows, unit and condition scope, but source review remained partial. Source-first meaning review v10 awaits its bounded actual-model check. The extra call is authorized but not yet executed; preserve output/context failures. No independent holdout has passed. |
 | Long documents | Use affected long/continued-table cases to check complete repeat ranges, heading/note scope and source-view accounting; keep indivisible-context limits explicit. |
 | 16 GB / GPU-free operation | Two ARM64 Sparks are reachable through Tailscale and existing Docker. ARM recognition and review components ran under 4 CPU / 16 GiB without swap/OOM, but both Linux x64 and ARM64 still require same-candidate whole recognition-plus-inference qualification. Follow the [bounded CPU procedure](deployment/CPU_QUALIFICATION.md); component peaks do not substitute for it. |
 | Delivery | Install/update/rollback and actual client processing still need Windows, Linux, Intel Mac, installed Codex/Claude and ChatGPT-host evidence. |
 
-The latest source changes are not in the previously assembled core bundles or the
-immutable v1 recognition pack. A new explicitly versioned/configured candidate is
-required before delivery checks. Static container-policy tests are not an actual
+Source `7fc7306` is present in the verified ARM64 core bundle, but it is not a final
+qualified core/runtime/model/recognition/image set. Any further product change needs
+a new explicitly versioned/configured candidate and affected delivery checks. Static container-policy tests are not an actual
 Compose, no-network or 16 GiB resource test. Mac CPU measurements are neither x64
 speed evidence nor proof that a physical 16 GB computer has sufficient headroom.
 
