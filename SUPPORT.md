@@ -287,6 +287,33 @@ This request is separate from the pending meaning-stage call for the other PDF.
 Formal release, all five platform targets, independent cases and consumer migration
 remain open; installed packs, Toolkit, Sync and clients are unchanged.
 
+### Reviewed replacement tables and blank-cell application
+
+Source `7fc7306` adds visual application v4 without changing review v10 or its model
+input. Two missing connections are fixed: an alternative table's source slots are
+verified through its exact projection association, and a fully reviewed replacement
+can resolve the inactive recognizer table's gap dependency. Every candidate cell's
+position is checked against the original measured slot, not just a rehashed rectangle.
+
+Only blanks that pass the existing detail, grid and pixel review become new nodes
+and bindings in the alternative table and active semantic region. Original tables,
+strings, bindings, OCR captures and issue records remain available unchanged. A
+replacement resolution links both table IDs, the original gap count, projection,
+plan and decision fingerprints. Only its matching ledger dependency is removed.
+Unresolved raw OCR, unverified extents, other tables and semantic/execution errors
+remain; inconsistent evidence aborts application atomically. Old application
+checkpoints are incompatible, not automatically upgraded to the new outcome.
+
+The local full suite passed 2,306 tests with 227 skips and 12 subtests; Ruff/format
+checks passed for 208 files. Spark passed 276 related tests with no skips. Both hosts
+also verified candidate-cell geometry in the saved actual scan input without changing
+it. These were regression tests and read-only input inspection: no actual model,
+OCR, source rendering or document application was performed. The earlier response
+timeout, title mismatch, development budgets and pending approvals are unchanged.
+There is still no independently approved extraction or final release qualification.
+The owned ARM test container and verified source-transport copies were removed;
+original installed packs and consumers were not changed.
+
 ### Source-first table meaning review
 
 Table protocol v10 asks for one decision per owned source before any meanings.
@@ -1094,10 +1121,10 @@ not remove meaning-bearing source content or repeatedly rerun full extraction.
 
 | Gate | Required next step, without restarting all evaluation |
 |---|---|
-| Scanned table correctness | The affected 11 nonempty cells passed through TableFormer. Verify full field/header semantics and blank-versus-unobserved states, then unseen scans. Do not substitute observed no-ink for a semantic blank. |
-| Semantic scope quality | The affected three-field scope repair passed. The merged-header development case now compiles the correct two-row repeat with merged-header provenance and the condition scope without repair calls; the unit statement stays unresolved. Next: full scanned/long-document semantics and independent forms. Use a two-step table protocol only if remaining structural errors or bounded execution require it; no release holdout has passed. |
+| Scanned table correctness | Recognition, literal image reading and source-bound pixel display have separate development evidence. The latest actual scan review timed out without a response. Application v4 links reviewed replacement tables and blanks, but actual model accuracy, header/record/meaning checks and independent scans remain open. |
+| Semantic scope quality | The two-step table protocol is implemented. A development result preserved two rows, unit and condition scope, but source review remained partial. Source-first meaning review v10 awaits its bounded actual-model check. Keep output/context failures and the pending extra-call approval; no independent holdout has passed. |
 | Long documents | Use affected long/continued-table cases to check complete repeat ranges, heading/note scope and source-view accounting; keep indivisible-context limits explicit. |
-| 16 GB / GPU-free operation | Run the [bounded Linux CPU procedure](deployment/CPU_QUALIFICATION.md) on an available host with compatible Linux packs. The inspected Mac is 24 GB; no container runtime or reachable Tailscale peer was available. |
+| 16 GB / GPU-free operation | Two ARM64 Sparks are reachable through Tailscale and existing Docker. ARM recognition and review components ran under 4 CPU / 16 GiB without swap/OOM, but both Linux x64 and ARM64 still require same-candidate whole recognition-plus-inference qualification. Follow the [bounded CPU procedure](deployment/CPU_QUALIFICATION.md); component peaks do not substitute for it. |
 | Delivery | Install/update/rollback and actual client processing still need Windows, Linux, Intel Mac, installed Codex/Claude and ChatGPT-host evidence. |
 
 The latest source changes are not in the previously assembled core bundles or the
