@@ -52,7 +52,7 @@ caption said only the second sample's Length was provisional; the model selected
 both data rows plus the whole Length column. The compiler rejected the overlap
 without changing values or evidence. This used the product's request assembly,
 codec and compiler, but the structure and note content were given component inputs,
-not fresh content extraction. The call took 78.00 inference / 90.59 host seconds,
+not fresh content extraction. The call took 78.00 inference / 90.60 host seconds,
 with a 6,730,977,280-byte cgroup peak. A separate one-call prompt clarification
 remained unresolved (75.54 / 88.45 seconds); it is not adopted. All row coordinates
 and source text were present, despite the model's explanation claiming otherwise.
