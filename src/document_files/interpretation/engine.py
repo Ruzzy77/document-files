@@ -661,7 +661,15 @@ def extract_schema_from_stream(
                 budget={"maxModelCalls": visual_max_calls, "completionSeconds": visual_max_seconds},
             )
             result["coverage"]["pdfPageReview"] = [
-                {"page": int(page), "status": value["status"]}
+                {
+                    "page": int(page),
+                    "status": value["status"],
+                    **(
+                        {"imageReviewStatus": value["imageReview"]["status"]}
+                        if "imageReview" in value
+                        else {}
+                    ),
+                }
                 for page, value in state["pages"].items()
             ]
             candidates = [
@@ -723,7 +731,15 @@ def extract_schema_from_stream(
             job, observation, result["provenance"]["analyzer"], selected, client, content
         )
         result["coverage"]["pdfPageReview"] = [
-            {"page": int(page), "status": value["status"]}
+            {
+                "page": int(page),
+                "status": value["status"],
+                **(
+                    {"imageReviewStatus": value["imageReview"]["status"]}
+                    if "imageReview" in value
+                    else {}
+                ),
+            }
             for page, value in visual_state["pages"].items()
         ]
     if additional_budget is not None and grant["maxModelCalls"] > 0:

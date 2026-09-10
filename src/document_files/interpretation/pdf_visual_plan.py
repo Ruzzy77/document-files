@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v4"
+VERSION = "document-files.pdf-visual-review.v5"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -111,6 +111,11 @@ def observation_page_fingerprint(doc, page):
                     "pdfPageRenderCaptures",
                     "recognitionCellPixelObservations",
                     "recognitionCoordinateEvidence",
+                )
+                + (
+                    ("pdfImageReadProjections",)
+                    if "pdfImageReadProjections" in doc.provenance
+                    else ()
                 )
             },
         }
@@ -219,15 +224,26 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
         "visual_pixels_changed",
     )
     width, height = capture["pageSizeCanvasUnits"]
+    from .pdf_image_projection import grid_association, page_projection
+
+    projection = page_projection(doc, page)
+    selected_refs = set(projection["selectedNodeIds"]) if projection else None
     sources = []
     for ref, node in doc.nodes.items():
         loc = node.get("sourceStructure", {})
         if loc.get("page") != page or not node.get("text"):
             continue
         role = node.get("semanticInput", {}).get("role")
-        if node.get("observationBasis") != "recognition" and not (
-            node.get("observationBasis") in {"ocr", "docling_pdf_text"}
-            and role in {"independent_observation", "unassigned_observation", "unresolved_conflict"}
+        if selected_refs is not None and ref not in selected_refs:
+            continue
+        if (
+            selected_refs is None
+            and node.get("observationBasis") != "recognition"
+            and not (
+                node.get("observationBasis") in {"ocr", "docling_pdf_text"}
+                and role
+                in {"independent_observation", "unassigned_observation", "unresolved_conflict"}
+            )
         ):
             continue
         if role in {
@@ -274,7 +290,12 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
                 matches.append({"sourceRef": ref, "bounds": bounds})
         if len(matches) == 1:
             item["additionalObservation"] = matches[0]
-    tables = {key: value for key, value in doc.tables.items() if value.get("page") == page}
+    tables = {
+        key: value
+        for key, value in doc.tables.items()
+        if value.get("page") == page
+        and (projection is None or key in projection["selectedTableRefs"])
+    }
     expected_grids, slots, table_boxes = [], [], {}
     for ref, table in tables.items():
         table_boxes[ref] = _box(table["locator"]["bbox"], width, height)
@@ -283,7 +304,7 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
             continue
         for observed in entry.get("observations", []):
             association, validation = (
-                observed.get("structureAssociation", {}),
+                grid_association(doc, page, observed),
                 observed.get("validation", {}),
             )
             if (
@@ -533,6 +554,12 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
         "foregroundPixelCount": pixels["foregroundPixelCount"],
         "splitRunCount": split_runs,
     }
+    if projection:
+        plan["imageReadProposal"] = {
+            "fingerprint": projection["fingerprint"],
+            "sourceIds": [s["id"] for s in sources],
+            "grids": [dict(g) for g in projection["grids"]],
+        }
     plan["fingerprint"] = digest(plan)
     return plan
 
@@ -572,6 +599,19 @@ def review_payload(plan):
             for b in plan["blocks"]
         ],
         "requiredBefore": plan["precedences"],
+        **(
+            {
+                "imageReadProposal": {
+                    "sourceIds": plan["imageReadProposal"]["sourceIds"],
+                    "grids": [
+                        {k: g[k] for k in ("id", "bounds", "rows", "columns")}
+                        for g in plan["imageReadProposal"]["grids"]
+                    ],
+                }
+            }
+            if "imageReadProposal" in plan
+            else {}
+        ),
     }
 
 
@@ -591,7 +631,13 @@ is present. Otherwise unknown. Return each unit, missing slot and reading-order 
 exactly once. Respect requiredBefore relations and the actual displayed reading order,
 placing a table at its page position rather than copying the source list. Set
 unrepresentedContent if any visible content is not accounted for. No document-complete flag
-or final values may be produced."""
+or final values may be produced. When imageReadProposal is present, independently check
+EVERY source string against its own image location, including punctuation and line breaks;
+sourceChecks must be exact or unknown. The proposed rectangular grids are alternatives,
+not approved replacements. Set gridChecks to rectangular_grid only if the full detail
+visibly has those row/column boundaries without merged cells, missing rows or ambiguous
+alignment; otherwise unknown. This does not establish header roles or record meaning.
+Never treat a previous model reading or measured grid as its own verification."""
 
 
 def output_schema(plan):
@@ -613,7 +659,7 @@ def output_schema(plan):
             },
         }
 
-    return {
+    result = {
         "type": "object",
         "properties": {
             "units": decisions(
@@ -637,6 +683,17 @@ def output_schema(plan):
         "additionalProperties": False,
     }
 
+    if "imageReadProposal" in plan:
+        proposal = plan["imageReadProposal"]
+        result["properties"]["sourceChecks"] = decisions(
+            proposal["sourceIds"], ["exact", "unknown"]
+        )
+        result["properties"]["gridChecks"] = decisions(
+            [g["id"] for g in proposal["grids"]], ["rectangular_grid", "unknown"]
+        )
+        result["required"].extend(["sourceChecks", "gridChecks"])
+    return result
+
 
 def validate_decision(plan, decision, *, detail_bounds):
     """Reject inconsistent decisions; acceptance is processing, not OCR truth."""
@@ -647,7 +704,11 @@ def validate_decision(plan, decision, *, detail_bounds):
     )
     require(
         isinstance(decision, dict)
-        and set(decision) == {"units", "slots", "readingOrder", "unrepresentedContent"},
+        and set(decision)
+        == (
+            {"units", "slots", "readingOrder", "unrepresentedContent"}
+            | ({"sourceChecks", "gridChecks"} if "imageReadProposal" in plan else set())
+        ),
         "visual_response_invalid",
     )
     require(type(decision["unrepresentedContent"]) is bool, "visual_response_invalid")
@@ -677,6 +738,31 @@ def validate_decision(plan, decision, *, detail_bounds):
     slots = entries("slots", [s["id"] for s in plan["slots"]])
     matched = set()
     unresolved = decision["unrepresentedContent"]
+    if "imageReadProposal" in plan:
+        proposal = plan["imageReadProposal"]
+        checks = entries("sourceChecks", proposal["sourceIds"])
+        require(
+            all(v in {"exact", "unknown"} for v in checks.values()), "visual_source_check_invalid"
+        )
+        unresolved |= any(v != "exact" for v in checks.values())
+        checks = entries("gridChecks", [g["id"] for g in proposal["grids"]])
+        require(
+            all(v in {"rectangular_grid", "unknown"} for v in checks.values()),
+            "visual_grid_check_invalid",
+        )
+        for grid in proposal["grids"]:
+            if checks[grid["id"]] == "unknown":
+                unresolved = True
+            else:
+                box = grid["bounds"]
+                require(
+                    detail_bounds is not None
+                    and detail_bounds[0] <= box[0]
+                    and detail_bounds[1] <= box[1]
+                    and detail_bounds[2] >= box[2]
+                    and detail_bounds[3] >= box[3],
+                    "visual_proposal_detail_missing",
+                )
     for unit in plan["units"]:
         choice = units[unit["id"]]
         require(

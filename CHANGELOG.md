@@ -2,6 +2,15 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add reversible image-reading projections and a separately budgeted text/grid review.
+  PDF review v5 requires every proposed string and rectangular grid to be checked
+  against the images before its alternate regions can enter semantic interpretation.
+  Original OCR, nodes, bindings, tables and issues remain available. Unknown/failed
+  reviews preserve the original view and are not replayed. Visual application v2
+  records selected projection fingerprints; older checkpoints remain incompatible.
+  Replacement-specific issue resolution and new blank-cell application are still
+  conservative partial paths, not completed extraction or quality qualification.
+
 - Add bounded literal image-reading candidates after unresolved PDF review or an
   unlinked grid prevents review planning. Preserve text, precision, uncertainty and
   source-pixel references separately from original OCR and table structure. PDF

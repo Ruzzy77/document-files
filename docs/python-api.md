@@ -475,7 +475,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v4` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v5` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -519,5 +519,21 @@ They do not populate final data or resolve original issues. The runner checkpoin
 calling the model and does not replay a completed, failed or interrupted read. A reading
 that could not start within the remaining budget is `read_pending`; an explicit resume
 may prepare the same images and perform only that unattempted stage. Older page-review
-checkpoints are incompatible. Applying and reviewing competing text/table structures
-remains unfinished; this addition is not independent quality approval.
+checkpoints are incompatible.
+
+`document-files.pdf-image-projection.v1` prepares a reversible alternative view from
+an entirely readable candidate set. Only uniquely matched, non-overlapping rectangular
+grids and existing single-region text are proposed; ambiguous mappings remain partial.
+Original nodes, bindings, tables and region records are preserved. New nodes carry exact
+read strings and source-pixel/reading identities. Header roles are not inferred. Proposed
+empty cells remain missing and require the existing pixel-border/detail review.
+
+A separate v5 review checks every proposed source string and grid, as well as the full
+page's pixel units and reading order. It shares the original call/time budget and records
+an attempt before inference. A successful review permits only the alternate regions to
+enter interpretation; `pdfVisualReviewApplication.selectedImageProjectionFingerprints`
+identifies that selection. Unstarted reviews can resume without re-reading the image;
+failed, unresolved or interrupted attempts cannot be repeated automatically. Preparation
+failures are retained too. Original processing issues are not silently cleared: resolving
+their replacement dependencies and applying new blank cells remain conservative partial
+paths. No independent quality approval or completed document is implied.

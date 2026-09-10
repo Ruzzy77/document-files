@@ -216,7 +216,7 @@ def setup_runner(monkeypatch, failure=None):
                 usage={"prompt_tokens": 100, "completion_tokens": 20},
             )
 
-    def run(*, restore=None, max_calls=2, expired=False, cancelled=None, context_chars=16000):
+    def run(*, restore=None, max_calls=1, expired=False, cancelled=None, context_chars=16000):
         return runner.review_pdf_pages(
             b"synthetic",
             doc,
@@ -241,7 +241,7 @@ def test_reading_attempt_is_counted_and_preserved_without_applying_or_repeating(
     assert calls == {"render": 1, "pixel": 1, "model": 1}
     record = state["pages"]["1"]
     assert record["imageRead"]["status"] == "read"
-    assert state["haltReason"] == "pdf_image_read_requires_review"
+    assert state["haltReason"] == "model_call_budget_exceeded"
     assert usage["modelCalls"] == 1 and usage["unreportedUsageCalls"] == 0
     assert "data:image" not in json.dumps(checkpoints)
     assert run(restore=state)[0] is None
@@ -273,7 +273,7 @@ def test_unattempted_read_can_resume_without_replaying_the_review(monkeypatch):
     assert calls["model"] == 0
     assert run(restore=state, max_calls=1)[0] is None and calls["render"] == 1
     result, resumed = run(restore=state, max_calls=2)
-    assert result is None and resumed["haltReason"] == "pdf_image_read_requires_review"
+    assert result is None and resumed["haltReason"] == "model_call_budget_exceeded"
     assert calls == {"render": 2, "pixel": 1, "model": 1}
     assert usage["modelCalls"] == 2  # The saved earlier call was not reset.
 

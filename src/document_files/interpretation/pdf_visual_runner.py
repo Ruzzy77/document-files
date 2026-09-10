@@ -7,6 +7,8 @@ from copy import deepcopy
 
 from .backends import MANAGED_VISION_VERSION, InferenceRequest, ModelError
 from .legacy_engine import decode, encode
+from .pdf_image_projection import VERSION as PROJECTION_VERSION
+from .pdf_image_projection import propose_image_read
 from .pdf_image_read import MAX_OUTPUT_TOKENS as READ_MAX_OUTPUT_TOKENS
 from .pdf_image_read import SYSTEM as READ_SYSTEM
 from .pdf_image_read import VERSION as READ_VERSION
@@ -49,6 +51,7 @@ def review_identity(client):
         "grid": GRID_VERSION,
         "apply": APPLY_VERSION,
         "imageRead": READ_VERSION,
+        "imageProjection": PROJECTION_VERSION,
     }
 
 
@@ -183,6 +186,30 @@ def review_pdf_pages(
             if "imageRead" in record:
                 _validated_read(doc, int(key), record["imageRead"])
                 require(record["status"] != "reviewed", "image_read_not_applied")
+                if "imageReview" in record:
+                    proposal = propose_image_read(
+                        doc,
+                        record["imageRead"],
+                        deadline=time.monotonic() + 30,
+                        cancelled=cancelled,
+                    )
+                    image_review = record["imageReview"]
+                    require(
+                        image_review["status"] in {"running", "reviewed", "unresolved", "failed"},
+                        "image_projection_checkpoint_changed",
+                    )
+                    if image_review["status"] in {"reviewed", "unresolved"}:
+                        require(
+                            _validated_record(proposal, int(key), image_review)
+                            == image_review["status"],
+                            "image_projection_checkpoint_changed",
+                        )
+                    else:
+                        require(
+                            image_review["plan"]["sourceObservationFingerprint"]
+                            == observation_page_fingerprint(proposal, int(key)),
+                            "image_projection_checkpoint_changed",
+                        )
                 if "validation" in record:
                     require(
                         _validated_record(doc, int(key), record) == "unresolved",
@@ -321,6 +348,125 @@ def review_pdf_pages(
         state["haltReason"] = record["reason"]
         checkpoint(state)
 
+    def review_reading(page, record, prepared=None):
+        """A separate, counted text/grid review; never replay a completed attempt."""
+        nonlocal working
+        attempt = record.get("imageReview")
+        if "imageReviewPreparationFailure" in record:
+            state["haltReason"] = record["imageReviewPreparationFailure"]
+            checkpoint(state)
+            return False
+        if attempt is not None and attempt["status"] != "reviewed":
+            state["haltReason"] = (
+                "pdf_image_projection_review_interrupted"
+                if attempt["status"] == "running"
+                else attempt.get("reason", "pdf_image_projection_review_unresolved")
+            )
+            checkpoint(state)
+            return False
+        try:
+            if attempt is None:
+                reason = stop_reason()
+                if reason:
+                    state["haltReason"] = reason
+                    checkpoint(state)
+                    return False
+            proposal = propose_image_read(
+                working, record["imageRead"], deadline=deadline, cancelled=cancelled
+            )
+            if attempt is not None:
+                require(
+                    _validated_record(proposal, page, attempt) == "reviewed",
+                    "image_projection_checkpoint_changed",
+                )
+                working = proposal
+                return True
+            descriptors = record["imageRead"]["images"]["images"]
+            detail = descriptors[1]["sourcePixelBounds"] if len(descriptors) == 2 else None
+            images = prepared or prepare_pdf_review_images(
+                content,
+                pages[page]["capture"],
+                crop={"pixelBounds": detail, "kind": "detail", "slotKey": None} if detail else None,
+                deadline=deadline,
+                cancelled=cancelled,
+            )
+            require(
+                images.descriptor["fingerprint"] == record["imageRead"]["images"]["fingerprint"],
+                "image_projection_images_changed",
+            )
+            capture = pages[page]["capture"]
+            pixels = extract_visual_pixels(
+                images.png_images[0],
+                expected_rgb_sha256=capture["pixelSha256"],
+                expected_size=capture["pixelSize"],
+                deadline=deadline,
+                cancelled=cancelled,
+            )
+            plan = build_page_plan(
+                proposal, capture, pixels, deadline=deadline, cancelled=cancelled
+            )
+            contract = output_schema(plan)
+            payload = encode({**review_payload(plan), "outputContract": contract})
+            if len(SYSTEM) + len(payload) > context_chars:
+                raise ModelError("pdf_image_projection_context_budget_exceeded")
+            reason = stop_reason()
+            if reason:
+                state["haltReason"] = reason
+                checkpoint(state)
+                return False
+            attempt = {"status": "running", "plan": plan, "images": images.descriptor}
+            record["imageReview"] = attempt
+            usage["modelCalls"] += 1
+            usage["unreportedUsageCalls"] += 1
+            state.pop("haltReason", None)
+            checkpoint(state)
+            response = client.infer(
+                InferenceRequest(
+                    messages=[
+                        {"role": "system", "content": SYSTEM},
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": payload}, *images.content_parts()],
+                        },
+                    ],
+                    output_schema=contract,
+                    max_output_tokens=min(
+                        MAX_OUTPUT_TOKENS,
+                        getattr(client, "max_output_tokens", None) or MAX_OUTPUT_TOKENS,
+                    ),
+                    timeout=deadline - time.monotonic(),
+                    cancelled=cancelled,
+                )
+            )
+            _response_usage(usage, response)
+            if response.finish_reason != "stop":
+                raise ModelError("ai_response_incomplete")
+            validation = validate_decision(plan, decode(response.text), detail_bounds=detail)
+            attempt.update(status=validation["status"], validation=validation)
+            if validation["status"] == "reviewed":
+                working = proposal
+                checkpoint(state)
+                return True
+            reason = "pdf_image_projection_review_unresolved"
+        except (
+            ModelError,
+            PdfReviewImageError,
+            VisualPixelError,
+            PdfVisualReviewError,
+            VisualGridError,
+        ) as exc:
+            reason = exc.code if hasattr(exc, "code") else str(exc)
+        except (KeyError, TypeError, ValueError, IndexError, OverflowError):
+            reason = "pdf_image_projection_input_invalid"
+        if attempt is not None and attempt["status"] == "running":
+            attempt.update(status="failed", reason=reason)
+        elif attempt is None:
+            record["imageReviewPreparationFailure"] = reason
+        state["haltReason"] = reason
+        checkpoint(state)
+        return False
+
+    working = doc
     for page in sorted(pages):
         old = state["pages"].get(str(page))
         if old is not None and old["status"] == "read_pending":
@@ -357,6 +503,14 @@ def review_pdf_pages(
                 old.update(status="failed", reason=reason)
                 state["haltReason"] = reason
                 checkpoint(state)
+            if old.get("imageRead", {}).get("status") == "read" and review_reading(
+                page, old, images
+            ):
+                continue
+            return None, state
+        if old is not None and old.get("imageRead", {}).get("status") == "read":
+            if review_reading(page, old):
+                continue
             return None, state
         if old is not None:
             if old["status"] == "reviewed":
@@ -432,6 +586,10 @@ def review_pdf_pages(
             checkpoint(state)
             if validation["status"] != "reviewed":
                 read_unresolved(page, record, images, "pdf_visual_review_unresolved")
+                if record.get("imageRead", {}).get("status") == "read" and review_reading(
+                    page, record, images
+                ):
+                    continue
                 return None, state
         except (
             ModelError,
@@ -449,10 +607,16 @@ def review_pdf_pages(
             checkpoint(state)
             if reason == "visual_slot_inventory_incomplete" and images is not None:
                 read_unresolved(page, record, images, reason)
+                if record.get("imageRead", {}).get("status") == "read" and review_reading(
+                    page, record, images
+                ):
+                    continue
             return None, state
     from .pdf_visual_apply import apply_page_reviews
 
-    reviewed = apply_page_reviews(doc, list(state["pages"].values()))
+    reviewed = apply_page_reviews(
+        working, [record.get("imageReview", record) for record in state["pages"].values()]
+    )
     application = reviewed.provenance.get("pdfVisualReviewApplication", {})
     if application.get("status") != "applied":
         state["haltReason"] = application.get("reason", "pdf_visual_review_application_unresolved")

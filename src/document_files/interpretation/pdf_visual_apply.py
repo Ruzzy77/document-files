@@ -16,7 +16,7 @@ from .pdf_visual_plan import (
     validate_decision,
 )
 
-VERSION = "document-files.pdf-visual-apply.v1"
+VERSION = "document-files.pdf-visual-apply.v2"
 MAX_ORDER_COMPARISONS = 1048576
 _REPLACEMENT_CODES = {
     "pdf_page_has_no_native_text",
@@ -412,6 +412,11 @@ def apply_page_reviews(doc: ObservationDocument, reviews) -> ObservationDocument
         output.update(
             status="applied",
             sourceSha256=doc.provenance["sourceSha256"],
+            selectedImageProjectionFingerprints=[
+                r["plan"]["imageReadProposal"]["fingerprint"]
+                for r in selected.values()
+                if "imageReadProposal" in r["plan"]
+            ],
             pageReviews=[
                 {
                     "page": p,

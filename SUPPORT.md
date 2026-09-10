@@ -148,14 +148,18 @@ coordinates without rerendering or rewriting observations. The 3-row grid remain
 unlinked to the original 2-row table; this is not repaired text or a complete
 recognition/interpretation execution. Both failed probe records are retained.
 
-PDF review v4 now has a reachable, budgeted image-reading stage after an unresolved
+PDF review v5 now has a reachable, budgeted image-reading stage after an unresolved
 review or a missing-slot inventory failure. It obtains literal text/empty/uncertain
 candidates from measured cells and existing text regions without providing OCR strings
 as answers. Partial results preserve those candidates with source-pixel identities;
 they do not rewrite original nodes/tables, clear issues or become final values. Unstarted
 reads can resume within explicit remaining budget, while completed/failed/interrupted
-attempts cannot be silently repeated. Independent quality approval and reviewed application of competing text/table
-structures still require verification and implementation.
+attempts cannot be silently repeated. A separate budgeted review now checks each proposed
+literal string and rectangular grid against the image before selecting alternate regions.
+Raw nodes, bindings, tables and region records remain available; roles and units are not
+inferred by the projection. Failed/unknown reviews preserve the original view. Original
+processing issues and new blank-cell application remain conservative partial paths;
+independent quality and completed extraction are not established by this implementation.
 
 A bounded ARM64 development read on clean source `66feddb` used the previously saved
 full-page image plus a new lossless detail, without OCR, recognition or rendering.
