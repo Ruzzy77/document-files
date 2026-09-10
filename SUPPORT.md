@@ -34,19 +34,68 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Latest scalar-origin implementation
+### Latest scalar-origin implementation and selection comparison
 
-Scope integration v12 / source-binding v2 now expose actual scalar value bindings,
-blank/missing status, observed table geometry and separately labeled compiled row
-roles. Legitimate subtotal fields stay available. The output selection contract,
-system prompt, candidate order/aliases and scope reasoning/output budgets are
-unchanged; only scalar origin/context and the internal version differ in the frozen
-comparison requests. Public v1 remains unchanged, and old internal identities fail
-resume checks. No actual-model quality improvement is claimed before rerunning.
+Current product source is `ba4712e`: scope integration v12 / source-binding v2,
+with compiler v19, axis wire v1, scope-axis protocol v1 and regional checkpoint v3.
+Scalar candidates expose existing value bindings, blank/missing status, bounded
+source text, observed table geometry and separately labeled compiled row roles.
+Legitimate subtotal fields remain selectable. Full private evidence and public
+context participate in fingerprints; selected scalar sources are checked and bound.
+Public v1 contracts remain unchanged. Incompatible older internal identities cannot
+resume under this implementation.
 
-Local regression: **2,534 passed / 227 skipped / 12 subtests**; related tests:
-**644 passed**, warnings treated as errors. Spark inference and its ARM regression
-on this source are pending. The previous integrated failures below remain failures.
+Local regression: **2,534 passed / 227 skipped / 12 subtests**; related regression:
+**644 passed**, warnings treated as errors. Ruff/format passed for **219 files**.
+All four Spark runners below passed 644 related tests without skips. Current
+CI [34532281017](https://github.com/Ruzzy77/document-files/actions/runs/34532281017)
+has all five regression steps successful; portable builds were still running at
+last check. Superseded source run 34529817386 is confirmed cancelled, retaining its
+successful regression evidence rather than treating it as current qualification.
+
+**Scalar context alone did not fix quality.** With the same system, output schema,
+column/field aliases, candidate order, sampling and budgets, both integrated cases
+still failed: the first-two-Width case added subtotal Width; the third-blank-Width
+case selected the third Sample ID plus subtotal Width. Both returned `complete`,
+which is not independent quality approval. Values, precision, blanks and sources
+were preserved; a new client resumed without model calls or observation replay.
+These runs still used four given-content prefix exchanges and one real scope call,
+not full-document AI extraction.
+
+A separate **development-only codec comparison** uses a single `selections` list
+and the same visible column handle in candidates and selections. It retains all
+record and standalone candidates. No result is corrected from model explanations.
+Both actual calls matched the original local truth: exactly the first two Width
+values, and exactly the third observed blank Width, with no subtotal or whole-column
+schema links. Values and all original evidence were unchanged. The comparison
+changes the syntax and its instructions together; it does not isolate a single
+cause. Pinned converter inspection also permits an empty standalone array in the
+old contract, so a grammar-forced subtotal is not established.
+
+**This codec is not active in the product engine.** It has not passed general
+batch/multiple-record/standalone/mixed compatibility or product checkpoint resume.
+It reused frozen observed inputs and given content; it is not an independent
+holdout or whole-document result. Next work is to generalize and integrate this
+wire, version its checkpoint identity, and verify all selection routes plus actual
+engine resume before the full HTML/PDF path. Long-range provenance and content
+classification remain open.
+
+Every call was bounded in advance to one real attempt, 300 seconds, 1,536 total
+output tokens and 512 reasoning tokens; there was no automatic repair or grant.
+The integrated calls took 158.45 / 211.41 seconds; codec calls took 177.41 / 172.96
+seconds. Each used 4 CPU / 16GiB, with no container network, GPU, swap or OOM.
+Cgroup peaks were 6,769,786,880 / 6,787,981,312 and 6,730,788,864 / 6,780,080,128 bytes.
+Paired calls overlapped on Spark-A and are not performance comparisons. No new OCR,
+rendering, pack installation or full recognition-plus-inference qualification ran.
+
+Evidence is under `private/qualification/dgx-preparation-20260909/`:
+`scope-scalar-origin-01`, `scope-scalar-origin-preparation-01`,
+`arm-scope-scalar-origin-01`, `scope-unified-selection-preparation-01` and
+`arm-scope-unified-selection-01`. All four calls are terminal, collected and reviewed;
+owned servers/containers and transfer/activation copies are removed. Current verified
+Spark source is `/home/user/document-files-engine-axis-RtTAEIMK/source`. Old duplicate
+`4wTDhtKW/source` was retired after Git/hash and non-use checks; its failures and
+inputs remain. The private codec is retained separately, not promoted as product code.
 
 ### Previous integrated table-meaning check (compiler v19, scope v11)
 
