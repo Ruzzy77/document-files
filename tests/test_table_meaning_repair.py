@@ -688,21 +688,26 @@ class ScopeAfterSourceReview(CaptionModel):
         if "tableStage" not in payload:
             self.requests.append(payload)
             self.scope_calls += 1
-            candidate = next(c for c in payload["candidates"] if c["label"] == "Size")
+            candidate = next(c for c in payload["candidates"] if "rowOptions" in c)
             return InferenceResponse(
                 json.dumps(
                     {
                         "taskId": payload["taskId"],
                         "decision": "apply",
-                        "targetHandles": [candidate["targetHandle"]],
-                        "sourceRefs": list(
-                            dict.fromkeys(
-                                [
-                                    *payload["statement"]["sourceRefs"],
-                                    *candidate["definitionRefs"],
-                                ]
-                            )
-                        ),
+                        "recordScopes": [
+                            {
+                                "recordHandle": candidate["targetHandle"],
+                                "parts": [
+                                    {
+                                        "rowCoverage": {"kind": "allDataRows"},
+                                        "columnCoverage": {
+                                            "kind": "selectedColumns",
+                                            "columnIds": ["size"],
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                         "explanation": "Scripted exact Size scope selection",
                     }
                 ),

@@ -832,10 +832,11 @@ def test_recognition_failure_before_first_page_can_resume_without_reanalysis(mon
     assert backend.calls == 2
 
 
+@pytest.mark.parametrize("transport", ["complete", "infer", "managed"])
 @pytest.mark.parametrize("scope_mode", ["column", "rows"])
 @pytest.mark.parametrize("meaning_status", ["interpreted", "uncertain"])
 def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
-    scope_mode, meaning_status
+    scope_mode, meaning_status, transport
 ):
     content = (
         b"<p>Lengths use millimeters.</p><table><tr><th>Length</th></tr>"
@@ -851,46 +852,34 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
             self.calls += 1
             payload = json.loads(messages[-1]["content"])
             if "taskId" in payload:
+                record = next(c for c in payload["candidates"] if "rowOptions" in c)
+                row = next(r for r in payload["rowBoundaryCandidates"] if r["role"] == "data")
+                rows = {"kind": "allDataRows"}
                 if scope_mode == "rows":
-                    candidate = next(c for c in payload["candidates"] if "rowOptions" in c)
-                    row = next(r for r in candidate["rowOptions"]["rows"] if r["role"] == "data")
-                    assert candidate["targetHandle"].startswith("@container")
-                    return json.dumps(
-                        {
-                            "taskId": payload["taskId"],
-                            "decision": "apply",
-                            "targetHandles": [],
-                            "rowSelections": [
-                                {
-                                    "targetHandle": candidate["targetHandle"],
-                                    "rowStart": row["row"],
-                                    "rowEnd": row["row"],
-                                    "columnIds": ["length"],
-                                }
-                            ],
-                            "sourceRefs": list(
-                                dict.fromkeys(
-                                    [
-                                        *payload["statement"]["sourceRefs"],
-                                        *candidate["definitionRefs"],
-                                        *row["sourceRefs"],
-                                    ]
-                                )
-                            ),
-                            "explanation": "Scripted applicability to one actual data row.",
-                        }
-                    )
-                candidate = next(c for c in payload["candidates"] if c["label"] == "Length")
+                    rows = {
+                        "kind": "rowRange",
+                        "rowStartRef": row["rowRef"],
+                        "rowEndRef": row["rowRef"],
+                    }
                 return json.dumps(
                     {
                         "taskId": payload["taskId"],
                         "decision": "apply",
-                        "targetHandles": [candidate["targetHandle"]],
-                        "sourceRefs": [
-                            *payload["statement"]["sourceRefs"],
-                            *candidate["definitionRefs"],
+                        "recordScopes": [
+                            {
+                                "recordHandle": record["targetHandle"],
+                                "parts": [
+                                    {
+                                        "rowCoverage": rows,
+                                        "columnCoverage": {
+                                            "kind": "selectedColumns",
+                                            "columnIds": ["length"],
+                                        },
+                                    }
+                                ],
+                            }
                         ],
-                        "explanation": "Explicit length unit statement applies to Length.",
+                        "explanation": "Scripted scope; compiler supplies source bindings.",
                     }
                 )
             if payload.get("meaningPhase") == "selection":
@@ -968,7 +957,30 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
                 }
             return json.dumps(answer)
 
-    states, model = [], ScopedModel()
+    from document_files.interpretation.backends import InferenceResponse, ManagedPackClient
+
+    class InferScoped(ScopedModel):
+        max_output_tokens = 3072
+        last_diagnostics = {}
+
+        def __init__(self):
+            self.requests = []
+
+        def infer(self, request):
+            self.requests.append(request)
+            return InferenceResponse(
+                self.complete(request.messages, timeout=request.timeout),
+                {"prompt_tokens": 20, "completion_tokens": 10},
+            )
+
+    class ManagedScoped(InferScoped, ManagedPackClient):
+        # Scripted adapter identity checks only; no runtime or model is started here.
+        pass
+
+    states, model = (
+        [],
+        {"complete": ScopedModel, "infer": InferScoped, "managed": ManagedScoped}[transport](),
+    )
     kwargs = {
         "options": ExtractionOptions(
             reconstructionContext=False, maxModelCalls=3 if scope_mode == "rows" else 12
@@ -1010,6 +1022,36 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
     assert resumed["extraction"]["status"] == expected_status
     assert resumed["semanticDetails"] == result["semanticDetails"]
 
+    if transport != "complete":
+        scopes = [r for r in model.requests if "taskId" in json.loads(r.messages[-1]["content"])]
+        assert len(scopes) == 1 and scopes[0].max_output_tokens == 1536
+        assert scopes[0].reasoning_budget_tokens == (512 if transport == "managed" else None)
+        assert all(r.reasoning_budget_tokens is None for r in model.requests if r not in scopes)
+    stored = next(s for s in states[-1]["scopeDecisions"].values() if "decision" in s)
+    assert stored["selection"]["sourceRefs"] == [] and stored["decision"]["sourceRefs"]
+    assert stored["sourceBinding"]["modelSuppliedSourceRefs"] is False
+    assert stored["request"]["policy"] == states[-1]["identity"]["scopeProtocol"]
+    import copy
+
+    for mutation in ("trace", "choice", "selection", "wire", "policy", "missing_trace"):
+        damaged = copy.deepcopy(states[-1])
+        entry = next(iter(damaged["scopeDecisions"].values()))
+        if mutation == "trace":
+            entry["sourceBinding"]["modelSuppliedSourceRefs"] = True
+        elif mutation == "choice":
+            entry["decision"]["sourceRefs"] = ["forged"]
+        elif mutation == "selection":
+            entry["selection"]["sourceRefs"] = entry["decision"]["sourceRefs"]
+        elif mutation == "wire":
+            entry["request"]["wireFingerprint"] = "changed"
+        elif mutation == "policy":
+            entry["request"]["policy"]["reasoningBudgetTokens"] = 4096
+        else:
+            del entry["sourceBinding"]
+        with pytest.raises(ValueError, match="incompatible"):
+            extract_schema_from_stream(job, io.BytesIO(content), restore=damaged, **kwargs)
+        assert model.calls == before
+
 
 @pytest.mark.parametrize("invalid_sibling", [False, True])
 def test_local_scope_batch_resumes_without_repeating_region_interpretation(invalid_sibling):
@@ -1031,11 +1073,6 @@ def test_local_scope_batch_resumes_without_repeating_region_interpretation(inval
                             "taskId": task["taskId"],
                             "decision": "apply",
                             "targetHandles": [chosen["targetHandle"]],
-                            "sourceRefs": list(
-                                dict.fromkeys(
-                                    [*task["statement"]["sourceRefs"], *chosen["definitionRefs"]]
-                                )
-                            ),
                             "explanation": "Scripted exact label definition applicability.",
                         }
                     )
@@ -1118,7 +1155,7 @@ def test_unreported_usage_survives_timeout_and_legacy_checkpoint_resume():
             )
 
     snapshots = []
-    failed = run(model=ReferenceModel(fail=True), maxModelCalls=1, checkpoint=snapshots.append)
+    failed = run(model=Reported(fail=True), maxModelCalls=1, checkpoint=snapshots.append)
     assert failed["extraction"]["usage"]["unreportedUsageCalls"] == 1
     assert failed["extraction"]["usage"]["promptTokens"] == 0  # reported subtotal only
     legacy = deepcopy(snapshots[-1])

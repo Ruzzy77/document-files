@@ -1,6 +1,6 @@
 """Internal row/column applicability wire over every offered compiler candidate.
 
-Not yet the engine's default wire. The codec translates selections, never values,
+The codec translates selections, never values,
 literal document text or meaning. Canonical source binding is a separate step.
 """
 

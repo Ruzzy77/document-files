@@ -20,7 +20,8 @@ is not the same as the Python-free native portable distribution.
 
 The selected recognition configuration is Docling CPU, Heron layout, TableFormer
 accurate and Tesseract Korean/English. Semantic inference uses official Qwen3.5-9B
-converted to Q4_K_M by pinned llama.cpp, non-thinking, with one CPU slot. These are
+converted to Q4_K_M by pinned llama.cpp, with one CPU slot. The profile defaults to
+non-thinking; scope-axis requests explicitly use bounded reasoning as described below. These are
 implementation selections, not accuracy or practical-speed guarantees. Long or
 ambiguous documents may produce partial results and unresolved relationships.
 
@@ -35,12 +36,31 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
-The active engine remains at prompt v24 / table protocol v16 / compiler v18 /
-scope integration v11 / reference wire v2. Public API v1 and the default
-non-thinking 9B CPU profile are unchanged. The source now includes a prepared
-scope-axis wire v1 and source-binding v1, but **the engine does not call them yet**.
-Their own fingerprints are available; engine checkpoint identity and per-phase
-reasoning policy still need integration before use in product extraction.
+Scope-axis protocol v1 is now connected to the extraction engine, using axis wire v1
+and source-binding v1. Regional checkpoint v3 stores the citation-free selection,
+compiler source trace, original batch/context fingerprint and execution policy.
+Resume reconstructs and compares that evidence before accepting a saved choice or
+making another model call. Incompatible older checkpoints are rejected.
+
+Only managed scope requests use reasoning budget 512, within a total output ceiling
+of 1,536 tokens or a smaller client ceiling. Template/context checks and inference
+use the same override. Other phases keep the profile default; client identity and
+installed manifests are not mutated. Generic/cloud reasoning remains client-owned,
+and complete-only output limits remain client-owned and are recorded as such. All
+stages still share cumulative document call/time budgets. The scope batcher measures
+the actual serialized system, payload and schema and separates a shared caption's
+meanings. Prompt v24 / table protocol v16 / compiler v18 / canonical scope integration
+v11 / reference wire v2 and public API v1 remain unchanged.
+
+Local full regression passed **2,496** (227 skipped, 12 subtests). Scripted engine
+coverage includes column/row selection, content uncertainty, bounded request policy,
+invalid siblings, explicit grants, call-free resume and altered source/trace/policy
+rejection. Transport tests verify request-scoped text/image context checks, no mode
+leak to later requests, incomplete usage preservation and unsupported-cloud rejection.
+Current-source ARM regression and actual integrated model calls are not yet complete.
+The earlier development successes below do not automatically qualify this activation.
+
+#### Prepared components and previous development calls
 
 The general codec preserves multiple records, continuation-fragment coordinates,
 scalar/mixed candidates and independent batch validation. Bounded candidate lists
@@ -92,7 +112,7 @@ expected null for the observed blank; it failed before any model call. The corre
 truth was frozen in a separate preparation before dispatch; no product behavior
 or old response was changed to make the result pass.
 
-Next are compact long-range provenance, engine/budget/checkpoint integration and
+Next are current-source runtime checks, compact long-range provenance and
 content-stage quality before the new bounded full HTML run. The old source snapshot
 was hash-checked, verified unused and retired after the new source passed ARM tests;
 its Git commit, manifest, inputs and failure/results evidence remain reproducible.

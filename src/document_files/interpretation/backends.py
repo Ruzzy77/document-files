@@ -323,6 +323,9 @@ class InferenceRequest:
     timeout: float = 300.0
     cancelled: Callable[[], bool] | None = field(default=None, repr=False, compare=False)
 
+    # None inherits the client profile; an integer is an explicit request policy.
+    reasoning_budget_tokens: int | None = None
+
     def __post_init__(self):
         if (
             not isinstance(self.messages, list)
@@ -342,6 +345,9 @@ class InferenceRequest:
             )
         ):
             raise ModelError("ai_request_invalid")
+
+        if self.reasoning_budget_tokens is not None:
+            managed_reasoning_identity(self.reasoning_budget_tokens)
 
     def check_cancelled(self):
         if self.cancelled and self.cancelled():
@@ -471,6 +477,11 @@ class ChatCompletionsClient:
             raise ModelError("ai_response_incomplete")
         return result.text
 
+    def _reasoning_payload(self, request):
+        if request.reasoning_budget_tokens is not None:
+            raise ModelError("ai_request_reasoning_unsupported")
+        return {}
+
     def _request_payload(self, request: InferenceRequest):
         payload = {"model": self.model, "messages": request.messages, **self.sampling}
         if self.response_format == "json_schema" and request.output_schema is not None:
@@ -489,9 +500,10 @@ class ChatCompletionsClient:
         max_tokens = request.max_output_tokens or self.max_output_tokens
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        payload.update(self._reasoning_payload(request))
         return payload
 
-    def _response_content(self, choice):
+    def _response_content(self, choice, request):
         content = choice["message"]["content"]
         if not isinstance(content, str):
             raise ModelError("ai_response_invalid")
@@ -538,7 +550,7 @@ class ChatCompletionsClient:
                 "function_call",
             }:
                 raise ModelError("ai_response_invalid")
-            content = self._response_content(choice)
+            content = self._response_content(choice, request)
             usage = data.get("usage", {})
             usage = {
                 key: value
@@ -583,29 +595,35 @@ class _ManagedLlamaTransport(ChatCompletionsClient):
         managed_reasoning_identity(reasoning_budget_tokens)
         self.reasoning_budget_tokens = reasoning_budget_tokens
 
-    def _request_payload(self, request):
-        payload = super()._request_payload(request)
-        if self.reasoning_budget_tokens is not None:
-            output_tokens = request.max_output_tokens or self.max_output_tokens
-            if output_tokens is None or self.reasoning_budget_tokens >= output_tokens:
-                raise ModelError("ai_reasoning_budget_conflict")
-            payload["chat_template_kwargs"] = {"enable_thinking": True}
-            payload["reasoning_budget_tokens"] = self.reasoning_budget_tokens
-            # Keep private reasoning separate even if a server environment default
-            # would otherwise merge it into final content.
-            payload["reasoning_format"] = "deepseek"
-        return payload
+    def _reasoning_budget(self, request):
+        return (
+            request.reasoning_budget_tokens
+            if request.reasoning_budget_tokens is not None
+            else self.reasoning_budget_tokens
+        )
 
-    def _response_content(self, choice):
-        # A bounded reasoning run can end before final content begins. Preserve
-        # its finish reason and total usage, never substitute reasoning text.
+    def _reasoning_payload(self, request):
+        budget = self._reasoning_budget(request)
+        if budget is None:
+            return {}
+        output_tokens = request.max_output_tokens or self.max_output_tokens
+        if output_tokens is None or budget >= output_tokens:
+            raise ModelError("ai_reasoning_budget_conflict")
+        return {
+            "chat_template_kwargs": {"enable_thinking": True},
+            "reasoning_budget_tokens": budget,
+            # Never merge private reasoning into final content.
+            "reasoning_format": "deepseek",
+        }
+
+    def _response_content(self, choice, request):
         if (
-            self.reasoning_budget_tokens is not None
+            self._reasoning_budget(request) is not None
             and choice.get("finish_reason") == "length"
             and choice["message"].get("content") is None
         ):
             return ""
-        return super()._response_content(choice)
+        return super()._response_content(choice, request)
 
 
 class ManagedPackClient:
@@ -773,7 +791,12 @@ class ManagedPackClient:
             raise ModelError("ai_visual_budget_exceeded")
         budget()
         frozen = InferenceRequest(
-            messages, schema, request.max_output_tokens, request.timeout, request.cancelled
+            messages,
+            schema,
+            request.max_output_tokens,
+            request.timeout,
+            request.cancelled,
+            request.reasoning_budget_tokens,
         )
         return frozen, (
             {
@@ -875,9 +898,16 @@ class ManagedPackClient:
             request.check_cancelled()
             raise ModelError("ai_context_probe_invalid") from None
 
+    def _reasoning_budget(self, request):
+        return (
+            request.reasoning_budget_tokens
+            if request.reasoning_budget_tokens is not None
+            else self.reasoning_budget_tokens
+        )
+
     def _check_context(self, request: InferenceRequest, deadline: float, output_tokens: int):
         payload = {"messages": request.messages}
-        if self.reasoning_budget_tokens is not None:
+        if self._reasoning_budget(request) is not None:
             # Use the very same owned transport dialect, schema and mode during
             # template preparation; otherwise the context reservation can differ.
             payload = self._client._request_payload(
@@ -886,12 +916,15 @@ class ManagedPackClient:
                     output_schema=_local_grammar_schema(request.output_schema),
                     max_output_tokens=output_tokens,
                     timeout=request.timeout,
+                    reasoning_budget_tokens=request.reasoning_budget_tokens,
                 )
             )
         formatted = self._context_json("/apply-template", payload, deadline, request).get("prompt")
         if not isinstance(formatted, str):
             raise ModelError("ai_context_probe_invalid")
-        if self.reasoning_budget_tokens is not None and not formatted.rstrip().endswith("<think>"):
+        if self._reasoning_budget(request) is not None and not formatted.rstrip().endswith(
+            "<think>"
+        ):
             raise ModelError("ai_reasoning_mode_unsupported")
         tokens = self._context_json(
             "/tokenize",
@@ -929,9 +962,10 @@ class ManagedPackClient:
                 output_schema=_local_grammar_schema(request.output_schema),
                 max_output_tokens=output_tokens,
                 timeout=request.timeout,
+                reasoning_budget_tokens=request.reasoning_budget_tokens,
             )
         )
-        if self.reasoning_budget_tokens is not None:
+        if self._reasoning_budget(request) is not None:
             formatted = self._context_json("/apply-template", payload, deadline, request).get(
                 "prompt"
             )
@@ -967,7 +1001,7 @@ class ManagedPackClient:
             "version": "document-files.inference-diagnostics.v1",
             "stages": {},
             "status": "interrupted",
-            "reasoning": dict(self.reasoning),
+            "reasoning": managed_reasoning_identity(self._reasoning_budget(request)),
         }
 
         def next_stage(name):
@@ -988,8 +1022,8 @@ class ManagedPackClient:
             if output_tokens > self.max_output_tokens:
                 raise ModelError("ai_context_exceeded")
             if (
-                self.reasoning_budget_tokens is not None
-                and self.reasoning_budget_tokens >= output_tokens
+                self._reasoning_budget(request) is not None
+                and self._reasoning_budget(request) >= output_tokens
             ):
                 raise ModelError("ai_reasoning_budget_conflict")
             with self._lock:
@@ -1018,6 +1052,7 @@ class ManagedPackClient:
                     output_schema=_local_grammar_schema(request.output_schema),
                     max_output_tokens=output_tokens,
                     timeout=remaining,
+                    reasoning_budget_tokens=request.reasoning_budget_tokens,
                     cancelled=lambda: (
                         self._closed or bool(request.cancelled and request.cancelled())
                     ),

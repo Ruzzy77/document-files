@@ -1,22 +1,30 @@
 # Python, CLI and MCP integration
 
-Internal applicability calls use scope integration v11, scope reference wire v2
-and compiler v18.
-Short typed target aliases exist only in model requests/replies; validation and
-checkpoints use canonical handles. Source references and literal text are unchanged.
-Old scope/wire/compiler identities cannot resume under this contract. Public v1
-APIs are unchanged; this is not a quality certification.
+Internal applicability uses scope-axis protocol v1, axis wire v1 and compiler-owned
+source-binding v1 over scope integration v11 / reference wire v2 / compiler v18.
+Private regional checkpoint v3 records the actual scope policy, batch context,
+citation-free selection and compiler source trace. Replay regenerates the request
+identity and source bindings before applying a saved decision; incompatible older
+checkpoints are rejected. Public v1 APIs remain unchanged. This is not quality approval.
 
-An applicability decision may include `rowSelections`: a supplied record handle,
-inclusive source `rowStart`/`rowEnd`, and optional `columnIds` (empty means all mapped
-columns). `rowOptions` supplies actual geometry, row roles and source references;
-the model never writes generated value pointers. Only existing data-row targets
-are expanded. Non-data rows add nothing, and absent or undecided rows retain
-uncertainty. Row-only decisions do not annotate a whole column's schema or change
-values/missingness. Selected source fragments keep their original row numbering
-after table continuation, with targets remapped to the joined record. Application
-checks current definitions, row/column evidence, mapping identity, overlapping
-whole-record/column choices and a cumulative one-million row/column expansion cap.
+For records the model independently selects rowCoverage and columnCoverage and the
+compiler applies their intersection. allDataRows is not allMappedColumns. Row
+references are fragment-local; optional numeric sourceRowRange endpoints retain
+unobserved coordinates without inventing cells. Standalone scalar/mixed candidates
+remain available. A row-only selection does not annotate a whole column's schema.
+The model does not write sourceRefs, values or generated pointers. Code binds current
+content/definitions and, for row filters, existing selected-value sources; blank,
+absent and uncertain states remain distinct. Source binding and semantic accuracy
+are separate checks. Overlaps, stale mappings and explicit expansion/source limits
+still fail closed. Long-range compact provenance remains unimplemented.
+
+On ManagedPackClient only, the engine requests reasoning budget 512 for this phase
+and caps total output at 1,536 tokens (or a smaller client ceiling). Other phases keep
+the profile default. The same request override reaches template/token checks and
+inference, without mutating the profile or leaking to later calls. Generic/cloud
+clients keep their own reasoning policy; no llama-specific parameters are sent.
+Complete-only clients retain their own output limits, recorded distinctly in the
+checkpoint. All calls and elapsed time share the existing cumulative document budget.
 
 Prompt v24 / table protocol v16 distinguish a meaning's own uncertainty from
 unknown applicability. Internal `Meaning.status` describes its kind and content;
@@ -103,7 +111,10 @@ and `document-files.managed-reasoning.v1` are included in execution/profile iden
 the original manifest's thinking setting is recorded separately, not overwritten.
 Reasoning content is never substituted for final JSON. A reasoning-limited `length`
 response with no final content retains usage and incomplete status. The per-block
-limit does not guarantee a final-answer reservation or correctness.
+limit does not guarantee a final-answer reservation or correctness. Internal
+InferenceRequest.reasoning_budget_tokens overrides this setting for one managed
+request; None inherits the profile. The generic HTTP adapter rejects an explicit
+managed override with ai_request_reasoning_unsupported rather than silently ignoring it.
 
 For split text regions, `coverage.regions[*].nodeViews` identifies original source
 ranges, and `semanticDetails[*].sourceRanges` records the ranges actually read for
@@ -264,7 +275,7 @@ records each stage's attempts, status and usage. `structure_compiled` means reta
 partial work, not complete extraction. Compiler v16 retains the rejection of broad
 unbounded parent/child scope unions and preserves explicit bounded row intersections.
 Public AnalysisJob v1, AnalysisResult v1 and extraction result contracts remain;
-private checkpoint v2 checks the changed protocol identities.
+private checkpoint v3 checks the changed protocol identities.
 
 The model-only meaning view places compiler-added header references in the frozen
 column definitions instead of repeating a compiled-definition projection. It omits

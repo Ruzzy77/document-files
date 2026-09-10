@@ -2,7 +2,6 @@
 
 Only the new citation-free wire may call this boundary. A returned decision still
 requires apply_scope_decision; source binding is not semantic quality approval.
-The engine has not switched to this contract yet.
 """
 
 from __future__ import annotations

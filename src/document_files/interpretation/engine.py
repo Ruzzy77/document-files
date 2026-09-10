@@ -33,12 +33,10 @@ from .compiler import (
 )
 from .contracts import RESULT_VERSION, ExtractionOptions
 from .integration import (
-    SCOPE_SYSTEM,
     SCOPE_VERSION,
     apply_scope_decision,
     build_scope_tasks,
     parse_scope_choices,
-    scope_batches,
 )
 from .legacy_engine import _has_unread_visuals as _has_unread_visuals
 from .legacy_engine import contract_messages, decode, encode
@@ -52,8 +50,16 @@ from .regions import (
     region_payload,
     route_table_values,
 )
+from .scope_axis_wire import prepare_scope_axis_wire
+from .scope_protocol import SYSTEM as SCOPE_SYSTEM
+from .scope_protocol import (
+    replay_scope_record,
+    scope_axis_batches,
+    scope_policy,
+    scope_request_identity,
+)
 from .scope_reference_wire import VERSION as SCOPE_REFERENCE_WIRE_VERSION
-from .scope_reference_wire import prepare_scope_wire
+from .scope_source_binding import bind_scope_choices
 from .semantic_prompts import INTEGRATE, PROMPT_VERSION, SYSTEM
 from .semantic_types import (
     COMPILER_VERSION,
@@ -110,7 +116,7 @@ from .table_selection import (
 )
 from .table_sources import source_inventory
 
-CHECKPOINT_VERSION = "document-files.regional-checkpoint.v2"
+CHECKPOINT_VERSION = "document-files.regional-checkpoint.v3"
 
 
 def _feedback_code(issue):
@@ -404,7 +410,9 @@ def extract_schema_from_stream(
         if client
         else {"available": False}
     )
+    scope_execution = scope_policy(client)
     identity = {
+        "scopeProtocol": scope_execution,
         "source": job.input.to_dict(),
         "options": selected.model_dump(),
         "observationVersion": OBSERVATION_VERSION,
@@ -491,7 +499,17 @@ def extract_schema_from_stream(
                 for key, value in restore["accepted"].items()
             }
             decisions = dict(restore["decisions"])
-            scope_decisions = copy.deepcopy(restore.get("scopeDecisions", {}))
+            scope_decisions = copy.deepcopy(restore["scopeDecisions"])
+            if not isinstance(scope_decisions, dict) or any(
+                not isinstance(key, str)
+                or not isinstance(record, dict)
+                or not isinstance(record.get("fingerprint"), str)
+                or (set(record) != {"fingerprint", "invalid"} or record.get("invalid") is not True)
+                and set(record)
+                != {"fingerprint", "selection", "decision", "sourceBinding", "request"}
+                for key, record in scope_decisions.items()
+            ):
+                raise ValueError
             table_states = copy.deepcopy(restore["tableStages"])
             if not isinstance(table_states, dict):
                 raise ValueError
@@ -897,7 +915,7 @@ def extract_schema_from_stream(
         if item not in issues:
             issues.append(item)
 
-    def linked_regions():
+    def linked_regions(*, strict=False):
         linked, join_issues, links = join_continuations(
             list(compiled.values()), candidates, decisions
         )
@@ -917,17 +935,24 @@ def extract_schema_from_stream(
                 ),
             ),
         )
+        validated = set()
         for task in scope_tasks:
             stored = scope_decisions.get(task.id, {})
             if stored.get("fingerprint") == task.fingerprint and "decision" in stored:
                 try:
-                    linked, _ = apply_scope_decision(linked, task, stored["decision"])
+                    choice = replay_scope_record(stored, task, scope_tasks, linked, scope_execution)
+                    linked, _ = apply_scope_decision(linked, task, choice)
+                    validated.add(task.id)
                 except CompileError:
+                    if strict:
+                        raise ValueError(
+                            "checkpoint is incompatible with scope provenance"
+                        ) from None
                     issue("scope_decision_stale", taskId=task.id)
-        return linked, join_issues, links, scope_tasks
+        return linked, join_issues, links, scope_tasks, validated
 
     def refresh(stage):
-        linked, join_issues, links, scope_tasks = linked_regions()
+        linked, join_issues, links, scope_tasks, validated = linked_regions()
         projection = combine_regions(linked, target_schema=selected.targetSchema)
         errors = projection.pop("errors")
         projection_issues = projection.pop("issues")
@@ -976,6 +1001,7 @@ def extract_schema_from_stream(
                 "candidateCoverage": task.payload["candidateCoverage"],
                 "status": "interpreted"
                 if task.complete_candidates
+                and task.id in validated
                 and scope_decisions.get(task.id, {}).get("fingerprint") == task.fingerprint
                 and scope_decisions.get(task.id, {}).get("decision", {}).get("decision") == "apply"
                 else "unresolved",
@@ -992,6 +1018,7 @@ def extract_schema_from_stream(
         )
         result["provenance"]["model"] = client.identity if client else None
         result["provenance"]["scopeIntegrationVersion"] = SCOPE_VERSION
+        result["provenance"]["scopeProtocol"] = copy.deepcopy(scope_execution)
         result["provenance"]["tableProtocolVersion"] = TABLE_PROTOCOL_VERSION
         result["provenance"]["tableReferenceWireVersion"] = TABLE_REFERENCE_WIRE_VERSION
         complete = (
@@ -1046,6 +1073,7 @@ def extract_schema_from_stream(
         table_stage=None,
         meaning_wire=None,
         table_phase=None,
+        scope_phase=False,
     ):
         if cancelled and cancelled():
             raise ModelError("ai_cancelled")
@@ -1100,8 +1128,13 @@ def extract_schema_from_stream(
                         InferenceRequest(
                             messages=messages,
                             output_schema=contract,
+                            reasoning_budget_tokens=(
+                                scope_execution["reasoningBudgetTokens"] if scope_phase else None
+                            ),
                             max_output_tokens=(
-                                min(
+                                scope_execution["maxOutputTokens"]
+                                if scope_phase
+                                else min(
                                     getattr(client, "max_output_tokens", None) or 8192,
                                     1536 if table_phase == "selection" else STAGE_MAX_OUTPUT_TOKENS,
                                 )
@@ -1148,6 +1181,9 @@ def extract_schema_from_stream(
                         )
                     counter["elapsedSeconds"] += elapsed
 
+    if restore is not None:
+        # Before any new call or checkpoint save, validate current committed choices.
+        linked_regions(strict=True)
     save("observed" if not accepted else "interpreting")
     if not client:
         issue(client_issue or "ai_unavailable")
@@ -1655,31 +1691,36 @@ def extract_schema_from_stream(
             break
         except (ValueError, TypeError):
             issue("document_integration_invalid")
-    linked, _, _, tasks = linked_regions()
+    linked, _, _, tasks, validated = linked_regions()
     pending_tasks = [
         task
         for task in tasks
         if scope_decisions.get(task.id, {}).get("fingerprint") != task.fingerprint
+        or ("decision" in scope_decisions.get(task.id, {}) and task.id not in validated)
         or (
             scope_decisions.get(task.id, {}).get("invalid") is True
             and additional_budget is not None
             and grant["maxModelCalls"] > 0
         )
     ]
-    for batch in scope_batches(
+    for batch in scope_axis_batches(
         pending_tasks,
         context_chars=min(
             selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
         ),
     ):
         try:
-            wire = prepare_scope_wire(batch)
-            response = invoke(SCOPE_SYSTEM, wire.payload, wire.contract)
-            choices, invalid = parse_scope_choices(wire.decode(response), batch)
+            wire = prepare_scope_axis_wire(batch)
+            response = invoke(SCOPE_SYSTEM, wire.payload, wire.contract, scope_phase=True)
+            decoded = wire.decode(response)
+            bound, traces = bind_scope_choices(decoded, batch, linked)
+            choices, invalid = parse_scope_choices(bound, batch)
             if invalid:
                 issue("scope_batch_invalid_decision")
         except ModelError as exc:
             issue(exc.code, taskIds=[t.id for t in batch])
+            if exc.code == "region_context_budget_exceeded":
+                continue
             break
         except (ValueError, TypeError):
             choices = []
@@ -1690,6 +1731,15 @@ def extract_schema_from_stream(
                 scope_decisions[task.id] = {
                     "fingerprint": task.fingerprint,
                     "decision": decision.model_dump(),
+                    "selection": copy.deepcopy(
+                        next(
+                            v
+                            for v in (decoded["decisions"] if wire.batched else [decoded])
+                            if v.get("taskId") == task.id
+                        )
+                    ),
+                    "sourceBinding": traces[task.id],
+                    "request": scope_request_identity(batch, wire, scope_execution),
                 }
             except (StopIteration, ValueError, TypeError):
                 scope_decisions[task.id] = {"fingerprint": task.fingerprint, "invalid": True}

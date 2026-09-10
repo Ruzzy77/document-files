@@ -105,6 +105,17 @@ with a new explicit model-call budget grant; a valid unchanged unresolved decisi
 is not automatically repeated. This repair stage never asks for the full schema or
 values again. Scope integration v5 includes observed header-group membership and current statement context in checkpoint identity.
 
+Scope-axis protocol v1 now connects the generalized row/column wire and compiler
+source binding to the engine. It batches against the actual serialized system,
+payload and schema, keeping meanings from a shared source in separate calls. The
+model selects scope only; compiler provenance remains independently identified.
+Regional checkpoint v3 stores the selection, original batch fingerprint, execution
+policy and source trace. Resume rebinds and compares the trace against current
+compiled observations before any new call. Changed evidence cannot be accepted by
+trusting a stored success flag. This preserves public v1 contracts and the document's
+cumulative call/time budget. Managed inference uses bounded reasoning only in this
+phase; no profile-wide mode change is implied.
+
 ### Source review and revisable table meaning
 
 Table protocol v6 separates immutable source ranges from model conclusions. Literal

@@ -660,3 +660,74 @@ def test_profile_reasoning_contract_version_invalidates_job_fingerprint(monkeypa
         store.submit(io.BytesIO(b"Public"), format_id="txt", profile=profile, idempotency_key="key")
     with pytest.raises(JobError, match="profile-pack-changed"):
         store.resume(job["jobId"], profile)
+
+
+@pytest.mark.parametrize("profile_budget", [None, 1024])
+def test_per_request_reasoning_is_counted_transmitted_and_never_leaks(
+    monkeypatch, tmp_path, profile_budget
+):
+    events = fake_packs(monkeypatch)
+    calls = response_transport(monkeypatch)
+    client = ManagedPackClient(tmp_path, "runtime", "model", reasoning_budget_tokens=profile_budget)
+    before = client.identity
+    probes = []
+    original = client._context_json
+
+    def probe(path, payload, deadline, request):
+        probes.append((path, payload))
+        return original(path, payload, deadline, request)
+
+    monkeypatch.setattr(client, "_context_json", probe)
+    client.infer(
+        InferenceRequest(
+            [],
+            output_schema={"type": "object"},
+            max_output_tokens=1536,
+            reasoning_budget_tokens=512,
+        )
+    )
+    assert probes[0][1] == calls[0]
+    assert calls[0]["reasoning_budget_tokens"] == 512
+    assert calls[0]["max_tokens"] == 1536
+    assert client.last_diagnostics["reasoning"]["budgetTokens"] == 512
+    client.infer(InferenceRequest([], max_output_tokens=1536))
+    assert calls[1].get("reasoning_budget_tokens") == profile_budget
+    assert client.last_diagnostics["reasoning"]["budgetTokens"] == profile_budget
+    assert client.identity == before and client.reasoning_budget_tokens == profile_budget
+    client.close()
+    assert [e[0] for e in events] == ["start", "close"]
+
+
+@pytest.mark.parametrize("content", [None, ""])
+def test_per_request_reasoning_incomplete_preserves_usage_and_drops_private_text(
+    monkeypatch, tmp_path, content
+):
+    fake_packs(monkeypatch)
+    response_transport(monkeypatch, finish="length", content=content, reasoning="private")
+    client = ManagedPackClient(tmp_path, "runtime", "model")
+    result = client.infer(InferenceRequest([], max_output_tokens=1536, reasoning_budget_tokens=512))
+    assert result.text == "" and result.finish_reason == "length"
+    assert result.usage["completion_tokens"] == 2
+    assert "private" not in json.dumps(client.last_diagnostics)
+    assert client.reasoning_budget_tokens is None
+    client.close()
+
+
+@pytest.mark.parametrize("budget", [True, -1, 3072, "512"])
+def test_per_request_reasoning_invalid_never_reaches_transport(budget):
+    with pytest.raises(ModelError, match="ai_configuration_invalid"):
+        InferenceRequest([], reasoning_budget_tokens=budget)
+
+
+def test_per_request_reasoning_cannot_silently_downgrade_or_inflate_output(monkeypatch, tmp_path):
+    events = fake_packs(monkeypatch)
+    calls = response_transport(monkeypatch)
+    request = InferenceRequest([], max_output_tokens=512, reasoning_budget_tokens=512)
+    client = ManagedPackClient(tmp_path, "runtime", "model")
+    with pytest.raises(ModelError, match="ai_reasoning_budget_conflict"):
+        client.infer(request)
+    cloud = ChatCompletionsClient("https://example.invalid/v1", "m")
+    with pytest.raises(ModelError, match="ai_request_reasoning_unsupported"):
+        cloud.infer(request)
+    assert not events and not calls
+    client.close()

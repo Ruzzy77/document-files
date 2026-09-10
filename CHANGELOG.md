@@ -2,12 +2,21 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Activate scope-axis protocol v1 and regional checkpoint v3. Use actual wire/schema
+  size for batches; bind compiler provenance separately from model selections and
+  regenerate it on resume. Save the original batch/context and execution policy.
+  Managed scope requests use reasoning budget 512 within a 1,536-total-token cap;
+  other phases retain their profile settings. Per-request overrides also reach
+  context counting and diagnostics without mutating client identity. Cloud and
+  complete-only clients keep explicitly recorded, distinct execution policies.
+  Public v1 contracts remain unchanged. Content quality, compact long-range
+  provenance and full product-path qualification are still pending.
+
 - Prepare internal scope-axis wire v1 and compiler source-binding v1 for multiple
   records, scalars, mixed/batched decisions, continuation fragments and missing
   observations. Typed references, source origins and explicit resource limits
   are checked without changing values or public v1 results. These components
-  are not yet wired into the extraction engine; current scope/checkpoint and
-  inference defaults remain unchanged pending integration and product-path tests.
+  were initially prepared without activation; engine integration follows above.
 
 - Make the cumulative table-budget tampering test independent of Windows clock
   resolution, using explicit scripted-call durations. Also retain a valid

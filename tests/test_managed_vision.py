@@ -419,3 +419,17 @@ def test_rgb16_png_is_not_silently_downconverted(setup):
             InferenceRequest(messages("data:image/png;base64," + base64.b64encode(raw).decode()))
         )
     assert not setup.events
+
+
+def test_visual_request_override_survives_freezing_and_matches_counted_request(setup):
+    client = setup.make()
+    before = client.identity
+    request = InferenceRequest(messages(), max_output_tokens=1536, reasoning_budget_tokens=512)
+    client.infer(request)
+    bodies = {path: json.loads(body) for path, body, _ in setup.calls if body is not None}
+    assert bodies["/apply-template"] == bodies["/v1/chat/completions/input_tokens"]
+    assert bodies["/apply-template"] == bodies["/v1/chat/completions"]
+    assert bodies["/v1/chat/completions"]["reasoning_budget_tokens"] == 512
+    assert client.identity == before and client.reasoning_budget_tokens is None
+    assert client.last_diagnostics["reasoning"]["budgetTokens"] == 512
+    client.close()
