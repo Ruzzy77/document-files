@@ -475,7 +475,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v9` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v10` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -554,15 +554,32 @@ requires an alternative image-reading proposal and offered context, does not cou
 as matched source text, and cannot validate an empty slot. The model still has to
 check for glyphs, added marks or ambiguous content against the original images.
 
-The actual v8 model still labeled the edge candidates `source_text`: rectangles and
-candidate strings do not expose exact pixel membership. **V9 therefore blocks any
-plan with rule-edge candidates**, before inference and again during validation,
-with `visual_rule_context_not_displayed`. No caller-supplied flag bypasses this guard.
-The existing original images remain available, but source-bound per-unit display is
-not implemented yet. A preparation failure is retained and is not automatically retried.
-V8's returned/applied development view is rejected quality evidence, not a complete
-or approved document. Pure source/core plans without edge candidates keep their
-existing review path; old checkpoint versions remain incompatible.
+The actual v8 model still labeled edge candidates `source_text`: rectangles and
+candidate strings did not expose exact pixel membership. V9 blocked those plans.
+V10 replaces that unconditional stop only when `document-files.pdf-unit-display.v1`
+prepares source-bound membership panels within the existing two-image, 16MiB and
+16-million-pixel limits. The full source PNG is unchanged. The second image contains
+an unchanged RGB detail followed by individually labeled exact membership masks.
+Black in a mask means membership only, never original darkness, text, borders or noise.
+Original RGB and generated masks/labels are distinct panels. No mask pixel is dropped,
+interpolated or treated as an empty value.
+
+Each panel has its own source-pixel bounds and affine mapping to the panel sheet;
+there is no misleading single original-page affine on the composite image. The actual
+PNG/RGB hashes, encoder version, panel recipe and exact unit membership are tied to
+the plan and original capture. Required units outside the detail, malformed/overlapping
+runs, missing panels, changed references, or exhausted byte/pixel/time budgets stop
+preparation before a model attempt. Original bytes and observations are unchanged.
+
+`unitDisplay` in the model payload identifies panel/image coordinates. Review
+validation requires the actual display descriptor, not a caller-provided boolean.
+Checkpoints store that descriptor and `unitDisplayFingerprint`, never image data URLs;
+visual application v3 also records this fingerprint in the applied page-review provenance.
+resume and atomic application repeat the source/membership checks without rerendering
+or calling the model again. Unprepared, changed or missing display evidence remains
+blocked. Pure source/core plans without edge candidates keep the original image path.
+These are input/ownership checks, not a claim that the model's interpretation is correct.
+V8 failures remain development evidence, and all prior review checkpoints are rejected.
 
 `unitColumns` describes columnar unit rows in the model payload. Wire decision arrays
 contain strings in input order, with exact counts. The program restores plan-owned
@@ -575,7 +592,7 @@ and vertical band as a candidate. An unresolved, missing or duplicated band bloc
 review before inference; response validation repeats the guard. Affirmative model text
 cannot substitute for unresolved measured geometry. No measurement tolerance is widened.
 
-A separate v9 review checks every proposed source string and grid, as well as the full
+A separate v10 review checks every proposed source string and grid, as well as the full
 page's pixel units and reading order. It shares the original call/time budget and records
 an attempt before inference. A successful review permits only the alternate regions to
 enter interpretation; `pdfVisualReviewApplication.selectedImageProjectionFingerprints`

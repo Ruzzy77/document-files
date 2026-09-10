@@ -440,7 +440,7 @@ def test_core_geometry_does_not_turn_a_faint_mark_in_an_empty_candidate_into_bla
         validate_decision(review, approved(review), detail_bounds=[0, 0, 90, 90])
 
 
-def test_residual_context_without_pixel_display_blocks_before_spending_model_call(monkeypatch):
+def test_invalid_display_source_blocks_before_spending_model_call(monkeypatch):
     run, calls, checkpoints, usage, doc = setup(monkeypatch)
     _, waiting = run(max_calls=1)
     assert len(calls) == usage["modelCalls"] == 1
@@ -457,9 +457,7 @@ def test_residual_context_without_pixel_display_blocks_before_spending_model_cal
     monkeypatch.setattr(runner, "build_page_plan", undisplayed)
     result, state = run(restore=waiting)
     assert result is None and len(calls) == usage["modelCalls"] == 1
-    assert (
-        state["pages"]["1"]["imageReviewPreparationFailure"] == "visual_rule_context_not_displayed"
-    )
+    assert state["pages"]["1"]["imageReviewPreparationFailure"] == "visual_display_source_changed"
     assert "imageReview" not in state["pages"]["1"] and len(builds) == 1
     again, _ = run(restore=state)
     assert again is None and len(calls) == 1 and len(builds) == 1

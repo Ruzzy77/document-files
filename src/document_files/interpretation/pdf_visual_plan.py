@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v9"
+VERSION = "document-files.pdf-visual-review.v10"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -480,6 +480,7 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
         "page": page,
         "captureFingerprint": capture["fingerprint"],
         "pixelFingerprint": pixels["fingerprint"],
+        "rgbSha256": pixels["rgbSha256"],
         # Measurement time is diagnostic, not source evidence or model input.
         "grid": {k: v for k, v in grid.items() if k != "diagnostics"} if grid else None,
         "pixelSize": capture["pixelSize"],
@@ -580,6 +581,14 @@ not approved replacements. Set gridChecks to rectangular_grid only if the full d
 visibly has those row/column boundaries without merged cells, missing rows or ambiguous
 alignment; otherwise unknown. This does not establish header roles or record meaning.
 Never treat a previous model reading or measured grid as its own verification.
+When unitDisplay is present, image 1 is a panel sheet: SOURCE DETAIL is unchanged
+original RGB; each labeled unit panel shows its EXACT pixel membership in black on
+white. Black means membership only, not original darkness, text, borders or noise.
+Use these masks to identify each unit's own shape and compare it with the source detail.
+Never classify a unit from other content inside its rectangle. Labels and panel padding
+are generated navigation, not document content; the JSON lists panel/source coordinates.
+The first image remains the unmodified full page. A membership mask cannot prove a
+string correct, an edge harmless or a cell empty. Preserve unknowns and extra marks.
 Return compact JSON without indentation. Decision arrays contain ONLY decision strings in
 input order (units, missingSlots, sourceIds, grids respectively); do not repeat IDs in these
 arrays. readingOrder alone is the ordered array of block IDs."""
@@ -683,17 +692,8 @@ def require_proposal_measurements(plan):
             "visual_proposal_grid_unmeasured",
         )
 
-    # Bounds and overlapping cell strings do not display the exact residual mask.
-    # The actual v8 review called line-edge fragments source text. Do not spend
-    # another call or accept a label until source-bound membership images exist.
-    # This is deliberately unconditional, not a caller-provided "displayed" flag.
-    require(
-        not any(u.get("ruleEdgeTableRefs") for u in plan["units"]),
-        "visual_rule_context_not_displayed",
-    )
 
-
-def validate_decision(plan, decision, *, detail_bounds):
+def validate_decision(plan, decision, *, detail_bounds, display=None):
     """Reject inconsistent decisions; acceptance is processing, not OCR truth."""
     require(plan.get("version") == VERSION, "visual_plan_version_incompatible")
     require(
@@ -711,6 +711,9 @@ def validate_decision(plan, decision, *, detail_bounds):
     )
     require(type(decision["unrepresentedContent"]) is bool, "visual_response_invalid")
     require_proposal_measurements(plan)
+    from .pdf_visual_display import validate_display
+
+    display_fingerprint = validate_display(plan, display, detail_bounds=detail_bounds)
 
     def entries(key, expected):
         values = decision[key]
@@ -827,4 +830,5 @@ def validate_decision(plan, decision, *, detail_bounds):
         "decisionFingerprint": digest(decision),
         "detailBounds": deepcopy(detail_bounds),
         "ocrTruthVerified": False,
+        **({"unitDisplayFingerprint": display_fingerprint} if display_fingerprint else {}),
     }

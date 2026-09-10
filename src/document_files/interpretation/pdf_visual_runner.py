@@ -16,6 +16,8 @@ from .pdf_image_read import build_read_plan, read_payload, read_schema, validate
 from .pdf_review_images import VERSION as IMAGE_VERSION
 from .pdf_review_images import PdfReviewImageError, prepare_pdf_review_images
 from .pdf_visual_apply import VERSION as APPLY_VERSION
+from .pdf_visual_display import VERSION as DISPLAY_VERSION
+from .pdf_visual_display import display_argument, display_payload, prepare_display, validate_display
 from .pdf_visual_grid import VERSION as GRID_VERSION
 from .pdf_visual_grid import VisualGridError
 from .pdf_visual_pixels import VERSION as PIXEL_VERSION
@@ -54,6 +56,7 @@ def review_identity(client):
         "apply": APPLY_VERSION,
         "imageRead": READ_VERSION,
         "imageProjection": PROJECTION_VERSION,
+        "unitDisplay": DISPLAY_VERSION,
     }
 
 
@@ -67,7 +70,10 @@ def _validated_record(doc, page, record):
     require(
         validation
         == validate_decision(
-            plan, validation["decision"], detail_bounds=validation["detailBounds"]
+            plan,
+            validation["decision"],
+            detail_bounds=validation["detailBounds"],
+            display=display_argument(record.get("images")),
         ),
         "visual_checkpoint_decision_changed",
     )
@@ -76,6 +82,20 @@ def _validated_record(doc, page, record):
 
 
 def _validated_images(doc, plan, descriptor, detail_bounds):
+    if isinstance(descriptor, dict) and descriptor.get("version") == DISPLAY_VERSION:
+        captures = [
+            e["capture"]
+            for e in doc.provenance.get("pdfPageRenderCaptures", [])
+            if e.get("page") == plan["page"]
+            and e.get("capture", {}).get("fingerprint") == plan["captureFingerprint"]
+        ]
+        require(
+            len(captures) == 1 and captures[0].get("pixelSha256") == plan.get("rgbSha256"),
+            "visual_display_source_changed",
+        )
+        validate_display(plan, descriptor, detail_bounds=detail_bounds)
+        _validated_images(doc, plan, descriptor["originalImages"], detail_bounds)
+        return
     images = deepcopy(descriptor)
     require(
         isinstance(images.get("images"), list) and 1 <= len(images["images"]) <= 2,
@@ -408,8 +428,15 @@ def review_pdf_pages(
                 proposal, capture, pixels, deadline=deadline, cancelled=cancelled
             )
             require_proposal_measurements(plan)
+            images = prepare_display(plan, images, deadline=deadline, cancelled=cancelled)
             contract = output_schema(plan)
-            payload = encode({**review_payload(plan), "outputContract": contract})
+            payload = encode(
+                {
+                    **review_payload(plan),
+                    **display_payload(images.descriptor),
+                    "outputContract": contract,
+                }
+            )
             if len(SYSTEM) + len(payload) > context_chars:
                 raise ModelError("pdf_image_projection_context_budget_exceeded")
             reason = stop_reason()
@@ -445,7 +472,10 @@ def review_pdf_pages(
             if response.finish_reason != "stop":
                 raise ModelError("ai_response_incomplete")
             validation = validate_decision(
-                plan, decode_review_response(plan, decode(response.text)), detail_bounds=detail
+                plan,
+                decode_review_response(plan, decode(response.text)),
+                detail_bounds=detail,
+                display=display_argument(images.descriptor),
             )
             attempt.update(status=validation["status"], validation=validation)
             if validation["status"] == "reviewed":
@@ -550,8 +580,15 @@ def review_pdf_pages(
             )
             plan = build_page_plan(doc, capture, pixels, deadline=deadline, cancelled=cancelled)
             require_proposal_measurements(plan)
+            images = prepare_display(plan, images, deadline=deadline, cancelled=cancelled)
             contract = output_schema(plan)
-            payload = encode({**review_payload(plan), "outputContract": contract})
+            payload = encode(
+                {
+                    **review_payload(plan),
+                    **display_payload(images.descriptor),
+                    "outputContract": contract,
+                }
+            )
             if len(SYSTEM) + len(payload) > context_chars:
                 raise ModelError("pdf_visual_context_budget_exceeded")
             reason = stop_reason()
@@ -589,6 +626,7 @@ def review_pdf_pages(
                 plan,
                 decode_review_response(plan, decode(response.text)),
                 detail_bounds=crop["pixelBounds"] if crop else None,
+                display=display_argument(images.descriptor),
             )
             record.update(status=validation["status"], validation=validation)
             checkpoint(state)

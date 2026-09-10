@@ -191,7 +191,7 @@ def test_page_evidence_remains_bound(evidence):
     assert plan.observation_page_fingerprint(doc, 1) != before
 
 
-@pytest.mark.parametrize("version", ["v1", "v7", "v8"])
+@pytest.mark.parametrize("version", ["v1", "v7", "v8", "v9"])
 def test_previous_plan_version_cannot_be_accepted_by_rehashing(version):
     value = build()
     value["version"] = "document-files.pdf-visual-review." + version

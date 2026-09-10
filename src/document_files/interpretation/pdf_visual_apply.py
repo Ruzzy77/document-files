@@ -7,6 +7,7 @@ from copy import deepcopy
 from ..document_model.model import ObservationDocument
 from ..document_model.recognition_cell_observations import fingerprint
 from ..document_model.recognition_sources import page_render_fingerprint
+from .pdf_visual_display import display_argument
 from .pdf_visual_plan import (
     PdfVisualReviewError,
     _mapped_box,
@@ -16,7 +17,7 @@ from .pdf_visual_plan import (
     validate_decision,
 )
 
-VERSION = "document-files.pdf-visual-apply.v2"
+VERSION = "document-files.pdf-visual-apply.v3"
 MAX_ORDER_COMPARISONS = 1048576
 _REPLACEMENT_CODES = {
     "pdf_page_has_no_native_text",
@@ -65,7 +66,8 @@ def _validated(doc, reviews):
             and capture.get("page_no") == page
             and capture.get("status") == "captured"
             and capture.get("fingerprint") == page_render_fingerprint(capture)
-            and capture["fingerprint"] == plan["captureFingerprint"],
+            and capture["fingerprint"] == plan["captureFingerprint"]
+            and ("rgbSha256" not in plan or plan["rgbSha256"] == capture["pixelSha256"]),
             "visual_apply_capture",
         )
         for item in plan["sources"]:
@@ -81,7 +83,10 @@ def _validated(doc, reviews):
         require(
             validation
             == validate_decision(
-                plan, validation["decision"], detail_bounds=validation["detailBounds"]
+                plan,
+                validation["decision"],
+                detail_bounds=validation["detailBounds"],
+                display=display_argument(review.get("images")),
             )
             and validation["status"] == "reviewed",
             "visual_apply_not_reviewed",
@@ -422,6 +427,11 @@ def apply_page_reviews(doc: ObservationDocument, reviews) -> ObservationDocument
                     "page": p,
                     "planFingerprint": r["plan"]["fingerprint"],
                     "decisionFingerprint": r["validation"]["decisionFingerprint"],
+                    **(
+                        {"unitDisplayFingerprint": r["validation"]["unitDisplayFingerprint"]}
+                        if "unitDisplayFingerprint" in r["validation"]
+                        else {}
+                    ),
                 }
                 for p, r in sorted(selected.items())
             ],

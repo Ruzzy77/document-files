@@ -2,6 +2,15 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add source-bound membership panel images (PDF review v10, unit display v1) within
+  the existing two-image/byte/pixel limits. Keep the full source PNG and original RGB
+  detail, show each required unit's exact mask separately, and bind panel coordinates,
+  membership, actual PNG/RGB hashes and capture identity before inference. Masks do
+  not assign semantics or original color. Missing/changed display remains blocked;
+  checkpoint restore and application require the same evidence without replaying
+  rendering/model work. Visual application v3 preserves the display fingerprint in
+  page-review provenance. Public extraction v1 and finite document budgets are unchanged.
+
 - Review v9 blocks candidate rule-edge units before inference and during response
   validation until exact source-bound membership can be displayed. The actual v8
   model still called those fragments source text and missed a known title line-break
