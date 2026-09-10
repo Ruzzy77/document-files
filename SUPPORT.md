@@ -36,37 +36,81 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
-Scope-axis protocol v1 is now connected to the extraction engine, using axis wire v1
-and source-binding v1. Regional checkpoint v3 stores the citation-free selection,
-compiler source trace, original batch/context fingerprint and execution policy.
-Resume reconstructs and compares that evidence before accepting a saved choice or
-making another model call. Incompatible older checkpoints are rejected.
+Current source is `025cbe9` (compiler v19), following engine activation `9955393`.
+Scope-axis protocol v1 now uses axis wire v1 and source-binding v1 in the extraction
+engine. Regional checkpoint v3 stores citation-free selection, compiler source trace,
+original batch/context fingerprint and execution policy. Resume reconstructs and
+compares that evidence before accepting a saved choice or making another call.
+Incompatible older checkpoints are rejected. Public API v1 remains unchanged.
 
 Only managed scope requests use reasoning budget 512, within a total output ceiling
-of 1,536 tokens or a smaller client ceiling. Template/context checks and inference
-use the same override. Other phases keep the profile default; client identity and
-installed manifests are not mutated. Generic/cloud reasoning remains client-owned,
-and complete-only output limits remain client-owned and are recorded as such. All
-stages still share cumulative document call/time budgets. The scope batcher measures
-the actual serialized system, payload and schema and separates a shared caption's
-meanings. Prompt v24 / table protocol v16 / compiler v19 / canonical scope integration
-v11 / reference wire v2 and public API v1 remain unchanged.
+of 1,536 tokens or a smaller client ceiling. Context checks and inference use the
+same override; other phases inherit the profile default. Generic/cloud reasoning
+and complete-only output limits remain client-owned and are recorded distinctly.
+No installed manifest or client profile is mutated. All phases share the cumulative
+document call/time budget. Batches use actual serialized system/payload/schema size;
+meanings from the same source are decided separately. Other current identities are
+prompt v24 / table protocol v16 / canonical scope integration v11 / reference wire v2.
 
-Local full regression passed **2,524** (227 skipped, 12 subtests); 634 related
-tests passed with warnings as errors, and Ruff/format passed for 218 files. Scripted engine
-coverage includes column/row selection, content uncertainty, bounded request policy,
-invalid siblings, explicit grants, call-free resume and altered source/trace/policy
-rejection. Transport tests verify request-scoped text/image context checks, no mode
-leak to later requests, incomplete usage preservation and unsupported-cloud rejection.
-The initial scope activation source passed 606 related tests on Spark ARM.
-The subsequent compiler v19 fix and actual integrated model calls still await ARM checks.
-The earlier development successes below do not automatically qualify this activation.
+Local full regression passed **2,524** (227 skipped, 12 subtests); 634 related tests
+passed with warnings as errors, and Ruff/format passed for 218 files. Both current
+Spark ARM runners passed **634 / 0 skipped** before their model call. The current
+CI [34529817386](https://github.com/Ruzzy77/document-files/actions/runs/34529817386)
+has all five regression steps successful; portable builds were still running at
+last check. Superseded builds 34525572826 and 34529040258 were cancelled after the
+replacement source was submitted. Their successful regression steps do not make
+them current candidates or completed build qualification.
 
-Integrated preflight exposed an existing scalar-blank defect: subtotal decimal blanks
-outside the repeat became uncertain with lost bindings. Compiler v19 now reads a
-declared blank as source text, verifies actual emptiness, and preserves its empty
-string/status/binding consistently with repeat cells. Nonempty zero/false/null remain
-invalid blank claims. This adds 28 regression cases without rewriting observations.
+Integrated preparation exposed an existing scalar-blank defect: decimal subtotal
+blanks outside the repeat became uncertain and lost their bindings. Compiler v19
+now verifies an actual empty source and preserves its empty string, blank status
+and text binding consistently with repeat cells. Nonempty zero/false/null still
+reject blank status. This adds 28 regression cases without rewriting observations.
+
+**Both actual integrated development calls failed semantic quality**, despite the
+engine returning `complete` and passing syntax/compilation checks. The original
+structure, content and subtotal interpretation were supplied by four explicitly
+scripted prefix exchanges; each document then made exactly one real scope call.
+This is not a full-document AI extraction or independent holdout.
+
+| Given-content case | Actual result |
+|---|---|
+| First two samples' Width only | Correct two-row filter, but also incorrectly selected subtotal Width and its schema definition. |
+| Third sample's observed blank Width only | Incorrectly selected Width in all three data rows and the subtotal, with whole-column/subtotal schema links. |
+
+Both retained the three data records, subtotal values, long identifiers, numeric
+strings, all original bindings and blank statuses. After closing the model server,
+a new client resumed each checkpoint without a model call, observation replay or
+runtime startup; selections, data/evidence and cumulative budgets were preserved.
+This demonstrates resume behavior, **not correctness of the saved interpretation**.
+
+Each document had five engine exchanges (four scripted, one real), at most one
+real model call, a shared 300-second engine limit and 1,536 total output tokens.
+Inference including startup took 153.32/156.59 seconds; engine time was 153.44/156.71
+and host time 172.01/175.32 seconds. Completion used 658/722 tokens. Each isolated
+4 CPU / 16GiB container had zero swap/OOM/GPU/external network; memory peaks were
+6,769,405,952 / 6,735,450,112 bytes. No new OCR/rendering was performed. Paired runs
+shared a Spark and are not a speed comparison or full recognition-resource approval.
+
+The full path adds three legitimate subtotal scalar candidates that earlier
+component controls did not include. The requests show only header-definition
+context for those scalar candidates, without their value-cell/row-role relationship.
+This is an observed input difference, not proof of the sole cause: system text,
+source-range context and mixed output choices also changed. Next, preserve all
+candidates while exposing verified scalar geometry and isolating these differences.
+Do not delete selected subtotals after the fact, narrow the allowed candidates to
+make the test pass, or infer scope from the explanation. Compact long-range
+provenance and content classification remain open before the new bounded full HTML
+run (not started). All release and consumer-transition gates remain unqualified.
+
+Evidence is in `scope-axis-engine-01/`, `arm-scope-axis-engine-regression-01/`,
+`scope-engine-product-preparation-01,02/` and `arm-scope-engine-product-01/` beneath
+the private DGX qualification directory. The integrated review SHA256 is
+`da99c8cca5ce73ca29be2d250ff896072b525e078870219d651af9bae53c2e73`.
+Owned servers/containers, transfer archives and temporary activations were cleaned
+up; failures, inputs, responses and checkpoints remain. Superseded source snapshots
+were retired only after hash/Git and process/mount checks. Current Spark-A source is
+`/home/user/document-files-engine-axis-4wTDhtKW/source` at `025cbe9`.
 
 #### Prepared components and previous development calls
 
@@ -87,8 +131,8 @@ Ruff and format checks passed for 216 files. Previous baseline CI run
 completed successfully on all five targets; that older run does not certify these
 new files. Current-source Spark ARM passed the same 501 related tests with no skips. In new
 CI run [34525572826](https://github.com/Ruzzy77/document-files/actions/runs/34525572826),
-all five regression steps succeeded; portable builds were still running at the
-last check. None of these counts is independent document quality, installed-client
+all five regression steps succeeded; portable builds were still running at that
+check and were later cancelled when compiler v19 superseded this source. None of these counts is independent document quality, installed-client
 or release approval.
 
 Two further Spark calls kept the successful strict axis contract, program-bound
