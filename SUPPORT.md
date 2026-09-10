@@ -35,37 +35,58 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
-Source `3ce3415` adds table protocol v11 / source decisions v2. A literal empty
-source cannot offer a meaning that requires a nonempty exact quotation. Explicit
-negative, unresolved and deferred reviews remain required; whitespace, source text,
-blank-cell evidence and public v1 contracts are unchanged. Older table checkpoints
-cannot resume as v11. The prompt also distinguishes already represented labels and
-ordinary values from additional meaning without excluding them from review.
+Source `ac49fd2` uses table protocol v12 / source decisions v3. The same meaning
+response now lists all source choices before its meaning details and explicit
+source reviews. Exact quotes, complete source accounting, frozen records and
+revision checks remain required. A literal empty source cannot choose
+`has_meaning`; a separate quotation from it is still rejected by the compiler.
+Whitespace, blank-cell evidence and public v1 contracts are unchanged. Older table
+checkpoints cannot resume under the new internal contract.
 
-Two separate Spark development calls reused the saved PDF observation and accepted
-structure. The v10 response stopped after 289.23 seconds (4,468 input / 2,255 output
-tokens), but invented a space quotation from an empty string and was rejected.
-The v11 response compiled after 276.36 seconds (4,586 / 2,087 tokens); its empty-source
-review had no fabricated quote. Both records, zero, exact decimal strings, blank
-note, schema and source bindings were preserved. **Meaning quality has not passed:**
-the other eleven headers/values still became redundant definitions. Compiler
-acceptance is not semantic approval, and further prompt wording alone is not an
-established fix. A source-selection-only diagnostic with positive and negative
-controls precedes any additional meaning substage or automatic filtering.
+**The full v12 meaning call failed.** On the saved PDF observation and accepted
+structure, it selected all eleven ordinary nonempty headers/values as additional
+meaning and invented an `OK` quotation from the empty source. The compiler rejected
+it with `quote_not_in_source`, preserving both records, zero, exact decimal strings,
+blank note, schema and bindings. The one-call / 360-second development run took
+325.05 inference seconds (4,444 input / 2,297 output tokens), 338.86 host seconds,
+and peaked at 6,832,664,576 cgroup bytes. Merely ordering choices before details is
+not a demonstrated fix.
 
-Each call had its own one-call / 360-second development limit. The original PDF
-remains at 853.49/900 seconds and six calls; its failure is not reset. Host execution
-was 297.12 / 283.95 seconds, whole-cgroup peaks 6,825,164,800 / 6,817,898,496 bytes,
-under 4 CPUs / 16 GiB without swap/OOM, GPU or external network. Model and projector
-bytes match the earlier Mac setup; runtime manifests and batch-thread settings do
-not. No OCR, rendering or complete document run was repeated. Owned servers and
-containers were stopped; transfer duplicates and temporary activation were removed.
-Existing product packs, Toolkit, Sync and clients were not changed.
+Separate source-selection diagnostics then used both real frozen-table contexts,
+with the original product payload preserved apart from the system/output contract.
+All 12 ordinary PDF sources were correctly negative; in the merged-header HTML,
+only the unit/condition caption among 11 sources was selected. The respective
+inference times were 145.71 / 94.98 seconds, with 3,343/636 and 2,195/485 input/output
+tokens. Each had a one-call / 240-second / 1,536-output-token cap. Runs overlapped on
+the same Spark, so they are not a performance benchmark. Earlier short mixed
+controls matched 19/21 and then 21/21 after distinguishing literal transcription
+from extracted header units. These small development controls are not holdouts.
 
-The committed source passed 2,312 local tests (227 skipped, 12 subtests), including
-236 related tests with warnings as errors, and Ruff/format for 208 files. These are
-not whole-path ARM, independent document, final installation or release approvals.
-The earlier ARM dependency tests and portable installation below used older source.
+An offline replay of the negative selection into the existing compiler produced
+zero meanings and 12 explicit source reviews, no issues, and unchanged data/schema/
+bindings, without another model call. **A durable selection substep is not yet
+implemented**, and the positive case has not validated detailed meaning kinds,
+quotes or unit/condition scopes under that workflow. Its design must retain
+correctable decisions, existing finite call/time budgets, checkpoint identity,
+partial results and frozen structure; it must not exclude headers/values by rule.
+
+The source passed 2,321 local tests (227 skipped, 12 subtests), including 304 related
+tests with warnings as errors, and Ruff/format for 208 files. The same 304 related
+tests passed on ARM. The first ARM attempt failed before inference because the
+recognition-only Python lacked core `pypdf`; a fresh isolated run mounted only the
+verified core `pypdf` package and metadata read-only for its test child. No installed
+core, recognition pack or dependency was changed; that preparation failure remains
+recorded separately and consumed no model call.
+
+All runs used 4 CPUs / 16 GiB per container without swap/OOM, GPU or external
+network. The original PDF remains at 853.49/900 seconds and six calls; the earlier
+HTML trial at 900.02/900 seconds and two calls; the scan at 886.39/900 seconds and
+four calls. None was reset or resumed beyond its cap. There was no new OCR,
+rendering or complete document run. Owned servers/containers and transfer/activation
+duplicates were cleaned up; failure evidence and one exact shared source snapshot
+remain. These results do not qualify whole-path ARM resources, independent
+quality, installation or release. Existing product packs, Toolkit, Sync and clients
+remain unchanged.
 
 ### Current pixel-review controls and display coverage
 
