@@ -6,6 +6,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from test_pdf_visual_plan import wire_response
 
 from document_files.interpretation import pdf_visual_runner as runner
 from document_files.interpretation.backends import MANAGED_VISION_VERSION, ModelError
@@ -89,7 +90,7 @@ def setup(monkeypatch, *, failure=None):
             if failure == "unknown":
                 decision["unrepresentedContent"] = True
             return SimpleNamespace(
-                text=json.dumps(decision),
+                text=json.dumps(wire_response(plan, decision)),
                 finish_reason="stop",
                 usage={"prompt_tokens": 100, "completion_tokens": 20},
             )
@@ -239,7 +240,7 @@ def test_engine_owns_review_checkpoint_and_plans_only_after_acceptance(monkeypat
         assert checkpoints[-1]["usage"]["modelCalls"] == 1
         assert not checkpoints[-1].get("regions")
         return SimpleNamespace(
-            text=json.dumps(answer),
+            text=json.dumps(wire_response(fixture_reviews[0]["plan"], answer)),
             finish_reason="stop",
             usage={"prompt_tokens": 12, "completion_tokens": 5},
         )

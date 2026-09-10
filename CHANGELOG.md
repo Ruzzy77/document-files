@@ -2,6 +2,15 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Review v8 separates residual connected components after measured rule pixels and
+  candidate edge neighborhoods are partitioned. Source candidates follow those
+  components, not the original grid-connected page shape. Every original pixel
+  remains. A model may choose `rule_edge` only with offered context; short/detached
+  marks do not acquire it from proximity, and it cannot prove a missing cell empty.
+  Columnar input and ordered decision strings reduce repeated JSON; the program
+  restores explicit IDs before validation/checkpointing. Old checkpoints are rejected.
+  These are review mechanics, not an independent quality approval.
+
 - Preserve an additional exact contrast-core mask alongside every original foreground
   pixel (pixel inventory v2). Grid v2 first keeps the existing all-foreground path,
   then may locate a complete grid from the contrast core without absorbing nearby

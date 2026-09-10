@@ -475,7 +475,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v7` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v8` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -542,12 +542,30 @@ Pure rule units do not offer cell text references, preventing `source_text` from
 standing in for a border decision merely because a whole-cell rectangle overlaps it.
 Grid candidate status is geometric, not a semantic or empty-value approval.
 
+Review v8 separates residual connected components after removing measured core runs
+and partitioning candidate edge neighborhoods. The neighborhood uses the existing
+8-pixel geometry context; it is not an enlarged line measurement or ownership claim.
+Only residual components that touch the same measured grid in the original inventory
+and span at least the existing 32-pixel minimum receive `ruleEdgeTableRefs`. Detached
+marks and short residual pieces remain ordinary/unknown content. Source references
+come from each residual component's actual overlap with observed rectangles; an
+approximate text rectangle is not used to cut off connected glyph edges. `rule_edge`
+requires an alternative image-reading proposal and offered context, does not count
+as matched source text, and cannot validate an empty slot. The model still has to
+check for glyphs, added marks or ambiguous content against the original images.
+
+`unitColumns` describes columnar unit rows in the model payload. Wire decision arrays
+contain strings in input order, with exact counts. The program restores plan-owned
+IDs before all existing validation and checkpoint serialization; canonical decisions
+remain explicit ID/decision objects. Legacy object arrays are not accepted on the
+v8 wire. This internal change does not alter the public extraction contract.
+
 Version 6 and later require the original-page measurements to contain every expected horizontal
 and vertical band as a candidate. An unresolved, missing or duplicated band blocks the
 review before inference; response validation repeats the guard. Affirmative model text
 cannot substitute for unresolved measured geometry. No measurement tolerance is widened.
 
-A separate v7 review checks every proposed source string and grid, as well as the full
+A separate v8 review checks every proposed source string and grid, as well as the full
 page's pixel units and reading order. It shares the original call/time budget and records
 an attempt before inference. A successful review permits only the alternate regions to
 enter interpretation; `pdfVisualReviewApplication.selectedImageProjectionFingerprints`

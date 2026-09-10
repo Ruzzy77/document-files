@@ -66,6 +66,25 @@ def answer(value):
     }
 
 
+def wire_response(value, decision):
+    """Model fixture output follows plan order; checkpoints retain explicit IDs."""
+    result = deepcopy(decision)
+    inventories = {
+        "units": [u["id"] for u in value["units"]],
+        "slots": [s["id"] for s in value["slots"]],
+    }
+    if "imageReadProposal" in value:
+        inventories.update(
+            sourceChecks=value["imageReadProposal"]["sourceIds"],
+            gridChecks=[g["id"] for g in value["imageReadProposal"]["grids"]],
+        )
+    for key, ids in inventories.items():
+        choices = {v["id"]: v["decision"] for v in decision[key]}
+        assert len(choices) == len(decision[key]) and set(choices) == set(ids)
+        result[key] = [choices[i] for i in ids]
+    return result
+
+
 def test_exact_pixel_plan_and_independent_review_remain_distinct():
     doc, capture, pixels = example()
     before = deepcopy((doc, capture, pixels))
@@ -391,3 +410,91 @@ def test_one_faint_interior_pixel_cannot_be_a_table_border_or_empty_value():
     next(v for v in decision["units"] if v["id"] == unmatched[0]["id"])["decision"] = "unknown"
     with pytest.raises(plan.PdfVisualReviewError, match="slot_not_empty"):
         plan.validate_decision(value, decision, detail_bounds=[0, 0, 170, 170])
+
+
+def test_compact_wire_restores_plan_owned_ids_without_changing_checkpoint_decision():
+    value = build()
+    decision = answer(value)
+    decision["units"][1]["decision"] = "unknown"
+    wire = wire_response(value, decision)
+    before = deepcopy(wire)
+    assert wire["units"] == ["source_text", "unknown"]
+    assert plan.decode_review_response(value, wire) == decision and wire == before
+    assert (
+        plan.validate_decision(value, plan.decode_review_response(value, wire), detail_bounds=None)[
+            "status"
+        ]
+        == "unresolved"
+    )
+    wire["units"].reverse()
+    assert plan.decode_review_response(value, wire)["units"][0] == {
+        "id": value["units"][0]["id"],
+        "decision": "unknown",
+    }
+    payload = plan.review_payload(value)
+    assert "parts" not in payload["unitColumns"]
+    assert (
+        dict(zip(payload["unitColumns"], payload["units"][0], strict=True))["sourceIds"]
+        == value["units"][0]["sourceIds"]
+    )
+    assert plan.output_schema(value)["properties"]["units"]["items"]["type"] == "string"
+
+
+@pytest.mark.parametrize(
+    "change", ["legacy", "omitted", "extra", "object", "null", "nonstring", "bad_choice"]
+)
+def test_compact_wire_rejects_old_or_malformed_decisions(change):
+    value = build()
+    wire = wire_response(value, answer(value))
+    if change == "legacy":
+        wire = answer(value)
+    elif change == "omitted":
+        wire["units"].pop()
+    elif change == "extra":
+        wire["complete"] = True
+    elif change == "object":
+        wire["units"] = {"u0": "source_text", "u1": "source_text"}
+    elif change == "null":
+        wire["slots"] = None
+    elif change == "nonstring":
+        wire["units"][0] = 1
+    else:
+        wire["units"][0] = "discard_noise"
+    with pytest.raises(plan.PdfVisualReviewError):
+        plan.validate_decision(value, plan.decode_review_response(value, wire), detail_bounds=None)
+
+
+def test_rule_edge_cannot_be_selected_without_candidate_or_replace_missing_slot_evidence():
+    value = build()
+    decision = answer(value)
+    decision["units"][0]["decision"] = "rule_edge"
+    with pytest.raises(plan.PdfVisualReviewError, match="visual_rule_edge_without_candidate"):
+        plan.validate_decision(value, decision, detail_bounds=None)
+    value, detail = grid_plan(extra=True), [0, 0, 170, 170]
+    # Even an offered edge does not make a missing slot empty. Keep the synthetic
+    # proposal empty to exercise the unit/slot invariant independently of image reads.
+    value["imageReadProposal"] = {"sourceIds": [], "grids": []}
+    for unit in value["units"]:
+        if not unit["onlyBoundaryPixels"] and not unit["sourceIds"]:
+            unit["ruleEdgeTableRefs"] = ["table"]
+    value["fingerprint"] = plan.digest({k: v for k, v in value.items() if k != "fingerprint"})
+    decision = {
+        "units": [
+            {
+                "id": u["id"],
+                "decision": "source_text"
+                if u["sourceIds"]
+                else "table_border"
+                if u["onlyBoundaryPixels"]
+                else "rule_edge",
+            }
+            for u in value["units"]
+        ],
+        "slots": [{"id": s["id"], "decision": "empty"} for s in value["slots"]],
+        "readingOrder": [b["id"] for b in value["blocks"]],
+        "unrepresentedContent": False,
+        "sourceChecks": [],
+        "gridChecks": [],
+    }
+    with pytest.raises(plan.PdfVisualReviewError, match="visual_slot_not_empty"):
+        plan.validate_decision(value, decision, detail_bounds=detail)

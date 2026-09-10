@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image, ImageDraw
 from test_pdf_image_read import answer, fixture, make_plan
+from test_pdf_visual_plan import wire_response
 
 from document_files.document_model.recognition_cell_observations import fingerprint
 from document_files.document_model.recognition_sources import page_render_fingerprint
@@ -258,7 +259,7 @@ def setup(monkeypatch, choice="accepted"):
             if choice == "unknown":
                 decision["sourceChecks"][0]["decision"] = "unknown"
         return SimpleNamespace(
-            text=json.dumps(decision),
+            text=json.dumps(decision if is_read else wire_response(plan, decision)),
             finish_reason="stop",
             usage={"prompt_tokens": 10, "completion_tokens": 10},
         )

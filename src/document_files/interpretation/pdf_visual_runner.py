@@ -25,6 +25,7 @@ from .pdf_visual_plan import (
     VERSION,
     PdfVisualReviewError,
     build_page_plan,
+    decode_review_response,
     digest,
     observation_page_fingerprint,
     output_schema,
@@ -443,7 +444,9 @@ def review_pdf_pages(
             _response_usage(usage, response)
             if response.finish_reason != "stop":
                 raise ModelError("ai_response_incomplete")
-            validation = validate_decision(plan, decode(response.text), detail_bounds=detail)
+            validation = validate_decision(
+                plan, decode_review_response(plan, decode(response.text)), detail_bounds=detail
+            )
             attempt.update(status=validation["status"], validation=validation)
             if validation["status"] == "reviewed":
                 working = proposal
@@ -583,7 +586,9 @@ def review_pdf_pages(
             if response.finish_reason != "stop":
                 raise ModelError("ai_response_incomplete")
             validation = validate_decision(
-                plan, decode(response.text), detail_bounds=crop["pixelBounds"] if crop else None
+                plan,
+                decode_review_response(plan, decode(response.text)),
+                detail_bounds=crop["pixelBounds"] if crop else None,
             )
             record.update(status=validation["status"], validation=validation)
             checkpoint(state)
