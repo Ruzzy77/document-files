@@ -35,56 +35,61 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
-Prompt v24 / table protocol v16 / compiler v18 / scope integration v11 now preserve
-content uncertainty independently from applicability. Earlier conversion changed
-a clear meaning to uncertain when its scope was unknown, while later scope
-application could promote an explicitly uncertain meaning to interpreted. The
-new contract distinguishes these cases: a valid scope resolves only applicability.
-Content uncertainty remains a partial result, including after checkpoint resume;
-private status is part of task freshness, not a new public result field. Old
-internal checkpoints are rejected. Local checks passed 2,436 tests (227 skipped,
-12 subtests), including 466 related tests with warnings as errors. The same 466
-related tests passed on Spark ARM without skips. These are not actual-model or
-full-recognition qualification. Windows CI exposed a scripted-test assumption that
-an instant call always takes positive measurable time; deterministic fixture timing
-and a separate valid zero-duration resume test now cover both cases. Product timing
-is unchanged; the new five-platform CI is still pending.
+The product remains at prompt v24 / table protocol v16 / compiler v18 / scope
+integration v11 / reference wire v2. Content uncertainty is preserved independently
+from applicability: finding a target cannot promote uncertain content to interpreted,
+including on resume. No new public result fields were added. Local checks passed
+2,436 tests (227 skipped, 12 subtests), including 466 related tests with warnings
+as errors. The same related tests passed on Spark ARM without skips. CI run
+[34513936824](https://github.com/Ruzzy77/document-files/actions/runs/34513936824)
+has passed regression on all five targets; Apple Silicon, Linux x64/ARM64 and
+Windows jobs completed successfully, while Intel Mac was still building at the
+last check. CI success is not full-document, installed-client or release approval.
 
-Row selection still uses actual source geometry and compiler-owned value mappings.
-It creates no rows or values, preserves gaps and unresolved roles, and cannot attach
-a row-only scope to the whole column schema. Source references and original fragment
-coordinates survive continuation. Invalid or overlapping choices are rejected before
-changing values. Shared request assembly now ensures development checks include the
-same visible output contract as product calls, without changing serialization.
+Six further Spark calls tested three successive **single-record applicability
+prototypes**, not a change to the product default. Each prototype used the same two
+caption-only development cases: second sample's Length only, versus all samples'
+Width. Their known table structure and note content were controlled inputs; this
+was not content extraction or a fresh full-document run. Truth stayed local.
 
-Four more one-call controls on source `bf58327` used the existing Spark CPU model.
-Each had a predeclared 300-second / 1,536-output-token cap and no repair or grant:
-
-| Control | Inference / host seconds | Actual result |
+| Prototype | Row case | Whole-column contrast |
 |---|---|---|
-| Supported six-category grammar | 98.03 / 111.54 | Exact unit and condition quotes; remainder review still unresolved |
-| Explicit remainder-review labels | 100.69 / 114.42 | Remainder reviewed, but the unit was misclassified as a definition |
-| Grouped observed row cells | 92.48 / 105.65 | Row applicability unresolved despite complete supplied coordinates |
-| Same grouped rows, thinking capped at 512 tokens | 126.46 / 139.75 | Row applicability still unresolved |
+| Explicit row boundary references | Wrong row/columns plus parent scopes; rejected for overlap | Parent/group/column scopes plus rows; rejected for overlap |
+| Record as context, exclusive whole record or typed parts | Parent overlap removed, but selected the first sample; compiler accepted, quality failed | Correct Width values and column-schema linkage |
+| Same structure, data-ordinal row aliases only | Correct second-sample Length selected, but cited first-row Width as evidence; compiler rejected | Correct Width values and column-schema linkage |
 
-**None passed its quality check; none of these experimental wire changes or thinking
-settings is adopted.** Content controls omitted scope generation; row controls used
-given structure and note content, so neither is a fresh full-document extraction.
-The pinned upstream Python converter confirmed that the earlier category schema's
-sibling `properties`/`anyOf` combination lost required category properties; the
-corrected schema produces all six category rules. This conversion inspection is
-not a full C++ grammar-language validation. Responses were not repaired by inferring
-roles from explanations or moving units to another category. Diagnostic compilation
-preserved values, schema and source evidence.
+The final alias comparison changed only row-reference strings; inverse translation
+recovered the prior request and output schema exactly. Original source text,
+geometry, candidate definitions and explanation order were unchanged. This separates
+source-coordinate confusion from the remaining citation-copying error. A schema-valid
+or compiler-accepted reply is not necessarily semantically correct. None of these
+prototypes is qualified or adopted; failed replies were not repaired from their
+explanations or completed with missing evidence after the fact.
 
-All four containers used 4 CPU / 16GiB, with zero swap/OOM/GPU/external network.
-Cgroup peaks ranged from 6,730,346,496 to 6,734,839,808 bytes. Some runs overlapped,
-so these are not speed comparisons. No new OCR or rendering was performed, and
-this is not full recognition-plus-inference resource approval. Original failed
-product budgets are unchanged. Owned servers and containers ended; transfer archives,
-temporary pack activations and the downloaded converter were hash-checked and removed.
-Failure evidence and pinned source references remain available. The prior shared-
-assembly source passed 429 related tests on ARM; that is not verification of v16.
+Each call had a predeclared 300-second / 1,536-output-token cap with no repair or
+grant. Row/column inference times were 99.92/93.45, 87.28/86.63 and 88.61/83.44
+seconds, respectively. All six used 4 CPU / 16GiB with zero swap/OOM/GPU/external
+network; cgroup peaks ranged from 6,732,169,216 to 6,789,222,400 bytes. Paired runs
+overlapped on the same Spark, so these are not speed comparisons. No OCR or new
+rendering was performed. Values, schema structure and source bindings were preserved;
+only accepted scope links changed, including the explicitly failed first-row choice.
+Owned servers and containers ended, and transfer archives/temporary activations were
+hash-checked and removed. Original failed product budgets remain unchanged.
+
+The next design check separates AI selection from mechanical provenance binding.
+If tested, its new contract must declare up front that the model selects existing
+scope handles while code resolves their current source bindings, with the derivation
+recorded separately. It must not patch a previously failed citation or infer targets
+from explanatory text. Missing observations, stale mappings, unsupported evidence
+and resource limits must still fail or remain partial. The current prototypes only
+handle one record; batching, multiple records/continuations, scalar targets, mixed
+scopes and checkpoint identity must be covered before any product adoption.
+
+Content classification remains a separate open issue. Earlier content-only controls
+could extract exact unit and condition quotes but alternated between an unresolved
+remainder review and misclassifying the unit as a definition. Neither category arrays
+nor review-label changes is adopted. A new bounded full HTML product run and the
+independent document suite have not passed.
 
 #### Earlier v15 content and target-reference controls
 
