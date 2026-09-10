@@ -260,7 +260,7 @@ def test_recognition_native_directories_are_frozen_and_bound_to_identity(tmp_pat
         backend.identity
         != DoclingRecognition(RecognitionConfig("missing", "missing", "missing")).identity
     )
-    assert backend.identity["adapterVersion"] == "26"
+    assert backend.identity["adapterVersion"] == "27"
 
 
 @pytest.mark.parametrize("value", [None, "python/lib", {"path": "/lib"}, [None], [[]]])
@@ -1105,7 +1105,7 @@ def test_table_repair_requires_closed_grid_and_preserves_original_pixels():
     assert remove_grid(no_grid, max_pixels=100000)[0] is None
 
 
-def test_table_repair_stage_preserves_conflicting_original_and_applies_call_budget():
+def test_table_repair_stage_preserves_conflicting_original_and_applies_call_budget(monkeypatch):
     import pytest
 
     pytest.importorskip("docling")
@@ -1121,6 +1121,11 @@ def test_table_repair_stage_preserves_conflicting_original_and_applies_call_budg
 
     config = RecognitionConfig(
         "/models", "/tesseract", "/tessdata", table_ocr_repair="ruled_tables_v1", repair_max_calls=1
+    )
+    source_orientation = {"status": "verified_upright", "sourcePassId": "fixture"}
+    monkeypatch.setattr(
+        "document_files.document_model.docling_pipeline.table_orientation_evidence",
+        lambda *_args, **_kwargs: dict(source_orientation),
     )
     restored = {}
     cls = pipeline_class(config, {}, restored)._product_ocr_type
@@ -1199,7 +1204,7 @@ def test_table_repair_stage_preserves_conflicting_original_and_applies_call_budg
     assert calls == [1]  # Completed table is reused despite exhausted attempt budget.
     assert snapshot["repairs"][0]["reusedFromCheckpoint"]
     assert [c.orig for c in page.parsed_page.textline_cells] == ["Qty", "000000123456789012345"]
-    model.orientation = 90
+    source_orientation["status"] = "unverified"
     snapshot = {"original": [], "supplemental": [], "repairs": [], "issues": []}
     model.repair(page, [label], snapshot)
     assert calls == [1]

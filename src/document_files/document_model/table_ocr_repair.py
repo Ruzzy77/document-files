@@ -11,6 +11,94 @@ import tempfile
 import time
 
 
+def table_orientation_evidence(captures, *, target, page_no):
+    """Use the table's own captured OCR crop, never the last crop on the page."""
+    from copy import deepcopy
+
+    def box(values):
+        return (
+            isinstance(values, (list, tuple))
+            and len(values) == 4
+            and all(type(v) in (int, float) and math.isfinite(v) for v in values)
+            and 0 <= values[0] < values[2]
+            and 0 <= values[1] < values[3]
+        )
+
+    unresolved = {"version": "document-files.table-orientation.v1", "status": "unverified"}
+    if not box(target) or type(page_no) is not int or page_no < 1:
+        return {**unresolved, "reason": "invalid_table_location"}
+    if not isinstance(captures, list) or len(captures) > 512:
+        return {**unresolved, "reason": "capture_inventory_unavailable"}
+    candidates = []
+    for capture in captures:
+        if (
+            not isinstance(capture, dict)
+            or capture.get("sourcePass") != "page_ocr"
+            or type(capture.get("page_no")) is not int
+            or capture["page_no"] != page_no
+        ):
+            continue
+        transform = capture.get("transform")
+        crop = transform.get("crop") if isinstance(transform, dict) else None
+        if not isinstance(crop, dict) or crop.get("coord_origin") != "TOPLEFT":
+            continue
+        bounds = [crop.get(k) for k in ("l", "t", "r", "b")]
+        if box(bounds) and all(
+            (bounds[i] <= target[i] if i < 2 else bounds[i] >= target[i]) for i in range(4)
+        ):
+            candidates.append((capture, bounds))
+    if len(candidates) != 1:
+        return {**unresolved, "reason": "table_crop_not_unique", "candidateCount": len(candidates)}
+    capture, bounds = candidates[0]
+    transform, frame, image = (
+        capture["transform"],
+        capture.get("pixelFrame"),
+        capture.get("image"),
+    )
+    if (
+        capture.get("status") != "complete"
+        or not isinstance(capture.get("passId"), str)
+        or not 1 <= len(capture["passId"]) <= 128
+        or transform.get("orientationBasis") != "upstream_osd_result"
+        or type(transform.get("orientationObservation")) is not int
+        or transform["orientationObservation"] != 0
+        or type(transform.get("orientation")) is not int
+        or transform["orientation"] != 0
+        or not isinstance(frame, dict)
+        or frame.get("status") != "input_pixels_matched"
+        or type(frame.get("localPageNumber")) is not int
+        or frame["localPageNumber"] != page_no
+        or type(frame.get("appliedClockwiseRotation")) is not int
+        or frame["appliedClockwiseRotation"] != 0
+        or frame.get("requestedCropTopLeft") != bounds
+        or not isinstance(image, dict)
+        or image.get("mode") != "RGB"
+        or not isinstance(image.get("sha256"), str)
+        or len(image["sha256"]) != 64
+        or any(c not in "0123456789abcdef" for c in image["sha256"])
+        or frame.get("inputImage") != image
+        or frame.get("cropImage") != image
+    ):
+        return {**unresolved, "reason": "table_crop_upright_unverified"}
+    pixels, size = frame.get("cropPixelBounds"), image.get("size")
+    if (
+        not box(pixels)
+        or any(type(v) is not int for v in pixels)
+        or size != [pixels[2] - pixels[0], pixels[3] - pixels[1]]
+    ):
+        return {**unresolved, "reason": "table_crop_pixels_unverified"}
+    return {
+        "version": unresolved["version"],
+        "status": "verified_upright",
+        "page_no": page_no,
+        "sourcePassId": capture["passId"],
+        "sourceCrop": deepcopy(capture["transform"]["crop"]),
+        "sourceImage": deepcopy(image),
+        "orientation": 0,
+        "basis": "unique_containing_ocr_crop_with_observed_osd_and_matched_pixels",
+    }
+
+
 def parse_tsv(raw: bytes, *, max_rows=200000) -> list[dict]:
     """Keep the text column lexical, including zeros, precision and NA/null words."""
     result = []

@@ -6,6 +6,15 @@ from types import SimpleNamespace
 import pytest
 
 
+def mock_upright_table_crop(monkeypatch):
+    # Source selection is independently covered below. These component fixtures
+    # provide synthetic images/OCR and do not model the upstream capture seam.
+    monkeypatch.setattr(
+        "document_files.document_model.docling_pipeline.table_orientation_evidence",
+        lambda *_args, **_kwargs: {"status": "verified_upright", "sourcePassId": "fixture"},
+    )
+
+
 def grid_image():
     pytest.importorskip("cv2")
     from PIL import Image, ImageDraw
@@ -60,7 +69,7 @@ def test_merged_or_boundary_touching_cells_are_not_guessed():
     assert units[0][0] is None and units[0][1]["status"] == "glyph_boundary_contact_unresolved"
 
 
-def test_cell_budget_resume_reuses_finished_cells_without_ocr_or_silent_replacement():
+def test_cell_budget_resume_reuses_finished_cells_without_ocr_or_silent_replacement(monkeypatch):
     pytest.importorskip("docling")
     image = grid_image()
     import pandas as pd
@@ -72,6 +81,7 @@ def test_cell_budget_resume_reuses_finished_cells_without_ocr_or_silent_replacem
     config = RecognitionConfig(
         "/models", "/tesseract", "/tessdata", table_ocr_repair="ruled_cells_v2", repair_max_calls=1
     )
+    mock_upright_table_crop(monkeypatch)
     restored = {}
     cls = pipeline_class(config, {}, restored)._product_ocr_type
 
@@ -267,6 +277,7 @@ def test_complete_unit_plan_survives_stops_with_separate_execution_state(monkeyp
     config = RecognitionConfig(
         "/models", "/tesseract", "/tessdata", table_ocr_repair="ruled_cells_v2"
     )
+    mock_upright_table_crop(monkeypatch)
     cls = docling_pipeline.pipeline_class(config, {})._product_ocr_type
     model = cls.__new__(cls)
     model.scale, model.orientation = 3, 0
@@ -394,6 +405,7 @@ def cell_batch_fixture(monkeypatch, *, restored=None, **limits):
         repair_max_images=16,
         **limits,
     )
+    mock_upright_table_crop(monkeypatch)
     cls = docling_pipeline.pipeline_class(config, {}, restored)._product_ocr_type
     model = cls.__new__(cls)
     model.scale, model.orientation = 3, 0
@@ -569,7 +581,8 @@ def test_batch_empty_page_is_not_blank_or_missing_output(monkeypatch):
     assert any(i["code"] == "table_ocr_ink_without_tokens" for i in snapshot["issues"])
 
 
-def test_batch_resume_checks_complete_run_membership_before_reuse(monkeypatch):
+@pytest.mark.parametrize("invalid_reference", ["executionPolicy", "orientationEvidence"])
+def test_batch_resume_checks_complete_run_membership_before_reuse(monkeypatch, invalid_reference):
     from document_files.document_model.recognition_sources import raw_pass_fingerprint
 
     model, page, first, _ = cell_batch_fixture(monkeypatch, repair_max_calls=1)
@@ -593,7 +606,7 @@ def test_batch_resume_checks_complete_run_membership_before_reuse(monkeypatch):
     assert [len(c) for c in calls] == [1]
     assert len(second["rawOCRRuns"]) == 2 and len(second["rawOCRPasses"]) == 3
     # A previous-version plan cannot provide completed work for this execution.
-    restored["tableRepairs"][0].pop("executionPolicy")
+    restored["tableRepairs"][0].pop(invalid_reference)
     denied, page, third, calls = cell_batch_fixture(
         monkeypatch, restored=restored, repair_max_calls=1
     )
@@ -773,7 +786,7 @@ def test_batch_configuration_identity_and_invalid_settings():
         config, table_ocr_repair="ruled_cells_v2", repair_batch_size=2, repair_max_images=16
     )
     assert DoclingRecognition(changed).identity != original
-    assert DoclingRecognition(changed).identity["adapterVersion"] == "26"
+    assert DoclingRecognition(changed).identity["adapterVersion"] == "27"
     for key, value in (
         ("repair_batch_size", 3),
         ("repair_max_images", True),
@@ -960,3 +973,181 @@ def test_cell_observation_tables_share_cumulative_budget_without_rehash_after_ex
     model._observe_cell_pixels(page, snapshot, cluster, canvas, [0, 0, 417, 250], grid)
     assert snapshot["cellObservations"][1]["reason"] == "cell_pixel_budget_exceeded"
     assert model.cell_observation_pixels == consumed and not calls
+
+
+def orientation_capture(*, bounds=(0, 0, 100, 60), page=1, angle=0, pass_id="table"):
+    crop = dict(zip(("l", "t", "r", "b"), bounds, strict=True))
+    crop["coord_origin"] = "TOPLEFT"
+    pixels = [int(v * 3) for v in bounds]
+    image = {
+        "mode": "RGB",
+        "sha256": "a" * 64,
+        "size": [pixels[2] - pixels[0], pixels[3] - pixels[1]],
+    }
+    return {
+        "passId": pass_id,
+        "page_no": page,
+        "sourcePass": "page_ocr",
+        "status": "complete",
+        "image": image,
+        "transform": {
+            "crop": crop,
+            "orientation": angle if angle is not None else 0,
+            "orientationObservation": angle,
+            "orientationBasis": "upstream_osd_result"
+            if angle is not None
+            else "upstream_no_rotation_fallback",
+        },
+        "pixelFrame": {
+            "status": "input_pixels_matched",
+            "localPageNumber": page,
+            "appliedClockwiseRotation": angle if angle is not None else 0,
+            "requestedCropTopLeft": list(bounds),
+            "cropPixelBounds": pixels,
+            "inputImage": deepcopy(image),
+            "cropImage": deepcopy(image),
+        },
+    }
+
+
+def test_table_orientation_ignores_last_caption_and_preserves_source():
+    from document_files.document_model.table_ocr_repair import table_orientation_evidence
+
+    table = orientation_capture()
+    caption = orientation_capture(bounds=(0, 65, 100, 80), angle=None, pass_id="caption")
+    before = deepcopy([table, caption])
+    result = table_orientation_evidence([table, caption], target=(1, 1, 99, 59), page_no=1)
+    assert result["status"] == "verified_upright" and result["sourcePassId"] == "table"
+    assert [table, caption] == before
+    # A later upright caption must not authorize an unknown/rotated table either.
+    table["transform"]["orientationObservation"] = None
+    caption["transform"]["orientationObservation"] = 0
+    assert (
+        table_orientation_evidence([table, caption], target=(1, 1, 99, 59), page_no=1)["status"]
+        == "unverified"
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "missing",
+        "duplicate",
+        "wrong_page",
+        "repair_pass",
+        "partial",
+        "unknown",
+        "rotated",
+        "fallback",
+        "no_frame",
+        "unmatched_pixels",
+        "wrong_image",
+        "bad_hash",
+        "wrong_crop",
+        "wrong_frame_page",
+        "wrong_rotation",
+        "wrong_pixels",
+        "boolean_angle",
+        "outside",
+    ],
+)
+def test_table_orientation_requires_unique_upright_source_crop(change):
+    from document_files.document_model.table_ocr_repair import table_orientation_evidence
+
+    capture = orientation_capture()
+    inputs = [capture]
+    target = (1, 1, 99, 59)
+    if change == "missing":
+        inputs = []
+    elif change == "duplicate":
+        inputs.append(deepcopy(capture))
+    elif change == "wrong_page":
+        capture["page_no"] = 2
+    elif change == "repair_pass":
+        capture["sourcePass"] = "table_repair"
+    elif change == "partial":
+        capture["status"] = "failed"
+    elif change == "unknown":
+        capture["transform"]["orientationObservation"] = None
+    elif change == "rotated":
+        capture["transform"]["orientationObservation"] = 90
+    elif change == "fallback":
+        capture["transform"]["orientationBasis"] = "upstream_no_rotation_fallback"
+    elif change == "no_frame":
+        capture.pop("pixelFrame")
+    elif change == "unmatched_pixels":
+        capture["pixelFrame"]["status"] = "unverified"
+    elif change == "wrong_image":
+        capture["pixelFrame"]["inputImage"]["sha256"] = "b" * 64
+    elif change == "bad_hash":
+        capture["image"]["sha256"] = "z" * 64
+    elif change == "wrong_crop":
+        capture["pixelFrame"]["requestedCropTopLeft"][0] = 1
+    elif change == "wrong_frame_page":
+        capture["pixelFrame"]["localPageNumber"] = 2
+    elif change == "wrong_rotation":
+        capture["pixelFrame"]["appliedClockwiseRotation"] = 90
+    elif change == "wrong_pixels":
+        capture["pixelFrame"]["cropPixelBounds"][2] += 1
+    elif change == "boolean_angle":
+        capture["transform"]["orientationObservation"] = False
+    elif change == "outside":
+        target = (1, 1, 101, 59)
+    assert table_orientation_evidence(inputs, target=target, page_no=1)["status"] == "unverified"
+
+
+@pytest.mark.parametrize(
+    "target,page",
+    [(None, 1), ((0, 0, float("nan"), 5), 1), ((False, 0, 2, 5), 1), ((0, 0, 2, 5), True)],
+)
+def test_table_orientation_rejects_invalid_location(target, page):
+    from document_files.document_model.table_ocr_repair import table_orientation_evidence
+
+    assert table_orientation_evidence([], target=target, page_no=page)["status"] == "unverified"
+
+
+@pytest.mark.parametrize(
+    "table_angle,last_angle,expected",
+    [
+        (0, None, "table_ocr_repair_budget_exceeded"),
+        (None, 0, "table_ocr_repair_orientation_unresolved"),
+    ],
+)
+def test_real_repair_gate_uses_table_crop_not_last_orientation(table_angle, last_angle, expected):
+    pytest.importorskip("docling")
+    from docling_core.types.doc import BoundingBox, CoordOrigin, DocItemLabel
+
+    from document_files.document_model.docling_adapter import RecognitionConfig
+    from document_files.document_model.docling_pipeline import pipeline_class
+
+    config = RecognitionConfig(
+        "/models", "/ocr", "/data", table_ocr_repair="ruled_cells_v2", repair_max_calls=1
+    )
+    cls = pipeline_class(config, {})._product_ocr_type
+    model = cls.__new__(cls)
+    model.orientation = last_angle
+    model.repair_calls = 1  # The source gate must not bypass the existing exhausted budget.
+    model.raw_passes = [
+        orientation_capture(angle=table_angle),
+        orientation_capture(bounds=(0, 65, 100, 80), angle=last_angle, pass_id="caption"),
+    ]
+    page = SimpleNamespace(
+        size=SimpleNamespace(width=100, height=80),
+        page_no=1,
+        predictions=SimpleNamespace(
+            layout=SimpleNamespace(
+                clusters=[
+                    SimpleNamespace(
+                        label=DocItemLabel.TABLE,
+                        id=1,
+                        bbox=BoundingBox(l=1, t=1, r=99, b=59, coord_origin=CoordOrigin.TOPLEFT),
+                    )
+                ]
+            )
+        ),
+        parsed_page=SimpleNamespace(textline_cells=[]),
+    )
+    snapshot = {"original": [], "supplemental": [], "repairs": [], "issues": []}
+    model.repair(page, [], snapshot)
+    assert [x["code"] for x in snapshot["issues"]] == [expected]
+    assert snapshot["repairs"] == []

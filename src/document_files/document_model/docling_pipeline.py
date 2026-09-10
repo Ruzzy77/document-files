@@ -36,6 +36,7 @@ from .table_ocr_repair import (
     parse_tsv,
     remove_grid,
     ruling_line_evidence,
+    table_orientation_evidence,
 )
 
 
@@ -719,9 +720,16 @@ def pipeline_class(config, snapshots, restored=None):
                         {"status": "native_text_table_skipped", "clusterId": cluster.id}
                     )
                     continue
-                if self.orientation != 0:
+                orientation = table_orientation_evidence(
+                    getattr(self, "raw_passes", None), target=target, page_no=page.page_no
+                )
+                if orientation["status"] != "verified_upright":
                     snapshot["issues"].append(
-                        {"code": "table_ocr_repair_orientation_unresolved", "clusterId": cluster.id}
+                        {
+                            "code": "table_ocr_repair_orientation_unresolved",
+                            "clusterId": cluster.id,
+                            "orientationEvidence": orientation,
+                        }
                     )
                     continue
                 if restored.get("originalOCRFingerprint") == snapshot.get("originalOCRFingerprint"):
@@ -733,6 +741,7 @@ def pipeline_class(config, snapshots, restored=None):
                             and prior.get("assessmentComplete")
                             and prior.get("policy", "ruled_tables_v1") == config.table_ocr_repair
                             and prior.get("sourceBBox") == bbox.model_dump(mode="json")
+                            and prior.get("orientationEvidence") == orientation
                         ):
                             snapshot["issues"].append(
                                 {"code": "recognition_raw_reused_repair_unverified"}
@@ -895,6 +904,7 @@ def pipeline_class(config, snapshots, restored=None):
                     info.update(
                         clusterId=cluster.id,
                         policy=config.table_ocr_repair,
+                        orientationEvidence=deepcopy(orientation),
                         executionPolicy=deepcopy(execution_policy),
                         page_no=page.page_no,
                         sourceBBox=bbox.model_dump(mode="json"),
@@ -971,6 +981,7 @@ def pipeline_class(config, snapshots, restored=None):
                             and p.get("executionPolicy") == execution_policy
                             and p.get("policy", "ruled_tables_v1") == config.table_ocr_repair
                             and p.get("sourceBBox") == info["sourceBBox"]
+                            and p.get("orientationEvidence") == orientation
                             and p.get("sourcePixelsSha256") == info["sourcePixelsSha256"]
                         ),
                         None,

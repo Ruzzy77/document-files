@@ -81,8 +81,29 @@ The header row was absent and one data position remained unobserved. Importing
 the saved result through the product correctly retained partial coverage and did
 not declare the unobserved position blank. Worker status `complete` is conversion
 completion, not complete document extraction. This new installation calibration
-is a development case, not an independent holdout; no semantic-model call or
-additional OCR attempt was made.
+is a development case, not an independent holdout; its original result and
+one-call installation budget remain unchanged.
+
+A subsequent component check matched the exact original canvas and three OCR
+crop pixel hashes. All missing text was visible in the original table input.
+The existing closed-grid helper prepared six unchanged-glyph cell inputs, selected
+before OCR. Six bounded OCR calls took 0.65 seconds and read five cells correctly:
+`Length`, both sample labels, `12.50` and `8.25`. `Item` was misread as `[607`.
+This was not a second full recognition run, and the caption punctuation was not
+reprocessed. Neither this component nor the whole document passes quality.
+
+The same saved capture exposed a repair-selection defect: the table crop had an
+observed upright orientation, but a later caption had no orientation observation.
+The old repair guard used the last crop's state for every table. Adapter v27 now
+requires the table's unique containing original OCR crop, observed upright OSD
+and matching input-pixel geometry. Unknown, rotated, conflicting or unbound crop
+evidence stays unresolved. The source selection is recorded and required for
+repair reuse; old adapter checkpoints cannot resume silently. The repair option
+remains opt-in and existing packs are unchanged. Changed contracts passed 106
+warnings-as-errors tests with the actual ARM recognition dependencies and selected
+the correct saved table crop without another OCR call. A broader run retained two
+core-PDF dependency failures (443 tests passed) in that recognition-only test
+environment; it is not a full core-plus-recognition qualification.
 
 The isolated installation/run used 4 CPUs, 16 GiB, no swap/OOM, GPU or network;
 whole-cgroup peak was 4,171,268,096 bytes. This is recognition-pack execution, not

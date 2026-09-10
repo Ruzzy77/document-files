@@ -2,6 +2,12 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Bind ruled-table repair orientation to the unique containing original OCR crop,
+  not the last OCR region on the page. Require observed upright orientation and
+  matching input-pixel evidence, record the source selection and check it on reuse.
+  Adapter v27 invalidates older checkpoints; OCR budgets and opt-in policy stay
+  unchanged. This fixes a repair gate, not the remaining OCR quality failures.
+
 - Add Linux assembly input/receipt v2 for explicit, hash-pinned omissions of
   Windows-only pip/setuptools installer launchers. Verify original wheel members
   and installed bytes before excluding them, retain omission evidence and rewrite

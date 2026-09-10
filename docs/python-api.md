@@ -314,6 +314,14 @@ directories, never the host's `LD_LIBRARY_PATH` or `LD_PRELOAD`. JSON array tran
 is normalized to an immutable tuple. Older adapter checkpoints cannot resume as v26;
 the public result v1 contracts are unchanged.
 
+Adapter v27 selects table orientation from a unique containing original OCR crop
+on the same local page. It requires observed upright OSD plus matched crop/input
+pixels; a later caption's orientation or no-rotation fallback cannot authorize or
+block another table. `document-files.table-orientation.v1` records the selection in
+repair evidence and binds reuse. Unknown, rotated, ambiguous or mismatched sources
+remain unresolved. The default repair policy and budgets are unchanged; adapter
+v26 checkpoints do not resume as v27.
+
 Recognition adapter v18 introduced explicit `ruled_cells_v2` file-list repair.
 Administrator `repairBudget` accepts `batchSize` (1–2), `maxImages` (1–64) and
 `maxInputPixels` (1–64,000,000), all integers excluding booleans. Defaults remain
