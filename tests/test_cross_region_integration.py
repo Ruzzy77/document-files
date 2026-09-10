@@ -99,6 +99,7 @@ def decision(task, label="Cost"):
         "taskId": task.id,
         "decision": "apply",
         "targetHandles": [candidate["targetHandle"]],
+        "rowSelections": [],
         "sourceRefs": ["note", *candidate["definitionRefs"]],
         "explanation": "Explicit cost unit applies to the cost definition.",
     }

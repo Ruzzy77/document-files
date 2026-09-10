@@ -1,10 +1,22 @@
 # Python, CLI and MCP integration
 
-Internal applicability calls use scope integration v9 and scope reference wire v1.
+Internal applicability calls use scope integration v10, scope reference wire v2
+and compiler v17.
 Short typed target aliases exist only in model requests/replies; validation and
 checkpoints use canonical handles. Source references and literal text are unchanged.
-Old scope/wire identities cannot resume under this contract. Public v1 APIs and
-row/column applicability semantics are unchanged; this is not a quality certification.
+Old scope/wire/compiler identities cannot resume under this contract. Public v1
+APIs are unchanged; this is not a quality certification.
+
+An applicability decision may include `rowSelections`: a supplied record handle,
+inclusive source `rowStart`/`rowEnd`, and optional `columnIds` (empty means all mapped
+columns). `rowOptions` supplies actual geometry, row roles and source references;
+the model never writes generated value pointers. Only existing data-row targets
+are expanded. Non-data rows add nothing, and absent or undecided rows retain
+uncertainty. Row-only decisions do not annotate a whole column's schema or change
+values/missingness. Selected source fragments keep their original row numbering
+after table continuation, with targets remapped to the joined record. Application
+checks current definitions, row/column evidence, mapping identity, overlapping
+whole-record/column choices and a cumulative one-million row/column expansion cap.
 
 The supported Python import is `document_files.api`. The engine, CLI, local MCP and
 HTTP service call the same document interpretation implementation. A host chat

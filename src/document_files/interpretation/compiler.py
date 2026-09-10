@@ -149,6 +149,7 @@ class CompiledRegion:
     consumed_bindings: set[str] = field(default_factory=set)
     dispositions: list[dict] = field(default_factory=list)
     repeat_paths: dict[str, dict] = field(default_factory=dict)
+    row_scopes: dict[str, dict] = field(default_factory=dict)
     header_value_bindings: set[str] = field(default_factory=set)
     dropped_fields: dict[str, str] = field(default_factory=dict)
     meaning_review: dict | None = None
@@ -633,6 +634,24 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         definition(repeat.id, repeat.label, repeat.definitionRefs, sp, [repeat_target])
         field_targets = {col.id: [] for col in repeat.columns}
         row_targets[repeat.id] = {}
+        row_scope = {
+            "tableRef": repeat.tableRef,
+            "rowStart": repeat.rowStart,
+            "rowEnd": repeat.rowEnd,
+            "dataOwnerRegionId": out.id,
+            "columns": {
+                col.id: {"column": col.column, "definitionId": prefix + col.id}
+                for col in repeat.columns
+            },
+            "rows": {
+                str(row): {
+                    "role": roles[row].role if row in roles else "unresolved",
+                    "sourceRefs": list(dict.fromkeys(c["sourceRef"] for c in row_cells)),
+                    "targets": {},
+                }
+                for row, row_cells in sorted(observed.items())
+            },
+        }
         grid = {}
         for cell in cells:
             for row in range(
@@ -671,6 +690,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 target = Target(space="data", path=f"{path}/{len(rows)}/{escape(key)}")
                 field_targets[col.id].append(target)
                 row_targets[repeat.id][row].append(target)
+                row_scope["rows"][str(row)]["targets"][col.id] = target.model_dump()
                 binding_id = (
                     preferred_binding(
                         by_source.get(cell["sourceRef"], {}), cell["sourceRef"], col.bindingMode
@@ -725,6 +745,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             "columnDefinitions": {str(c.column): prefix + c.id for c in repeat.columns},
             "headerSourceRefs": sorted(declared),
         }
+        out.row_scopes[repeat.id] = row_scope
         if not rows:
             unresolved_rows = bool(missing_roles) or any(
                 r.role == "unresolved" for r in roles.values()
@@ -1145,6 +1166,12 @@ def join_continuations(compiled, candidates, decisions):
         for item in right.semantic_details:
             for target in item["scope"]:
                 remap(target)
+        for row_scope in right.row_scopes.values():
+            if row_scope["tableRef"] == b["tableRef"]:
+                for row in row_scope["rows"].values():
+                    for target in row["targets"].values():
+                        remap(target)
+                row_scope["dataOwnerRegionId"] = left_id
         # The merged data lives in the first region. Evidence from later regions stays distinct.
         if b["path"] == "":
             right.data, right.schema, right.has_data = {}, _object(), False

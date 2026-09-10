@@ -2,6 +2,15 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Scope integration v10 / reference wire v2 / compiler v17 add row-range and
+  row/column applicability over compiler-owned source geometry. Only existing data
+  targets are selected; headers, notes, subtotals and blank rows create no values,
+  and gaps or undecided rows preserve uncertainty. Row-only scopes do not annotate
+  an entire column's schema. Continuation fragments retain their source row numbers
+  while generated targets move to the joined record. Evidence, mapping freshness,
+  overlap and bounded expansion are checked before application. Checkpoints use
+  canonical handles and reject older internal identities; public v1 is unchanged.
+
 - Scope integration v9 uses short typed target aliases at the model boundary.
   Candidate order, complete context, original text and source references are
   unchanged. Decode only target fields before validation; checkpoints retain

@@ -35,6 +35,34 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
+Scope integration v10 / reference wire v2 / compiler v17 now let the separate
+applicability step select actual source rows, optionally intersected with mapped
+columns. The compiler maps those choices to existing values; it does not create
+rows, infer units or turn missing observations into blanks. Row-only scope never
+annotates the whole column schema. Continuation fragments retain original row
+geometry and source references after generated pointers are remapped. Invalid or
+stale mappings, unsupported evidence and overlapping selections are rejected
+atomically; gaps and undecided row roles remain uncertain. Local checks passed
+2,415 tests (227 skipped, 12 subtests), including 425 related tests with warnings
+as errors. These checks are not actual-model or full-document qualification.
+
+Two additional content-only controls on source `3d00c8b` omitted scope generation
+but kept the selected original caption, other source context and frozen table.
+Non-thinking still returned only a condition; bounded thinking returned the exact
+unit and condition separately, but also added a redundant title note. Both left
+the remainder review unresolved (the thinking explanation nevertheless said no
+additional meaning remained). **Neither passed the content control.** Each used
+one call capped at 300 seconds / 1,536 output tokens, with no repair or added budget.
+Inference took 78.46/127.66 seconds; host time was 91.43/140.31 seconds; cgroup
+peaks were 6,729,674,752/6,787,366,912 bytes under 4 CPU/16GiB/no-swap/no-OOM/no-GPU/
+no-external-network limits. The diagnostic compiler copy used uniformly unresolved
+scopes; original responses, values, schema and source evidence stayed unchanged.
+Neither the content-only request nor thinking mode is a product default. Content
+extraction and mandatory separate applicability still need a successful product
+design and new bounded full-path verification.
+
+#### Earlier v15 content and target-reference controls
+
 An identical-request v15 comparison on Spark produced schema-valid, compiler-accepted
 replies in both modes, but **neither passed semantic quality**. Non-thinking omitted
 the separate unit; bounded thinking (512 tokens per reasoning block, within the same

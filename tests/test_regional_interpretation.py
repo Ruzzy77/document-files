@@ -200,13 +200,13 @@ def test_resume_checks_source_model_options_and_checkpoint_version():
         run(restore=state)
 
 
-@pytest.mark.parametrize("mutation", ["scope-v8", "missing-wire", "different-wire"])
+@pytest.mark.parametrize("mutation", ["scope-v9", "missing-wire", "different-wire"])
 def test_scope_wire_checkpoint_identity_rejects_old_or_changed_contract_before_call(mutation):
     states = []
     run(model=ReferenceModel(fail=True), checkpoint=states.append)
     state = states[-1]
-    if mutation == "scope-v8":
-        state["identity"]["scopeVersion"] = "document-files.scope-integration.v8"
+    if mutation == "scope-v9":
+        state["identity"]["scopeVersion"] = "document-files.scope-integration.v9"
     elif mutation == "missing-wire":
         del state["identity"]["scopeReferenceWireVersion"]
     else:
@@ -803,7 +803,8 @@ def test_recognition_failure_before_first_page_can_resume_without_reanalysis(mon
     assert backend.calls == 2
 
 
-def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
+@pytest.mark.parametrize("scope_mode", ["column", "rows"])
+def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(scope_mode):
     content = (
         b"<p>Lengths use millimeters.</p><table><tr><th>Length</th></tr>"
         b"<tr><td>0012.40</td></tr></table>"
@@ -818,6 +819,35 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
             self.calls += 1
             payload = json.loads(messages[-1]["content"])
             if "taskId" in payload:
+                if scope_mode == "rows":
+                    candidate = next(c for c in payload["candidates"] if "rowOptions" in c)
+                    row = next(r for r in candidate["rowOptions"]["rows"] if r["role"] == "data")
+                    assert candidate["targetHandle"].startswith("@container")
+                    return json.dumps(
+                        {
+                            "taskId": payload["taskId"],
+                            "decision": "apply",
+                            "targetHandles": [],
+                            "rowSelections": [
+                                {
+                                    "targetHandle": candidate["targetHandle"],
+                                    "rowStart": row["row"],
+                                    "rowEnd": row["row"],
+                                    "columnIds": ["length"],
+                                }
+                            ],
+                            "sourceRefs": list(
+                                dict.fromkeys(
+                                    [
+                                        *payload["statement"]["sourceRefs"],
+                                        *candidate["definitionRefs"],
+                                        *row["sourceRefs"],
+                                    ]
+                                )
+                            ),
+                            "explanation": "Scripted applicability to one actual data row.",
+                        }
+                    )
                 candidate = next(c for c in payload["candidates"] if c["label"] == "Length")
                 return json.dumps(
                     {
@@ -907,10 +937,30 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
             return json.dumps(answer)
 
     states, model = [], ScopedModel()
-    kwargs = {"options": ExtractionOptions(reconstructionContext=False), "model_client": model}
+    kwargs = {
+        "options": ExtractionOptions(
+            reconstructionContext=False, maxModelCalls=3 if scope_mode == "rows" else 12
+        ),
+        "model_client": model,
+    }
     result = extract_schema_from_stream(
         job, io.BytesIO(content), checkpoint=states.append, **kwargs
     )
+    if scope_mode == "rows":
+        assert model.calls == 3 and result["extraction"]["status"] == "partial"
+        result = extract_schema_from_stream(
+            job,
+            io.BytesIO(content),
+            restore=states[-1],
+            checkpoint=states.append,
+            additional_budget={"maxModelCalls": 1},
+            **kwargs,
+        )
+        decisions = [
+            s["decision"] for s in states[-1]["scopeDecisions"].values() if "decision" in s
+        ]
+        assert len(decisions) == 1
+        assert decisions[0]["rowSelections"][0]["targetHandle"].startswith("scope-target-")
     assert result["data"] == {"measurements": [{"length": "0012.40"}]}
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["semanticDetails"][0]["scope"] == [
@@ -985,7 +1035,7 @@ def test_local_scope_batch_resumes_without_repeating_region_interpretation(inval
         assert all(c["targetHandle"].startswith("@") for c in task["candidates"])
     assert (
         states[-1]["identity"]["scopeReferenceWireVersion"]
-        == "document-files.scope-reference-wire.v1"
+        == "document-files.scope-reference-wire.v2"
     )
     assert all(
         handle.startswith("scope-target-")

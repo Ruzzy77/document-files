@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from .integration import scope_batch_payload, scope_output_schema
 
-VERSION = "document-files.scope-reference-wire.v1"
+VERSION = "document-files.scope-reference-wire.v2"
 _KINDS = {"field", "column", "container", "headerGroup"}
 
 
@@ -21,6 +21,7 @@ class ScopeReferenceWire:
     contract: dict
     targets: dict[str, str]
     task_targets: dict[str, set[str]]
+    task_row_targets: dict[str, set[str]]
     batched: bool
 
     def _decision(self, value):
@@ -39,6 +40,21 @@ class ScopeReferenceWire:
             result["targetHandles"] = None
         elif "targetHandles" in result:
             result["targetHandles"] = [self.targets[h] for h in handles]
+        if "rowSelections" in result:
+            rows = result["rowSelections"]
+            allowed_rows = (
+                self.task_row_targets.get(task_id, set()) if isinstance(task_id, str) else set()
+            )
+            if not isinstance(rows, list) or any(
+                not isinstance(row, dict)
+                or not isinstance(row.get("targetHandle"), str)
+                or row["targetHandle"] not in allowed_rows
+                for row in rows
+            ):
+                result["rowSelections"] = None
+            else:
+                for row in rows:
+                    row["targetHandle"] = self.targets[row["targetHandle"]]
         return result
 
     def decode(self, response):
@@ -84,10 +100,14 @@ def prepare_scope_wire(tasks):
     contract = scope_output_schema(tasks)
     decision = contract if len(tasks) == 1 else contract["$defs"]["ScopeDecision"]
     decision["properties"]["targetHandles"]["items"]["enum"] = list(aliases.values())
+    rows = contract.get("$defs", {}).get("ScopeRows", {}).get("properties", {})
+    if "enum" in rows.get("targetHandle", {}):
+        rows["targetHandle"]["enum"] = [aliases[h] for h in rows["targetHandle"]["enum"]]
     return ScopeReferenceWire(
         payload,
         contract,
         {alias: handle for handle, alias in aliases.items()},
         {t.id: {aliases[h] for h in t.target_map} for t in tasks},
+        {t.id: {aliases[h] for h, c in t.target_map.items() if "rowScope" in c} for t in tasks},
         len(tasks) > 1,
     )
