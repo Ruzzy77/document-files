@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Scope integration v8 retains short definition references within the existing
+  encoded request budget instead of silently cutting context after eight references.
+  Truncated text, absent nodes and budget-omitted candidates remain explicitly
+  incomplete; no applicability is inferred and old scope checkpoints are rejected.
+
 - Table protocol v15 pins the detail response's `baseRevision` to the accepted
   meaning revision, or null before any meaning is accepted. Initial `changes` must
   be empty. A source-selection hash cannot be substituted for meaning history;

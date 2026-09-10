@@ -227,26 +227,44 @@ def test_repeat_or_group_handle_attaches_to_descendant_evidence_not_other_rows()
     assert result[1].data == compiled[1].data
 
 
-@pytest.mark.parametrize("omission", ["text-tail", "reference-count", "missing-node"])
+@pytest.mark.parametrize("omission", ["text-tail", "reference-budget", "missing-node"])
 def test_truncated_or_omitted_definition_context_cannot_resolve_statement(omission):
     obs, regions, compiled = fixture()
     if omission == "text-tail":
         obs.nodes["price"]["text"] = "Cost " + "x" * 500 + " only if condition applies"
-    elif omission == "reference-count":
-        for n in range(9):
+    elif omission == "reference-budget":
+        for n in range(40):
             ref = f"context-{n}"
-            obs.nodes[ref] = {"text": "Additional definition context"}
+            obs.nodes[ref] = {"text": "Additional definition context" + "x" * 460}
             compiled[1].semantics[0]["sourceRefs"].append(ref)
     else:
         compiled[1].semantics[0]["sourceRefs"].append("missing-definition")
     task = build_scope_tasks(obs, regions, compiled)[0]
     assert task.payload["candidateCoverage"] == "bounded" and not task.complete_candidates
-    result, changed = apply_scope_decision(compiled, task, decision(task))
+    label = "Length" if omission == "reference-budget" else "Cost"
+    result, changed = apply_scope_decision(compiled, task, decision(task, label))
     assert changed and result[0].semantic_details[0]["interpretationStatus"] == "uncertain"
     assert any(
         i.get("code") == "semantic_scope_unresolved" and i.get("semanticId") == "usd"
         for i in result[0].issues
     )
+
+
+def test_short_definition_context_is_not_dropped_after_eight_references():
+    obs, regions, compiled = fixture()
+    for n in range(10):
+        ref = f"context-{n}"
+        obs.nodes[ref] = {"text": f"Additional definition {n}"}
+        compiled[1].semantics[0]["sourceRefs"].append(ref)
+    task = build_scope_tasks(obs, regions, compiled)[0]
+    candidate = next(c for c in task.payload["candidates"] if c["label"] == "Cost")
+    assert task.complete_candidates and candidate["contextComplete"]
+    assert [c["sourceRef"] for c in candidate["context"]] == candidate["definitionRefs"]
+    assert len(candidate["context"]) == 11
+    changed, applied = apply_scope_decision(compiled, task, decision(task))
+    assert applied and not any(i.get("semanticId") == "usd" for i in changed[0].issues)
+    obs.nodes["context-9"]["text"] = "Changed definition"
+    assert build_scope_tasks(obs, regions, compiled)[0].fingerprint != task.fingerprint
 
 
 def test_same_region_candidates_are_offered_without_automatic_assignment():

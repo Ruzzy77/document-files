@@ -35,6 +35,26 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
+An identical-request v15 comparison on Spark produced schema-valid, compiler-accepted
+replies in both modes, but **neither passed semantic quality**. Non-thinking omitted
+the separate unit; bounded thinking (512 tokens per reasoning block, within the same
+3,072-token total cap) separated the condition and unit with exact clause quotes.
+Both applied every meaning to the whole record, incorrectly including Sample ID.
+Each had one predeclared 300-second call: 111.70/158.75 inference seconds and
+124.56/171.50 host seconds. The shared input/schema was identical; input token counts
+differed with the model template. The two 4 CPU/16GiB containers overlapped, so this
+is not a speed benchmark. Cgroup peaks were 6,763,479,040/6,790,471,680 bytes with
+zero swap/OOM/GPU/external network. Source values, schema and source bindings stayed
+intact, while the accepted broad scopes added incorrect semantic links. Original
+responses and failed quality results are preserved; no product profile changed.
+
+Preparing a separate applicability check exposed an eight-reference context cutoff:
+the record had eleven short definition references that fit the request budget, yet
+the omitted tail forced `candidateCoverage: bounded`. Scope integration v8 now bounds
+encoded context by the existing request allowance instead of reference count. Text
+truncation, absent nodes and omitted candidates still prevent full resolution.
+This fixes context delivery, not meaning quality; the actual scope-only check is pending.
+
 Table protocol v15 uses separate, durable source selection inside the
 meaning stage. Selection and detail use the existing shared finite allowances, not
 new budgets. Source/model/structure/reference identity and selection-to-meaning

@@ -279,6 +279,12 @@ without float conversion; unsupported locale/unit-bearing text remains uncertain
 with its source spelling. Duplicate removal requires the same successful binding
 and representation, not merely the same cell reference.
 
+Applicability integration v8 retains definition-reference context within its existing
+encoded request budget instead of truncating the reference list at eight entries.
+Text truncation, missing nodes and candidates omitted by the budget remain explicit;
+they cannot be promoted to a complete applicability decision. The context and target
+mapping remain part of the task fingerprint, and older scope checkpoints are rejected.
+
 Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
 Table protocol v15 first asks for source selection in a separate call inside the
