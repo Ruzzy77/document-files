@@ -44,7 +44,20 @@ geometry and source references after generated pointers are remapped. Invalid or
 stale mappings, unsupported evidence and overlapping selections are rejected
 atomically; gaps and undecided row roles remain uncertain. Local checks passed
 2,415 tests (227 skipped, 12 subtests), including 425 related tests with warnings
-as errors. These checks are not actual-model or full-document qualification.
+as errors. The same 425 related tests passed on Spark ARM without skips. These
+checks are not actual-model or full-document qualification.
+
+An actual row-applicability development call on this source still failed. A new
+caption said only the second sample's Length was provisional; the model selected
+both data rows plus the whole Length column. The compiler rejected the overlap
+without changing values or evidence. This used the product's request assembly,
+codec and compiler, but the structure and note content were given component inputs,
+not fresh content extraction. The call took 78.00 inference / 90.59 host seconds,
+with a 6,730,977,280-byte cgroup peak. A separate one-call prompt clarification
+remained unresolved (75.54 / 88.45 seconds); it is not adopted. All row coordinates
+and source text were present, despite the model's explanation claiming otherwise.
+An earlier diagnostic omitted the contract from user-message content and is kept
+as a preparation failure, not an exact product-request comparison.
 
 Two additional content-only controls on source `3d00c8b` omitted scope generation
 but kept the selected original caption, other source context and frozen table.
@@ -60,6 +73,16 @@ scopes; original responses, values, schema and source evidence stayed unchanged.
 Neither the content-only request nor thinking mode is a product default. Content
 extraction and mandatory separate applicability still need a successful product
 design and new bounded full-path verification.
+
+A subsequent content-category-array control also failed: only the unit array was
+returned, five required arrays and the condition were missing, and the quoted
+unit's occurrence index was invalid. The reply failed both schema validation and
+the compiler. Its experimental schema combined `properties` and `anyOf` at the
+same object, a documented unsupported llama.cpp grammar combination; this is not
+a clean test of the category-array design. No product contract or quality check
+was relaxed. The next comparison must first use supported grammar and match the
+product's complete message assembly. See the pinned upstream
+[grammar limitations](https://github.com/ggml-org/llama.cpp/blob/9dcf84e5ae2718947188b539aab8b9c2b15d3ba1/grammars/README.md#json-schemas--gbnf).
 
 #### Earlier v15 content and target-reference controls
 
