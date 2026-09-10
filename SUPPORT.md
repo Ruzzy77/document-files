@@ -221,24 +221,71 @@ rather than the previous 501, but prompt processing remained 158.54 seconds; the
 call took 174.22 seconds. Product acceptance/application is rejected development
 quality evidence, not a verified document. Original observations and issues remain.
 
-Current source `454f518` (review v9) blocks these plans with
+The preceding source `454f518` (review v9) blocked these plans with
 `visual_rule_context_not_displayed` before inference and during response validation.
 Bounding rectangles do not expose a unit's exact pixel membership. Source-bound
-membership display is not implemented yet, and no caller flag bypasses the guard.
+membership display was not implemented at that stage; no caller flag bypassed the guard.
 The failure is retained on resume; old checkpoints are rejected. Existing plans
-without edge candidates keep their review path. No new model call followed the
-failed v8 review.
+without edge candidates keep their review path. That no-model guard check preceded
+the v10 display work described below.
 
 The local full suite passed 2,250 tests with 227 skips and 12 subtests; current actual
 ARM dependency checks passed 220 with no skips. The original 257,034 pixels and
 source strings are unchanged. V8's host execution used 181.90 seconds and its cgroup
 peak was 7,177,662,464 bytes without swap/OOM; the v9 no-model guard check took another
-3.81 host seconds. The development scan has now used 670.72/900 seconds and three
-model calls, leaving about 229.28 seconds. This reused recognition/reading evidence,
+3.81 host seconds. At that stage the development scan had used 670.72/900 seconds
+and three model calls, leaving about 229.28 seconds. This reused recognition/reading evidence,
 so it is neither whole-pipeline resource qualification nor independent quality approval.
 Owned containers/servers and verified temporary transport copies were cleaned up;
-original packs and clients are unchanged. The next implementation must expose exact
-unit membership while retaining the existing two-image/byte/pixel and document budgets.
+original packs and clients are unchanged. The follow-up below implements exact
+unit membership display without expanding the two-image/byte/pixel or document budgets.
+
+### Current PDF review: exact pixel display, response timeout
+
+Source `c283538` adds PDF review v10, unit display v1 and review application v3.
+The original full-page PNG is unchanged. The second image contains separate original
+RGB detail and exact membership-mask panels; black mask pixels identify membership,
+not source color or text/border/background classification. Labels are generated and
+kept separate from source content. Each panel has its own source coordinates,
+RGB/membership hashes and actual PNG evidence. Missing or altered display evidence
+is rejected during inference preparation, response validation, resume and application;
+a caller flag cannot substitute for it. Old checkpoints are not migrated.
+
+The original 257,034 foreground pixels, observations, tables and issues are preserved.
+All seven required edge masks (51,407 pixels) were checked byte-for-byte on Mac and
+ARM. Panel RGB and whole composite RGB match across hosts; compressed PNG bytes
+differ and retain their actual hashes. Both hosts use Pillow 12.3.0. No cause for the
+PNG byte difference is asserted. The actual two images total 345,200 bytes and
+7,157,464 pixels, within the unchanged 16 MiB / 16 million pixel limits, without
+resampling or dropping membership pixels.
+
+The local full suite passed 2,279 tests with 227 skips and 12 subtests; actual ARM
+recognition dependencies passed 249 with no skips. Ruff and format checks passed
+for 207 files. These checks cover actual transmitted image bytes, tamper rejection,
+resume without rendering/inference and application provenance, not model accuracy.
+
+One development review reused saved PNG, recognition and literal reading evidence
+on Spark under a 210-second inference cap. It timed out without returning a model
+response. Input preflight counted 5,267 tokens; the last server prompt-processing
+record was at 196.72 seconds. This does not establish exact final input progress or
+completion token usage. No response validation or reviewed observation was created.
+No OCR, recognition, source rendering or pack installation was repeated. The earlier
+v8 misclassification and title newline mismatch remain failed development evidence.
+
+Host execution took 215.67 seconds. Whole-cgroup peak was 7,202,758,656 bytes under
+4 CPU / 16 GiB, with no swap, OOM, GPU or external networking. Owned server and
+container cleanup and unchanged original pack/activation files were verified. This
+component replay is not whole-pipeline resource or independent quality qualification.
+The scan's cumulative record is now 886.39/900 seconds and four model calls, leaving
+13.61 seconds. It will not be automatically retried or given a larger original budget.
+
+One separate development-only response check with the exact prepared input, at most
+one call and 360 seconds, has been proposed and awaits explicit user approval. It
+would preserve the failed original trial and would not count as its 900-second
+success, an independent holdout, automatic product retry or checkpoint migration.
+This request is separate from the pending meaning-stage call for the other PDF.
+Formal release, all five platform targets, independent cases and consumer migration
+remain open; installed packs, Toolkit, Sync and clients are unchanged.
 
 ### Source-first table meaning review
 
