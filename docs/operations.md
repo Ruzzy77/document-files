@@ -206,7 +206,10 @@ alias, mutate the source archive or disable the pack's cross-platform path check
 Such an omission is not qualification of a general interactive Python runtime.
 
 Locally built wheels use the separately versioned
-[derived-artifact provenance and recognition audit v2](../deployment/README.md#original-inputs-and-locally-built-artifacts).
+[derived-artifact provenance and versioned recognition audits](../deployment/README.md#original-inputs-and-locally-built-artifacts).
 Keep original download hashes, built outputs, shipped recipes and actual build
 records distinct. A successful provenance/packaging check is neither a reproducible
 build claim nor document quality, full-resource or redistribution approval.
+Authored recipes, build records and scoped license collections use audit v3's
+separate hash-bound documentation records, not fabricated upstream origins. This
+does not replace source verification for runtime files or authenticate authorship.

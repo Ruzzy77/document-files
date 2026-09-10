@@ -49,6 +49,19 @@ model/OCR bytes and ARM Torch's official CPU origin are not replaceable by deriv
 artifacts. These are packaging checks, not independent build, license or quality
 approval. Linux stage preflight also rejects case-fold-colliding destinations;
 explicitly omitted unused terminal data retains its original member evidence.
+Recognition audit/verification v3 additionally distinguishes authored packaging
+records and scoped license collections, with separate file/evidence hashes and
+artifact associations. It is restricted to non-executable documentation and
+cannot substitute runtime or model origins. The outer pack format stays v1;
+authorship, redistribution approval and actual execution remain separate checks.
+
+For the current normal ARM stage, 149 authored records/collections were checked
+against 181 original or derived artifacts. The prepared 135 scoped collections
+preserve 504 exact embedded-text references, including legacy-encoded upstream
+license bytes. All 29,453 planned pack files have explicit license associations;
+the existing 29,318-file remote stage has not yet received the new collections.
+This is input preparation, not a complete stage audit, installed pack, whole-path
+recognition check or redistribution approval.
 
 For the Linux ARM64 development recognition stage, 39 additional notice files were
 copied into a new stage while preserving all 32,023 original files and their modes.

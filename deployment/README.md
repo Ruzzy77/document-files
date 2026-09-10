@@ -163,6 +163,58 @@ substitutes. ARM Torch must still match the original official CPU wheel, includi
 its original URL and staged bytes. V2 does not relax those checks or automatically
 migrate an old audit into approval for a new declaration.
 
+#### Authored packaging records
+
+Use recognition audit/verification **v3** with provenance v2 when the stage also
+contains project-authored recipes, build records or license collections. Do not
+give those files a fictitious upstream archive member or `sourceSha256`. Their
+audit file entries instead contain `authoredMetadata: {path, sha256}`, referring
+to a separately reviewed JSON record relative to the audit directory:
+
+```json
+{
+  "schemaVersion": "document-files.authored-metadata.v1",
+  "files": [{
+    "path": "provenance/derivations/component/record.json",
+    "sha256": "<exact staged file SHA256>",
+    "license": "<declared file license ID>",
+    "author": "<declared author or preparing project>",
+    "role": "build-record",
+    "relatedArtifacts": ["<original or derived artifact SHA256>"],
+    "basis": "<how this file was prepared and relates to those artifacts>"
+  }]
+}
+```
+
+Every record entry must match exactly one authored file using that evidence.
+Hashes, licenses, nonempty authorship/basis and unique artifact references are
+checked. `build-recipe`/`build-record` files must belong under
+`provenance/derivations/`, identify a derived artifact and retain any direct
+recipe/build-record relationship declared in provenance. `license-collection`
+files belong under `licenses/` (or the existing `native/THIRD_PARTY_NOTICES.txt`).
+Collections preserve the included components' separate terms; the metadata
+designation is not a new license grant.
+
+Only non-executable documentation is eligible. Authored text is UTF-8. A license
+collection may additionally list `embeddedTexts: [{path, sha256}]` for original
+terms shipped elsewhere in the same inventory. These preserve legacy encodings:
+each exact original byte sequence must appear once between
+`\n=== BEGIN <path>; SHA256 <sha256> ===\n` and `\n=== END <path> ===\n`.
+References, original bytes and delimiters are verified; binary/control payloads
+are rejected, and the remaining authored framing must be UTF-8. Do not silently
+transcode upstream terms to make a collection pass.
+
+Runtime entry points, model
+directories, native-library directories and other runtime/package paths cannot
+use this origin. Limits are 512 authored files, 2 MiB per file and 16 MiB total;
+the evidence itself is separately limited to 512 entries and 16 MiB total.
+Ordinary source, wheel, native and model checks still apply unchanged. The v3
+receipt reports authored file/evidence counts separately and explicitly does not
+authenticate authorship. Review the actual records before trusting the audit hash;
+passing the check is not execution, reproducibility, license or quality approval.
+V1/v2 audits reject the new field, and v3 requires authored records rather than
+silently relabeling older evidence. The installed pack format remains v1.
+
 For the approved model, acquire the **official safetensors snapshot** at the full
 revision in `upstream-pins.json`. Prepare a source inventory `{source,revision,
 files:[{path,sha256}]}` from official file/LFS metadata; small Git blobs also need

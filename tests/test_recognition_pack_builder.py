@@ -754,3 +754,315 @@ def test_derived_arm_torch_cannot_bypass_original_official_cpu_wheel_check(fixtu
     declare_local_derivation(f, digest)
     with pytest.raises(tool.PackError, match="recognition_arm_torch_official_cpu_source_required"):
         f["verify"]()
+
+
+def declare_authored_metadata(f):
+    """Authorship assertions in a synthetic test, not actual build or license evidence."""
+    digest = next(d for d, p in f["sources"].items() if p.name.startswith("docling-"))
+    declare_local_derivation(f, digest)
+    entries = []
+    for name, role in (
+        ("provenance/derivations/docling/recipe.py", "build-recipe"),
+        ("provenance/derivations/docling/record.json", "build-record"),
+        ("licenses/pack-bindings/docling.txt", "license-collection"),
+    ):
+        f["add"](name, b"Synthetic authored documentation only\n", digest)
+        row = f["rows"][name]
+        del row["sourceSha256"]
+        entries.append(
+            {
+                **{k: row[k] for k in ("path", "sha256", "license")},
+                "author": "Synthetic fixture author (not authenticated)",
+                "role": role,
+                "relatedArtifacts": [digest],
+                "basis": "Synthetic association only; no execution or redistribution approval.",
+            }
+        )
+    derived = f["declaration"]["provenance"]["derivedArtifacts"][0]
+    for field, index in (("recipe", 0), ("buildEvidence", 1)):
+        derived[field] = {k: entries[index][k] for k in ("path", "sha256")}
+    evidence = {"schemaVersion": "document-files.authored-metadata.v1", "files": entries}
+    evidence_path = f["root"] / "authored.json"
+
+    def write():
+        ref = dump(evidence_path, evidence)
+        for entry in entries:
+            if entry["path"] in f["rows"]:
+                f["rows"][entry["path"]]["authoredMetadata"] = ref
+        return ref
+
+    write()
+    f["audit"]["schemaVersion"] = "document-files.recognition-stage-audit.v3"
+    return evidence, evidence_path, write
+
+
+def test_v3_distinguishes_authored_records_and_preserves_artifact_checks(fixture, monkeypatch):
+    tool, create = fixture
+    f = create()
+    evidence, path, _ = declare_authored_metadata(f)
+    original_load, loaded = tool.load, []
+
+    def tracked_load(value):
+        loaded.append(value)
+        return original_load(value)
+
+    monkeypatch.setattr(tool, "load", tracked_load)
+    _, report = f["verify"]()
+    assert loaded.count(path) == 1  # Shared evidence is checked once, not once per staged file.
+    assert report["schemaVersion"] == "document-files.recognition-stage-verification.v3"
+    assert report["authoredMetadataFilesVerified"] == 3
+    assert report["authoredMetadataEvidence"] == [
+        {"path": path.name, "sha256": sha(path.read_bytes()), "filesVerified": 3}
+    ]
+    assert report["authorshipAuthenticated"] is False
+    assert report["executionVerified"] is False
+    assert report["modelQuality"] == "not-assessed"
+    assert report["originalArtifactsVerified"] == len(f["sources"]) - 1
+    assert report["derivedArtifactsVerified"] == 1
+    assert all("sourceSha256" not in f["rows"][e["path"]] for e in evidence["files"])
+
+
+def test_v3_build_preserves_public_pack_v1_and_exact_inventory(fixture):
+    tool, create = fixture
+    f = create()
+    declare_authored_metadata(f)
+    f["verify"]()
+    output = f["root"] / "authored-recognition.pack.zip"
+    receipt = tool.build_verified(
+        f["stage"],
+        f["declaration_path"],
+        f["audit_path"],
+        sha(f["audit_path"].read_bytes()),
+        f["sources"],
+        output,
+    )
+    with zipfile.ZipFile(output) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    assert receipt["schemaVersion"] == "document-files.recognition-stage-verification.v3"
+    assert manifest["schemaVersion"] == "document-files.pack.v1"
+    assert manifest["provenance"]["schemaVersion"] == "document-files.pack-provenance.v2"
+    assert {e["path"]: e["sha256"] for e in manifest["files"]} == {
+        e["path"]: e["sha256"] for e in f["files"]
+    }
+
+
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_legacy_audits_cannot_silently_accept_authored_metadata(fixture, version):
+    tool, create = fixture
+    f = create()
+    declare_authored_metadata(f)
+    f["audit"]["schemaVersion"] = "document-files.recognition-stage-audit." + version
+    with pytest.raises(tool.PackError, match="recognition_wrong_declaration"):
+        f["verify"]()
+
+
+def test_authored_metadata_requires_provenance_v2(fixture):
+    tool, create = fixture
+    f = create()
+    declare_authored_metadata(f)
+    del f["declaration"]["provenance"]["schemaVersion"]
+    with pytest.raises(tool.PackError, match="recognition_wrong_declaration"):
+        f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "field,value,error",
+    [
+        ("author", " ", "invalid_authored_metadata"),
+        ("author", "a" * 129, "invalid_authored_metadata"),
+        ("author", ["author"], "invalid_authored_metadata"),
+        ("basis", "", "invalid_authored_metadata"),
+        ("basis", "contains\0control", "invalid_authored_metadata"),
+        ("basis", "b" * 4097, "invalid_authored_metadata"),
+        ("relatedArtifacts", [], "invalid_authored_metadata"),
+        ("relatedArtifacts", ["0" * 64], "invalid_authored_metadata"),
+        ("relatedArtifacts", [{}], "invalid_authored_metadata"),
+        ("sha256", "0" * 64, "authored_metadata_mismatch"),
+        ("license", "unknown", "authored_metadata_mismatch"),
+        ("role", "wheel", "authored_metadata_not_documentation"),
+        ("role", "build-record", "authored_derivation_mismatch"),
+    ],
+)
+def test_authored_record_fields_are_bound_and_validated(fixture, field, value, error):
+    tool, create = fixture
+    f = create()
+    evidence, _, write = declare_authored_metadata(f)
+    evidence["files"][0][field] = value
+    write()
+    with pytest.raises(tool.PackError, match="recognition_" + error):
+        f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "fault", ["duplicate", "orphan", "schema", "extra", "missing", "duplicate-related"]
+)
+def test_authored_record_inventory_is_exact(fixture, fault):
+    tool, create = fixture
+    f = create()
+    evidence, _, write = declare_authored_metadata(f)
+    if fault == "duplicate":
+        evidence["files"].append(dict(evidence["files"][0]))
+    elif fault == "orphan":
+        evidence["files"].append({**evidence["files"][0], "path": "licenses/orphan.txt"})
+    elif fault == "schema":
+        evidence["schemaVersion"] = "document-files.authored-metadata.v2"
+    elif fault == "extra":
+        evidence["files"][0]["authenticated"] = True
+    elif fault == "missing":
+        del evidence["files"][0]["author"]
+    else:
+        evidence["files"][0]["relatedArtifacts"] *= 2
+    write()
+    with pytest.raises(tool.PackError, match="recognition_.*authored_metadata"):
+        f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "mixed-origin",
+        "null-ref",
+        "changed-evidence",
+        "changed-file",
+        "executable-flag",
+        "executable-mode",
+        "symlink",
+    ],
+)
+def test_authored_metadata_cannot_bypass_file_and_evidence_checks(fixture, fault):
+    tool, create = fixture
+    f = create()
+    evidence, path, _ = declare_authored_metadata(f)
+    name = evidence["files"][0]["path"]
+    if fault == "mixed-origin":
+        f["rows"][name]["sourceSha256"] = f["runtime"]
+    elif fault == "null-ref":
+        f["rows"][name]["authoredMetadata"] = None
+    elif fault == "changed-evidence":
+        path.write_text(path.read_text() + " ")
+    elif fault == "changed-file":
+        (f["stage"] / name).write_text("changed\n")
+    elif fault == "executable-flag":
+        f["declaration"]["executables"].append(name)
+    elif fault == "executable-mode":
+        (f["stage"] / name).chmod(0o755)
+        if not (f["stage"] / name).stat().st_mode & 0o111:
+            pytest.skip("Filesystem does not expose executable permission bits")
+    else:
+        real = path.with_suffix(".real")
+        path.rename(real)
+        path.symlink_to(real)
+    with pytest.raises(tool.PackError, match="recognition_"):
+        f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "python/lib/site-packages/docling/recipe.py",
+        "models/docling/recipe.py",
+        "native/recipe.py",
+        "provenance/derivations/docling/recipe.so",
+    ],
+)
+def test_authored_origin_is_limited_to_documentation_paths(fixture, destination):
+    tool, create = fixture
+    f = create()
+    evidence, _, write = declare_authored_metadata(f)
+    entry = evidence["files"][0]
+    old = entry["path"]
+    target = f["stage"] / destination
+    target.parent.mkdir(parents=True, exist_ok=True)
+    (f["stage"] / old).rename(target)
+    row = f["rows"].pop(old)
+    entry["path"] = row["path"] = destination
+    f["rows"][destination] = row
+    write()
+    with pytest.raises(tool.PackError, match="recognition_authored_metadata_not_documentation"):
+        f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "setting", ["python", "tesseract", "artifacts", "tessdata", "nativeLibraryDirectories"]
+)
+def test_runtime_configuration_cannot_repurpose_authored_metadata(fixture, setting):
+    tool, create = fixture
+    f = create()
+    evidence, _, _ = declare_authored_metadata(f)
+    name = evidence["files"][0]["path"]
+    f["declaration"]["recognition"][setting] = (
+        [str(Path(name).parent)] if setting == "nativeLibraryDirectories" else name
+    )
+    with pytest.raises(tool.PackError, match="recognition_authored_metadata_not_documentation"):
+        f["verify"]()
+
+
+@pytest.mark.parametrize("data", [b"text\0data", b"\xff\xfe"])
+def test_authored_metadata_must_be_utf8_without_nul(fixture, data):
+    tool, create = fixture
+    f = create()
+    evidence, _, write = declare_authored_metadata(f)
+    entry = evidence["files"][0]
+    f["update_file"](entry["path"], data)
+    entry["sha256"] = sha(data)
+    write()
+    with pytest.raises(tool.PackError, match="recognition_authored_metadata_not_text"):
+        f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "limit", ["AUTHORED_FILE_LIMIT", "AUTHORED_BYTE_LIMIT", "AUTHORED_TOTAL_LIMIT"]
+)
+def test_authored_metadata_is_resource_bounded(fixture, monkeypatch, limit):
+    tool, create = fixture
+    f = create()
+    declare_authored_metadata(f)
+    monkeypatch.setattr(tool, limit, 2)
+    with pytest.raises(tool.PackError, match="recognition_authored_metadata_limit"):
+        f["verify"]()
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "bytes", "hash", "duplicate", "unknown", "binary", "framing", "role"]
+)
+def test_license_collection_preserves_explicit_legacy_encoded_terms(fixture, fault):
+    tool, create = fixture
+    f = create()
+    evidence, _, write = declare_authored_metadata(f)
+    entry = evidence["files"][2]
+    name = "licenses/upstream/legacy.txt"
+    data = b"Copyright \xa9 synthetic legacy-encoded fixture\n"
+    if fault == "binary":
+        data += b"\0"
+    f["add"](name, data, f["runtime"])
+    ref = {k: f["rows"][name][k] for k in ("path", "sha256")}
+    content = (
+        b"Authored UTF-8 collection framing\n"
+        + f"\n=== BEGIN {name}; SHA256 {ref['sha256']} ===\n".encode()
+        + data
+        + f"\n=== END {name} ===\n".encode()
+    )
+    if fault == "bytes":
+        content = content.replace(b"Copyright", b"Altered")
+    elif fault == "framing":
+        content = b"\xff" + content
+    entry["embeddedTexts"] = [ref]
+    f["update_file"](entry["path"], content)
+    entry["sha256"] = sha(content)
+    if fault == "hash":
+        ref["sha256"] = "0" * 64
+    elif fault == "duplicate":
+        entry["embeddedTexts"].append(dict(ref))
+    elif fault == "unknown":
+        ref["path"] = "licenses/not-in-stage.txt"
+    elif fault == "role":
+        evidence["files"][0]["embeddedTexts"] = [ref]
+    write()
+    if fault is None:
+        _, receipt = f["verify"]()
+        assert receipt["authoredMetadataFilesVerified"] == 3
+        assert (f["stage"] / name).read_bytes() == data
+        assert (f["stage"] / entry["path"]).read_bytes() == content
+    else:
+        with pytest.raises(tool.PackError, match="recognition_"):
+            f["verify"]()

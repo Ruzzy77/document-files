@@ -2,6 +2,12 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add recognition audit/verification v3 for explicitly authored, non-runtime
+  packaging records and scoped license collections. Bind their hashes, declared
+  authorship, licenses and artifact associations without inventing upstream
+  origins. Limit paths, permissions, text size and inventory; retain ordinary
+  wheel/native/model origin checks. Legacy audits and the public pack format are
+  unchanged; the new receipt does not authenticate authorship or approve a release.
 - Add optional, pack-owned Linux recognition library directories to the actual
   worker environment. Validate and bind the ordered paths to adapter v26 identity;
   reject unsafe paths and do not inherit host loader/preload settings. This supplies

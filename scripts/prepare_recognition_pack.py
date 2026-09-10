@@ -9,9 +9,15 @@ model accuracy, or a reproducible native build. Those require independent CI evi
 
 Audit v1: platform, declarationSha256, files[{path,size,sha256,license,sourceSha256}],
 sources[{sha256,role,licenseIds}], wheelLock{path,sha256}, nativeLinkage{path,sha256}.
-Audit v2 is required for pack provenance v2 and covers original plus explicitly
+Audit v2 covers pack provenance v2 and original plus explicitly
 derived artifacts. Recipes/build records are shipped and hash-bound; this check
 does not execute or independently authenticate them. Models remain original inputs.
+Audit v3 additionally distinguishes non-runtime authored metadata from artifact bytes.
+Its files use authoredMetadata{path,sha256} instead of sourceSha256. The referenced
+document-files.authored-metadata.v1 record lists files with path,sha256,license,
+author,role,relatedArtifacts,basis. Authorship is declared, not authenticated.
+License collections may bind exact original text spans through embeddedTexts;
+legacy-encoded upstream terms are not transcoded into the UTF-8 authored framing.
 Linkage v1: platform, binaries[{path,sha256,tool,rawEvidence{path,sha256},
 dependencies:[{name,origin:"system"}|{name,origin:"pack",path}]}].
 Evidence references are relative to the audit directory. Every file and component
@@ -47,6 +53,9 @@ from document_files.runtime_packs import (  # noqa: E402
 ROLES = {"python-runtime", "wheel", "native", "layout-model", "table-model", "ocr-data"}
 HERON = "docling-project--docling-layout-heron"
 TABLE = "docling-project--docling-models/model_artifacts/tableformer/accurate"
+AUTHORED_FILE_LIMIT = 512
+AUTHORED_BYTE_LIMIT = 2 * 1024 * 1024
+AUTHORED_TOTAL_LIMIT = 16 * 1024 * 1024
 LINUX_SYSTEM = {
     "ld-linux-x86-64.so.2",
     "libc.so.6",
@@ -117,6 +126,170 @@ def verified_file(root: Path, reference: dict) -> Path:
     if sha256_file(path) != reference["sha256"]:
         raise PackError("recognition_file_hash_mismatch")
     return path
+
+
+def verify_authored_metadata(
+    stage: Path, files: dict, declaration: dict, audit_root: Path, artifacts: set[str]
+) -> list[dict]:
+    """Bind reviewed declarations, not upstream origins or verified author identities."""
+    authored = {name: row for name, row in files.items() if "authoredMetadata" in row}
+    if len(authored) > AUTHORED_FILE_LIMIT:
+        raise PackError("recognition_authored_metadata_limit")
+    records, used, total = {}, {}, 0
+    evidence_bytes, evidence_entries = 0, 0
+    settings = declaration["recognition"]
+    runtime_paths = {settings["python"], settings["tesseract"]}
+    runtime_roots = [settings["artifacts"], settings["tessdata"]] + settings.get(
+        "nativeLibraryDirectories", []
+    )
+    derived = declaration["provenance"].get("derivedArtifacts", [])
+    derived_ids = {item["sha256"] for item in derived}
+    for name, row in authored.items():
+        ref = row["authoredMetadata"]
+        if (
+            "sourceSha256" in row
+            or not isinstance(ref, dict)
+            or set(ref) != {"path", "sha256"}
+            or not isinstance(ref["path"], str)
+            or not isinstance(ref["sha256"], str)
+            or not re.fullmatch(r"[a-f0-9]{64}", ref["sha256"])
+        ):
+            raise PackError("recognition_invalid_authored_metadata")
+        key = (safe_relative(ref["path"]), ref["sha256"])
+        if key not in records:
+            evidence_path = verified_file(audit_root, ref)
+            evidence_bytes += evidence_path.stat().st_size
+            if evidence_bytes > AUTHORED_TOTAL_LIMIT:
+                raise PackError("recognition_authored_metadata_limit")
+            evidence = load(evidence_path)
+            entries = evidence.get("files")
+            if (
+                set(evidence) != {"schemaVersion", "files"}
+                or evidence["schemaVersion"] != "document-files.authored-metadata.v1"
+                or not isinstance(entries, list)
+                or not 1 <= len(entries) <= AUTHORED_FILE_LIMIT
+            ):
+                raise PackError("recognition_invalid_authored_metadata")
+            evidence_entries += len(entries)
+            if evidence_entries > AUTHORED_FILE_LIMIT:
+                raise PackError("recognition_authored_metadata_limit")
+            index = {}
+            for entry in entries:
+                if (
+                    not isinstance(entry, dict)
+                    or (set(entry) - {"embeddedTexts"})
+                    != {"path", "sha256", "license", "author", "role", "relatedArtifacts", "basis"}
+                    or not isinstance(entry["path"], str)
+                    or entry["path"] in index
+                ):
+                    raise PackError("recognition_invalid_authored_metadata")
+                index[safe_relative(entry["path"])] = entry
+            records[key], used[key] = index, set()
+        entry = records[key].get(name)
+        if not entry or any(entry[k] != row.get(k) for k in ("sha256", "license")):
+            raise PackError("recognition_authored_metadata_mismatch")
+        related = entry["relatedArtifacts"]
+        if (
+            not isinstance(related, list)
+            or not 1 <= len(related) <= AUTHORED_FILE_LIMIT
+            or any(not isinstance(item, str) for item in related)
+            or len(set(related)) != len(related)
+            or not set(related) <= artifacts
+            or any(
+                not isinstance(entry[k], str)
+                or not entry[k].strip()
+                or len(entry[k]) > limit
+                or any(ord(c) < 32 and c not in "\n\t" for c in entry[k])
+                for k, limit in (("author", 128), ("basis", 4096))
+            )
+        ):
+            raise PackError("recognition_invalid_authored_metadata")
+        role = entry["role"]
+        build_metadata = (
+            role in ("build-recipe", "build-record")
+            and name.startswith("provenance/derivations/")
+            and Path(name).suffix in {".py", ".json", ".md", ".txt", ".sh", ".toml"}
+            and bool(set(related) & derived_ids)
+        )
+        license_metadata = role == "license-collection" and (
+            (name.startswith("licenses/") and Path(name).suffix in {".txt", ".md"})
+            or name == "native/THIRD_PARTY_NOTICES.txt"
+        )
+        path = verified_file(stage, {"path": name, "sha256": row["sha256"]})
+        if (
+            not (build_metadata or license_metadata)
+            or name in declaration.get("executables", [])
+            or path.stat().st_mode & 0o111
+            or name in runtime_paths
+            or any(name == root or name.startswith(root + "/") for root in runtime_roots)
+        ):
+            raise PackError("recognition_authored_metadata_not_documentation")
+        # A recipe/build record named by provenance must identify that derivation,
+        # not just some other valid artifact from the inventory.
+        for artifact in derived:
+            for field, expected_role in (
+                ("recipe", "build-recipe"),
+                ("buildEvidence", "build-record"),
+            ):
+                if artifact[field]["path"] == name and (
+                    artifact["sha256"] not in related or role != expected_role
+                ):
+                    raise PackError("recognition_authored_derivation_mismatch")
+        size = path.stat().st_size
+        total += size
+        if size > AUTHORED_BYTE_LIMIT or total > AUTHORED_TOTAL_LIMIT:
+            raise PackError("recognition_authored_metadata_limit")
+        content_bytes = path.read_bytes()
+        embedded = entry.get("embeddedTexts")
+        if embedded is not None:
+            if (
+                role != "license-collection"
+                or not isinstance(embedded, list)
+                or not 1 <= len(embedded) <= AUTHORED_FILE_LIMIT
+            ):
+                raise PackError("recognition_invalid_embedded_license_text")
+            seen = set()
+            for text_ref in embedded:
+                if (
+                    not isinstance(text_ref, dict)
+                    or set(text_ref) != {"path", "sha256"}
+                    or not isinstance(text_ref["path"], str)
+                    or text_ref["path"] in seen
+                    or text_ref["path"] == name
+                    or text_ref["path"] not in files
+                    or text_ref["sha256"] != files[text_ref["path"]]["sha256"]
+                ):
+                    raise PackError("recognition_invalid_embedded_license_text")
+                text_path = verified_file(stage, text_ref)
+                if text_path.stat().st_size > AUTHORED_BYTE_LIMIT:
+                    raise PackError("recognition_authored_metadata_limit")
+                data = text_path.read_bytes()
+                # Preserve legacy-encoded upstream terms byte for byte. Only the
+                # generated framing must be UTF-8; binary/control payloads are not terms.
+                if not data.strip() or any(c < 32 and c not in (9, 10, 12, 13) for c in data):
+                    raise PackError("recognition_authored_metadata_not_text")
+                start = (
+                    f"\n=== BEGIN {text_ref['path']}; SHA256 {text_ref['sha256']} ===\n".encode()
+                )
+                end = f"\n=== END {text_ref['path']} ===\n".encode()
+                chunk = start + data + end
+                if content_bytes.count(chunk) != 1:
+                    raise PackError("recognition_embedded_license_text_mismatch")
+                content_bytes = content_bytes.replace(chunk, b"", 1)
+                seen.add(text_ref["path"])
+        try:
+            content = content_bytes.decode("utf-8")
+        except UnicodeError as exc:
+            raise PackError("recognition_authored_metadata_not_text") from exc
+        if "\0" in content:
+            raise PackError("recognition_authored_metadata_not_text")
+        used[key].add(name)
+    if any(set(records[key]) != names for key, names in used.items()):
+        raise PackError("recognition_authored_metadata_inventory_mismatch")
+    return [
+        {"path": path, "sha256": digest, "filesVerified": len(used[(path, digest)])}
+        for path, digest in sorted(records)
+    ]
 
 
 def binary_targets(path: Path) -> set[str]:
@@ -335,10 +508,15 @@ def verify_stage(
         declaration.get("provenance", {}).get("schemaVersion")
         == "document-files.pack-provenance.v2"
     )
-    evidence_version = "v2" if provenance_v2 else "v1"
+    has_authored_metadata = any("authoredMetadata" in item for item in audit.get("files", []))
+    evidence_version = (
+        "v3" if has_authored_metadata and provenance_v2 else ("v2" if provenance_v2 else "v1")
+    )
     expected_audit_schema = f"document-files.recognition-stage-audit.{evidence_version}"
-    if audit.get("schemaVersion") != expected_audit_schema or (
-        audit.get("declarationSha256") != sha256_file(declaration_path)
+    if (
+        (has_authored_metadata and not provenance_v2)
+        or audit.get("schemaVersion") != expected_audit_schema
+        or (audit.get("declarationSha256") != sha256_file(declaration_path))
     ):
         raise PackError("recognition_wrong_declaration")
     target = declaration.get("platform")
@@ -409,6 +587,9 @@ def verify_stage(
                     raise PackError("recognition_unpinned_wheel_version")
                 wheel_origins[digest] = (package, version)
                 wheels.add((package, version))
+    authored_evidence = verify_authored_metadata(
+        stage, files, declaration, audit_path.parent, provenance
+    )
     installed = set()
     manifest_files = []
     for name, item in files.items():
@@ -420,7 +601,10 @@ def verify_stage(
         if (
             path.stat().st_size != item["size"]
             or item.get("license") != chosen_license
-            or chosen_license not in source.get("licenseIds", [])
+            or (
+                "authoredMetadata" not in item
+                and chosen_license not in source.get("licenseIds", [])
+            )
         ):
             raise PackError("recognition_unverified_stage_origin")
         manifest_files.append(
@@ -512,6 +696,13 @@ def verify_stage(
     if provenance_v2:
         receipt["originalArtifactsVerified"] = len(original_sources)
         receipt["derivedArtifactsVerified"] = len(provenance - original_sources)
+    if authored_evidence:
+        receipt["authoredMetadataFilesVerified"] = sum(
+            item["filesVerified"] for item in authored_evidence
+        )
+        receipt["authoredMetadataEvidence"] = authored_evidence
+        receipt["authorshipAuthenticated"] = False
+        receipt["checks"].append("authored-documentation-records")
     return declaration, receipt
 
 
