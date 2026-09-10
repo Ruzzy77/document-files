@@ -2,6 +2,12 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Review v9 blocks candidate rule-edge units before inference and during response
+  validation until exact source-bound membership can be displayed. The actual v8
+  model still called those fragments source text and missed a known title line-break
+  mismatch. Preserve the rejected development response, all pixels and the finite
+  budget; do not accept a caller-supplied display flag or resume the v8 checkpoint.
+
 - Review v8 separates residual connected components after measured rule pixels and
   candidate edge neighborhoods are partitioned. Source candidates follow those
   components, not the original grid-connected page shape. Every original pixel

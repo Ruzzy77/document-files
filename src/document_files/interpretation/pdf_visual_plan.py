@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v8"
+VERSION = "document-files.pdf-visual-review.v9"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -660,7 +660,7 @@ def decode_review_response(plan, wire):
 
 
 def require_proposal_measurements(plan):
-    """A model cannot replace unresolved pixel geometry with an affirmative label."""
+    """A model cannot replace unresolved geometry or undisplayed pixel membership."""
     if "imageReadProposal" not in plan:
         return
     measured = (plan.get("grid") or {}).get("grids", [])
@@ -682,6 +682,15 @@ def require_proposal_measurements(plan):
             and all(b["status"] == "candidate" for b in bands),
             "visual_proposal_grid_unmeasured",
         )
+
+    # Bounds and overlapping cell strings do not display the exact residual mask.
+    # The actual v8 review called line-edge fragments source text. Do not spend
+    # another call or accept a label until source-bound membership images exist.
+    # This is deliberately unconditional, not a caller-provided "displayed" flag.
+    require(
+        not any(u.get("ruleEdgeTableRefs") for u in plan["units"]),
+        "visual_rule_context_not_displayed",
+    )
 
 
 def validate_decision(plan, decision, *, detail_bounds):

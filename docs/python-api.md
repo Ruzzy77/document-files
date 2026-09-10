@@ -475,7 +475,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v8` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v9` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -554,6 +554,16 @@ requires an alternative image-reading proposal and offered context, does not cou
 as matched source text, and cannot validate an empty slot. The model still has to
 check for glyphs, added marks or ambiguous content against the original images.
 
+The actual v8 model still labeled the edge candidates `source_text`: rectangles and
+candidate strings do not expose exact pixel membership. **V9 therefore blocks any
+plan with rule-edge candidates**, before inference and again during validation,
+with `visual_rule_context_not_displayed`. No caller-supplied flag bypasses this guard.
+The existing original images remain available, but source-bound per-unit display is
+not implemented yet. A preparation failure is retained and is not automatically retried.
+V8's returned/applied development view is rejected quality evidence, not a complete
+or approved document. Pure source/core plans without edge candidates keep their
+existing review path; old checkpoint versions remain incompatible.
+
 `unitColumns` describes columnar unit rows in the model payload. Wire decision arrays
 contain strings in input order, with exact counts. The program restores plan-owned
 IDs before all existing validation and checkpoint serialization; canonical decisions
@@ -565,7 +575,7 @@ and vertical band as a candidate. An unresolved, missing or duplicated band bloc
 review before inference; response validation repeats the guard. Affirmative model text
 cannot substitute for unresolved measured geometry. No measurement tolerance is widened.
 
-A separate v8 review checks every proposed source string and grid, as well as the full
+A separate v9 review checks every proposed source string and grid, as well as the full
 page's pixel units and reading order. It shares the original call/time budget and records
 an attempt before inference. A successful review permits only the alternate regions to
 enter interpretation; `pdfVisualReviewApplication.selectedImageProjectionFingerprints`

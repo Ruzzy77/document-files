@@ -191,9 +191,10 @@ def test_page_evidence_remains_bound(evidence):
     assert plan.observation_page_fingerprint(doc, 1) != before
 
 
-def test_previous_plan_version_cannot_be_accepted_by_rehashing():
+@pytest.mark.parametrize("version", ["v1", "v7", "v8"])
+def test_previous_plan_version_cannot_be_accepted_by_rehashing(version):
     value = build()
-    value["version"] = "document-files.pdf-visual-review.v1"
+    value["version"] = "document-files.pdf-visual-review." + version
     value["fingerprint"] = plan.digest({k: v for k, v in value.items() if k != "fingerprint"})
     with pytest.raises(plan.PdfVisualReviewError, match="version_incompatible"):
         plan.validate_decision(value, answer(value), detail_bounds=None)
@@ -496,5 +497,5 @@ def test_rule_edge_cannot_be_selected_without_candidate_or_replace_missing_slot_
         "sourceChecks": [],
         "gridChecks": [],
     }
-    with pytest.raises(plan.PdfVisualReviewError, match="visual_slot_not_empty"):
+    with pytest.raises(plan.PdfVisualReviewError, match="visual_rule_context_not_displayed"):
         plan.validate_decision(value, decision, detail_bounds=detail)

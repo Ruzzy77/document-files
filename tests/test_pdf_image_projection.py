@@ -438,3 +438,28 @@ def test_core_geometry_does_not_turn_a_faint_mark_in_an_empty_candidate_into_bla
     assert not unit["onlyBoundaryPixels"]
     with pytest.raises(PdfVisualReviewError):
         validate_decision(review, approved(review), detail_bounds=[0, 0, 90, 90])
+
+
+def test_residual_context_without_pixel_display_blocks_before_spending_model_call(monkeypatch):
+    run, calls, checkpoints, usage, doc = setup(monkeypatch)
+    _, waiting = run(max_calls=1)
+    assert len(calls) == usage["modelCalls"] == 1
+    original = runner.build_page_plan
+    builds = []
+
+    def undisplayed(*args, **kwargs):
+        value = original(*args, **kwargs)
+        builds.append(True)
+        next(u for u in value["units"] if u["sourceIds"])["ruleEdgeTableRefs"] = ["table"]
+        value["fingerprint"] = digest({k: v for k, v in value.items() if k != "fingerprint"})
+        return value
+
+    monkeypatch.setattr(runner, "build_page_plan", undisplayed)
+    result, state = run(restore=waiting)
+    assert result is None and len(calls) == usage["modelCalls"] == 1
+    assert (
+        state["pages"]["1"]["imageReviewPreparationFailure"] == "visual_rule_context_not_displayed"
+    )
+    assert "imageReview" not in state["pages"]["1"] and len(builds) == 1
+    again, _ = run(restore=state)
+    assert again is None and len(calls) == 1 and len(builds) == 1
