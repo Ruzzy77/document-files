@@ -33,6 +33,40 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
+### Latest table-meaning development check
+
+Source `3ce3415` adds table protocol v11 / source decisions v2. A literal empty
+source cannot offer a meaning that requires a nonempty exact quotation. Explicit
+negative, unresolved and deferred reviews remain required; whitespace, source text,
+blank-cell evidence and public v1 contracts are unchanged. Older table checkpoints
+cannot resume as v11. The prompt also distinguishes already represented labels and
+ordinary values from additional meaning without excluding them from review.
+
+Two separate Spark development calls reused the saved PDF observation and accepted
+structure. The v10 response stopped after 289.23 seconds (4,468 input / 2,255 output
+tokens), but invented a space quotation from an empty string and was rejected.
+The v11 response compiled after 276.36 seconds (4,586 / 2,087 tokens); its empty-source
+review had no fabricated quote. Both records, zero, exact decimal strings, blank
+note, schema and source bindings were preserved. **Meaning quality has not passed:**
+the other eleven headers/values still became redundant definitions. Compiler
+acceptance is not semantic approval, and further prompt wording alone is not an
+established fix. A source-selection-only diagnostic with positive and negative
+controls precedes any additional meaning substage or automatic filtering.
+
+Each call had its own one-call / 360-second development limit. The original PDF
+remains at 853.49/900 seconds and six calls; its failure is not reset. Host execution
+was 297.12 / 283.95 seconds, whole-cgroup peaks 6,825,164,800 / 6,817,898,496 bytes,
+under 4 CPUs / 16 GiB without swap/OOM, GPU or external network. Model and projector
+bytes match the earlier Mac setup; runtime manifests and batch-thread settings do
+not. No OCR, rendering or complete document run was repeated. Owned servers and
+containers were stopped; transfer duplicates and temporary activation were removed.
+Existing product packs, Toolkit, Sync and clients were not changed.
+
+The committed source passed 2,312 local tests (227 skipped, 12 subtests), including
+236 related tests with warnings as errors, and Ruff/format for 208 files. These are
+not whole-path ARM, independent document, final installation or release approvals.
+The earlier ARM dependency tests and portable installation below used older source.
+
 ### Current pixel-review controls and display coverage
 
 Source `d6765b1` adds PDF review v11 / unit display v2. A mixed-control inspection
