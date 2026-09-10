@@ -480,6 +480,135 @@ def test_mixed_record_and_scalar_selection_keeps_every_candidate():
     assert [c.data for c in after] == [c.data for c in compiled]
 
 
+def scalar_origin_fixture(status="blank"):
+    obs, region, ir = fixture()
+    ir.repeats[0].rowRoles[-1].role = "subtotal"
+    record = compile_region(ir, obs, region)
+    separate = {**region, "id": "separate"}
+    bid = next(b for b, v in obs.bindings.items() if v["sourceRef"] == "c3:1")
+    scalar = compile_region(
+        RegionInterpretation.model_validate(
+            {
+                "regionId": "separate",
+                "fields": [
+                    {
+                        "id": "subtotal",
+                        "key": "subtotal",
+                        "label": "Subtotal amount",
+                        "valueType": "decimal",
+                        "status": status,
+                        "bindingId": bid if status == "blank" else None,
+                        "definitionRefs": ["c0:1"],
+                    }
+                ],
+            }
+        ),
+        obs,
+        separate,
+    )
+    compiled = [record, scalar]
+    regions = [region, separate]
+    task = build_scope_tasks(obs, regions, compiled)[0]
+    return obs, regions, compiled, task
+
+
+@pytest.mark.parametrize("select_scalar", [False, True])
+def test_scalar_cell_geometry_is_context_not_automatic_exclusion(select_scalar):
+    obs, _, compiled, task = scalar_origin_fixture()
+    before = copy.deepcopy((obs, compiled))
+    wire = prepare_scope_axis_wire([task])
+    scalar = next(c for c in wire.payload["candidates"] if c["label"] == "Subtotal amount")
+    origin = scalar["valueOrigins"][0]
+    assert origin["observationStatus"] == "blank" and origin["valueText"] == ""
+    assert origin["valueSource"]["sourceRef"] == "c3:1"
+    assert origin["tableLocations"] == [
+        {
+            "tableRef": "t",
+            "row": 3,
+            "column": 1,
+            "rowSpan": 1,
+            "columnSpan": 1,
+            "tableBasis": "native_structure",
+            "rowRoleBasis": "compiled_interpretation",
+            "rowRoles": [{"row": 3, "role": "subtotal"}],
+        }
+    ]
+    assert "/subtotal" not in json.dumps(wire.payload)
+    value = response(wire, task)
+    if select_scalar:
+        value["recordScopes"] = []
+        value["targetHandles"] = [scalar["targetHandle"]]
+    Draft202012Validator(wire.contract).validate(value)
+    choice, trace = bind(wire, value, task, compiled)
+    after, changed = apply_scope_decision(compiled, task, choice)
+    assert changed
+    assert after[0].semantic_details[0]["scope"] == [
+        {"space": "data", "path": "/subtotal" if select_scalar else "/rows/1/amount"}
+    ]
+    assert (
+        any(b["basis"] == "selected_scalar_value_binding" for b in trace["bindings"])
+        == select_scalar
+    )
+    assert (obs, compiled) == before
+
+
+@pytest.mark.parametrize("status", ["absent", "uncertain"])
+def test_unbound_scalar_does_not_acquire_an_observed_cell(status):
+    _, _, _, task = scalar_origin_fixture(status)
+    scalar = next(c for c in task.payload["candidates"] if c["label"] == "Subtotal amount")
+    assert scalar["valueOrigins"] == [{"observationStatus": status, "valueSource": None}]
+
+
+@pytest.mark.parametrize("mutation", ["binding", "status", "raw", "geometry", "role"])
+def test_scalar_origin_changes_invalidate_fingerprint_and_saved_context(mutation):
+    obs, regions, compiled, task = scalar_origin_fixture()
+    wire = prepare_scope_axis_wire([task])
+    value = response(wire, task)
+    value["targetHandles"] = wire.standalone[task.id]
+    choice, _ = bind(wire, value, task, compiled)
+    if mutation == "binding":
+        compiled[1].value_evidence[0]["binding"]["sourceRef"] = "c2:1"
+    elif mutation == "status":
+        compiled[1].value_evidence[0]["status"] = "uncertain"
+    elif mutation == "raw":
+        compiled[1].value_evidence[0]["raw"] = "changed"
+    elif mutation == "geometry":
+        next(c for c in obs.tables["t"]["cells"] if c["sourceRef"] == "c3:1")["colSpan"] = 2
+    else:
+        compiled[0].row_scopes["rows"]["rows"]["3"]["role"] = "note"
+    new = build_scope_tasks(obs, regions, compiled)[0]
+    assert new.fingerprint != task.fingerprint
+    assert prepare_scope_axis_wire([new]).fingerprint != wire.fingerprint
+    if mutation in {"binding", "status", "raw"}:
+        with pytest.raises(CompileError, match="stale_bound_scope_scalar_value"):
+            bind(wire, value, task, compiled)
+        with pytest.raises(CompileError, match="stale_scope_scalar_value"):
+            apply_scope_decision(compiled, task, choice)
+
+
+def test_scalar_context_limits_and_conflicting_roles_remain_explicit():
+    obs, regions, compiled, _ = scalar_origin_fixture()
+    compiled[1].value_evidence[0]["raw"] = "x" * 501
+    extra = copy.deepcopy(compiled[0])
+    extra.row_scopes["rows"]["rows"]["3"]["role"] = "note"
+    from document_files.interpretation.scope_values import (
+        ScalarOriginCatalog,
+        scalar_value_evidence,
+    )
+
+    origins, refs, complete = ScalarOriginCatalog(obs, [*compiled, extra]).describe(
+        scalar_value_evidence(compiled[1], compiled[1].semantics[0])
+    )
+    assert not complete and refs == ["c3:1"]
+    assert origins[0]["valueTextTruncated"] and len(origins[0]["valueText"]) == 500
+    assert origins[0]["tableLocations"][0]["rowRoles"] == [
+        {"row": 3, "role": "note"},
+        {"row": 3, "role": "subtotal"},
+    ]
+    task = build_scope_tasks(obs, regions, compiled)[0]
+    assert not task.complete_candidates
+
+
 def test_content_uncertainty_survives_exact_axis_scope():
     obs, region, ir = fixture()
     ir.meanings[0].status = "uncertain"

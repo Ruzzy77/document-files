@@ -1,7 +1,7 @@
 # Python, CLI and MCP integration
 
 Internal applicability uses scope-axis protocol v1, axis wire v1 and compiler-owned
-source-binding v1 over scope integration v11 / reference wire v2 / compiler v19.
+source-binding v2 over scope integration v12 / reference wire v2 / compiler v19.
 Private regional checkpoint v3 records the actual scope policy, batch context,
 citation-free selection and compiler source trace. Replay regenerates the request
 identity and source bindings before applying a saved decision; incompatible older
@@ -12,8 +12,16 @@ compiler applies their intersection. allDataRows is not allMappedColumns. Row
 references are fragment-local; optional numeric sourceRowRange endpoints retain
 unobserved coordinates without inventing cells. Standalone scalar/mixed candidates
 remain available. A row-only selection does not annotate a whole column's schema.
+Scalar candidates now include valueOrigins: an existing binding and observation
+status, bounded original value text and source-table coordinates. Compiled row roles
+are labeled as interpretation, not native geometry or an applicability rule.
+Missing bindings remain missing; disagreements between row mappings remain visible.
+This context and the full private evidence participate in fingerprints; changing
+geometry, role, binding or observed status invalidates prior context. Source-binding
+v2 verifies selected scalar evidence before linking its existing value source.
+
 The model does not write sourceRefs, values or generated pointers. Code binds current
-content/definitions and, for row filters, existing selected-value sources; blank,
+content/definitions and existing selected scalar/row-filter value sources; blank,
 absent and uncertain states remain distinct. Source binding and semantic accuracy
 are separate checks. Overlaps, stale mappings and explicit expansion/source limits
 still fail closed. Long-range compact provenance remains unimplemented.

@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Scope integration v12 adds scalar value origins to applicability candidates:
+  exact binding/status, bounded value text, observed table coordinates and separately
+  labeled compiled row roles. Keep legitimate subtotal fields available; geometry
+  does not decide applicability. Candidate/checkpoint fingerprints cover this
+  context, with stable field handles. Source-binding v2 also checks and attaches
+  selected scalar value bindings without inventing sources for absent/uncertain
+  fields. Public v1 contracts and the model's selection contract are unchanged.
+
 - Compiler v19 preserves observed blank scalar values for decimal, numeric,
   boolean and null field declarations, matching blank repeat-cell behavior. Keep
   empty text and its binding instead of treating it as failed conversion. Nonempty

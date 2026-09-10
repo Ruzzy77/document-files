@@ -11,8 +11,9 @@ import copy
 from .compiler import CompileError
 from .integration import ScopeDecision, _definition
 from .scope_rows import resolve_row_selection, row_options
+from .scope_values import scalar_value_evidence
 
-VERSION = "document-files.scope-source-binding.v1"
+VERSION = "document-files.scope-source-binding.v2"
 MAX_SOURCE_REFS = 100
 MAX_TRACE_BINDINGS = 1000
 MAX_ROW_WORK = 1000000
@@ -94,6 +95,20 @@ def bind_scope_sources(choice, task, compiled, *, expected_fingerprint):
                     targetHandle=handle,
                     definitionId=definition["id"],
                 )
+            if "scalarValueEvidence" in target:
+                evidence = scalar_value_evidence(region, target["definition"])
+                if evidence != target["scalarValueEvidence"]:
+                    raise CompileError("stale_bound_scope_scalar_value")
+                for item in evidence:
+                    binding = item["binding"]
+                    if isinstance(binding, dict) and binding.get("sourceRef"):
+                        add(
+                            [binding["sourceRef"]],
+                            "selected_scalar_value_binding",
+                            targetHandle=handle,
+                            destination=copy.deepcopy(item["target"]),
+                            observationStatus=item["status"],
+                        )
             if "headerGroup" in target:
                 group = target["headerGroup"]
                 if region.repeat_paths.get(group["repeatId"]) != group["repeat"]:

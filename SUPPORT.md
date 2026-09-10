@@ -34,9 +34,23 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Latest table-meaning development check
+### Latest scalar-origin implementation
 
-Current source is `025cbe9` (compiler v19), following engine activation `9955393`.
+Scope integration v12 / source-binding v2 now expose actual scalar value bindings,
+blank/missing status, observed table geometry and separately labeled compiled row
+roles. Legitimate subtotal fields stay available. The output selection contract,
+system prompt, candidate order/aliases and scope reasoning/output budgets are
+unchanged; only scalar origin/context and the internal version differ in the frozen
+comparison requests. Public v1 remains unchanged, and old internal identities fail
+resume checks. No actual-model quality improvement is claimed before rerunning.
+
+Local regression: **2,534 passed / 227 skipped / 12 subtests**; related tests:
+**644 passed**, warnings treated as errors. Spark inference and its ARM regression
+on this source are pending. The previous integrated failures below remain failures.
+
+### Previous integrated table-meaning check (compiler v19, scope v11)
+
+The preceding source was `025cbe9` (compiler v19), following engine activation `9955393`.
 Scope-axis protocol v1 now uses axis wire v1 and source-binding v1 in the extraction
 engine. Regional checkpoint v3 stores citation-free selection, compiler source trace,
 original batch/context fingerprint and execution policy. Resume reconstructs and
