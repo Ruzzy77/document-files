@@ -9,6 +9,9 @@ model accuracy, or a reproducible native build. Those require independent CI evi
 
 Audit v1: platform, declarationSha256, files[{path,size,sha256,license,sourceSha256}],
 sources[{sha256,role,licenseIds}], wheelLock{path,sha256}, nativeLinkage{path,sha256}.
+Audit v2 is required for pack provenance v2 and covers original plus explicitly
+derived artifacts. Recipes/build records are shipped and hash-bound; this check
+does not execute or independently authenticate them. Models remain original inputs.
 Linkage v1: platform, binaries[{path,sha256,tool,rawEvidence{path,sha256},
 dependencies:[{name,origin:"system"}|{name,origin:"pack",path}]}].
 Evidence references are relative to the audit directory. Every file and component
@@ -35,6 +38,7 @@ from build_runtime_pack import build_pack  # noqa: E402
 
 from document_files.runtime_packs import (  # noqa: E402
     PackError,
+    pack_artifact_digests,
     safe_relative,
     sha256_file,
     validate_manifest,
@@ -327,7 +331,13 @@ def verify_stage(
     if sha256_file(audit_path) != audit_sha256:
         raise PackError("recognition_untrusted_audit")
     audit, declaration = load(audit_path), load(declaration_path)
-    if audit.get("schemaVersion") != "document-files.recognition-stage-audit.v1" or (
+    provenance_v2 = (
+        declaration.get("provenance", {}).get("schemaVersion")
+        == "document-files.pack-provenance.v2"
+    )
+    evidence_version = "v2" if provenance_v2 else "v1"
+    expected_audit_schema = f"document-files.recognition-stage-audit.{evidence_version}"
+    if audit.get("schemaVersion") != expected_audit_schema or (
         audit.get("declarationSha256") != sha256_file(declaration_path)
     ):
         raise PackError("recognition_wrong_declaration")
@@ -356,7 +366,8 @@ def verify_stage(
             actual.add(path.relative_to(stage).as_posix())
     if actual != set(files):
         raise PackError("recognition_stage_inventory_mismatch")
-    provenance = {item["sha256"] for item in declaration["provenance"]["sources"]}
+    provenance = set(pack_artifact_digests(declaration["provenance"]))
+    original_sources = {item["sha256"] for item in declaration["provenance"]["sources"]}
     source_rows = audit.get("sources", [])
     audited_sources = {item["sha256"]: item for item in source_rows}
     if set(audited_sources) != provenance or len(audited_sources) != len(source_rows):
@@ -458,7 +469,11 @@ def verify_stage(
             if name.startswith(settings["tessdata"] + "/")
             else ("layout-model" if f"/{HERON}/" in name else "table-model")
         )
-        if origin.get("role") != role or files[name]["sourceSha256"] != files[name]["sha256"]:
+        if (
+            origin.get("role") != role
+            or files[name]["sourceSha256"] != files[name]["sha256"]
+            or files[name]["sourceSha256"] not in original_sources
+        ):
             raise PackError("recognition_model_not_original_source_bytes")
     for key in ("python", "tesseract"):
         expected_role = "python-runtime" if key == "python" else "native"
@@ -475,7 +490,7 @@ def verify_stage(
         stage, files, audit_path, audit, target, executables=declaration.get("executables", [])
     )
     receipt = {
-        "schemaVersion": "document-files.recognition-stage-verification.v1",
+        "schemaVersion": f"document-files.recognition-stage-verification.{evidence_version}",
         "auditSha256": audit_sha256,
         "declarationSha256": sha256_file(declaration_path),
         "platform": target,
@@ -494,6 +509,9 @@ def verify_stage(
             "offline-model-resources",
         ],
     }
+    if provenance_v2:
+        receipt["originalArtifactsVerified"] = len(original_sources)
+        receipt["derivedArtifactsVerified"] = len(provenance - original_sources)
     return declaration, receipt
 
 

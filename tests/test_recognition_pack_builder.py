@@ -666,3 +666,91 @@ def test_only_direct_distribution_metadata_is_counted(monkeypatch, path):
     tool = module(monkeypatch)
     assert not tool.distribution_metadata_path(path)
     assert tool.distribution_metadata_path("pkg-1.dist-info/METADATA")
+
+
+def declare_local_derivation(f, digest):
+    """Synthetic provenance contract only; this helper does not build a wheel."""
+    parent = f["source"]("parent-source.tar", b"Synthetic parent source", "build-source")
+    f["provenance"][:] = [s for s in f["provenance"] if s["sha256"] != digest]
+    recipe, evidence = "derivation/recipe.txt", "derivation/build.json"
+    f["add"](recipe, b"Synthetic recipe, no build executed", parent)
+    f["add"](evidence, b'{"synthetic":true,"executionVerified":false}', parent)
+    f["declaration"]["provenance"].update(
+        schemaVersion="document-files.pack-provenance.v2",
+        derivedArtifacts=[
+            {
+                "sha256": digest,
+                "inputs": [parent],
+                "recipe": {k: f["rows"][recipe][k] for k in ("path", "sha256")},
+                "buildEvidence": {k: f["rows"][evidence][k] for k in ("path", "sha256")},
+            }
+        ],
+    )
+    f["audit"]["schemaVersion"] = "document-files.recognition-stage-audit.v2"
+
+
+def test_audit_v2_accepts_pinned_local_wheel_without_fabricated_upstream_url(fixture):
+    _, create = fixture
+    f = create()
+    digest = next(d for d, p in f["sources"].items() if p.name.startswith("docling-"))
+    declare_local_derivation(f, digest)
+    _, report = f["verify"]()
+    assert report["schemaVersion"] == "document-files.recognition-stage-verification.v2"
+    assert report["derivedArtifactsVerified"] == 1
+    assert report["originalArtifactsVerified"] == len(f["sources"]) - 1
+    assert report["executionVerified"] is False
+    assert report["modelQuality"] == "not-assessed"
+
+
+def test_verified_v2_build_seals_derived_provenance_and_exact_audited_files(fixture):
+    tool, create = fixture
+    f = create()
+    digest = next(d for d, p in f["sources"].items() if p.name.startswith("docling-"))
+    declare_local_derivation(f, digest)
+    f["verify"]()
+    output = f["root"] / "derived-recognition.pack.zip"
+    receipt = tool.build_verified(
+        f["stage"],
+        f["declaration_path"],
+        f["audit_path"],
+        sha(f["audit_path"].read_bytes()),
+        f["sources"],
+        output,
+    )
+    with zipfile.ZipFile(output) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    assert receipt["schemaVersion"] == "document-files.recognition-stage-verification.v2"
+    assert receipt["pack"]["sha256"] == sha(output.read_bytes())
+    assert manifest["provenance"]["derivedArtifacts"][0]["sha256"] == digest
+    assert {e["path"]: e["sha256"] for e in manifest["files"]} == {
+        e["path"]: e["sha256"] for e in f["files"]
+    }
+
+
+@pytest.mark.parametrize("audit_version", ["v1", "v3"])
+def test_derived_stage_requires_matching_v2_audit(fixture, audit_version):
+    tool, create = fixture
+    f = create()
+    digest = next(d for d, p in f["sources"].items() if p.name.startswith("docling-"))
+    declare_local_derivation(f, digest)
+    f["audit"]["schemaVersion"] = "document-files.recognition-stage-audit." + audit_version
+    with pytest.raises(tool.PackError, match="recognition_wrong_declaration"):
+        f["verify"]()
+
+
+def test_derived_model_cannot_be_counted_as_original_resource(fixture):
+    tool, create = fixture
+    f = create()
+    digest = next(s["sha256"] for s in f["source_rows"] if s["role"] == "layout-model")
+    declare_local_derivation(f, digest)
+    with pytest.raises(tool.PackError, match="recognition_model_not_original_source_bytes"):
+        f["verify"]()
+
+
+def test_derived_arm_torch_cannot_bypass_original_official_cpu_wheel_check(fixture):
+    tool, create = fixture
+    f = create("linux-aarch64")
+    digest = next(d for d, p in f["sources"].items() if p.name.startswith("torch-"))
+    declare_local_derivation(f, digest)
+    with pytest.raises(tool.PackError, match="recognition_arm_torch_official_cpu_source_required"):
+        f["verify"]()

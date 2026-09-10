@@ -2,6 +2,16 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add pack provenance v2 and recognition audit/verification v2 for locally built
+  preparation artifacts. Bind original inputs, derived output hashes and shipped
+  recipe/build records without falsely assigning an upstream URL to built bytes.
+  Hash all supplied inputs, reject cyclic/unbound derivations and retain original
+  model/OCR and official ARM CPU Torch checks. Legacy v1 evidence remains distinct;
+  the outer pack format and public extraction APIs are unchanged.
+- Reject NFC/case-fold-colliding Linux stage destinations before installer execution.
+  Explicit unused terminal-database omissions preserve original member evidence;
+  no automatic alias choice or weaker pack path policy is introduced.
+
 - Require a candidate-bound redistribution review for qualification v4. Cover every
   non-metadata artifact, reject unresolved/stale reviews, verify selected embedded
   ZIP notices and bind required source/recipe/notice artifacts by SHA. Promotion

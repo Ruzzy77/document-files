@@ -143,6 +143,44 @@ def execute(tool, setup, *, check=False):
     return tool.assemble(path, sha(path.read_bytes()), root, output, check_only=check)
 
 
+@pytest.mark.parametrize("same_bytes", [False, True])
+def test_pack_casefold_collision_rejected_before_stage_execution(tool, setup, same_bytes):
+    root, manifest, _ = setup
+    pbs(
+        root / "pbs.tar.gz",
+        extras=[
+            ("python/share/terminfo/E/Eterm", b"first", 0o644, None),
+            ("python/share/terminfo/e/eterm", b"first" if same_bytes else b"second", 0o644, None),
+        ],
+    )
+    manifest["pythonRuntime"].update(identity(root / "pbs.tar.gz"))
+    with pytest.raises(tool.AssemblyError, match="pack_destination_casefold_collision"):
+        tool.preflight(manifest, root, tool.Budget(manifest["limits"]))
+
+
+def test_explicit_terminal_database_omission_keeps_original_evidence(tool, setup):
+    root, manifest, _ = setup
+    entries = [
+        ("python/share/terminfo/E/Eterm", b"first", 0o644, None),
+        ("python/share/terminfo/e/eterm", b"second", 0o644, None),
+    ]
+    pbs(root / "pbs.tar.gz", extras=entries)
+    manifest["pythonRuntime"].update(identity(root / "pbs.tar.gz"))
+    before = sha((root / "pbs.tar.gz").read_bytes())
+    manifest["pythonOmissions"].append(
+        {
+            "path": "python/share/terminfo",
+            "recursive": True,
+            "reason": "Unused terminal database in this non-interactive recognition profile.",
+        }
+    )
+    members, *_ = tool.preflight(manifest, root, tool.Budget(manifest["limits"]))
+    for name, data, _, _ in entries:
+        assert members[name]["omission"]
+        assert members[name]["sha256"] == sha(data)
+    assert sha((root / "pbs.tar.gz").read_bytes()) == before
+
+
 def fake_pip(command, env, log, budget):
     target = Path(command[command.index("--target") + 1])
     wh = Path(command[command.index("--find-links") + 1])

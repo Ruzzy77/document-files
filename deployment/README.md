@@ -98,7 +98,7 @@ authorized preparation step. Verify hashes before unpacking. Never run an
 untrusted archive's installer or follow links outside its staging directory.
 
 Prepare an audited staging directory, license notices and a declaration containing
-all metadata above; use `defaultLicense`, exact `fileLicenses` overrides and an
+all metadata above; use exact `fileLicenses` (a `defaultLicense` only where applicable) and an
 `executables` list rather than a manually generated `files` array. Then run:
 
 ```sh
@@ -120,6 +120,38 @@ Every declared source digest must match a supplied local artifact. The builder
 inventories actual bytes and refuses to overwrite an output. It emits `.sha256`,
 `.manifest.json` and `.cdx.json` alongside the ZIP. Archive checksums cannot replace
 publisher authentication or the review of a source inventory.
+
+### Original inputs and locally built artifacts
+
+Legacy pack provenance and recognition audit/verification v1 remain supported.
+When a wheel or another preparation artifact is built locally, use
+`document-files.pack-provenance.v2` and recognition audit/verification v2. The outer
+`document-files.pack.v1` installation format and public extraction APIs are unchanged.
+`provenance.sources` still describes original downloadable bytes with their real
+HTTPS URL and SHA256; never put a built wheel's hash beside its parent source URL.
+
+V2 adds `provenance.derivedArtifacts`. Each entry contains exactly:
+
+- `sha256`: the local output artifact's verified SHA256.
+- `inputs`: unique SHA256 values of original sources or earlier derived entries.
+  Entries are topologically ordered; unknown/forward inputs, cycles and duplicate
+  outputs are rejected.
+- `recipe` and `buildEvidence`: each a `{path, sha256}` reference to a file shipped
+  in the pack. Both must match the pack file inventory and its normal license rules.
+
+Supply every original and derived artifact through `--source-artifact`; both are
+hashed before packing. The recognition v2 audit covers their union in `sources`
+and keeps wheel locks and installed distribution origins bound to exact outputs.
+Recipe and build-record hashes bind reviewed evidence, not a claim that this
+verifier executed the recipe or independently authenticated its contents. Review
+the actual inputs, recipe, recorded build and resulting bytes before approving
+the audit hash. Corresponding-source delivery and redistribution review remain
+separate release requirements.
+
+Required model/OCR resources must still be original source bytes, not derived
+substitutes. ARM Torch must still match the original official CPU wheel, including
+its original URL and staged bytes. V2 does not relax those checks or automatically
+migrate an old audit into approval for a new declaration.
 
 For the approved model, acquire the **official safetensors snapshot** at the full
 revision in `upstream-pins.json`. Prepare a source inventory `{source,revision,

@@ -196,3 +196,17 @@ keeps failures without promoting them. Installed temporary console entry points
 are not shipped; original auxiliary CLI sources are retained with execution support
 explicitly unverified. A completed assembly remains unapproved until the existing
 pack verifier, relocation, full processing, notices and release gates pass.
+
+Preflight rejects NFC/case-fold-colliding output paths before executing the stage
+installer, even on case-sensitive Linux. Explicit `pythonOmissions` may exclude
+unused runtime data, with each omitted original member and hash retained. For the
+non-interactive recognition profile, the PBS terminal database must be explicitly
+excluded when it has conflicting terminal-name aliases; do not choose an arbitrary
+alias, mutate the source archive or disable the pack's cross-platform path checks.
+Such an omission is not qualification of a general interactive Python runtime.
+
+Locally built wheels use the separately versioned
+[derived-artifact provenance and recognition audit v2](../deployment/README.md#original-inputs-and-locally-built-artifacts).
+Keep original download hashes, built outputs, shipped recipes and actual build
+records distinct. A successful provenance/packaging check is neither a reproducible
+build claim nor document quality, full-resource or redistribution approval.

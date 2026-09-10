@@ -354,6 +354,135 @@ def test_reproducible_builder_requires_matching_source_evidence(tmp_path):
     assert install(store, outputs[0]).manifest["id"] == "core"
 
 
+def derived_manifest(tmp_path):
+    archive = fixture_pack(
+        tmp_path,
+        extra_files={
+            "derivation/recipe.txt": b"Synthetic recipe",
+            "derivation/build.txt": b"Synthetic build record",
+        },
+    )
+    with zipfile.ZipFile(archive) as bundle:
+        manifest = json.loads(bundle.read("manifest.json"))
+    files = {item["path"]: item for item in manifest["files"]}
+    manifest["provenance"].update(
+        schemaVersion="document-files.pack-provenance.v2",
+        derivedArtifacts=[
+            {
+                "sha256": "2" * 64,
+                "inputs": ["1" * 64],
+                "recipe": {k: files["derivation/recipe.txt"][k] for k in ("path", "sha256")},
+                "buildEvidence": {k: files["derivation/build.txt"][k] for k in ("path", "sha256")},
+            }
+        ],
+    )
+    return manifest
+
+
+def test_derived_provenance_binds_local_outputs_without_download_urls(tmp_path):
+    from document_files.runtime_packs import pack_artifact_digests, validate_manifest
+
+    manifest = derived_manifest(tmp_path)
+    assert validate_manifest(manifest) is manifest
+    provenance = manifest["provenance"]
+    second = json.loads(json.dumps(provenance["derivedArtifacts"][0]))
+    second.update(sha256="3" * 64, inputs=["2" * 64, "1" * 64])
+    provenance["derivedArtifacts"].append(second)
+    assert pack_artifact_digests(provenance) == ["1" * 64, "2" * 64, "3" * 64]
+    validate_manifest(manifest)
+
+
+@pytest.mark.parametrize(
+    "fault,code",
+    [
+        ("legacy-version", "pack_invalid_provenance_version"),
+        ("future-version", "pack_invalid_provenance_version"),
+        ("invented-url", "pack_invalid_derived_artifact"),
+        ("unknown-parent", "pack_invalid_derived_inputs"),
+        ("self-cycle", "pack_invalid_derived_inputs"),
+        ("duplicate-parent", "pack_invalid_derived_inputs"),
+        ("original-as-derived", "pack_invalid_derived_inputs"),
+        ("duplicate-derived", "pack_invalid_derived_inputs"),
+        ("empty-inputs", "pack_invalid_derived_inputs"),
+        ("unsafe-recipe", "pack_unsafe_path"),
+        ("missing-evidence", "pack_unbound_derivation_reference"),
+        ("stale-evidence", "pack_unbound_derivation_reference"),
+    ],
+)
+def test_invalid_or_unbound_derived_provenance_is_rejected(tmp_path, fault, code):
+    from document_files.runtime_packs import validate_manifest
+
+    manifest = derived_manifest(tmp_path)
+    provenance = manifest["provenance"]
+    item = provenance["derivedArtifacts"][0]
+    if fault == "legacy-version":
+        del provenance["schemaVersion"]
+    elif fault == "future-version":
+        provenance["schemaVersion"] = "document-files.pack-provenance.v3"
+    elif fault == "invented-url":
+        item["uri"] = "https://example.org/original-not-this-built-wheel"
+    elif fault in {"unknown-parent", "self-cycle"}:
+        item["inputs"] = [("9" if fault == "unknown-parent" else "2") * 64]
+    elif fault == "duplicate-parent":
+        item["inputs"] *= 2
+    elif fault == "original-as-derived":
+        item["sha256"] = "1" * 64
+    elif fault == "duplicate-derived":
+        provenance["derivedArtifacts"].append(item.copy())
+    elif fault == "empty-inputs":
+        item["inputs"] = []
+    elif fault == "unsafe-recipe":
+        item["recipe"]["path"] = "../recipe"
+    elif fault == "missing-evidence":
+        item["buildEvidence"]["path"] = "missing-evidence"
+    elif fault == "stale-evidence":
+        item["buildEvidence"]["sha256"] = "9" * 64
+    with pytest.raises(PackError, match=code):
+        validate_manifest(manifest)
+
+
+def test_builder_hashes_derived_artifacts_and_installer_retains_provenance(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "build_runtime_pack", Path(__file__).parents[1] / "scripts/build_runtime_pack.py"
+    )
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    declaration = derived_manifest(tmp_path)
+    declaration["entrypoints"] = {}
+    declaration["defaultLicense"] = "apache"
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    with zipfile.ZipFile(tmp_path / "core-1.zip") as archive:
+        for name in ("LICENSE", "derivation/recipe.txt", "derivation/build.txt"):
+            path = stage / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(archive.read(name))
+    original, derived = tmp_path / "source.tar", tmp_path / "local.whl"
+    original.write_bytes(b"Synthetic original source")
+    derived.write_bytes(b"Synthetic derived artifact")
+    original_sha, derived_sha = sha256_file(original), sha256_file(derived)
+    provenance = declaration["provenance"]
+    provenance["sources"][0]["sha256"] = original_sha
+    provenance["derivedArtifacts"][0].update(sha256=derived_sha, inputs=[original_sha])
+    with pytest.raises(PackError, match="pack_unverified_build_source"):
+        builder.build_pack(stage, declaration, tmp_path / "missing.zip", {original_sha: original})
+    result = builder.build_pack(
+        stage, declaration, tmp_path / "built.zip", {original_sha: original, derived_sha: derived}
+    )
+    store = PackStore(tmp_path / "store")
+    installed = store.install(tmp_path / "built.zip", result["sha256"])
+    assert installed.manifest["provenance"]["derivedArtifacts"] == provenance["derivedArtifacts"]
+    derived.write_bytes(b"Changed local artifact")
+    with pytest.raises(PackError, match="pack_unverified_build_source"):
+        builder.build_pack(
+            stage,
+            declaration,
+            tmp_path / "changed.zip",
+            {original_sha: original, derived_sha: derived},
+        )
+    assert not (tmp_path / "changed.zip").exists()
+
+
 def test_unicode_normalization_collision_rejected(tmp_path):
     store = PackStore(tmp_path / "store")
     archive = fixture_pack(tmp_path)

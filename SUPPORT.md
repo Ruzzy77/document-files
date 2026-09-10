@@ -41,6 +41,15 @@ required by that review must be delivered even when classified as metadata. This
 prevents omission; it does not automatically determine license obligations or
 approve the unfinished candidate.
 
+Pack provenance v2 and recognition audit/verification v2 distinguish original
+downloads from locally built preparation artifacts. Both are hash checked; derived
+inputs and shipped recipe/build-record references are bound without inventing an
+upstream URL for the built output. Legacy v1 evidence remains distinct. Required
+model/OCR bytes and ARM Torch's official CPU origin are not replaceable by derived
+artifacts. These are packaging checks, not independent build, license or quality
+approval. Linux stage preflight also rejects case-fold-colliding destinations;
+explicitly omitted unused terminal data retains its original member evidence.
+
 For the Linux ARM64 development recognition stage, 39 additional notice files were
 copied into a new stage while preserving all 32,023 original files and their modes.
 The resulting 32,062-file stage is not a new final product build. Exact Debian source

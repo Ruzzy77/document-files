@@ -100,6 +100,56 @@ def _digest(value: Any) -> str:
     return value
 
 
+def pack_artifact_digests(provenance: dict) -> list[str]:
+    """Original downloads and explicitly derived local inputs, never invented URLs.
+
+    Derived entries are topologically ordered and carry shipped recipe/evidence
+    references. Hashes bind those records; they do not prove a build was executed
+    or that its upstream inputs/license decisions have been independently reviewed.
+    """
+    try:
+        version = provenance.get("schemaVersion", "document-files.pack-provenance.v1")
+        if version not in {
+            "document-files.pack-provenance.v1",
+            "document-files.pack-provenance.v2",
+        } or ("derivedArtifacts" in provenance and version != "document-files.pack-provenance.v2"):
+            raise PackError("pack_invalid_provenance_version")
+        original = provenance["sources"]
+        if not isinstance(original, list) or not original:
+            raise PackError("pack_missing_provenance")
+        digests = list(dict.fromkeys(_digest(item["sha256"]) for item in original))
+        known = set(digests)
+        derived = provenance.get("derivedArtifacts", [])
+        if not isinstance(derived, list):
+            raise PackError("pack_invalid_derived_artifact")
+        for item in derived:
+            if not isinstance(item, dict) or set(item) != {
+                "sha256",
+                "inputs",
+                "recipe",
+                "buildEvidence",
+            }:
+                raise PackError("pack_invalid_derived_artifact")
+            digest = _digest(item["sha256"])
+            inputs = item["inputs"]
+            if not isinstance(inputs, list) or not inputs:
+                raise PackError("pack_invalid_derived_inputs")
+            parents = [_digest(value) for value in inputs]
+            if digest in known or len(set(parents)) != len(parents) or not set(parents) <= known:
+                raise PackError("pack_invalid_derived_inputs")
+            for key in ("recipe", "buildEvidence"):
+                ref = item[key]
+                if not isinstance(ref, dict) or set(ref) != {"path", "sha256"}:
+                    raise PackError("pack_invalid_derivation_reference")
+                safe_relative(ref["path"])
+                _digest(ref["sha256"])
+            digests.append(digest)
+            known.add(digest)
+        return digests
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise PackError("pack_invalid_provenance") from exc
+
+
 def _json(data: bytes) -> dict:
     def pairs(items):
         result = {}
@@ -200,6 +250,13 @@ def validate_manifest(manifest: dict) -> dict:
             _digest(source["sha256"])
             if "revision" in source and not re.fullmatch(r"[a-f0-9]{40,64}", source["revision"]):
                 raise PackError("pack_unpinned_revision")
+        pack_artifact_digests(manifest["provenance"])
+        inventory = {item["path"]: item for item in files}
+        for artifact in manifest["provenance"].get("derivedArtifacts", []):
+            for key in ("recipe", "buildEvidence"):
+                ref = artifact[key]
+                if inventory.get(ref["path"], {}).get("sha256") != ref["sha256"]:
+                    raise PackError("pack_unbound_derivation_reference")
         if not isinstance(manifest["compatibleRuntimes"], list):
             raise PackError("pack_invalid_compatibility")
         for runtime in manifest["compatibleRuntimes"]:

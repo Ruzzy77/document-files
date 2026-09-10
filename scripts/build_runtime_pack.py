@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from document_files.runtime_packs import (  # noqa: E402
     MAX_MANIFEST_BYTES,
     PackError,
+    pack_artifact_digests,
     safe_relative,
     sha256_file,
     validate_manifest,
@@ -36,8 +37,7 @@ def build_pack(stage: Path, declaration: dict, output: Path, sources: dict[str, 
     default_license = manifest.pop("defaultLicense", None)
     file_licenses = manifest.pop("fileLicenses", {})
     executables = set(manifest.pop("executables", []))
-    for source in manifest["provenance"]["sources"]:
-        digest = source["sha256"]
+    for digest in pack_artifact_digests(manifest["provenance"]):
         if digest not in sources or sha256_file(sources[digest]) != digest:
             raise PackError("pack_unverified_build_source")
     files = []

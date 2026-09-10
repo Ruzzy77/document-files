@@ -24,6 +24,7 @@ import struct
 import subprocess
 import tarfile
 import time
+import unicodedata
 import zipfile
 from email.parser import Parser
 from pathlib import Path, PurePosixPath
@@ -523,6 +524,11 @@ def preflight(manifest, root, budget):
         )
         require(dest not in destinations, "asset_collision")
         destinations.add(dest)
+    require(
+        len({unicodedata.normalize("NFC", name).casefold() for name in destinations})
+        == len(destinations),
+        "pack_destination_casefold_collision",
+    )
     for dest in destinations:
         require(
             not any(str(parent) in destinations for parent in PurePosixPath(dest).parents),
