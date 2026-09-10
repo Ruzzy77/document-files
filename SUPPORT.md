@@ -148,7 +148,7 @@ coordinates without rerendering or rewriting observations. The 3-row grid remain
 unlinked to the original 2-row table; this is not repaired text or a complete
 recognition/interpretation execution. Both failed probe records are retained.
 
-PDF review v7 now has a reachable, budgeted image-reading stage after an unresolved
+PDF review v9 now has a reachable, budgeted image-reading stage after an unresolved
 review or a missing-slot inventory failure. It obtains literal text/empty/uncertain
 candidates from measured cells and existing text regions without providing OCR strings
 as answers. Partial results preserve those candidates with source-pixel identities;
@@ -211,8 +211,34 @@ suite passed 198 tests with no skips; the local full suite passed 2,228 with 227
 and 12 subtests. The diagnostic took 0.86 seconds, with 3.67 seconds for host preparation
 and tests; the cgroup peak was 110,407,680 bytes with no swap/OOM. This is a no-model
 component check, not recognition-plus-inference qualification. Including this host
-execution, the development scan has used 485.00/900 seconds and two model calls;
-about 415.00 seconds remain. No further image review or meaning call has been made.
+execution, that checkpoint had used 485.00/900 seconds and two model calls;
+about 415.00 seconds remained before the subsequent review below.
+
+The subsequent v8 review separated residual components and used a compact ordered
+response. It still mislabeled all seven edge-candidate units (51,407 pixels) as source
+text and missed the known title newline mismatch. The actual output was 99 tokens
+rather than the previous 501, but prompt processing remained 158.54 seconds; the
+call took 174.22 seconds. Product acceptance/application is rejected development
+quality evidence, not a verified document. Original observations and issues remain.
+
+Current source `454f518` (review v9) blocks these plans with
+`visual_rule_context_not_displayed` before inference and during response validation.
+Bounding rectangles do not expose a unit's exact pixel membership. Source-bound
+membership display is not implemented yet, and no caller flag bypasses the guard.
+The failure is retained on resume; old checkpoints are rejected. Existing plans
+without edge candidates keep their review path. No new model call followed the
+failed v8 review.
+
+The local full suite passed 2,250 tests with 227 skips and 12 subtests; current actual
+ARM dependency checks passed 220 with no skips. The original 257,034 pixels and
+source strings are unchanged. V8's host execution used 181.90 seconds and its cgroup
+peak was 7,177,662,464 bytes without swap/OOM; the v9 no-model guard check took another
+3.81 host seconds. The development scan has now used 670.72/900 seconds and three
+model calls, leaving about 229.28 seconds. This reused recognition/reading evidence,
+so it is neither whole-pipeline resource qualification nor independent quality approval.
+Owned containers/servers and verified temporary transport copies were cleaned up;
+original packs and clients are unchanged. The next implementation must expose exact
+unit membership while retaining the existing two-image/byte/pixel and document budgets.
 
 ### Source-first table meaning review
 
