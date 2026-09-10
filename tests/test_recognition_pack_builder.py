@@ -991,7 +991,7 @@ def test_runtime_configuration_cannot_repurpose_authored_metadata(fixture, setti
     evidence, _, _ = declare_authored_metadata(f)
     name = evidence["files"][0]["path"]
     f["declaration"]["recognition"][setting] = (
-        [str(Path(name).parent)] if setting == "nativeLibraryDirectories" else name
+        [Path(name).parent.as_posix()] if setting == "nativeLibraryDirectories" else name
     )
     with pytest.raises(tool.PackError, match="recognition_authored_metadata_not_documentation"):
         f["verify"]()

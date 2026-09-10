@@ -66,6 +66,7 @@ def setup(monkeypatch, *, failure=None):
         "unreportedUsageCalls": 0,
         "elapsedSeconds": 0.0,
     }
+    timing = {}
 
     class Client:
         identity = {"vision": {"version": MANAGED_VISION_VERSION}}
@@ -76,7 +77,9 @@ def setup(monkeypatch, *, failure=None):
             assert checkpoints[-1]["pages"]["1"]["status"] == "running"
             assert usage["modelCalls"] == usage["unreportedUsageCalls"] == 1
             assert request.max_output_tokens == 2000
-            assert 0 < request.timeout <= 30
+            # Compare with the actual absolute deadline supplied below. On some
+            # clocks (start + 30) - start rounds slightly above the literal 30.
+            assert 0 < request.timeout <= timing["deadline"] - timing["started"]
             assert request.messages[1]["content"][1]["type"] == "image_url"
             if failure == "timeout":
                 raise ModelError("ai_timeout")
@@ -92,13 +95,15 @@ def setup(monkeypatch, *, failure=None):
     client = Client()
 
     def run(*, restore=None, max_calls=2, expired=False, cancelled=None):
+        timing["started"] = time.monotonic()
+        timing["deadline"] = timing["started"] + (-1 if expired else 30)
         return runner.review_pdf_pages(
             b"synthetic",
             doc,
             client=client,
             usage=usage,
             max_calls=max_calls,
-            deadline=time.monotonic() + (-1 if expired else 30),
+            deadline=timing["deadline"],
             context_chars=20000,
             checkpoint=lambda s: checkpoints.append(deepcopy(s)),
             restore=restore,
@@ -106,6 +111,17 @@ def setup(monkeypatch, *, failure=None):
         )
 
     return doc, calls, checkpoints, usage, run, client
+
+
+def test_absolute_deadline_rounding_does_not_misreport_budget_overrun(monkeypatch):
+    # A fixed clock reproduces the Windows CI rounding case without changing
+    # production time budgets or admitting timeouts after the supplied deadline.
+    instant = 2.2
+    assert (instant + 30) - instant > 30
+    monkeypatch.setattr(runner.time, "monotonic", lambda: instant)
+    _, calls, _, _, run, _ = setup(monkeypatch)
+    reviewed, _ = run()
+    assert reviewed is not None and calls["model"] == 1
 
 
 def test_actual_positive_application_and_no_repeat_on_resume(monkeypatch):
