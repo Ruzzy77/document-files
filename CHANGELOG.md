@@ -2,6 +2,13 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- PDF review v11 / unit display v2 also display residual groups that share an
+  original pixel component with measured table rules, even when those groups
+  have no edge-candidate status. This exposes mixed lettering and residual marks
+  previously hidden by source-box grouping. Original pixels, edge-search bounds,
+  blank-cell rules and image budgets are unchanged; display grants no new content
+  or edge authority. Older review/display checkpoints cannot be resumed as v11.
+
 - Visual application v4 applies fully reviewed blank cells to alternative image-read
   tables and links each replaced recognizer-table gap to its exact reviewed replacement.
   Validate source-slot geometry for every candidate cell and preserve original tables,

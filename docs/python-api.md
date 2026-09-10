@@ -475,7 +475,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v10` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v11` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -577,7 +577,18 @@ Checkpoints store that descriptor and `unitDisplayFingerprint`, never image data
 visual application v3 and later also record it in the applied page-review provenance.
 Resume and atomic application repeat the source/membership checks without rerendering
 or calling the model again. Unprepared, changed or missing display evidence remains
-blocked. Pure source/core plans without edge candidates keep the original image path.
+blocked. Pure source/core plans without edge candidates or shared rule residuals keep
+the original image path.
+V11 / unit display v2 additionally require masks for non-boundary groups sharing an
+original pixel component with a measured rule. Source-box grouping can otherwise
+hide a residual stripe beside lettering, outside the edge-candidate search band.
+The whole mixed group is shown, without changing its source candidates, pixels or
+eligibility for `rule_edge` / `text_and_border`. Display alone cannot approve the
+extra marks, extend a measured border, or prove a blank. Source references in the
+payload are geometric intersections, not proof that every selected pixel is text.
+Missing membership inventories are rejected. New panels use the same source-detail
+bounds, image/byte/pixel/time caps and exact PNG verification; none are silently
+omitted to fit. Older review/display checkpoints remain incompatible.
 These are input/ownership checks, not a claim that the model's interpretation is correct.
 V8 failures remain development evidence, and all prior review checkpoints are rejected.
 

@@ -348,3 +348,45 @@ def test_invalid_unit_objects_fail_with_a_fixed_error(value):
     plan["fingerprint"] = digest({k: v for k, v in plan.items() if k != "fingerprint"})
     with pytest.raises(PdfVisualReviewError, match="visual_display_unit_inventory"):
         prepare(plan, images)
+
+
+def test_connected_residuals_are_displayed_without_becoming_edge_candidates():
+    from test_pdf_visual_contexts import fixture as partition_fixture
+    from test_pdf_visual_contexts import owner
+
+    def draw_residual(image, draw):
+        draw.line((30, 21, 30, 40), fill=(254, 254, 254))
+        draw.line((10, 40, 89, 40), fill=(254, 254, 254))
+        draw.rectangle((60, 35, 65, 37), fill="black")
+
+    groups = partition_fixture(draw_residual, sources=[{"id": "a", "bounds": [10, 34, 90, 42]}])
+    for i, unit in enumerate(groups):
+        unit["id"] = f"u{i}"
+    residual = owner(groups, (30, 40))
+    assert residual["sourceIds"] == ["a"]
+    assert not residual["ruleEdgeTableRefs"] and not residual["onlyBoundaryPixels"]
+    assert len(residual["parts"]) >= 2  # Source overlap grouped a detached mark too.
+    before = deepcopy(groups)
+    selected = display._units({"units": groups})
+    assert residual in selected and groups == before
+    assert all(not u["onlyBoundaryPixels"] for u in selected)
+
+
+def test_non_candidate_membership_cannot_be_hidden_or_approved_as_an_edge():
+    *_, plan, images = fixture()
+    unit = next(u for u in plan["units"] if u["ruleEdgeTableRefs"])
+    unit["ruleEdgeTableRefs"] = []
+    plan["fingerprint"] = digest({k: v for k, v in plan.items() if k != "fingerprint"})
+    rendered = prepare(plan, images)
+    assert unit["id"] in {p["id"] for p in rendered.descriptor["images"][1]["panels"]}
+    decision = approved(plan)
+    for u, choice in zip(plan["units"], decision["units"], strict=True):
+        if u is unit or u["ruleEdgeTableRefs"]:
+            choice["decision"] = "rule_edge"
+    with pytest.raises(PdfVisualReviewError, match="visual_rule_edge_without_candidate"):
+        validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90], display=rendered.descriptor)
+    old = rendered.descriptor
+    old["version"] = "document-files.pdf-unit-display.v1"
+    old["fingerprint"] = digest({k: v for k, v in old.items() if k != "fingerprint"})
+    with pytest.raises(PdfVisualReviewError, match="visual_rule_context_not_displayed"):
+        display.validate_display(plan, old, detail_bounds=[0, 0, 90, 90])

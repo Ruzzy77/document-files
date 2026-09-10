@@ -13,7 +13,7 @@ from importlib.metadata import version
 from .pdf_review_images import MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, PdfReviewImages, _BoundedPng
 from .pdf_visual_plan import MAX_SPLIT_RUNS, MAX_UNITS, PdfVisualReviewError, digest, require
 
-VERSION = "document-files.pdf-unit-display.v1"
+VERSION = "document-files.pdf-unit-display.v2"
 MARGIN = 8
 LABEL_HEIGHT = 24
 MIN_WIDTH = 320
@@ -104,7 +104,34 @@ def _units(plan):
         "visual_display_unit_budget",
     )
     require(all(isinstance(u, dict) for u in plan["units"]), "visual_display_unit_inventory")
-    result = [u for u in plan["units"] if u.get("ruleEdgeTableRefs")]
+    # A source-box intersection can group lettering with residual pixels from
+    # the original connected rule component, even outside the edge-search band.
+    # Display that entire group; membership does not grant it an edge decision.
+    components, boundary_components, part_count = {}, set(), 0
+    for i, unit in enumerate(plan["units"]):
+        parts = unit.get("parts")
+        require(isinstance(parts, list), "visual_display_unit_inventory")
+        part_count += len(parts)
+        require(part_count <= MAX_SPLIT_RUNS, "visual_display_run_budget")
+        require(
+            all(
+                isinstance(p, dict)
+                and isinstance(p.get("componentId"), str)
+                and bool(p["componentId"])
+                for p in parts
+            ),
+            "visual_display_unit_inventory",
+        )
+        components[i] = {p["componentId"] for p in parts}
+        if unit.get("onlyBoundaryPixels") and unit.get("tableRefs"):
+            boundary_components.update(components[i])
+    result = [
+        u
+        for i, u in enumerate(plan["units"])
+        if u.get("ruleEdgeTableRefs")
+        or not u.get("onlyBoundaryPixels")
+        and components[i] & boundary_components
+    ]
     require(
         len({u["id"] for u in result}) == len(result)
         and all(
@@ -324,7 +351,8 @@ def validate_display(plan, descriptor, *, detail_bounds, deadline=None, cancelle
 def prepare_display(plan, images, *, deadline, cancelled=None):
     """Keep the full source PNG, replace only the second image with labeled panels."""
     _check(deadline, cancelled)
-    if not _units(plan):
+    units = _units(plan)
+    if not units:
         return images
     require(
         plan.get("fingerprint") == digest({k: v for k, v in plan.items() if k != "fingerprint"}),
@@ -379,7 +407,7 @@ def prepare_display(plan, images, *, deadline, cancelled=None):
             if i == 0:
                 atlas.paste(detail, (x, y))
             else:
-                unit = _units(plan)[i - 1]
+                unit = units[i - 1]
                 raw = _mask(plan, unit, deadline=deadline, cancelled=cancelled)
                 panel["pixelSha256"] = _sha(raw)
                 with Image.frombytes("RGB", (right - x, bottom - y), raw) as mask:

@@ -220,6 +220,15 @@ def fixture():
         "foregroundPixelCount": 32,
         "splitRunCount": 3,
     }
+    # Distinct synthetic components: the application fixture does not model
+    # residual rule pixels sharing a source component with either text unit.
+    for unit, run in zip(plan["units"], [[5, 0, 10], [65, 0, 10], [0, 30, 42]], strict=True):
+        part = {
+            "componentId": "fixture-" + unit["id"],
+            "runs": [run],
+            "runsSha256": digest([run]),
+        }
+        unit.update(parts=[part], membershipSha256=digest([part]))
     plan["fingerprint"] = digest(plan)
     decision = {
         "units": [
