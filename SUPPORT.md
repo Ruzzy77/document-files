@@ -42,9 +42,13 @@ application could promote an explicitly uncertain meaning to interpreted. The
 new contract distinguishes these cases: a valid scope resolves only applicability.
 Content uncertainty remains a partial result, including after checkpoint resume;
 private status is part of task freshness, not a new public result field. Old
-internal checkpoints are rejected. Local checks passed 2,435 tests (227 skipped,
-12 subtests), including 465 related tests with warnings as errors. Current-source
-ARM regression is pending; these checks are not actual-model qualification.
+internal checkpoints are rejected. Local checks passed 2,436 tests (227 skipped,
+12 subtests), including 466 related tests with warnings as errors. The same 466
+related tests passed on Spark ARM without skips. These are not actual-model or
+full-recognition qualification. Windows CI exposed a scripted-test assumption that
+an instant call always takes positive measurable time; deterministic fixture timing
+and a separate valid zero-duration resume test now cover both cases. Product timing
+is unchanged; the new five-platform CI is still pending.
 
 Row selection still uses actual source geometry and compiler-owned value mappings.
 It creates no rows or values, preserves gaps and unresolved roles, and cannot attach
