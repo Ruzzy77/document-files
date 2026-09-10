@@ -661,13 +661,38 @@ def evidence(tmp_path):
     reports["http_service_arm64"] = arm_http
     document = {
         **identity,
-        "schemaVersion": "document-files.qualification.v3",
+        "schemaVersion": "document-files.qualification.v4",
         "artifactInventory": inventory_ref,
         "releaseAssets": [a["id"] for a in assets],
         "publishArtifactInventory": True,
         "scope": "printed-ko-en-cpu16gb-full-document.v1",
         "support": {"cloud_model": "not-qualified"},
     }
+
+    document["redistributionReview"] = write(
+        "redistribution.json",
+        {
+            **identity,
+            "schemaVersion": "document-files.redistribution-review.v1",
+            "artifactInventory": copy.deepcopy(inventory_ref),
+            "artifacts": [
+                {
+                    "artifactId": a["id"],
+                    "sha256": a["sha256"],
+                    "status": "approved",
+                    "reviewedBy": "synthetic-test-reviewer",
+                    "findings": ["Synthetic fixture only; not a real redistribution approval."],
+                    "openIssues": [],
+                    "requiredPublicArtifacts": [],
+                    "noAdditionalPublicArtifactsReason": (
+                        "Synthetic fixture has no real upstream content."
+                    ),
+                }
+                for a in assets
+                if a["kind"] != "metadata"
+            ],
+        },
+    )
 
     # Snapshot input hashes in the stored source-linked results before any test mutations.
     for case in [*cases, *arm_model["cases"]]:
@@ -1405,3 +1430,219 @@ def test_image_export_cannot_be_swapped_even_with_updated_archive_hash(evidence,
         gate_module().artifact_inventory(
             document, root, document["sourceCommit"], document["version"]
         )
+
+
+@pytest.fixture
+def redistribution_case(tmp_path):
+    gate = gate_module()
+    package = tmp_path / "package.zip"
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("LICENSE", b"original notice")
+    source = tmp_path / "source.tar.gz"
+    source.write_bytes(b"synthetic source")
+
+    def sha(p):
+        return hashlib.sha256(p.read_bytes()).hexdigest()
+
+    document = {
+        "sourceCommit": "a" * 40,
+        "version": "1.8.0",
+        "dirtySource": False,
+        "artifactInventory": {"path": "inventory.json", "sha256": "b" * 64},
+    }
+    assets = {
+        "package": {"kind": "recognition", "sha256": sha(package), "verifiedPath": package},
+        "source": {"kind": "metadata", "sha256": sha(source), "verifiedPath": source},
+    }
+    review = {
+        **copy.deepcopy(document),
+        "schemaVersion": "document-files.redistribution-review.v1",
+        "artifacts": [
+            {
+                "artifactId": "package",
+                "sha256": sha(package),
+                "status": "approved",
+                "reviewedBy": "synthetic reviewer",
+                "findings": ["Reviewed synthetic source and notice map."],
+                "openIssues": [],
+                "requiredPublicArtifacts": [
+                    {
+                        "artifactId": "source",
+                        "sha256": sha(source),
+                        "role": "source",
+                        "reason": "Synthetic corresponding source is supplied separately.",
+                    }
+                ],
+                "embeddedNotices": [
+                    {"path": "LICENSE", "sha256": hashlib.sha256(b"original notice").hexdigest()}
+                ],
+            }
+        ],
+    }
+
+    def run():
+        path = tmp_path / "review.json"
+        path.write_text(json.dumps(review))
+        document["redistributionReview"] = {"path": path.name, "sha256": sha(path)}
+        return gate.redistribution_review(document, tmp_path, assets)
+
+    return gate, document, assets, review, run
+
+
+def test_redistribution_exact_review_and_embedded_notice(redistribution_case):
+    *_, run = redistribution_case
+    assert run() == {"source"}
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "duplicate",
+        "metadata-review",
+        "wrong-candidate",
+        "wrong-inventory",
+        "dirty",
+        "old-schema",
+        "unapproved",
+        "unresolved",
+        "reviewer",
+        "findings",
+        "artifact-sha",
+        "missing-public",
+        "public-sha",
+        "duplicate-public",
+        "public-role",
+        "public-reason",
+        "no-public-reason",
+        "notice-sha",
+        "duplicate-notice",
+        "notice-path",
+    ],
+)
+def test_redistribution_incomplete_or_stale_rejected(redistribution_case, fault):
+    _, _, _, review, run = redistribution_case
+    row = review["artifacts"][0]
+    if fault == "missing":
+        review["artifacts"] = []
+    elif fault == "duplicate":
+        review["artifacts"].append(copy.deepcopy(row))
+    elif fault == "metadata-review":
+        row["artifactId"] = "source"
+    elif fault == "wrong-candidate":
+        review["sourceCommit"] = "c" * 40
+    elif fault == "wrong-inventory":
+        review["artifactInventory"]["sha256"] = "c" * 64
+    elif fault == "dirty":
+        review["dirtySource"] = True
+    elif fault == "old-schema":
+        review["schemaVersion"] = "old"
+    elif fault == "unapproved":
+        row["status"] = "pending"
+    elif fault == "unresolved":
+        row["openIssues"] = ["license unresolved"]
+    elif fault == "reviewer":
+        row["reviewedBy"] = " "
+    elif fault == "findings":
+        row["findings"] = []
+    elif fault == "artifact-sha":
+        row["sha256"] = "c" * 64
+    elif fault == "missing-public":
+        row["requiredPublicArtifacts"][0]["artifactId"] = "absent"
+    elif fault == "public-sha":
+        row["requiredPublicArtifacts"][0]["sha256"] = "c" * 64
+    elif fault == "duplicate-public":
+        row["requiredPublicArtifacts"] *= 2
+    elif fault == "public-role":
+        row["requiredPublicArtifacts"][0]["role"] = "unknown"
+    elif fault == "public-reason":
+        row["requiredPublicArtifacts"][0]["reason"] = ""
+    elif fault == "no-public-reason":
+        row["requiredPublicArtifacts"] = []
+    elif fault == "notice-sha":
+        row["embeddedNotices"][0]["sha256"] = "c" * 64
+    elif fault == "duplicate-notice":
+        row["embeddedNotices"] *= 2
+    elif fault == "notice-path":
+        row["embeddedNotices"][0]["path"] = "../LICENSE"
+    with pytest.raises(ValueError):
+        run()
+
+
+def test_redistribution_no_public_files_needs_explicit_reason(redistribution_case):
+    _, _, _, review, run = redistribution_case
+    row = review["artifacts"][0]
+    row["requiredPublicArtifacts"] = []
+    row["noAdditionalPublicArtifactsReason"] = (
+        "Required notices are already inside the approved archive."
+    )
+    assert run() == set()
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "traversal", "symlink", "large"])
+def test_redistribution_zip_safety(redistribution_case, fault):
+    gate, _, assets, review, _ = redistribution_case
+    path = assets["package"]["verifiedPath"]
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("LICENSE", b"notice")
+        if fault == "duplicate":
+            archive.writestr("license", b"case collision")
+        elif fault == "traversal":
+            archive.writestr("../outside", b"unsafe")
+        elif fault == "symlink":
+            entry = zipfile.ZipInfo("link")
+            entry.external_attr = 0o120777 << 16
+            archive.writestr(entry, "LICENSE")
+        else:
+            archive.writestr("BIG", b"0" * (16 * 1024**2 + 1))
+    notices = review["artifacts"][0]["embeddedNotices"]
+    if fault == "large":
+        notices[0]["path"] = "BIG"
+    with pytest.raises(ValueError):
+        gate._redistribution_zip_notices(path, notices)
+
+
+def test_gate_requires_new_redistribution_contract(evidence):
+    _, document, run, _ = evidence
+    document.pop("redistributionReview")
+    with pytest.raises(ValueError, match="Redistribution review required"):
+        run()
+
+
+def test_old_v3_cannot_skip_redistribution(evidence):
+    _, document, run, _ = evidence
+    document["schemaVersion"] = "document-files.qualification.v3"
+    with pytest.raises(ValueError, match="Qualification identity"):
+        run()
+
+
+@pytest.mark.parametrize("payload", [[], None, "not an object", 3])
+def test_redistribution_receipt_must_be_object(redistribution_case, tmp_path, payload):
+    gate, document, assets, _, _ = redistribution_case
+    path = tmp_path / "review.json"
+    path.write_text(json.dumps(payload))
+    document["redistributionReview"] = {
+        "path": path.name,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    with pytest.raises(ValueError, match="must be an object"):
+        gate.redistribution_review(document, tmp_path, assets)
+
+
+def test_redistribution_review_hash_cannot_be_replaced(redistribution_case, tmp_path):
+    gate, document, assets, _, run = redistribution_case
+    run()
+    (tmp_path / "review.json").write_bytes(b"{}")
+    with pytest.raises(ValueError, match="checksum"):
+        gate.redistribution_review(document, tmp_path, assets)
+
+
+def test_redistribution_notice_must_be_regular_file(redistribution_case):
+    gate, _, assets, review, _ = redistribution_case
+    path = assets["package"]["verifiedPath"]
+    with zipfile.ZipFile(path, "w") as archive:
+        info = zipfile.ZipInfo("LICENSE")
+        info.external_attr = 0o040700 << 16
+        archive.writestr(info, b"original notice")
+    with pytest.raises(ValueError, match="Unsafe"):
+        gate._redistribution_zip_notices(path, review["artifacts"][0]["embeddedNotices"])

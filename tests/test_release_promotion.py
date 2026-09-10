@@ -135,6 +135,13 @@ def test_multipart_uploads_parts_but_keeps_original_artifact_identity(evidence, 
     document["artifactInventory"]["sha256"] = hashlib.sha256(
         inventory_path.read_bytes()
     ).hexdigest()
+    review_path = root / document["redistributionReview"]["path"]
+    review = json.loads(review_path.read_bytes())
+    review["artifactInventory"] = document["artifactInventory"]
+    review_path.write_text(json.dumps(review))
+    document["redistributionReview"]["sha256"] = hashlib.sha256(
+        review_path.read_bytes()
+    ).hexdigest()
     run()
     files = tool.verify(root / "manifest.json", root, document["sourceCommit"], document["version"])
     assert original not in [a["verifiedPath"] for a in files]
@@ -144,4 +151,72 @@ def test_multipart_uploads_parts_but_keeps_original_artifact_identity(evidence, 
     first = tool.release_parts.load_manifest(transport)["parts"][0]
     (transport.parent / first["name"]).write_bytes(b"tampered")
     with pytest.raises(ValueError, match="part size"):
+        tool.verify(root / "manifest.json", root, document["sourceCommit"], document["version"])
+
+
+@pytest.mark.parametrize(
+    "include_required,multipart", [(False, False), (True, False), (True, True)]
+)
+def test_required_sources_public_private_metadata_optional(
+    evidence, monkeypatch, include_required, multipart
+):
+    _, document, run, root = evidence
+    tool = promotion(monkeypatch)
+    inventory_path = root / document["artifactInventory"]["path"]
+    inventory = json.loads(inventory_path.read_bytes())
+    for name in ["corresponding-source.tar.gz", "private-review.txt"]:
+        path = root / name
+        path.write_bytes(b"synthetic " + name.encode())
+        asset = {
+            "id": name,
+            "kind": "metadata",
+            "path": name,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        if multipart and name.startswith("corresponding"):
+            transport = tool.release_parts.split(path, root / "source-parts", part_size=11)
+            asset["transport"] = {
+                "manifest": {
+                    "path": str(transport.relative_to(root)),
+                    "sha256": hashlib.sha256(transport.read_bytes()).hexdigest(),
+                }
+            }
+        inventory["artifacts"].append(asset)
+    inventory_path.write_text(json.dumps(inventory))
+    document["artifactInventory"]["sha256"] = hashlib.sha256(
+        inventory_path.read_bytes()
+    ).hexdigest()
+    review_path = root / document["redistributionReview"]["path"]
+    review = json.loads(review_path.read_bytes())
+    review["artifactInventory"] = document["artifactInventory"]
+    source = next(a for a in inventory["artifacts"] if a["id"].startswith("corresponding"))
+    review["artifacts"][0]["requiredPublicArtifacts"] = [
+        {
+            "artifactId": source["id"],
+            "sha256": source["sha256"],
+            "role": "source",
+            "reason": "Synthetic required corresponding sources.",
+        }
+    ]
+    review_path.write_text(json.dumps(review))
+    document["redistributionReview"]["sha256"] = hashlib.sha256(
+        review_path.read_bytes()
+    ).hexdigest()
+    if include_required:
+        document["releaseAssets"].append(source["id"])
+    run()
+    if not include_required:
+        with pytest.raises(ValueError, match="omit"):
+            tool.verify(root / "manifest.json", root, document["sourceCommit"], document["version"])
+        return
+    files = tool.verify(root / "manifest.json", root, document["sourceCommit"], document["version"])
+    assert "private-review.txt" not in {a["id"] for a in files}
+    assert any(a["id"].startswith(source["id"]) for a in files)
+    if multipart:
+        assert any(a["kind"] == "transport-part" for a in files)
+        part = next(a for a in files if a["kind"] == "transport-part")
+        part["verifiedPath"].write_bytes(b"corrupt")
+    else:
+        (root / source["path"]).write_bytes(b"corrupt")
+    with pytest.raises(ValueError):
         tool.verify(root / "manifest.json", root, document["sourceCommit"], document["version"])

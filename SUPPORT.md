@@ -33,6 +33,22 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
+### Redistribution preparation
+
+The release gate now requires a review tied to every exact non-metadata candidate
+artifact, with no unresolved redistribution issues. Sources, recipes and notices
+required by that review must be delivered even when classified as metadata. This
+prevents omission; it does not automatically determine license obligations or
+approve the unfinished candidate.
+
+For the Linux ARM64 development recognition stage, 39 additional notice files were
+copied into a new stage while preserving all 32,023 original files and their modes.
+The resulting 32,062-file stage is not a new final product build. Exact Debian source
+packages for five shipped runtime libraries have also been acquired and hash-checked.
+Corresponding-source publication, remaining component notices, modified-library
+loading and final pack/full-product checks remain unfinished. Installed packs,
+Toolkit and Sync were not changed.
+
 ### Source-first table meaning review
 
 Table protocol v10 asks for one decision per owned source before any meanings.
@@ -597,7 +613,7 @@ formats are prepared but have not undergone final model evaluation.
 
 Evaluation v2 retains independently prepared per-case review specifications outside
 model input. A separate review receipt binds the immutable inference report and
-results. Release qualification v3 binds clean source, actual assets and installed
+results. Release qualification v4 binds clean source, actual assets and installed
 results, and uses linked cgroup measurements rather than summed process RSS.
 Fresh-output builds and exact-byte promotion are implemented. Large packs use
 explicit split/join transport without changing their reconstructed ZIP identity.

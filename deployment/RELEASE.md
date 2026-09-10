@@ -209,9 +209,49 @@ budget; probe cleanup has a separate short limit and checks the exact run label,
 and image before deletion. Failure receipts distinguish CLI process cleanup from
 unverified daemon-side build termination. Actual Docker execution remains unverified.
 
+## Candidate-bound redistribution review
+
+Before qualification, finish the component/license review for the exact candidate,
+including its bundled notices, modifications and any corresponding source or build
+instructions that must be provided. The checker validates recorded decisions and
+file identities; it does not decide which license applies or grant legal approval.
+Unresolved redistribution conditions still block publication.
+
+Qualification v4 requires `redistributionReview: {path, sha256}`, separate from the
+public asset inventory. Its `document-files.redistribution-review.v1` receipt has the
+same `sourceCommit`, `version`, `dirtySource: false` and exact `artifactInventory`
+reference. Under `artifacts`, cover every non-metadata inventory artifact exactly
+once with:
+
+- `artifactId`, exact `sha256`, `status: "approved"`, `reviewedBy`, a nonempty
+  `findings` list describing the review, and `openIssues: []`.
+- `requiredPublicArtifacts`: inventory references with `artifactId`, `sha256`,
+  `role` (`source`, `recipe` or `notice`) and a review `reason`. A combined source/
+  build/notice archive can be one existing metadata artifact. If no additional public
+  artifact is needed, record `noAdditionalPublicArtifactsReason`; do not silently
+  omit the review or infer exemption from a top-level package license.
+- Optional `embeddedNotices: [{path, sha256}]` for notices inside that artifact's ZIP.
+  The checker reads exact, safe, unique members without extraction, rejecting links
+  and encrypted entries. Limits are 100,000 ZIP entries, 4,096 selected notices,
+  16 MiB per notice and 64 MiB total. For non-ZIP/container deliverables, use reviewed
+  companion notice artifacts rather than treating a layer path as a ZIP member.
+
+Add required corresponding-source/recipe/notice files to the existing inventory
+with their actual SHA values and list their IDs in `releaseAssets`. Metadata marked
+as required by this review cannot be omitted during promotion. Existing multipart
+transport is supported without changing the reconstructed source archive's identity.
+Other metadata and the review itself are not uploaded automatically; keep private
+review evidence out of the public inventory and delivery files.
+
+Old qualification v3 records lack this mandatory review and are not accepted as
+current release evidence. Do not simply relabel them as v4. A changed inventory or
+candidate invalidates the review until the affected decisions and file references
+are checked again. This review does not replace security, quality, resource,
+platform or client verification.
+
 ## Immutable raw results, independent review and resource evidence
 
-The qualification document is `document-files.qualification.v3`, contains the clean
+The qualification document is `document-files.qualification.v4`, contains the clean
 product identity, scope `printed-ko-en-cpu16gb-full-document.v1`, explicit
 `support.cloud_model` (`qualified` or `not-qualified`), `artifactInventory`, `checks`
 and `releaseAssets` (the inventory IDs intended for public delivery). Set

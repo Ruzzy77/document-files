@@ -179,6 +179,11 @@ bind its actual artifacts to independent reviews and installed execution evidenc
 and publish those same bytes. Development results and historical candidate bundles
 cannot be substituted for the new candidate. ChatGPT capability limitations are
 recorded per feature; explicit AI unavailability is never an AI quality pass.
+Qualification v4 also requires a redistribution review bound to the exact candidate
+inventory. Required source, build instructions and notices must be selected for public
+delivery; promotion refuses their omission even when they are metadata artifacts.
+Private review evidence is not uploaded automatically. A validated receipt is not an
+automated legal decision or a replacement for the component review.
 
 ## Preparing a Linux recognition stage
 

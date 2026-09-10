@@ -44,6 +44,7 @@ def verify(manifest: Path, root: Path, commit: str, version: str) -> list[dict]:
         raise ValueError("Explicit unique releaseAssets required")
     # All executable/data artifacts that qualified must be delivered, not a subset.
     required = {key for key, asset in assets.items() if asset["kind"] != "metadata"}
+    required |= gate.redistribution_review(document, root, assets)
     if not required <= set(selected):
         raise ValueError("Release assets omit qualified pipeline artifacts")
     inventory_ref = document["artifactInventory"]

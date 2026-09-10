@@ -2,6 +2,13 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Require a candidate-bound redistribution review for qualification v4. Cover every
+  non-metadata artifact, reject unresolved/stale reviews, verify selected embedded
+  ZIP notices and bind required source/recipe/notice artifacts by SHA. Promotion
+  refuses to omit required metadata while keeping unrelated private evidence private.
+  Existing multipart transport and exact-byte upload/download checks are unchanged;
+  these checks do not make legal decisions or approve a candidate's redistribution.
+
 - Require a source-first table meaning response (table protocol v10). Each owned
   source has an explicit decision before optional meanings, with exact local quotes
   and additional owned-source evidence. Preserve independent meanings and joint

@@ -944,10 +944,151 @@ def _container_identity(report: dict, item: dict, root: Path, assets: dict) -> N
             raise ValueError("Container mount overrides image executable content")
 
 
+def redistribution_review(document: dict, root: Path, assets: dict) -> set[str]:
+    """Bind human redistribution decisions to bytes; never infer license approval."""
+    reference = document.get("redistributionReview")
+    if not isinstance(reference, dict):
+        raise ValueError("Redistribution review required")
+    path = _file(root, reference["path"], reference["sha256"])
+    if path.stat().st_size > 4 * 1024**2:
+        raise ValueError("Redistribution review size limit")
+    review = json.loads(path.read_bytes())
+    if not isinstance(review, dict):
+        raise ValueError("Redistribution review must be an object")
+    _identity(review, document["sourceCommit"], document["version"])
+    if (
+        review.get("schemaVersion") != "document-files.redistribution-review.v1"
+        or review.get("artifactInventory") != document["artifactInventory"]
+    ):
+        raise ValueError("Redistribution review candidate mismatch")
+    rows = review.get("artifacts")
+    expected = {key for key, asset in assets.items() if asset["kind"] != "metadata"}
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError("Redistribution artifact reviews required")
+    ids = [row.get("artifactId") for row in rows]
+    if any(not isinstance(key, str) for key in ids) or len(set(ids)) != len(ids):
+        raise ValueError("Duplicate or invalid redistribution artifact review")
+    if set(ids) != expected:
+        raise ValueError("Redistribution review must cover every candidate exactly once")
+
+    def text(value):
+        return isinstance(value, str) and bool(value.strip())
+
+    public = set()
+    for row in rows:
+        asset = assets[row["artifactId"]]
+        if (
+            row.get("sha256") != asset["sha256"]
+            or row.get("status") != "approved"
+            or not text(row.get("reviewedBy"))
+            or not isinstance(row.get("findings"), list)
+            or not row["findings"]
+            or not all(text(finding) for finding in row["findings"])
+            or row.get("openIssues") != []
+        ):
+            raise ValueError("Redistribution review incomplete or stale")
+        required = row.get("requiredPublicArtifacts")
+        if not isinstance(required, list):
+            raise ValueError("Redistribution public artifact list required")
+        if not required and not text(row.get("noAdditionalPublicArtifactsReason")):
+            raise ValueError("Redistribution absence of public artifacts needs review rationale")
+        seen = set()
+        for item in required:
+            if not isinstance(item, dict):
+                raise ValueError("Invalid redistribution public artifact")
+            key = item.get("artifactId")
+            if (
+                not isinstance(key, str)
+                or key not in assets
+                or key in seen
+                or item.get("sha256") != assets[key]["sha256"]
+                or item.get("role") not in {"source", "recipe", "notice"}
+                or not text(item.get("reason"))
+            ):
+                raise ValueError("Redistribution public artifact identity mismatch")
+            seen.add(key)
+            public.add(key)
+        notices = row.get("embeddedNotices", [])
+        if not isinstance(notices, list):
+            raise ValueError("Invalid embedded notice list")
+        if notices:
+            _redistribution_zip_notices(asset["verifiedPath"], notices)
+    return public
+
+
+def _redistribution_zip_notices(path: Path, notices: list) -> None:
+    """Read selected ZIP notices only, with bounded members and no extraction."""
+    import stat
+    import unicodedata
+
+    def safe(name):
+        if (
+            not isinstance(name, str)
+            or not name
+            or "\\" in name
+            or ":" in name
+            or "\x00" in name
+            or any(part in {"", ".", ".."} for part in name.split("/"))
+        ):
+            raise ValueError("Unsafe embedded notice path")
+        return unicodedata.normalize("NFC", name).casefold()
+
+    with zipfile.ZipFile(path) as archive:
+        infos = archive.infolist()
+        if len(infos) > 100000 or len(notices) > 4096:
+            raise ValueError("Embedded notice member limit")
+        members, folded = {}, set()
+        for info in infos:
+            raw = info.orig_filename
+            name = raw[:-1] if info.is_dir() else raw
+            key = safe(name)
+            mode = info.external_attr >> 16
+            if (
+                raw != info.filename
+                or key in folded
+                or stat.S_IFMT(mode) not in {0, stat.S_IFREG, stat.S_IFDIR}
+                or (not info.is_dir() and stat.S_IFMT(mode) == stat.S_IFDIR)
+                or (info.is_dir() and stat.S_IFMT(mode) == stat.S_IFREG)
+                or info.flag_bits & 1
+            ):
+                raise ValueError("Unsafe or duplicate ZIP notice member")
+            folded.add(key)
+            if not info.is_dir():
+                members[name] = info
+        seen, total = set(), 0
+        for item in notices:
+            if not isinstance(item, dict):
+                raise ValueError("Invalid embedded notice")
+            name = item.get("path")
+            key = safe(name)
+            digest = item.get("sha256")
+            if (
+                key in seen
+                or name not in members
+                or not isinstance(digest, str)
+                or not re.fullmatch(r"[a-f0-9]{64}", digest)
+            ):
+                raise ValueError("Missing or duplicate embedded notice")
+            seen.add(key)
+            member = members[name]
+            total += member.file_size
+            if member.file_size > 16 * 1024**2 or total > 64 * 1024**2:
+                raise ValueError("Embedded notice byte limit")
+            h, size = hashlib.sha256(), 0
+            with archive.open(member) as stream:
+                while chunk := stream.read(min(65536, member.file_size - size + 1)):
+                    size += len(chunk)
+                    if size > member.file_size:
+                        raise ValueError("Embedded notice size mismatch")
+                    h.update(chunk)
+            if size != member.file_size or h.hexdigest() != digest:
+                raise ValueError("Embedded notice checksum mismatch")
+
+
 def check(manifest: Path, evidence_root: Path, source_commit: str, version: str) -> None:
     document = json.loads(manifest.read_text(encoding="utf-8"))
     if (
-        document.get("schemaVersion") != "document-files.qualification.v3"
+        document.get("schemaVersion") != "document-files.qualification.v4"
         or document.get("version") != version
         or document.get("sourceCommit") != source_commit
     ):
@@ -1008,6 +1149,7 @@ def check(manifest: Path, evidence_root: Path, source_commit: str, version: str)
                 )
                 _container_identity(report, item, evidence_root, assets)
             _operational(report, role, evidence_root, assets)
+    redistribution_review(document, evidence_root, assets)
     if cloud not in {"qualified", "not-qualified"}:
         raise ValueError("Cloud support must be explicitly qualified or not-qualified")
     if document.get("scope") != "printed-ko-en-cpu16gb-full-document.v1":
