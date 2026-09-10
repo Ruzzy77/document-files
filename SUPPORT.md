@@ -33,6 +33,38 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
+### Current pixel-review controls and display coverage
+
+Source `d6765b1` adds PDF review v11 / unit display v2. A mixed-control inspection
+found residual rule pixels grouped with lettering by overlapping source rectangles,
+yet not displayed because they fell outside the unchanged edge-candidate band.
+The display now includes every non-boundary group sharing an original pixel component
+with a measured rule. This changes visibility, not edge eligibility or blank evidence.
+A displayed stripe cannot acquire `rule_edge` permission merely from that display.
+Older review/display checkpoints are incompatible; application v4 and public v1 remain.
+
+On the exact saved scan, four more groups expose 32,830 previously undisplayed pixels.
+All original 257,034 pixels, partitions, source candidates and observations are
+unchanged. The prepared input has 11 masks, two images / 360,540 bytes / 7,915,034
+pixels, and 7,073 message characters under the existing limits. It has not been sent
+through a v11 full model review or applied as a product result.
+
+The clean source passed 2,308 local tests (227 skipped, 12 subtests), 278 tests with
+actual ARM recognition dependencies (no skips), and Ruff/format for 208 files.
+The ARM test and saved-input display preparation took 4.72 host seconds and peaked
+at 174,927,872 cgroup bytes with 4 CPUs / 16 GiB and no swap/OOM, GPU or network.
+No OCR, source rendering or model call was used for that implementation check.
+
+Separate development controls included text, rules, mixed content and a one-pixel
+fragment. Both non-thinking and a paired 256-token reasoning limit matched only
+4 of 7 inspected controls, under the same 512-token total output cap. Reasoning
+fixed one mixed answer but lost another; it is not adopted as the production fix.
+Their inference times were 138.36 / 157.67 seconds. The original scan budget remains
+886.39/900 seconds and four calls; all four authorized follow-up/diagnostic calls
+are recorded separately. Full review quality, table application/meaning and final
+independent qualification remain open. Do not promote the earlier all-rule diagnostic
+or these regression checks into a complete extraction result.
+
 ### Latest ARM64 installation and model follow-up
 
 At source `7fc7306`, all five core CI jobs passed. The exact Linux ARM64 portable
