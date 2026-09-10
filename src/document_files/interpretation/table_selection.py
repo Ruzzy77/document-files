@@ -183,7 +183,7 @@ def wire_selection(record, inventory, wire_sources):
     return {"sourceDecisions": result}
 
 
-def selected_meaning_schema(schema, selection, sources, revision):
+def selected_meaning_schema(schema, selection, sources, revision, *, base_revision=None):
     """Only selected sources can be quoted; an explicit reselection is a separate reply."""
     schema = deepcopy(schema)
     decisions = selection["sourceDecisions"]
@@ -194,6 +194,12 @@ def selected_meaning_schema(schema, selection, sources, revision):
         **{key: props[key] for key in ("baseRevision", "changes")},
     }
     schema["required"] = list(schema["properties"])
+    schema["properties"]["baseRevision"] = {
+        "type": "null" if base_revision is None else "string",
+        "const": base_revision,
+    }
+    if base_revision is None:
+        schema["properties"]["changes"]["maxItems"] = 0
     positive = [ref for ref, item in decisions.items() if item["decision"] == "has_meaning"]
     if positive:
         schema["properties"]["meanings"]["minItems"] = 1

@@ -2,6 +2,12 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Table protocol v15 pins the detail response's `baseRevision` to the accepted
+  meaning revision, or null before any meaning is accepted. Initial `changes` must
+  be empty. A source-selection hash cannot be substituted for meaning history;
+  schema constraints and the existing compiler checks both enforce that boundary.
+  This fixes bookkeeping, not the observed unit/condition and scope quality failures.
+
 - Table protocol v14 limits detail output to meanings and the selected sources'
   remainder reviews. Saved model choices and other explicit source reviews are
   reused, not regenerated or heuristically inferred. Positive selections require

@@ -281,7 +281,7 @@ and representation, not merely the same cell reference.
 
 Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
-Table protocol v14 first asks for source selection in a separate call inside the
+Table protocol v15 first asks for source selection in a separate call inside the
 existing meaning stage. Every owned `meaningSources` reference receives a `decision`
 and short `explanation`: `no_additional_meaning`, `unresolved`, `unreviewed`, or
 `has_meaning`. A literal empty source cannot select `has_meaning`. This does not
@@ -332,8 +332,10 @@ A failed initial detail may therefore exhaust the stage after one successful sel
 it is not automatically retried with a fresh substep budget.
 The detail response requires `regionId`, `meanings`, `remainderReviews`, `baseRevision`
 and `changes`, without repeating `sourceDecisions`. The compiler still uses source
-decisions v3 internally. Older table-protocol checkpoints cannot resume as v14.
-The first response uses a null base and empty changes. Repairs cite the accepted
+decisions v3 internally. Older table-protocol checkpoints cannot resume as v15.
+The program pins `baseRevision` in the output contract: null with empty `changes`
+before any meaning is accepted, or exactly the accepted meaning revision afterward.
+It is not the selection hash and is not left for the model to invent. Repairs cite the accepted
 revision and account for every changed or withdrawn meaning with replacements and/or
 source reviews. Kind, description, scope and status may change; prior source coverage
 and compiled structure/values may not disappear. Reviewed sources cannot become

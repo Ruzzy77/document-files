@@ -198,6 +198,12 @@ def test_detail_response_reuses_exact_saved_choices_and_only_reviews_positive_re
     assert len(model.details["remainderReviews"]) == 1
     empty = dict(model.details, meanings=[])
     assert not Draft202012Validator(model.detail_schema).is_valid(empty)
+    selection = progress(states[-1])["sourceSelections"][-1]
+    assert not Draft202012Validator(model.detail_schema).is_valid(
+        dict(model.details, baseRevision=selection["sha256"])
+    )
+    assert model.detail_schema["anyOf"][0]["properties"]["baseRevision"]["const"] is None
+    assert model.detail_schema["anyOf"][0]["properties"]["changes"]["maxItems"] == 0
     choices = progress(states[-1])["sourceSelections"][-1]["response"]["sourceDecisions"]
     reviews = next(iter(states[-1]["accepted"].values()))["tableMeaningState"]["sourceReviews"]
     for ref, choice in choices.items():

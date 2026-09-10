@@ -221,6 +221,31 @@ def flat_accepted_feedback(payload):
     return source_decisions_to_flat(payload["repairFeedback"]["acceptedResponse"], inventory)
 
 
+def test_detail_schema_pins_the_accepted_meaning_baseline_not_the_selection_revision():
+    class Capture(CaptionModel):
+        def __init__(self):
+            super().__init__()
+            self.contracts = []
+
+        def infer(self, request):
+            response = super().infer(request)
+            if self.requests[-1].get("meaningPhase") == "details":
+                self.contracts.append(request.output_schema)
+            return response
+
+    model = Capture()
+    result = run(model)
+    assert result["extraction"]["status"] == "complete"
+    initial, repair = [s["anyOf"][0]["properties"] for s in model.contracts]
+    assert initial["baseRevision"] == {"type": "null", "const": None}
+    assert initial["changes"]["maxItems"] == 0
+    payload = model.requests[-1]
+    baseline = payload["repairFeedback"]["baseRevision"]
+    assert baseline != payload["selectionSHA256"]
+    assert repair["baseRevision"] == {"type": "string", "const": baseline}
+    assert repair["changes"]["maxItems"] > 0
+
+
 def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_context():
     model, states = CaptionModel(), []
     result = run(model, states=states)

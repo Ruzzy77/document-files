@@ -1271,6 +1271,11 @@ def extract_schema_from_stream(
                                 offered,
                                 wire.payload["meaningSources"],
                                 selection["sha256"],
+                                base_revision=(
+                                    accepted[rid].tableMeaningState.revisionSHA256
+                                    if accepted[rid].tableMeaningState is not None
+                                    else None
+                                ),
                             )
                     if local_selection:
                         if cancelled and cancelled():

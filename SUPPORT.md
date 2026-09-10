@@ -35,7 +35,7 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
-Table protocol v14 uses separate, durable source selection inside the
+Table protocol v15 uses separate, durable source selection inside the
 meaning stage. Selection and detail use the existing shared finite allowances, not
 new budgets. Source/model/structure/reference identity and selection-to-meaning
 history are checked on resume. All-negative reviews compile without a detail call;
@@ -43,8 +43,22 @@ unknown/deferred sources remain partial. Incorrect choices can be explicitly rev
 with old meanings preserved until a valid replacement is accepted. Detail output
 now contains meanings and selected-source remainder reviews only; saved choices and
 other reviews are reused without model regeneration. Positive selections cannot
-return an empty meaning list. The v14 model run is pending; regression checks alone
-do not establish quality or release qualification.
+return an empty meaning list. The program also fixes the meaning revision baseline
+in the output contract, rather than allowing the model to copy the selection hash.
+That v15 bookkeeping fix is regression-tested; a v15 actual model run is pending.
+Regression checks alone do not establish quality or release qualification.
+
+The v14 source `2df5f12` completed the same bounded fresh-HTML/restart path in 4 calls,
+345.05 charged product seconds and 360.97 host seconds. Selection again matched all
+11 source choices. Focused detail replies now contained a meaning, but both copied
+the selection hash into the initial meaning baseline and were correctly rejected
+with `table_meaning_initial_revision_has_history`. Independently, their proposed
+condition covered the whole record and no separate unit meaning was produced:
+**development quality still failed**. v15 fixes only the baseline bookkeeping; it
+does not relabel these scope/meaning errors as successes. The two rows, precision,
+schema and provenance remain intact. The cgroup peak was 7,087,624,192 bytes under
+the same 4 CPU/16GiB/no-swap/no-OOM/no-GPU/no-external-network limits. No new OCR or
+render calls occurred, and owned servers/containers were terminated.
 
 The preceding v13 source `8d45c94` completed a fresh native HTML product-engine run
 on Spark: 4 calls within the predeclared 900-second development budget, 429.82 seconds
@@ -57,7 +71,7 @@ schema and provenance preserved. There were no new OCR or render calls. Four CPU
 16GiB cgroup memory, zero swap/OOM/GPU/external network and a 7,079,960,576-byte cgroup
 peak were recorded; this HTML run is not full recognition resource qualification.
 Owned servers/containers were terminated. The original exhausted HTML trial and the
-v12 failures below remain unchanged; v14 is a new candidate, not a relabeled v13 pass.
+v12 failures below remain unchanged; later candidates do not relabel v13 as a pass.
 
 Source `ac49fd2` uses table protocol v12 / source decisions v3. The same meaning
 response now lists all source choices before its meaning details and explicit

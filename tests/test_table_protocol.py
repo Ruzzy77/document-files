@@ -350,7 +350,7 @@ def test_stage_repairs_are_finite_across_resume_and_explicit_grants():
 def test_prior_protocol_checkpoint_rejected_before_dispatch():
     model, states = TableModel(), []
     execute(model, states=states)
-    for mutation in ("version", "protocol", "v10", "v11", "v12", "v13"):
+    for mutation in ("version", "protocol", "v10", "v11", "v12", "v13", "v14"):
         checkpoint = copy.deepcopy(states[-1])
         if mutation == "version":
             checkpoint["version"] = "document-files.regional-checkpoint.v1"
