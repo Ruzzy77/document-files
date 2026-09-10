@@ -122,7 +122,18 @@ class TableModel:
             }
             if self.invalid_meaning:
                 value["fields"] = [{"id": "illegal-rewrite"}]
-        if payload["tableStage"] == "meaning":
+        if payload.get("meaningPhase") == "selection":
+            value = {
+                "sourceDecisions": {
+                    item["sourceRef"]: {
+                        "decision": "no_additional_meaning",
+                        "explanation": "Scripted plain labels and values",
+                    }
+                    for item in payload["meaningSources"]
+                },
+                **({"fields": []} if self.invalid_meaning else {}),
+            }
+        elif payload["tableStage"] == "meaning":
             value = source_decisions_from_flat(value, {"sources": payload["meaningSources"]})
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
@@ -194,7 +205,7 @@ def test_two_stages_preserve_exact_values_and_account_usage_without_duplicate_ou
         "maxModelCalls": 12,
         "completionSeconds": ExtractionOptions().completionSeconds,
     }
-    assert all(r.max_output_tokens == STAGE_MAX_OUTPUT_TOKENS for r in model.requests)
+    assert [r.max_output_tokens for r in model.requests] == [STAGE_MAX_OUTPUT_TOKENS, 1536]
     stages = next(iter(result["coverage"]["tableInterpretation"].values()))
     for name in ("structure", "meaning"):
         assert stages[name]["status"] == "complete"
@@ -339,7 +350,7 @@ def test_stage_repairs_are_finite_across_resume_and_explicit_grants():
 def test_prior_protocol_checkpoint_rejected_before_dispatch():
     model, states = TableModel(), []
     execute(model, states=states)
-    for mutation in ("version", "protocol", "v10", "v11"):
+    for mutation in ("version", "protocol", "v10", "v11", "v12"):
         checkpoint = copy.deepcopy(states[-1])
         if mutation == "version":
             checkpoint["version"] = "document-files.regional-checkpoint.v1"

@@ -2,6 +2,17 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Table protocol v13 adds a durable source-selection substep before detailed meaning
+  generation. Every owned source receives a model choice and reason; all-negative
+  choices compile to explicit reviews without another call, including after resume.
+  Unknown/deferred reviews remain partial. Only selected sources can be directly
+  quoted, and incorrect choices can be explicitly revised without erasing prior
+  meanings. Selection histories bind inventory, frozen structure, model and reference
+  identity; each accepted meaning revision names its selection. Selection/detail
+  usage shares the unchanged stage/document caps. No checkpoint migration, blanket
+  header/value exclusion, whitespace normalization or public v1 change is introduced.
+  Actual model quality and release qualification remain separate from these checks.
+
 - Table meaning protocol v12 / source decisions v3 finish all source choices before
   generating a separate meaning list and explicit source reviews in the same call.
   Selection must match direct quoted sources; other review roles must match their

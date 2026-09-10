@@ -122,8 +122,54 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
     infer = model.infer
 
     def current_wire(request):
-        response = infer(request)
         payload = json.loads(request.messages[-1]["content"])
+        if payload.get("meaningPhase") == "selection":
+            model.requests.append(payload)
+            # Explicit fixture behavior for the new call, counted in requests/usage.
+            # These decisions are never provided to the product outside this model.
+            decisions = {}
+            for source in payload["meaningSources"]:
+                text = source["text"]
+                role = "no_additional_meaning"
+                if "Size uses mm." in text or (
+                    getattr(model, "correction_mode", None) == "retract" and text == "001.2300"
+                ):
+                    role = "has_meaning"
+                elif text == "Additional context" or "reinspect" in text:
+                    role = "unreviewed"
+                decisions[source["sourceRef"]] = {
+                    "decision": role,
+                    "explanation": "Explicit scripted selection",
+                }
+            return InferenceResponse(
+                json.dumps({"sourceDecisions": decisions}),
+                {"prompt_tokens": 10, "completion_tokens": 20},
+            )
+        if (
+            payload.get("meaningPhase") == "details"
+            and getattr(model, "correction_mode", None) == "retract"
+            and model.meaning_calls
+        ):
+            data = next(s for s in payload["meaningSources"] if s["text"] == "001.2300")
+            decisions = copy.deepcopy(payload["sourceSelection"]["sourceDecisions"])
+            if decisions[data["sourceRef"]]["decision"] == "has_meaning":
+                model.requests.append(payload)
+                decisions[data["sourceRef"]] = {
+                    "decision": "no_additional_meaning",
+                    "explanation": "Already represented data",
+                }
+                return InferenceResponse(
+                    json.dumps(
+                        {
+                            "action": "revise_selection",
+                            "baseSelectionSHA256": payload["selectionSHA256"],
+                            "reason": "Correct the source choice before withdrawing its false unit",
+                            "sourceDecisions": decisions,
+                        }
+                    ),
+                    {"prompt_tokens": 10, "completion_tokens": 20},
+                )
+        response = infer(request)
         if payload.get("tableStage") == "meaning":
             value = source_decisions_from_flat(
                 json.loads(response.text), {"sources": payload["meaningSources"]}
@@ -167,7 +213,7 @@ def flat_accepted_feedback(payload):
 def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_context():
     model, states = CaptionModel(), []
     result = run(model, states=states)
-    assert len(model.requests) == 3 and model.meaning_calls == 2
+    assert len(model.requests) == 4 and model.meaning_calls == 2
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["data"] == {"rows": [{"size": "001.2300"}]}
     feedback = model.requests[-1]["repairFeedback"]
@@ -196,23 +242,23 @@ def test_caption_accounting_repairs_inside_two_meaning_calls_with_stateless_cont
     )
     assert before["tableStages"][rid]["meaning"]["status"] == "pending"
     assert before["result"]["extraction"]["status"] == "partial"
-    assert states[-1]["tableStages"][rid]["meaning"]["usage"]["modelCalls"] == 2
+    assert states[-1]["tableStages"][rid]["meaning"]["usage"]["modelCalls"] == 3
     assert before["accepted"][rid]["repeats"] == states[-1]["accepted"][rid]["repeats"]
     assert before["result"]["data"] == result["data"]
     assert run(model, restore=states[-1])["extraction"]["status"] == "complete"
-    assert len(model.requests) == 3
+    assert len(model.requests) == 4
 
 
 class InvalidThenReview(CaptionModel):
     """Reject a wrong occurrence, then accept meaning before reviewing the title."""
 
-    def __init__(self, *, invalid_calls=1, review_mode="fix"):
+    def __init__(self, *, invalid_calls=0, review_mode="fix"):
         super().__init__()
         self.invalid_calls = invalid_calls
         self.review_mode = review_mode
 
     def infer(self, request):
-        self.mode = "same" if self.meaning_calls < 2 else self.review_mode
+        self.mode = "same" if self.meaning_calls <= self.invalid_calls else self.review_mode
         response = super().infer(request)
         if (
             self.requests[-1]["tableStage"] == "meaning"
@@ -224,29 +270,42 @@ class InvalidThenReview(CaptionModel):
         return response
 
 
-def test_initial_format_retry_leaves_one_explicit_review_inside_unchanged_document_budget():
-    model, states = InvalidThenReview(), []
-    result = run(model, states=states, maxModelCalls=5, completionSeconds=900)
+def test_selection_and_invalid_detail_share_initial_budget_until_explicit_grant():
+    model, states = InvalidThenReview(invalid_calls=1), []
+    partial = run(model, states=states, maxModelCalls=3, completionSeconds=900)
+    assert partial["extraction"]["status"] == "partial" and len(model.requests) == 3
+    progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
+    assert progress["attempts"] == 2 and not progress.get("acceptedResponse")
+    run(model, restore=states[-1], maxModelCalls=3, completionSeconds=900)
+    assert len(model.requests) == 3  # Neither stage nor document budget is reset.
+    result = run(
+        model,
+        states=states,
+        restore=states[-1],
+        maxModelCalls=3,
+        completionSeconds=900,
+        additional_budget={"maxModelCalls": 2},
+    )
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["extraction"]["budget"] == {"maxModelCalls": 5, "completionSeconds": 900}
-    assert len(model.requests) == 4 and model.meaning_calls == 3
-    assert model.requests[2]["repairFeedback"] == ["quote_occurrence_required_or_invalid"]
+    assert len(model.requests) == 5 and model.meaning_calls == 3
+    assert model.requests[3]["repairFeedback"] == ["quote_occurrence_required_or_invalid"]
     assert (
-        model.requests[3]["repairFeedback"]["remainingSourceRanges"][0]["text"] == "Measurements; "
+        model.requests[4]["repairFeedback"]["remainingSourceRanges"][0]["text"] == "Measurements; "
     )
     assert all(
         r["frozenStructure"] == model.requests[1]["frozenStructure"] for r in model.requests[2:]
     )
     assert result["data"] == {"rows": [{"size": "001.2300"}]}
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
-    assert progress["attempts"] == 3 and progress["reviewAttempts"] == 1
-    assert progress["usage"]["modelCalls"] == 3 and len(progress["revisions"]) == 2
-    assert not states[-1]["grants"]
-    run(model, restore=states[-1], maxModelCalls=5, completionSeconds=900)
-    assert len(model.requests) == 4
+    assert progress["attempts"] == 2 and progress["reviewAttempts"] == 1
+    assert progress["usage"]["modelCalls"] == 4 and len(progress["revisions"]) == 2
+    assert progress["phaseUsage"]["selection"]["modelCalls"] == 1
+    run(model, restore=states[-1], maxModelCalls=3, completionSeconds=900)
+    assert len(model.requests) == 5
 
 
-def test_two_invalid_initial_responses_do_not_receive_a_content_review_or_automatic_retry():
+def test_selection_plus_invalid_detail_does_not_receive_a_content_review_or_automatic_retry():
     model, states = InvalidThenReview(invalid_calls=2), []
     result = run(model, states=states, maxModelCalls=5)
     assert result["extraction"]["status"] == "partial"
@@ -290,7 +349,7 @@ def test_elapsed_budget_stops_content_review_before_dispatch(monkeypatch):
     class Slow(InvalidThenReview):
         def infer(self, request):
             response = super().infer(request)
-            if self.meaning_calls == 2:
+            if self.meaning_calls == 1:
                 now[0] = 901.0
             return response
 
@@ -319,7 +378,7 @@ def test_invalid_stage_allowance_counters_are_rejected_on_restore(attempts, revi
 def test_unexplained_change_cannot_replace_the_previous_source_bound_meaning(mode):
     model, states = CaptionModel(mode), []
     result = run(model, states=states)
-    assert len(model.requests) == 3
+    assert len(model.requests) == 4
     assert result["extraction"]["status"] == "partial"
     assert result["data"] == {"rows": [{"size": "001.2300"}]}
     ir = next(iter(states[-1]["accepted"].values()))
@@ -329,21 +388,21 @@ def test_unexplained_change_cannot_replace_the_previous_source_bound_meaning(mod
     assert not ir["dispositions"]
     assert any(i["code"] == "table_stage_invalid" for i in result["issues"])
     run(model, restore=states[-1])
-    assert len(model.requests) == 3  # no automatic grant or restart loop
+    assert len(model.requests) == 4  # no automatic grant or restart loop
     model.mode = "fix"
     fixed = run(model, restore=states[-1], additional_budget={"maxModelCalls": 1})
     assert fixed["extraction"]["status"] == "complete", fixed["issues"]
-    assert len(model.requests) == 4
+    assert len(model.requests) == 5
 
 
 def test_global_budget_pause_resumes_only_accounting_repair_with_accepted_statements():
     model, states = CaptionModel(), []
-    result = run(model, states=states, maxModelCalls=2)
-    assert len(model.requests) == 2 and result["extraction"]["status"] == "partial"
+    result = run(model, states=states, maxModelCalls=3)
+    assert len(model.requests) == 3 and result["extraction"]["status"] == "partial"
     assert next(iter(states[-1]["tableStages"].values()))["meaning"]["acceptedResponse"] is True
-    fixed = run(model, restore=states[-1], maxModelCalls=2, additional_budget={"maxModelCalls": 1})
+    fixed = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 1})
     assert fixed["extraction"]["status"] == "complete", fixed["issues"]
-    assert len(model.requests) == 3
+    assert len(model.requests) == 4
     assert flat_accepted_feedback(model.requests[-1])["meanings"]
 
 
@@ -358,10 +417,10 @@ def test_failed_second_call_preserves_meanings_and_retry_is_only_explicit_after_
     assert next(iter(states[-1]["accepted"].values()))["meanings"]
     model.mode = "fix"
     run(model, restore=states[-1])
-    assert len(model.requests) == 3
+    assert len(model.requests) == 4
     fixed = run(model, restore=states[-1], additional_budget={"maxModelCalls": 1})
     assert fixed["extraction"]["status"] == "complete"
-    assert len(model.requests) == 4
+    assert len(model.requests) == 5
 
 
 def test_native_value_failure_does_not_cause_meaning_regeneration(monkeypatch):
@@ -376,7 +435,7 @@ def test_native_value_failure_does_not_cause_meaning_regeneration(monkeypatch):
     model = CaptionModel()
     content = HTML.replace(b"<caption>Measurements; Size uses mm.</caption>", b"")
     result = run(model, content=content)
-    assert len(model.requests) == 2 and model.meaning_calls == 1
+    assert len(model.requests) == 2 and model.meaning_calls == 0
     assert result["extraction"]["status"] == "partial"
     assert any(i["code"] == "value_not_resolved" for i in result["issues"])
 
@@ -409,7 +468,7 @@ def test_repair_context_limit_preserves_the_accepted_meaning_without_dispatch():
 
     model, states = Limited(), []
     result = run(model, states=states)
-    assert len(model.requests) == 2
+    assert len(model.requests) == 3
     assert result["extraction"]["status"] == "partial"
     assert any(i["code"] == "region_context_budget_exceeded" for i in result["issues"])
     assert next(iter(states[-1]["accepted"].values()))["meanings"][0]["id"] == "unit"
@@ -419,7 +478,7 @@ def test_partial_accounting_improvement_is_saved_without_claiming_completion():
     content = HTML.replace(b"<tr><th>", b"<caption>Additional context</caption><tr><th>")
     model, states = CaptionModel(), []
     result = run(model, states=states, content=content)
-    assert len(model.requests) == 3
+    assert len(model.requests) == 4
     assert result["extraction"]["status"] == "partial"
     assert len([i for i in result["issues"] if i["code"] == "table_meaning_source_unreviewed"]) == 1
     reviews = next(iter(states[-1]["accepted"].values()))["tableMeaningState"]["sourceReviews"]
@@ -427,7 +486,7 @@ def test_partial_accounting_improvement_is_saved_without_claiming_completion():
     assert sum(review["role"] == "unreviewed" for review in reviews) == 1
     assert next(iter(states[-1]["tableStages"].values()))["meaning"]["status"] == "pending"
     run(model, restore=states[-1], content=content)
-    assert len(model.requests) == 3
+    assert len(model.requests) == 4
 
 
 class CorrectingModel(CaptionModel):
@@ -506,7 +565,14 @@ class CorrectingModel(CaptionModel):
 def test_explicit_semantic_correction_is_accepted_without_losing_values(mode):
     model, states = CorrectingModel(mode), []
     result = run(model, states=states)
-    assert len(model.requests) == 3
+    if mode == "retract":
+        assert result["extraction"]["status"] == "partial"
+        assert len(next(iter(states[-1]["accepted"].values()))["meanings"]) == 2
+        assert len(model.requests) == 4
+        result = run(
+            model, states=states, restore=states[-1], additional_budget={"maxModelCalls": 1}
+        )
+    assert len(model.requests) == (5 if mode == "retract" else 4)
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["data"] == {"rows": [{"size": "001.2300"}]}
     ir = next(iter(states[-1]["accepted"].values()))
@@ -526,7 +592,7 @@ def test_explicit_semantic_correction_is_accepted_without_losing_values(mode):
     "mutation", ["remove_history", "history_content", "source_hash", "transition_reason"]
 )
 def test_tampered_meaning_checkpoint_cannot_resume(mutation):
-    model, states = CorrectingModel("retract"), []
+    model, states = CorrectingModel("split"), []
     run(model, states=states)
     state = copy.deepcopy(states[-1])
     rid = next(iter(state["accepted"]))
@@ -571,7 +637,7 @@ def test_embedded_note_is_still_reviewed_after_its_entire_cell_is_read_as_value(
     assert result["extraction"]["status"] == "partial"
     reviews = result["coverage"]["semanticSourceReviews"][0]
     assert any("reinspect" in r["text"] and r["role"] == "unreviewed" for r in reviews["ranges"])
-    assert len(model.requests) == 3
+    assert len(model.requests) == 4
 
 
 class ScopeAfterSourceReview(CaptionModel):
@@ -631,7 +697,7 @@ def test_direct_quote_scope_can_be_resolved_without_stale_source_uncertainty():
     model = ScopeAfterSourceReview()
     result = run(model)
     assert model.meaning_calls == 1 and model.scope_calls == 1
-    assert len(model.requests) == 3
+    assert len(model.requests) == 4
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["data"]["rows"][0]["size"] == "001.2300"
     review = result["coverage"]["semanticSourceReviews"][0]

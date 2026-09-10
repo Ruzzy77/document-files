@@ -281,11 +281,26 @@ and representation, not merely the same cell reference.
 
 Stage-two `scope` selects exactly one of `columns` (`columnIds`), `record`,
 `rows` (inclusive actual bounds and optional column intersection), or `unresolved`.
-Table protocol v12 asks for all `sourceDecisions` before generating meaning details.
-Every owned `meaningSources` reference appears once, with only a `decision`:
-`no_additional_meaning`, `unresolved`, `unreviewed`, or `has_meaning`. A literal empty
-source cannot select `has_meaning`. This does not normalize whitespace or infer a
-negative review, a blank cell, or a unit from transcribed text.
+Table protocol v13 first asks for source selection in a separate call inside the
+existing meaning stage. Every owned `meaningSources` reference receives a `decision`
+and short `explanation`: `no_additional_meaning`, `unresolved`, `unreviewed`, or
+`has_meaning`. A literal empty source cannot select `has_meaning`. This does not
+normalize whitespace or infer a blank/absent cell from a review explanation.
+
+`sourceSelections` durably stores the validated choice/reason history, source
+inventory and frozen-structure hashes, model identity, reference-wire identity and
+selection revision. A stopped detail call resumes without selecting again. When no
+source needs detail, the explicit reviews pass to the existing compiler without
+another model call; unresolved/deferred reviews remain partial. A crash between
+saving the negative selection and compiling it does not require another call.
+
+Detailed meaning requests offer only the selected sources as direct quote choices;
+other source texts remain context. The model can instead return `action: revise_selection`,
+`baseSelectionSHA256`, a reason and all replacement source choices. This saves a new
+selection before further detail, never silently deletes accepted meanings, and
+cannot defer previously reviewed sources. If no call allowance remains, structure,
+selection and any accepted meaning remain in a partial result until an explicit
+grant. Each accepted meaning revision records its selection in `meaningSelections`.
 
 Meanings are then returned once in a separate `meanings` array. Each has `sourceQuotes`
 (exact text and an owned `sourceRef`, with optional zero-based `occurrence`). Every
@@ -303,10 +318,15 @@ For other sources the review role must match the decision. Deferred or unresolve
 review is preserved, including fully quoted and empty sources. Program validation
 does not establish semantic accuracy.
 
-This source wire is v3; the canonical meaning/source-review IR is unchanged. Selection
-and details are parts of one model response, not a new model stage or an extra budget.
-The full response requires `regionId`, `sourceDecisions`, `meanings`, `sourceReviews`,
-`baseRevision` and `changes`. Older table-protocol checkpoints cannot resume as v12.
+The detailed source wire remains v3; selection is v1 and the canonical meaning/source-
+review IR is unchanged. Selection and detail calls share the meaning stage's existing
+initial two-call allowance and one post-acceptance review, plus the document's finite
+call/time budget. `phaseUsage` records the selection/detail costs without resetting
+cumulative use on a grant. Selection output is capped at 1,536 tokens, detail at 3,072.
+A failed initial detail may therefore exhaust the stage after one successful selection;
+it is not automatically retried with a fresh substep budget.
+The full detail response requires `regionId`, `sourceDecisions`, `meanings`, `sourceReviews`,
+`baseRevision` and `changes`. Older table-protocol checkpoints cannot resume as v13.
 The first response uses a null base and empty changes. Repairs cite the accepted
 revision and account for every changed or withdrawn meaning with replacements and/or
 source reviews. Kind, description, scope and status may change; prior source coverage

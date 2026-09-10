@@ -814,6 +814,18 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope():
                         "explanation": "Explicit length unit statement applies to Length.",
                     }
                 )
+            if payload.get("meaningPhase") == "selection":
+                return json.dumps(
+                    {
+                        "sourceDecisions": {
+                            s["sourceRef"]: {
+                                "decision": "no_additional_meaning",
+                                "explanation": "Scripted plain values",
+                            }
+                            for s in payload["meaningSources"]
+                        }
+                    }
+                )
             if payload.get("tableStage") == "meaning":
                 return json.dumps(
                     {

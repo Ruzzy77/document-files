@@ -94,6 +94,19 @@ from .table_revisions import (
     preserve_reviewed_ranges,
     validate_revision,
 )
+from .table_selection import (
+    SYSTEM as SELECTION_SYSTEM,
+)
+from .table_selection import (
+    check_selected_meaning,
+    negative_meaning_response,
+    revise_selection,
+    selected_meaning_schema,
+    selection_record,
+    selection_schema,
+    validate_selection_history,
+    wire_selection,
+)
 from .table_sources import source_inventory
 
 CHECKPOINT_VERSION = "document-files.regional-checkpoint.v2"
@@ -145,12 +158,35 @@ def _meaning_feedback(ir, fragment, inventory, extra=()):
     }
 
 
+def _stage_usage():
+    return {
+        "modelCalls": 0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "elapsedSeconds": 0.0,
+        "unreportedUsageCalls": 0,
+    }
+
+
 def _table_call_available(stage, progress):
     # A rejected initial response must not consume the one review of an accepted
     # meaning. Both allowances remain subordinate to the document-wide budget.
     if stage == "meaning" and progress.get("acceptedResponse"):
         return progress["reviewAttempts"] < MEANING_REVIEW_MAX_CALLS
     return progress["attempts"] < STAGE_INITIAL_MAX_CALLS
+
+
+def _negative_selection_ready(progress):
+    history = progress.get("sourceSelections", [])
+    return (
+        bool(history)
+        and not progress.get("acceptedResponse")
+        and not progress.get("negativeCompileFailed")
+        and all(
+            d["decision"] != "has_meaning"
+            for d in history[-1]["response"]["sourceDecisions"].values()
+        )
+    )
 
 
 def _meaning_repair_improves(before_ir, before, after_ir, after):
@@ -477,6 +513,18 @@ def extract_schema_from_stream(
                     if type(record.get("acceptedResponse", False)) is not bool:
                         raise ValueError
                     _restored_usage(record["usage"])
+                    if stage == "meaning":
+                        if type(record.get("negativeCompileFailed", False)) is not bool:
+                            raise ValueError
+                        phases = record.get("phaseUsage")
+                        if not isinstance(phases, dict) or set(phases) != {"selection", "details"}:
+                            raise ValueError
+                        for phase in phases.values():
+                            _restored_usage(phase)
+                        for key in record["usage"]:
+                            total = sum(phase[key] for phase in phases.values())
+                            if abs(total - record["usage"][key]) > 1e-6:
+                                raise ValueError
                     attempts = record.get("attempts", 0)
                     reviews = record.get("reviewAttempts")
                     if (
@@ -493,7 +541,10 @@ def extract_schema_from_stream(
                     raise ValueError
                 meaning = state.get("meaning", {})
                 if (
-                    meaning.get("attempts") or "inputPreflight" in meaning
+                    meaning.get("attempts")
+                    or "inputPreflight" in meaning
+                    or meaning.get("sourceSelections")
+                    or meaning.get("meaningSelections")
                 ) and "referenceWire" not in meaning:
                     raise ValueError
                 if "referenceWire" in meaning:
@@ -799,6 +850,31 @@ def extract_schema_from_stream(
                 ).identity
                 if expected != progress["referenceWire"]:
                     raise ValueError
+                inventory = source_inventory(observation, region)
+                selections = validate_selection_history(
+                    progress, inventory, accepted[rid], expected, model_identity
+                )
+                associations = progress.get("meaningSelections", [])
+                revisions = progress.get("revisions", [])
+                if not isinstance(associations, list) or len(associations) != len(revisions):
+                    raise ValueError
+                by_hash = {item["sha256"]: item for item in selections}
+                positions = {item["sha256"]: i for i, item in enumerate(selections)}
+                last = -1
+                for snapshot, selection_hash in zip(revisions, associations, strict=True):
+                    if selection_hash not in by_hash or positions[selection_hash] < last:
+                        raise ValueError
+                    last = positions[selection_hash]
+                    restored = RegionInterpretation.model_validate(
+                        accepted[rid].model_dump() | snapshot
+                    )
+                    check_selected_meaning(
+                        meaning_response(restored, inventory), by_hash[selection_hash]
+                    )
+                if progress["status"] == "complete" and (
+                    not associations or associations[-1] != selections[-1]["sha256"]
+                ):
+                    raise ValueError
             except (ValueError, TypeError, KeyError):
                 raise ValueError("checkpoint is incompatible with table reference wire") from None
 
@@ -947,7 +1023,16 @@ def extract_schema_from_stream(
     def remaining():
         return max_seconds - prior_elapsed - (time.monotonic() - started)
 
-    def invoke(system, payload, contract, feedback=None, *, table_stage=None, meaning_wire=None):
+    def invoke(
+        system,
+        payload,
+        contract,
+        feedback=None,
+        *,
+        table_stage=None,
+        meaning_wire=None,
+        table_phase=None,
+    ):
         if cancelled and cancelled():
             raise ModelError("ai_cancelled")
         if usage["modelCalls"] >= max_calls:
@@ -972,6 +1057,7 @@ def extract_schema_from_stream(
             table_stage["inputPreflight"] = {
                 "stage": payload["tableStage"],
                 "phase": "repair" if feedback is not None else "initial",
+                **({"substage": table_phase} if table_phase is not None else {}),
                 "systemCharacters": len(system),
                 "payloadCharacters": len(encode(payload)),
                 "outputContractCharacters": len(encode(contract)),
@@ -996,6 +1082,10 @@ def extract_schema_from_stream(
                     table_stage.get("usage", {}).get("modelCalls", 0) + 1
                 )
                 table_stage["usage"]["unreportedUsageCalls"] += 1
+                if table_phase is not None:
+                    phase_usage = table_stage["phaseUsage"][table_phase]
+                    phase_usage["modelCalls"] += 1
+                    phase_usage["unreportedUsageCalls"] += 1
             save("interpreting")
             if hasattr(client, "infer"):
                 result["extraction"].pop("lastInferenceDiagnostics", None)
@@ -1007,7 +1097,7 @@ def extract_schema_from_stream(
                             max_output_tokens=(
                                 min(
                                     getattr(client, "max_output_tokens", None) or 8192,
-                                    STAGE_MAX_OUTPUT_TOKENS,
+                                    1536 if table_phase == "selection" else STAGE_MAX_OUTPUT_TOKENS,
                                 )
                                 if table_stage is not None
                                 else getattr(client, "max_output_tokens", None) or 8192
@@ -1039,17 +1129,18 @@ def extract_schema_from_stream(
             return meaning_wire.decode(value) if meaning_wire is not None else value
         finally:
             if table_stage is not None:
-                stage_usage = table_stage.setdefault("usage", {})
-                for key in ("promptTokens", "completionTokens", "unreportedUsageCalls"):
-                    stage_usage[key] = (
-                        stage_usage.get(key, 0)
-                        + usage[key]
-                        - stage_before[key]
-                        - (1 if key == "unreportedUsageCalls" else 0)
-                    )
-                stage_usage["elapsedSeconds"] = stage_usage.get("elapsedSeconds", 0.0) + max(
-                    0.0, time.monotonic() - stage_started
-                )
+                counters = [table_stage["usage"]]
+                if table_phase is not None:
+                    counters.append(table_stage["phaseUsage"][table_phase])
+                elapsed = max(0.0, time.monotonic() - stage_started)
+                for counter in counters:
+                    for key in ("promptTokens", "completionTokens", "unreportedUsageCalls"):
+                        counter[key] += (
+                            usage[key]
+                            - stage_before[key]
+                            - (1 if key == "unreportedUsageCalls" else 0)
+                        )
+                    counter["elapsedSeconds"] += elapsed
 
     save("observed" if not accepted else "interpreting")
     if not client:
@@ -1082,6 +1173,10 @@ def extract_schema_from_stream(
                     },
                 },
             )
+            if stage == "meaning":
+                progress.setdefault(
+                    "phaseUsage", {phase: _stage_usage() for phase in ("selection", "details")}
+                )
         for stage in ("structure", "meaning"):
             progress = state[stage]
             if progress["status"] == "complete":
@@ -1115,7 +1210,10 @@ def extract_schema_from_stream(
                 if stage == "structure"
                 else meaning_payload(payload, accepted[rid], compiled[rid], inventory)
             )
-            while _table_call_available(stage, progress):
+            while _table_call_available(stage, progress) or (
+                stage == "meaning" and _negative_selection_ready(progress)
+            ):
+                local_selection = stage == "meaning" and _negative_selection_ready(progress)
                 try:
                     try:
                         wire = (
@@ -1134,14 +1232,80 @@ def extract_schema_from_stream(
                         ):
                             raise ModelError("table_reference_wire_checkpoint_mismatch")
                         progress["referenceWire"] = copy.deepcopy(wire.identity)
-                    value = invoke(
+                    phase = None
+                    call_system, call_payload, call_contract, feedback = (
                         system,
                         wire.payload if wire is not None else request,
                         wire.contract if wire is not None else contract,
                         wire.feedback if wire is not None else progress.get("feedback"),
-                        table_stage=progress,
-                        meaning_wire=wire,
                     )
+                    selection = None
+                    if stage == "meaning":
+                        selections = progress.get("sourceSelections", [])
+                        phase = "details" if selections else "selection"
+                        call_payload["meaningPhase"] = phase
+                        if phase == "selection":
+                            call_system = SELECTION_SYSTEM
+                            call_contract = selection_schema(wire.payload["meaningSources"])
+                        else:
+                            selection = selections[-1]
+                            offered = wire_selection(
+                                selection, inventory, wire.payload["meaningSources"]
+                            )
+                            call_payload["sourceSelection"] = offered
+                            call_payload["selectionSHA256"] = selection["sha256"]
+                            call_contract = selected_meaning_schema(
+                                wire.contract,
+                                offered,
+                                wire.payload["meaningSources"],
+                                selection["sha256"],
+                            )
+                    if local_selection:
+                        if cancelled and cancelled():
+                            raise ModelError("ai_cancelled")
+                        value = negative_meaning_response(selection, rid)
+                    else:
+                        value = invoke(
+                            call_system,
+                            call_payload,
+                            call_contract,
+                            feedback,
+                            table_stage=progress,
+                            meaning_wire=wire,
+                            table_phase=phase,
+                        )
+                    if phase == "selection":
+                        selection = selection_record(
+                            value, inventory, accepted[rid], wire.identity, model_identity
+                        )
+                        progress.setdefault("sourceSelections", []).append(selection)
+                        progress.update(status="pending")
+                        progress.pop("feedback", None)
+                        save("interpreting")
+                        if any(
+                            d["decision"] == "has_meaning"
+                            for d in value["sourceDecisions"].values()
+                        ):
+                            continue
+                        local_selection = True
+                        value = negative_meaning_response(selection, rid)
+                    elif (
+                        phase == "details"
+                        and isinstance(value, dict)
+                        and value.get("action") == "revise_selection"
+                    ):
+                        revised = revise_selection(
+                            value,
+                            selection,
+                            inventory,
+                            accepted[rid],
+                            wire.identity,
+                            model_identity,
+                        )
+                        progress["sourceSelections"].append(revised)
+                        progress.update(status="pending")
+                        save("interpreting")
+                        continue
                     if stage == "structure":
                         decision, candidate = structural_ir(value, observation, region)
                         if candidate is None:
@@ -1152,6 +1316,7 @@ def extract_schema_from_stream(
                             save("interpreting")
                             return decision.tableKind != "scalar_form"
                     else:
+                        check_selected_meaning(value, selection)
                         candidate = meaning_ir(value, accepted[rid], inventory)
                     fragment = compile_region(
                         candidate, observation, region, target_schema=selected.targetSchema
@@ -1195,6 +1360,7 @@ def extract_schema_from_stream(
                     if stage == "meaning":
                         progress["acceptedResponse"] = True
                         progress.setdefault("revisions", []).append(meaning_snapshot(candidate))
+                        progress.setdefault("meaningSelections", []).append(selection["sha256"])
                     if stage == "structure":
                         state["kind"] = "record_table"
                         child, routes = route_table_values(
@@ -1249,7 +1415,13 @@ def extract_schema_from_stream(
                     )
                     progress.update(status="failed", feedback=repair)
                     issue("table_stage_invalid", regionId=rid, tableStage=stage, errors=[feedback])
+                    if local_selection:
+                        # Deterministic compilation is not a new model attempt;
+                        # do not retry it forever or manufacture another selection.
+                        progress["negativeCompileFailed"] = True
                     save("interpreting")
+                    if local_selection:
+                        break
             if progress["status"] != "complete":
                 return True
         return True

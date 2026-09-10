@@ -35,7 +35,7 @@ from .table_source_decisions import (
 )
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v12"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v13"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -71,13 +71,16 @@ Field names and literal values are already captured. Copying a label that contai
 a unit does not extract that unit as structured meaning. Inspect headers and values
 for units, conditions, qualifications, annotations, references and relationships.
 Restating only a field name or ordinary value adds no meaning.
-First fill ALL sourceDecisions in meaningSources order, with only decision in each
-entry. Choose has_meaning for a source that directly supports structured meaning,
-no_additional_meaning for ordinary text without it, unresolved if unclear, or
-unreviewed for deferred work. Do this before writing any meanings or explanations.
-Then return meanings once in a separate list, with sourceQuotes containing the
-smallest exact phrases and their owned sourceRefs. Every directly quoted source
-must be has_meaning, and every has_meaning source must have a direct quote.
+sourceSelection contains the earlier source choices. Repeat only those fixed
+choices in sourceDecisions, without explanations. Interpret selected sources once
+in meanings, with sourceQuotes containing the smallest exact phrases and their
+owned sourceRefs. Every has_meaning source must have a direct quote; other sources
+cannot be quoted. Do not restate the plain labels or values already reviewed.
+If a source choice is wrong, return only the revise_selection response with the
+current selectionSHA256 as baseSelectionSHA256, a reason and every new source
+choice with its short explanation. This is a separate response, not a way to quote
+an unselected source. Do not defer a previously reviewed source. A revision is
+saved first; detailed interpretation remains subject to the existing call budget.
 An empty source has no nonempty quote; never substitute a space or invent text.
 referenceContext helps interpretation but is not direct evidence. Do not invent a
 meaning from context and cite an unrelated header or value. Keep independent

@@ -35,6 +35,16 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
+Table protocol v13 now implements separate, durable source selection inside the
+meaning stage. Selection and detail use the existing shared finite allowances, not
+new budgets. Source/model/structure/reference identity and selection-to-meaning
+history are checked on resume. All-negative reviews compile without a detail call;
+unknown/deferred sources remain partial. Incorrect choices can be explicitly revised,
+with old meanings preserved until a valid replacement is accepted. This implementation
+has not yet completed an actual full-product model run or release qualification.
+The v12 failure and separate development diagnostics below remain evidence, not a
+qualification of the new engine path.
+
 Source `ac49fd2` uses table protocol v12 / source decisions v3. The same meaning
 response now lists all source choices before its meaning details and explicit
 source reviews. Exact quotes, complete source accounting, frozen records and
@@ -64,8 +74,7 @@ from extracted header units. These small development controls are not holdouts.
 
 An offline replay of the negative selection into the existing compiler produced
 zero meanings and 12 explicit source reviews, no issues, and unchanged data/schema/
-bindings, without another model call. **A durable selection substep is not yet
-implemented**, and the positive case has not validated detailed meaning kinds,
+bindings, without another model call. **Those diagnostics alone did not implement or qualify the durable selection substep**, and the positive case has not validated detailed meaning kinds,
 quotes or unit/condition scopes under that workflow. Its design must retain
 correctable decisions, existing finite call/time budgets, checkpoint identity,
 partial results and frozen structure; it must not exclude headers/values by rule.
