@@ -35,15 +35,51 @@ loading the recognition models. Neither establishes installed-client qualificati
 
 ### Latest table-meaning development check
 
-The product remains at prompt v24 / table protocol v16 / compiler v18 / scope
-integration v11 / reference wire v2. Product code is `6555820`; the test baseline is
-`00a9fab`. Content uncertainty remains independent of applicability, including on
-resume. Public API v1 and the default non-thinking 9B CPU profile are unchanged.
-Local checks on this source passed 2,436 tests (227 skipped, 12 subtests), including
-466 related tests with warnings as errors; Spark ARM passed the same 466 without
-skips. All five jobs in CI run
+The active engine remains at prompt v24 / table protocol v16 / compiler v18 /
+scope integration v11 / reference wire v2. Public API v1 and the default
+non-thinking 9B CPU profile are unchanged. The source now includes a prepared
+scope-axis wire v1 and source-binding v1, but **the engine does not call them yet**.
+Their own fingerprints are available; engine checkpoint identity and per-phase
+reasoning policy still need integration before use in product extraction.
+
+The general codec preserves multiple records, continuation-fragment coordinates,
+scalar/mixed candidates and independent batch validation. Bounded candidate lists
+do not gain missing column handles or lose existing row selections. Gaps retain
+explicit source-coordinate ranges, not fabricated observations. Source binding
+separates actual value bindings from geometry for absent/uncertain cells, preserves
+blank/missing status and rejects stale mappings, overlap and exhausted limits.
+Record-context anchors reuse already-bound definition references instead of adding
+unrelated record cells. Long-range provenance still has explicit 100-source,
+1,000-trace-entry and 1,000,000-row/column-work bounds; no overflow is silently cut.
+
+There are 35 new deterministic boundary tests. Local full tests passed **2,471**
+(227 skipped, 12 subtests); the 501 related tests passed with warnings as errors.
+Ruff and format checks passed for 216 files. Previous baseline CI run
 [34513936824](https://github.com/Ruzzy77/document-files/actions/runs/34513936824)
-are now completed successfully. This is not installed-client or release approval.
+completed successfully on all five targets; that older run does not certify these
+new files. Current-source ARM/CI checks are tracked separately. None of these counts
+is independent document quality, installed-client or release approval.
+
+Two further Spark calls kept the successful strict axis contract, program-bound
+provenance and reasoning setting 512 fixed, and supplied the original caption's
+unit and condition separately. **Unit mm selected Length and Width only; the
+condition selected Length only**, including correct value and column-schema links.
+Both retained the two rows, original numeric strings and source bindings.
+Inference took 132.39/133.15 seconds, host time 145.93/146.38 seconds, and completion
+used 651/691 tokens. Each had one 300-second call within a 1,536-total-output-token
+cap; the pair had a 600-second bound. No repairs, extra grants, OCR or rendering
+were performed. Both used 4 CPU / 16GiB with zero swap/OOM/GPU/external network.
+This is applicability over **given content**, not content extraction or a full run.
+
+The general codec reproduced the exact payload, schema and canonical choice for
+all four successful development responses (row, column, unit and condition).
+Local compiler replay matched the recorded results, normalizing only coverage
+set order. This is a zero-call compatibility check, not four new model successes.
+Next are current-source ARM checks, actual interval/blank controls, compact
+long-range provenance, engine/budget/checkpoint integration, and content-stage
+quality before the new bounded full HTML run.
+
+#### Earlier applicability and output-constraint controls
 
 Ten new Spark calls compared **development-only, single-record scope protocols**.
 The two controlled cases name only the second sample's Length, or every sample's

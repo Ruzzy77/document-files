@@ -2,6 +2,13 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Prepare internal scope-axis wire v1 and compiler source-binding v1 for multiple
+  records, scalars, mixed/batched decisions, continuation fragments and missing
+  observations. Typed references, source origins and explicit resource limits
+  are checked without changing values or public v1 results. These components
+  are not yet wired into the extraction engine; current scope/checkpoint and
+  inference defaults remain unchanged pending integration and product-path tests.
+
 - Make the cumulative table-budget tampering test independent of Windows clock
   resolution, using explicit scripted-call durations. Also retain a valid
   zero-duration checkpoint/resume case. Product timing and budget rules are unchanged.
