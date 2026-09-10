@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Add Linux assembly input/receipt v2 for explicit, hash-pinned omissions of
+  Windows-only pip/setuptools installer launchers. Verify original wheel members
+  and installed bytes before excluding them, retain omission evidence and rewrite
+  the affected installed RECORD files. Native code/model exclusions and automatic
+  pruning are not supported; the pack's foreign-binary rejection remains intact.
+- Make synthetic deadline and pack-path tests portable: compare against the actual
+  supplied absolute deadline and use manifest-style paths on Windows. Production
+  execution budgets and path restrictions are unchanged.
 - Add recognition audit/verification v3 for explicitly authored, non-runtime
   packaging records and scoped license collections. Bind their hashes, declared
   authorship, licenses and artifact associations without inventing upstream

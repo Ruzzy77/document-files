@@ -30,6 +30,7 @@ from email.parser import Parser
 from pathlib import Path, PurePosixPath
 
 SCHEMA = "document-files.linux-recognition-assembly.v1"
+OMISSION_SCHEMA = "document-files.linux-recognition-assembly.v2"
 LIMITS = (
     "maxInputBytes",
     "maxArchiveMembers",
@@ -399,8 +400,71 @@ def wheel_inventory(path, wheel, budget):
         return expected, record.rsplit("/", 1)[0]
 
 
+def mark_windows_launcher_omissions(manifest, root, expected, budget):
+    """Only explicit, hash-pinned Windows installer templates; never native libraries."""
+    if "wheelOmissions" not in manifest:
+        return
+    rules = manifest["wheelOmissions"]
+    require(isinstance(rules, list) and 1 <= len(rules) <= 14, "invalid_wheel_omissions")
+    wheels = {w["sha256"]: w for w in manifest["wheels"]}
+    seen = set()
+    for rule in rules:
+        require(
+            isinstance(rule, dict)
+            and set(rule) == {"sourceSha256", "member", "sha256", "reason"}
+            and all(isinstance(v, str) for v in rule.values())
+            and bool(rule["reason"].strip())
+            and len(rule["reason"]) <= 512,
+            "invalid_wheel_omission",
+        )
+        member = relative(rule["member"])
+        package = (
+            "pip"
+            if re.fullmatch(r"pip/_vendor/distlib/[tw](?:32|64|64-arm)\.exe", member)
+            else "setuptools"
+            if re.fullmatch(r"setuptools/(?:cli|gui)(?:-(?:32|64|arm64))?\.exe", member)
+            else None
+        )
+        wheel = wheels.get(rule["sourceSha256"])
+        row = expected.get(member)
+        require(
+            package is not None
+            and wheel is not None
+            and package_name(wheel["name"]) == package
+            and member not in seen
+            and row is not None
+            and row["sourceSha256"] == rule["sourceSha256"]
+            and row["member"] == member
+            and row["sha256"] == rule["sha256"]
+            and not row["record"]
+            and not row.get("dataScheme")
+            and not row.get("providedScript"),
+            "unverified_windows_launcher_omission",
+        )
+        with (
+            zipfile.ZipFile(regular(root, wheel["path"])) as archive,
+            archive.open(member) as stream,
+        ):
+            prefix = stream.read(4096)
+        budget.decoded(len(prefix))
+        require(len(prefix) >= 64 and prefix[:2] == b"MZ", "omitted_resource_not_windows_launcher")
+        offset = struct.unpack_from("<I", prefix, 60)[0]
+        require(64 <= offset <= len(prefix) - 24, "omitted_resource_not_windows_launcher")
+        flags = struct.unpack_from("<H", prefix, offset + 22)[0]
+        require(
+            prefix[offset : offset + 4] == b"PE\0\0"
+            and struct.unpack_from("<H", prefix, offset + 4)[0] in {0x14C, 0x8664, 0xAA64}
+            and flags & 2
+            and not flags & 0x2000,
+            "omitted_resource_not_windows_launcher",
+        )
+        row["platformOmission"] = dict(rule)
+        seen.add(member)
+
+
 def preflight(manifest, root, budget):
-    require(manifest.get("schemaVersion") == SCHEMA, "invalid_schema")
+    schema = OMISSION_SCHEMA if "wheelOmissions" in manifest else SCHEMA
+    require(manifest.get("schemaVersion") == schema, "invalid_schema")
     require(manifest.get("platform") in {"linux-x86_64", "linux-aarch64"}, "invalid_platform")
     require(manifest.get("installedScriptPolicy") == "omit-generated-bin", "script_policy_required")
     omissions = manifest.get("pythonOmissions", [])
@@ -465,6 +529,7 @@ def preflight(manifest, root, budget):
         require(not set(expected) & set(rows), "wheel_file_collision")
         expected.update(rows)
         distributions[dist] = wheel["sha256"]
+    mark_windows_launcher_omissions(manifest, root, expected, budget)
     script_names = [row["providedScript"] for row in expected.values() if "providedScript" in row]
     require(len(script_names) == len(set(script_names)), "wheel_provided_script_collision")
     require(
@@ -490,7 +555,9 @@ def preflight(manifest, root, budget):
     )
     destinations = {n for n, row in members.items() if row["kind"] != "dir" and not row["omission"]}
     wheel_destinations = [
-        row.get("stageDestination", site + "/" + n) for n, row in expected.items()
+        row.get("stageDestination", site + "/" + n)
+        for n, row in expected.items()
+        if not row.get("platformOmission")
     ]
     require(
         len(set(wheel_destinations)) == len(wheel_destinations)
@@ -905,7 +972,7 @@ def installed_files(target, expected, distributions, budget, python=None):
     for dist, source_sha in distributions.items():
         record = actual[dist + "/RECORD"]
         require(record.stat().st_size <= 16 * 1024**2, "installed_record_budget")
-        seen, kept, removed, relocated = set(), [], [], []
+        seen, kept, removed, relocated, platform_removed = set(), [], [], [], []
         owned = {n for n, row in expected.items() if row["sourceSha256"] == source_sha}
         owned.update(n for n, sha in generated.items() if sha == source_sha)
         for row in csv.reader(io.StringIO(record.read_text())):
@@ -1006,7 +1073,6 @@ def installed_files(target, expected, distributions, budget, python=None):
                     )
                 removed.append(row)
                 continue
-            kept.append(row)
             name = relative(row[0])
             require(name in owned, "installed_record_foreign_file")
             require(
@@ -1020,6 +1086,10 @@ def installed_files(target, expected, distributions, budget, python=None):
                 sha = digest_file(actual[name], budget, staged=True)
                 encoded = base64.urlsafe_b64encode(bytes.fromhex(sha)).rstrip(b"=").decode()
                 require(row[1:] == ["sha256=" + encoded, str(size)], "installed_record_mutation")
+            if expected.get(name, {}).get("platformOmission"):
+                platform_removed.append(row)
+            else:
+                kept.append(row)
         require(owned <= seen, "installed_record_incomplete")
         buffer = io.StringIO(newline="")
         csv.writer(buffer, lineterminator="\n").writerows(kept)
@@ -1029,6 +1099,8 @@ def installed_files(target, expected, distributions, budget, python=None):
             "removedRows": removed,
             "relocatedDataRows": relocated,
         }
+        if platform_removed:
+            rewritten[dist + "/RECORD"]["removedPlatformRows"] = platform_removed
     require(set(script_owners) == {x["path"] for x in omitted_scripts}, "unowned_installed_script")
     return actual, generated, omitted_scripts, rewritten
 
@@ -1043,7 +1115,11 @@ def assemble(inputs_path, inputs_sha256, input_root, output=None, *, check_only=
     manifest = load(inputs_path)
     budget = Budget(manifest["limits"])
     report = {
-        "schemaVersion": "document-files.linux-recognition-assembly-receipt.v1",
+        "schemaVersion": (
+            "document-files.linux-recognition-assembly-receipt.v2"
+            if manifest.get("schemaVersion") == OMISSION_SCHEMA
+            else "document-files.linux-recognition-assembly-receipt.v1"
+        ),
         "inputsSha256": inputs_sha256,
         "platform": manifest.get("platform"),
         "status": "failed",
@@ -1078,6 +1154,12 @@ def assemble(inputs_path, inputs_sha256, input_root, output=None, *, check_only=
             out.mkdir()
             owned_output = out
         members, expected, distributions, site, pip = preflight(manifest, root, budget)
+        if "wheelOmissions" in manifest:
+            report["omittedWheelResources"] = [
+                {**row["platformOmission"], "size": row["size"], "mode": row["mode"]}
+                for row in expected.values()
+                if row.get("platformOmission")
+            ]
         if check_only:
             for item in [manifest["pythonRuntime"], *manifest["wheels"], *manifest["assets"]]:
                 require(
@@ -1160,6 +1242,8 @@ def assemble(inputs_path, inputs_sha256, input_root, output=None, *, check_only=
         )
         for name, path in actual.items():
             row = expected.get(name)
+            if row is not None and row.get("platformOmission"):
+                continue
             if row is not None and row["record"]:
                 transformed = out / "rewritten-records" / name
                 transformed.parent.mkdir(parents=True, exist_ok=True)
@@ -1176,6 +1260,8 @@ def assemble(inputs_path, inputs_sha256, input_root, output=None, *, check_only=
                 if name in rewritten:
                     row.update({k: v for k, v in rewritten[name].items() if k != "bytes"})
                     row["transformation"] = "pip-record-with-script-and-data-relocations"
+                    if rewritten[name].get("removedPlatformRows"):
+                        row["transformation"] = "pip-record-with-script-data-and-platform-omissions"
             put(stage, row.get("stageDestination", site + "/" + name), path, row, budget, origins)
         for asset in manifest["assets"]:
             put(

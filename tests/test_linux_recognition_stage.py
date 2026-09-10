@@ -143,6 +143,181 @@ def execute(tool, setup, *, check=False):
     return tool.assemble(path, sha(path.read_bytes()), root, output, check_only=check)
 
 
+def windows_launcher(machine=0x8664, flags=2):
+    data = bytearray(128)
+    data[:2] = b"MZ"
+    struct.pack_into("<I", data, 60, 64)
+    data[64:68] = b"PE\0\0"
+    struct.pack_into("<H", data, 68, machine)
+    struct.pack_into("<H", data, 86, flags)
+    return bytes(data)
+
+
+def add_launcher_omission(setup, *, member="pip/_vendor/distlib/t64.exe", data=None):
+    root, manifest, _ = setup
+    data = windows_launcher() if data is None else data
+    path = root / "pip-1-py3-none-any.whl"
+    wheel(path, {member: data, "pip/_vendor/distlib/w64.exe": windows_launcher(0x14C)})
+    manifest["wheels"][0].update(identity(path))
+    manifest["pipWheelSha256"] = sha(path.read_bytes())
+    manifest["schemaVersion"] = "document-files.linux-recognition-assembly.v2"
+    manifest["wheelOmissions"] = [
+        {
+            "sourceSha256": sha(path.read_bytes()),
+            "member": member,
+            "sha256": sha(data),
+            "reason": "Windows installer template; unused by this Linux recognition runtime.",
+        }
+    ]
+    return manifest["wheelOmissions"][0]
+
+
+def test_explicit_windows_launcher_omission_updates_record_and_preserves_inputs(mocked, setup):
+    rule = add_launcher_omission(setup)
+    before = (setup[0] / "pip-1-py3-none-any.whl").read_bytes()
+    result = execute(mocked, setup)
+    assert result["schemaVersion"] == "document-files.linux-recognition-assembly-receipt.v2"
+    assert result["omittedWheelResources"] == [{**rule, "size": 128, "mode": 0o644}]
+    stage = setup[2] / "stage"
+    site = stage / "python/lib/python3.12/site-packages"
+    assert not (site / rule["member"]).exists()
+    assert (site / "pip/_vendor/distlib/w64.exe").read_bytes() == windows_launcher(0x14C)
+    assert (site / "pip/__init__.py").read_bytes() == b"# inert\n"
+    original = setup[2] / "installed/pip-1.dist-info/RECORD"
+    assert rule["member"] in original.read_text()
+    rows = list(csv.reader((site / "pip-1.dist-info/RECORD").read_text().splitlines()))
+    assert rule["member"] not in {r[0] for r in rows}
+    for name, digest, size in rows:
+        assert (site / name).is_file()
+        if name != "pip-1.dist-info/RECORD":
+            assert [name, digest, size] == record_row(name, (site / name).read_bytes())
+    origins = json.loads((setup[2] / "file-origins.json").read_text())
+    record = origins["python/lib/python3.12/site-packages/pip-1.dist-info/RECORD"]
+    assert record["transformation"] == "pip-record-with-script-data-and-platform-omissions"
+    assert record["originalInstalledRecordSha256"] == sha(original.read_bytes())
+    assert record["removedPlatformRows"] == [record_row(rule["member"], windows_launcher())]
+    assert (setup[2] / "installed" / rule["member"]).read_bytes() == windows_launcher()
+    assert (setup[0] / "pip-1-py3-none-any.whl").read_bytes() == before
+    assert result["originalInputsUnchanged"] and not result["releaseQualified"]
+
+
+def test_windows_launcher_omission_preflight_is_nonexecuting(tool, setup, monkeypatch):
+    rule = add_launcher_omission(setup)
+    monkeypatch.setattr(tool.subprocess, "Popen", lambda *a, **k: pytest.fail("executed"))
+    result = execute(tool, setup, check=True)
+    assert result["omittedWheelResources"][0]["sha256"] == rule["sha256"]
+    assert result["pipAttempts"] == 0 and not setup[2].exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["legacy", "no-rules", "empty", "duplicate", "source", "hash", "reason", "extra", "too-many"],
+)
+def test_windows_launcher_omissions_require_new_schema_and_exact_pins(tool, setup, fault):
+    rule = add_launcher_omission(setup)
+    manifest = setup[1]
+    if fault == "legacy":
+        manifest["schemaVersion"] = tool.SCHEMA
+    elif fault == "no-rules":
+        del manifest["wheelOmissions"]
+    elif fault == "empty":
+        manifest["wheelOmissions"] = []
+    elif fault == "duplicate":
+        manifest["wheelOmissions"].append(dict(rule))
+    elif fault == "source":
+        rule["sourceSha256"] = "0" * 64
+    elif fault == "hash":
+        rule["sha256"] = "0" * 64
+    elif fault == "reason":
+        rule["reason"] = " "
+    elif fault == "extra":
+        rule["recursive"] = True
+    else:
+        manifest["wheelOmissions"] *= 15
+    with pytest.raises(tool.AssemblyError):
+        execute(tool, setup, check=True)
+    assert not setup[2].exists()
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "pip/_vendor/distlib/libcodec.dll",
+        "pip/__init__.py",
+        "models/model.bin",
+        "pip/_vendor/distlib/other.exe",
+        "setuptools/cli.exe",
+        "pip/_vendor/distlib/nested/t64.exe",
+    ],
+)
+def test_windows_launcher_omission_cannot_remove_runtime_code_or_other_packages(
+    tool, setup, member
+):
+    add_launcher_omission(setup, member=member)
+    with pytest.raises(tool.AssemblyError, match="unverified_windows_launcher_omission"):
+        execute(tool, setup, check=True)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"\x7fELF" + b"\0" * 124,
+        windows_launcher(flags=0x2002),
+        windows_launcher(flags=0),
+        windows_launcher(machine=183),
+        b"MZ" + b"\0" * 126,
+    ],
+)
+def test_omission_rejects_non_windows_programs_even_at_an_allowed_name(tool, setup, data):
+    add_launcher_omission(setup, data=data)
+    with pytest.raises(tool.AssemblyError, match="omitted_resource_not_windows_launcher"):
+        execute(tool, setup, check=True)
+
+
+def test_omitted_installer_bytes_are_still_verified_before_exclusion(mocked, setup, monkeypatch):
+    rule = add_launcher_omission(setup)
+    original = mocked.run_pip
+
+    def changed(command, env, log, budget):
+        result = original(command, env, log, budget)
+        (setup[2] / "installed" / rule["member"]).write_bytes(b"changed")
+        return result
+
+    monkeypatch.setattr(mocked, "run_pip", changed)
+    with pytest.raises(mocked.AssemblyError, match="installed_wheel_bytes_changed"):
+        execute(mocked, setup)
+
+
+@pytest.mark.parametrize("machine", [0x14C, 0x8664, 0xAA64])
+def test_setuptools_launchers_require_the_matching_pinned_distribution(tool, setup, machine):
+    root, manifest, _ = setup
+    path = root / "setuptools-1-py3-none-any.whl"
+    member, dist = "setuptools/gui-arm64.exe", "setuptools-1.dist-info"
+    files = {
+        member: windows_launcher(machine),
+        dist + "/METADATA": b"Name: setuptools\nVersion: 1\n",
+        dist + "/WHEEL": b"Wheel-Version: 1.0\nTag: py3-none-any\n",
+    }
+    files[dist + "/RECORD"] = csv_bytes(
+        [record_row(n, d) for n, d in files.items()] + [[dist + "/RECORD", "", ""]]
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        for n, d in files.items():
+            archive.writestr(n, d)
+    manifest["wheels"].append({**identity(path), "name": "setuptools", "version": "1"})
+    manifest["schemaVersion"] = tool.OMISSION_SCHEMA
+    manifest["wheelOmissions"] = [
+        {
+            "sourceSha256": sha(path.read_bytes()),
+            "member": member,
+            "sha256": sha(files[member]),
+            "reason": "Windows-only installer resource",
+        }
+    ]
+    result = execute(tool, setup, check=True)
+    assert result["omittedWheelResources"][0]["member"] == member
+
+
 @pytest.mark.parametrize("same_bytes", [False, True])
 def test_pack_casefold_collision_rejected_before_stage_execution(tool, setup, same_bytes):
     root, manifest, _ = setup

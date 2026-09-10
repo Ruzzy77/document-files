@@ -62,6 +62,11 @@ license bytes. All 29,453 planned pack files have explicit license associations;
 the existing 29,318-file remote stage has not yet received the new collections.
 This is input preparation, not a complete stage audit, installed pack, whole-path
 recognition check or redistribution approval.
+The first complete audit rejected 14 Windows installer launchers from the pinned
+pip/setuptools wheels before pack creation. Their original dispatch code selects
+them only for Windows. Linux assembly v2 now supports exact, reviewed omissions
+with matching installed RECORD updates; it does not weaken foreign-binary checks.
+A fresh assembly and full audit are still required before this pack can be built.
 
 For the Linux ARM64 development recognition stage, 39 additional notice files were
 copied into a new stage while preserving all 32,023 original files and their modes.

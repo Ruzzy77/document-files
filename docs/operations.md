@@ -205,6 +205,17 @@ excluded when it has conflicting terminal-name aliases; do not choose an arbitra
 alias, mutate the source archive or disable the pack's cross-platform path checks.
 Such an omission is not qualification of a general interactive Python runtime.
 
+Linux assembly input/receipt v2 supports an explicit `wheelOmissions` list for
+Windows installer templates bundled in the selected pip/setuptools wheels. Each
+entry supplies `sourceSha256`, original `member`, exact member `sha256` and `reason`.
+Only the known Windows launcher names and Windows PE program headers are eligible;
+runtime modules, libraries and model files cannot be removed this way. The whole
+original wheel and installed bytes are checked first, and affected RECORD files
+are rewritten to match the shipped files. Original wheel inputs and omitted-member
+evidence remain available. V1 manifests cannot silently use this option; v2 without
+explicit omissions is rejected. Unlisted files remain, and the final pack verifier
+still rejects foreign native binaries rather than treating them as harmless data.
+
 Locally built wheels use the separately versioned
 [derived-artifact provenance and versioned recognition audits](../deployment/README.md#original-inputs-and-locally-built-artifacts).
 Keep original download hashes, built outputs, shipped recipes and actual build
