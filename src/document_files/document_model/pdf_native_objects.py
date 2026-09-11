@@ -1410,8 +1410,17 @@ def inventory_pdf_native_objects(content, *, page_numbers=None, limits=None):
     if usage["maxSeconds"] > selected_limits["maxSeconds"]:
         result["status"] = "partial"
         result["issues"].append({"code": "native_inventory_time_budget_exceeded"})
-    result["fingerprint"] = fingerprint(result)
+    result["fingerprint"] = inventory_fingerprint(result)
     return result
+
+
+def inventory_fingerprint(inventory):
+    """Identity of the inventoried objects; elapsed time is a measurement, not identity.
+
+    Including ``usage`` gave the same document a new inventory identity on every run,
+    which reached every recognition consumption record and model payload built on it.
+    """
+    return fingerprint({k: v for k, v in inventory.items() if k != "usage"})
 
 
 def validate_native_inventory(inventory, *, source_sha256, page):
@@ -1420,7 +1429,7 @@ def validate_native_inventory(inventory, *, source_sha256, page):
     try:
         if (
             inventory["version"] != VERSION
-            or inventory["fingerprint"] != fingerprint(inventory)
+            or inventory["fingerprint"] != inventory_fingerprint(inventory)
             or inventory["sourceSha256"] != source_sha256
             or type(page) is not int
             or not isinstance(source_sha256, str)

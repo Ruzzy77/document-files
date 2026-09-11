@@ -7,6 +7,7 @@ from copy import deepcopy
 import pytest
 
 from document_files.document_model.pdf_native_objects import (
+    inventory_fingerprint,
     inventory_pdf_native_objects,
     validate_native_inventory,
 )
@@ -144,7 +145,7 @@ def test_identity_and_paint_counts_are_rechecked_not_only_complete_flag():
     wrong = deepcopy(result)
     wrong["pages"][0]["sourceOperators"] = []
     wrong["pages"][0]["fingerprint"] = fingerprint(wrong["pages"][0])
-    wrong["fingerprint"] = fingerprint(wrong)
+    wrong["fingerprint"] = inventory_fingerprint(wrong)
     assert verify(source, wrong)["status"] == "unverified"
     assert (
         validate_native_inventory(result, source_sha256="f" * 64, page=1)["status"] == "unverified"
@@ -187,7 +188,7 @@ def test_empty_pdfium_clip_reference_requires_independent_source_support():
     target["objects"][0]["clipBasis"] = "assumed_no_clip"
     target["objects"][0]["fingerprint"] = fingerprint(target["objects"][0])
     target["fingerprint"] = fingerprint(target)
-    wrong["fingerprint"] = fingerprint(wrong)
+    wrong["fingerprint"] = inventory_fingerprint(wrong)
     assert verify(source, wrong)["status"] == "unverified"
 
 
@@ -203,7 +204,7 @@ def test_hiding_clipping_issue_does_not_make_inventory_eligible():
     page["issues"] = []
     page["completeness"] = {k: k != "unsupportedContentPresent" for k in page["completeness"]}
     page["fingerprint"] = fingerprint(page)
-    result["fingerprint"] = fingerprint(result)
+    result["fingerprint"] = inventory_fingerprint(result)
     assert verify(source, result)["status"] == "unverified"
 
 
@@ -259,13 +260,27 @@ def test_unsupported_stream_is_checked_before_native_page_load(monkeypatch):
     )
 
 
+def test_inventory_identity_ignores_elapsed_time():
+    # Two otherwise identical GPU whole-path runs diverged because the inventory identity
+    # carried usage.maxSeconds into every consumption record and model payload.
+    source, first = inspect(lambda c: c.line(20, 20, 20, 100))
+    _, second = inspect(lambda c: c.line(20, 20, 20, 100))
+    second["usage"]["maxSeconds"] = first["usage"]["maxSeconds"] + 1.0
+    assert second["fingerprint"] == inventory_fingerprint(second) == first["fingerprint"]
+    assert (
+        validate_native_inventory(second, source_sha256=first["sourceSha256"], page=1)["status"]
+        != "unverified"
+    )
+    assert verify(source, second)["status"] == "verified"
+
+
 def test_primitive_segment_cannot_be_changed_independently_of_source_path():
     source, result = inspect(lambda c: c.line(20, 20, 20, 100))
     obj = result["pages"][0]["objects"][0]
     obj["segments"][0][0] = obj["segments"][0][2] = 25
     obj["fingerprint"] = fingerprint(obj)
     result["pages"][0]["fingerprint"] = fingerprint(result["pages"][0])
-    result["fingerprint"] = fingerprint(result)
+    result["fingerprint"] = inventory_fingerprint(result)
     assert verify(source, result)["status"] == "unverified"
 
 
@@ -275,7 +290,7 @@ def test_unbalanced_source_state_cannot_be_approved_by_copied_counts():
     # Retain the operator/count metadata but mutate BT into a balanced-arity no-op.
     next(op for op in page["sourceOperators"] if op["operator"] == "BT")["operator"] = "n"
     page["fingerprint"] = fingerprint(page)
-    result["fingerprint"] = fingerprint(result)
+    result["fingerprint"] = inventory_fingerprint(result)
     assert verify(source, result)["status"] == "unverified"
 
 
@@ -442,7 +457,7 @@ def test_font_and_outline_receiver_rechecks_links_after_refingerprinting(field):
         obj[field][2] -= 1
     obj["fingerprint"] = fingerprint(obj)
     page["fingerprint"] = fingerprint(page)
-    result["fingerprint"] = fingerprint(result)
+    result["fingerprint"] = inventory_fingerprint(result)
     assert verify(source, result)["status"] == "unverified"
 
 
@@ -690,5 +705,5 @@ def test_v3_receiver_rechecks_projection_source_and_glyph_membership(field):
         result["version"] = "document-files.pdf-native-objects.v2"
     obj["fingerprint"] = fingerprint(obj)
     page["fingerprint"] = fingerprint(page)
-    result["fingerprint"] = fingerprint(result)
+    result["fingerprint"] = inventory_fingerprint(result)
     assert verify(source, result)["status"] == "unverified"

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from .scope_axis_wire import MAX_SELECTIONS, ScopeAxisWire, prepare_scope_axis_wire
 
-VERSION = "document-files.scope-selection-wire.v1"
+VERSION = "document-files.scope-selection-wire.v2"
 
 
 def _column_schema(schema, aliases):
@@ -66,7 +66,38 @@ class ScopeSelectionWire:
                     if set(selection) != {"kind", "targetHandle"}:
                         raise ValueError
                     handle = selection["targetHandle"]
-                    if not isinstance(handle, str) or handle not in self.base.standalone[task_id]:
+                    if not isinstance(handle, str):
+                        raise ValueError
+                    owner = next(
+                        (
+                            record
+                            for record, aliases in self.inverse_columns[task_id].items()
+                            if handle in aliases
+                        ),
+                        None,
+                    )
+                    if owner is not None:
+                        # A column handle chosen directly means every data row of that
+                        # column: the same canonical intersection as a record part, so a
+                        # model that names the column need not build the nested form.
+                        records.append(
+                            {
+                                "recordHandle": owner,
+                                "parts": [
+                                    {
+                                        "rowCoverage": {"kind": "allDataRows"},
+                                        "columnCoverage": {
+                                            "kind": "selectedColumns",
+                                            "columnIds": [
+                                                self.inverse_columns[task_id][owner][handle]
+                                            ],
+                                        },
+                                    }
+                                ],
+                            }
+                        )
+                        continue
+                    if handle not in self.base.standalone[task_id]:
                         raise ValueError
                     standalone.append(handle)
                 elif selection.get("kind") == "record":
@@ -164,13 +195,17 @@ def prepare_scope_selection_wire(tasks):
                 schema["required"] = ["kind", *schema["required"]]
                 variants.append(schema)
         standalone = base.standalone[task.id]
-        if standalone:
+        # Column handles are offered as direct standalone targets as well: the wire
+        # showed a model naming a column in its explanation and then being forced onto
+        # the only field the standalone branch allowed.
+        direct = [alias for handle in columns for alias in columns[handle].values()]
+        if standalone or direct:
             variants.append(
                 {
                     "type": "object",
                     "properties": {
                         "kind": {"const": "standalone"},
-                        "targetHandle": {"type": "string", "enum": list(standalone)},
+                        "targetHandle": {"type": "string", "enum": [*standalone, *direct]},
                     },
                     "required": ["kind", "targetHandle"],
                     "additionalProperties": False,

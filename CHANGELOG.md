@@ -2,8 +2,8 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
-- Scope-axis protocol v4 states in its prompt that a meaning's own statement text is
-  never offered as a candidate and that the decision selects the offered fields, columns
+- Scope-axis protocol v5 (v4 was an intermediate development identity) states in its
+  prompt that a meaning's own statement text is never offered as a candidate and that the decision selects the offered fields, columns
   or rows whose values the meaning qualifies (a unit the measured or counted values, a
   condition the values it constrains), and raises the managed applicability request
   policy to reasoning budget 2,048 within a 3,072 total output cap (v3: 1,024 within
@@ -15,7 +15,12 @@
   order the recording harness had sorted, which changes the grammar; they are retained
   as records but are not evidence. Greedy sampling, the selection wire, source binding,
   public v1 and document budgets are unchanged; v3 policy identities are rejected on
-  resume.
+  resume. Selection wire v2 additionally offers every column handle as a direct
+  standalone target meaning all data rows of that column: the ninth run named the Qty
+  column in its explanation and was then forced onto the only field the standalone
+  branch allowed. The PDF native object inventory identity no longer includes its
+  elapsed time, which had given the same document a new identity per run and changed
+  the table structure request through the native ruling consumption record.
 
 - Applicability tasks no longer offer the scalar fields that carry the wording of a
   unit or condition statement of the same region (the statement's own fields or a

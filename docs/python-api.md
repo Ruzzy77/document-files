@@ -1,6 +1,6 @@
 # Python, CLI and MCP integration
 
-Internal applicability uses scope-axis protocol v2, selection wire v1 and compiler-owned
+Internal applicability uses scope-axis protocol v5, selection wire v2 and compiler-owned
 source-binding v2 over scope integration v12 / reference wire v2 / compiler v19.
 Private regional checkpoint v3 records the actual scope policy, batch context,
 citation-free selection and compiler source trace. Replay regenerates the request

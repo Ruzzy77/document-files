@@ -268,6 +268,43 @@ def test_invalid_selections_are_not_repaired_or_partially_applied(mutation):
     assert (value, compiled) == before
 
 
+def test_column_handle_chosen_as_standalone_means_every_data_row_of_that_column():
+    # The ninth GPU whole-path run named the Qty column in its explanation and was then
+    # forced onto the only field the standalone branch allowed.
+    _, _, compiled, task = scalar_origin_fixture()
+    wire = prepare_scope_selection_wire([task])
+    old = response(wire.base, task)
+    nested = from_axis(wire, old)
+    record = next(s for s in nested["selections"] if s["kind"] == "record")
+    handle = record["recordHandle"]
+    alias = next(iter(wire.inverse_columns[task.id][handle]))
+    variants = wire.contract["properties"]["selections"]["items"]["anyOf"]
+    standalone = next(v for v in variants if v["properties"]["kind"]["const"] == "standalone")
+    assert alias in standalone["properties"]["targetHandle"]["enum"]
+    direct = {
+        **{k: nested[k] for k in ("explanation", "taskId", "decision")},
+        "selections": [{"kind": "standalone", "targetHandle": alias}],
+    }
+    Draft202012Validator(wire.contract).validate(direct)
+    expected = {
+        **{k: nested[k] for k in ("explanation", "taskId", "decision")},
+        "selections": [
+            {
+                "kind": "record",
+                "recordHandle": handle,
+                "parts": [
+                    {
+                        "rowCoverage": {"kind": "allDataRows"},
+                        "columnCoverage": {"kind": "selectedColumns", "columnHandles": [alias]},
+                    }
+                ],
+            }
+        ],
+    }
+    assert wire.decode(direct) == wire.decode(expected)
+    assert wire.decode(direct)["targetHandles"] is not None
+
+
 def test_eight_task_batch_preserves_literal_strings_and_rejects_duplicate_tasks():
     tasks = independent_tasks(8)
     tasks[0].payload["statement"]["description"] = "Literal col-0, columnIds, @column0"
