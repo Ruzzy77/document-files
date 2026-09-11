@@ -305,6 +305,42 @@ def test_column_handle_chosen_as_standalone_means_every_data_row_of_that_column(
     assert wire.decode(direct)["targetHandles"] is not None
 
 
+def test_several_direct_columns_of_one_record_form_one_record_selection():
+    # The GPU HTML rerun chose Length and Width as two direct standalone columns; the
+    # first wire v2 decoder made one record entry per column and the axis codec then
+    # rejected the duplicate record.
+    region, task = native_group_fixture()
+    wire = prepare_scope_selection_wire([task])
+    record = next(iter(wire.base.records[task.id]))
+    aliases = [alias for alias, cid in wire.inverse_columns[task.id][record].items() if cid != "id"]
+    assert len(aliases) == 2
+    base = {"taskId": task.id, "decision": "apply", "explanation": "Scripted direct columns"}
+    direct = {**base, "selections": [{"kind": "standalone", "targetHandle": a} for a in aliases]}
+    Draft202012Validator(wire.contract).validate(direct)
+    nested = {
+        **base,
+        "selections": [
+            {
+                "kind": "record",
+                "recordHandle": record,
+                "parts": [
+                    {
+                        "rowCoverage": {"kind": "allDataRows"},
+                        "columnCoverage": {"kind": "selectedColumns", "columnHandles": aliases},
+                    }
+                ],
+            }
+        ],
+    }
+    canonical = wire.decode(direct)
+    assert canonical == wire.decode(nested) and canonical["targetHandles"] is not None
+    choice, _ = bind_scope_sources(canonical, task, [region], expected_fingerprint=task.fingerprint)
+    after, changed = apply_scope_decision([region], task, choice)
+    assert changed
+    paths = {t["path"] for d in after[0].semantic_details for t in d["scope"]}
+    assert paths and all(p.endswith(("/length", "/width")) for p in paths)
+
+
 def test_eight_task_batch_preserves_literal_strings_and_rejects_duplicate_tasks():
     tasks = independent_tasks(8)
     tasks[0].payload["statement"]["description"] = "Literal col-0, columnIds, @column0"

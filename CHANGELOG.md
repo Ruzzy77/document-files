@@ -18,9 +18,15 @@
   resume. Selection wire v2 additionally offers every column handle as a direct
   standalone target meaning all data rows of that column: the ninth run named the Qty
   column in its explanation and was then forced onto the only field the standalone
-  branch allowed. The PDF native object inventory identity no longer includes its
+  branch allowed. Several direct columns of one record form one record entry with one
+  part; the first decoder made one entry per column, which the axis codec rejected as
+  a duplicate record when the native HTML rerun chose Length and Width directly. The PDF native object inventory identity no longer includes its
   elapsed time, which had given the same document a new identity per run and changed
   the table structure request through the native ruling consumption record.
+  A subsequent whole-path mixed native/raster PDF development run under these
+  identities returned complete in 19 calls with every unit and condition applied to
+  the Qty column only and resumed without calls; this is development evidence on one
+  document, not qualification.
 
 - Applicability tasks no longer offer the scalar fields that carry the wording of a
   unit or condition statement of the same region (the statement's own fields or a

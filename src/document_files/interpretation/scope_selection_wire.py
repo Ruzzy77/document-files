@@ -58,7 +58,7 @@ class ScopeSelectionWire:
             selections = value["selections"]
             if not isinstance(selections, list) or len(selections) > MAX_SELECTIONS:
                 raise ValueError
-            records, standalone = [], []
+            records, standalone, direct = [], [], {}
             for selection in selections:
                 if not isinstance(selection, dict):
                     raise ValueError
@@ -79,22 +79,9 @@ class ScopeSelectionWire:
                     if owner is not None:
                         # A column handle chosen directly means every data row of that
                         # column: the same canonical intersection as a record part, so a
-                        # model that names the column need not build the nested form.
-                        records.append(
-                            {
-                                "recordHandle": owner,
-                                "parts": [
-                                    {
-                                        "rowCoverage": {"kind": "allDataRows"},
-                                        "columnCoverage": {
-                                            "kind": "selectedColumns",
-                                            "columnIds": [
-                                                self.inverse_columns[task_id][owner][handle]
-                                            ],
-                                        },
-                                    }
-                                ],
-                            }
+                        # model that names the columns need not build the nested form.
+                        direct.setdefault(owner, []).append(
+                            self.inverse_columns[task_id][owner][handle]
                         )
                         continue
                     if handle not in self.base.standalone[task_id]:
@@ -129,6 +116,18 @@ class ScopeSelectionWire:
                     records.append({"recordHandle": handle, "parts": parts})
                 else:
                     raise ValueError
+            for owner, column_ids in direct.items():
+                # Several direct columns of one record form one part of one record
+                # entry; the axis codec still rejects duplicates and overlaps.
+                part = {
+                    "rowCoverage": {"kind": "allDataRows"},
+                    "columnCoverage": {"kind": "selectedColumns", "columnIds": column_ids},
+                }
+                existing = next((r for r in records if r["recordHandle"] == owner), None)
+                if existing is None:
+                    records.append({"recordHandle": owner, "parts": [part]})
+                else:
+                    existing["parts"].append(part)
             axis = {k: copy.deepcopy(value[k]) for k in ("taskId", "explanation", "decision")}
             if self.base.records[task_id]:
                 axis["recordScopes"] = records
