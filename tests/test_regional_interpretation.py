@@ -1058,8 +1058,8 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
 
     if transport != "complete":
         scopes = [r for r in model.requests if "taskId" in json.loads(r.messages[-1]["content"])]
-        assert len(scopes) == 1 and scopes[0].max_output_tokens == 1536
-        assert scopes[0].reasoning_budget_tokens == (512 if transport == "managed" else None)
+        assert len(scopes) == 1 and scopes[0].max_output_tokens == 2048
+        assert scopes[0].reasoning_budget_tokens == (1024 if transport == "managed" else None)
         assert all(r.reasoning_budget_tokens is None for r in model.requests if r not in scopes)
     stored = next(s for s in states[-1]["scopeDecisions"].values() if "decision" in s)
     assert stored["selection"]["sourceRefs"] == [] and stored["decision"]["sourceRefs"]

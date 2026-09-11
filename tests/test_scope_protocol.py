@@ -65,16 +65,22 @@ def test_batches_use_exact_new_contract_size_not_the_old_schema():
 
 
 def test_policy_does_not_guess_managed_capabilities_or_change_client_defaults():
-    generic = SimpleNamespace(infer=lambda r: None, max_output_tokens=2048)
+    generic = SimpleNamespace(infer=lambda r: None, max_output_tokens=4096)
     assert scope_policy(generic)["reasoningBudgetTokens"] is None
-    assert scope_policy(generic)["maxOutputTokens"] == 1536
+    assert scope_policy(generic)["maxOutputTokens"] == 2048
+    smaller = SimpleNamespace(infer=lambda r: None, max_output_tokens=1536)
+    assert scope_policy(smaller)["maxOutputTokens"] == 1536
     assert scope_policy(SimpleNamespace())["outputLimitOwner"] == "client"
     assert scope_policy(SimpleNamespace())["maxOutputTokens"] is None
     managed = object.__new__(ManagedPackClient)
-    managed.max_output_tokens = 1024
+    managed.max_output_tokens = 3072
     managed.reasoning_budget_tokens = None
     policy = scope_policy(managed)
-    assert policy["reasoningBudgetTokens"] == 512 and policy["maxOutputTokens"] == 1024
+    assert policy["version"] == "document-files.scope-axis-protocol.v3"
+    # Bounded thinking for applicability: 512 truncated the model's reasoning on the
+    # merged-header unit case (development evidence); 1024 must stay below the cap.
+    assert policy["reasoningBudgetTokens"] == 1024 and policy["maxOutputTokens"] == 2048
+    assert policy["reasoningBudgetTokens"] < policy["maxOutputTokens"]
     assert managed.reasoning_budget_tokens is None
 
 

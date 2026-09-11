@@ -2,6 +2,17 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Scope-axis protocol v3 raises the managed applicability request policy to reasoning
+  budget 1,024 within a 2,048 total output cap (v2: 512 within 1,536). Greedy sampling,
+  the selection wire, source binding, public v1 and document budgets are unchanged; v2
+  policy identities are rejected on resume. Bounded development comparisons on the
+  frozen v17 unit request showed the 512 budget truncating the model's reasoning: with
+  1,024 the same request selected only the Length/Width header group, and official
+  sampling at 512 also selected those columns but is not adopted. A fresh whole-path
+  native HTML development run under v3 then returned complete in five calls with unit
+  scope Length/Width and condition scope Length, and resumed without calls; this is a
+  development pass on one case, not release qualification.
+
 - Table protocol v17 makes record-table details content-only. Its actual request
   contract and decoder reject applicability fields; the compiler retains unresolved
   targets until the separate scope protocol chooses them. Repair feedback follows

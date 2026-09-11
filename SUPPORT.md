@@ -34,7 +34,49 @@ pack candidates have been assembled locally. Core CLI/MCP processing was exercis
 without a host Python on PATH; recognition-pack relocation was checked without
 loading the recognition models. Neither establishes installed-client qualification.
 
-### Current content and scope separation
+### Current scope-axis v3 reasoning budget and whole-path result
+
+Scope-axis protocol v3 keeps selection wire v1, table protocol v17, compiler v19,
+scope integration v12 and greedy sampling, and changes only the managed applicability
+request policy: reasoning budget 1,024 within a 2,048 total output cap (v2: 512 within
+1,536). v2 policy identities are rejected on resume. Local regression on the working
+tree: **2,574 passed / 227 skipped / 12 subtests**, the same 17 related files
+**684 passed** under warnings-as-errors, Ruff/format clean. The development runs
+below were executed on this exact source before it was committed, pinned by per-file
+hashes (source manifest SHA `5bf5d5d6…` on top of `64c4125`).
+
+Bounded development comparisons on the frozen v17 unit request (one actual call each,
+300 seconds, 4 CPU / 16 GiB, container swap/OOM zero, no GPU/network, truth never sent):
+
+| Comparison | Only change | Unit scope |
+|---|---|---|
+| label-origin unit | record label marked as structure interpretation, header group as observed text | whole record (fail) |
+| label-origin whole (positive control) | same marking, caption rewritten to concern the whole record | whole record (correct) |
+| column-review unit | one row-coverage answer per mapped column | all three columns (fail) |
+| column-review condition | same format | all three columns (fail; the selection wire had chosen Length only) |
+| column-review whole (positive control) | same format | all three columns (correct) |
+| budget 1024 | reasoning 512 → 1,024, output 1,536 → 2,048, greedy kept | `@headerGroup4` = Length/Width (correct), 1,159 completion tokens |
+| official sampling | temperature 0.7 / top_p 0.8 / top_k 20 / seed 1 at reasoning 512 | Length/Width columns (correct); not adopted, single stochastic sample |
+
+Every failing answer explained the subject as Length/Width while selecting everything;
+the 512 budget left 628–735 completion tokens, consistent with truncated reasoning. The
+fresh whole-path native HTML run under v3 (no given responses, no restore, eight-call /
+900-second budget) then returned **complete** with five calls, **557.20 product
+seconds**, 12,932 prompt / 3,747 completion tokens: both rows with exact identifiers and
+decimals, six present value sources, merged-header provenance, unit scope exactly
+Length/Width on all data rows (via the offered header group), condition scope exactly
+Length, no ordinary definitions as meanings, and a fresh client resumed the complete
+checkpoint without calls or re-observation. Cgroup peak 8,100,745,216 bytes; host
+minimum available 15.9 GiB; no container swap/OOM and no host OOM change. This is a
+**development quality pass on one HTML case**, not independent holdout, full-recognition
+16 GiB or release qualification.
+
+Evidence: `arm-scope-label-origin-{unit,whole}-01`, `arm-scope-column-review-{unit,
+condition,whole}-01`, `arm-scope-budget-1024-01`, `arm-scope-sampling-official-01`
+and `arm-scope-budget-html-product-01` (review SHA `7e2a0a86…`) beneath the private
+DGX qualification directory. The section below is the previous v2 state.
+
+### Previous content and scope separation (scope-axis v2)
 
 Scope-axis protocol v2 activates selection wire v1: one selection list retains record
 and standalone choices, with the same column handle in candidates and output. The
@@ -161,8 +203,9 @@ original batch/context fingerprint and execution policy. Resume reconstructs and
 compares that evidence before accepting a saved choice or making another call.
 Incompatible older checkpoints are rejected. Public API v1 remains unchanged.
 
-Only managed scope requests use reasoning budget 512, within a total output ceiling
-of 1,536 tokens or a smaller client ceiling. Context checks and inference use the
+Only managed scope requests use reasoning budget 1,024, within a total output ceiling
+of 2,048 tokens or a smaller client ceiling (scope-axis protocol v3; v2 used 512 within
+1,536 and its checkpoints are rejected on resume). Context checks and inference use the
 same override; other phases inherit the profile default. Generic/cloud reasoning
 and complete-only output limits remain client-owned and are recorded distinctly.
 No installed manifest or client profile is mutated. All phases share the cumulative
