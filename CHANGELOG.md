@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Image-read contract v2 binds each reading's state to its literal string on the wire:
+  the string precedes the state, `text` requires at least one character, `empty` requires
+  the empty string, and `uncertain` may keep a fragment. v1 let the model return `text`
+  with an empty string and rejected it only after generation, which halted the first GPU
+  whole-path mixed PDF development run on a blank Note cell. Validation, budgets,
+  candidate exposure and the public v1 result are unchanged; v1 read checkpoints are
+  incompatible on resume.
+
 - CUDA runtime packs. A `llama-cpp-runtime` manifest may declare `accelerator: cuda`
   with explicit `cudaArchitectures` (Linux only); the managed server then offloads
   every layer, the projector and the KV cache to `CUDA0` instead of forcing CPU

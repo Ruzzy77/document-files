@@ -615,12 +615,15 @@ final extraction-complete predicate and public v1 result/CLI/MCP contracts are u
 
 
 When review cannot inventory missing slots, or the model leaves page content unresolved,
-`document-files.pdf-image-read.v1` can make one additional literal-reading attempt using
+`document-files.pdf-image-read.v2` can make one additional literal-reading attempt using
 the same prepared images. It lists measured rectangular cells, including grids not
 linked to a recognized table, and existing non-table recognition regions. The model
 receives pixel bounds, not original OCR strings or reference answers. It returns exactly
-one `text`, `empty`, or `uncertain` entry per candidate; text is not normalized. An empty
-cell candidate additionally requires full detail coverage. Entry count, aggregate text,
+one entry per candidate, writing the literal text before its state: `text` requires at
+least one character, `empty` requires the empty string, and `uncertain` may keep a
+fragment. The output contract itself excludes a `text` state with nothing read; v1 only
+rejected that combination after generation. Text is not normalized. An empty cell
+candidate additionally requires full detail coverage. Entry count, aggregate text,
 context, output, model-call and time limits remain finite.
 
 The existing raw observations and active tables are not replaced. Partial results expose

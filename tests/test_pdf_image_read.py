@@ -84,6 +84,52 @@ def test_unlinked_grid_and_text_regions_do_not_supply_reference_answers_or_repla
     assert doc == before
 
 
+def test_read_contract_binds_the_state_to_the_literal_string():
+    from jsonschema import Draft202012Validator
+
+    from document_files.interpretation.backends import _local_grammar_schema, _strict_wire_schema
+
+    assert reading.VERSION == "document-files.pdf-image-read.v2"
+    doc, capture = fixture()
+    plan = make_plan(doc, capture)
+    contract = reading.read_schema(plan)
+    branches = contract["properties"]["entries"]["items"]["anyOf"]
+    ids = [e["id"] for e in plan["entries"]]
+    assert [b["properties"]["state"]["const"] for b in branches] == ["text", "empty", "uncertain"]
+    assert all(list(b["properties"]) == ["id", "text", "state"] for b in branches)
+    assert all(b["properties"]["id"]["enum"] == ids for b in branches)
+    assert all(b["additionalProperties"] is False for b in branches)
+    text, empty, uncertain = (b["properties"]["text"] for b in branches)
+    assert text == {"type": "string", "maxLength": reading.MAX_TEXT_CHARS, "minLength": 1}
+    assert empty == {"type": "string", "const": ""}
+    assert uncertain == {"type": "string", "maxLength": reading.MAX_TEXT_CHARS}
+
+    def reply(**first):
+        value = answer(plan)
+        value["entries"][0] = {"id": ids[0], **first}
+        return value
+
+    wire = _strict_wire_schema(_local_grammar_schema(contract))
+    assert wire["properties"]["entries"]["items"]["anyOf"][1]["properties"]["text"] == {
+        "type": "string",
+        "enum": [""],
+    }
+    for schema in (contract, wire):
+        valid = Draft202012Validator(schema).is_valid
+        assert valid(reply(text="A-01", state="text"))
+        assert valid(reply(text="", state="empty"))
+        assert valid(reply(text="", state="uncertain"))
+        assert valid(reply(text="0.0?", state="uncertain"))
+        # The combination that halted the first GPU whole-path run cannot be generated.
+        assert not valid(reply(text="", state="text"))
+        assert not valid(reply(text="0", state="empty"))
+        assert not valid(reply(text="A", state="inferred"))
+        assert not valid(reply(text="A" * (reading.MAX_TEXT_CHARS + 1), state="text"))
+    # Whitespace-only text still fails product validation, not only the grammar.
+    with pytest.raises(PdfVisualReviewError):
+        reading.validate_read(plan, reply(text=" ", state="text"), detail_bounds=[0, 0, 90, 90])
+
+
 @pytest.mark.parametrize(
     "state,text,status", [("uncertain", "0.0?", "unresolved"), ("empty", "", "read")]
 )
