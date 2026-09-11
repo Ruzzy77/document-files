@@ -553,7 +553,7 @@ def test_cells_and_lines_are_read_in_two_bounded_requests_with_lossless_strips()
         reading.merge_read_parts(plan, [parts[0], parts[0], parts[1]])
 
 
-def test_line_strips_hold_only_adjacent_lines_and_bound_their_height():
+def test_line_strips_are_one_line_each_and_line_requests_are_chunked():
     doc, capture = fixture()
     plan = make_plan(doc, capture)
     cells = [e for e in plan["entries"] if e["kind"] == "cell"]
@@ -562,8 +562,7 @@ def test_line_strips_hold_only_adjacent_lines_and_bound_their_height():
         return {"id": f"t{i}", "kind": "text_region", "bounds": [left, top, 900, top + height]}
 
     tall = {**plan, "pixelSize": [2000, 4000]}
-    # A title with a marker beside it, a statement below, a table's worth of space,
-    # then two condition lines: the gap keeps the table out of any strip.
+    # A title with a marker beside it, a statement below, then two condition lines.
     tall["entries"] = cells + [
         line(0, 127, 71),
         line(1, 144, 35, left=904),
@@ -572,16 +571,15 @@ def test_line_strips_hold_only_adjacent_lines_and_bound_their_height():
         line(4, 1033, 35),
     ]
     strips = reading.line_strips(tall)
-    assert [s["entryIds"] for s in strips] == [["t0", "t1", "t2"], ["t3", "t4"]]
-    assert strips[0]["pageBounds"] == [0, 103, 924, 315]
-    assert strips[1]["pageBounds"] == [0, 948, 924, 1092]
-    # Dense lines are capped by count and by height.
-    dense = {**tall, "entries": cells + [line(i, 100 + i * 40, 30) for i in range(8)]}
-    assert [len(s["entryIds"]) for s in reading.line_strips(dense)] == [6, 2]
-    stacked = {**tall, "entries": cells + [line(i, 100 + i * 200, 180) for i in range(6)]}
-    assert [len(s["entryIds"]) for s in reading.line_strips(stacked)] == [4, 2]
-    assert all(
-        s["pageBounds"][3] - s["pageBounds"][1]
-        <= reading.STRIP_MAX_HEIGHT + 2 * reading.STRIP_MARGIN
-        for s in reading.line_strips(stacked)
-    )
+    assert [s["entryIds"] for s in strips] == [["t0"], ["t1"], ["t2"], ["t3"], ["t4"]]
+    assert strips[0]["pageBounds"] == [0, 103, 924, 222]
+    assert strips[1]["pageBounds"] == [880, 120, 924, 203]
+    many = {**tall, "entries": cells + [line(i, 100 + i * 40) for i in range(30)]}
+    requests = reading.read_requests(many, detail_bounds=[0, 0, 90, 90])
+    assert [r["kind"] for r in requests] == ["cells", "lines", "lines", "lines"]
+    assert [len(r["entryIds"]) for r in requests[1:]] == [12, 12, 6]
+    third = requests[3]
+    assert [e["image"] for e in third["payload"]["entries"]] == [1, 2, 3, 4, 5, 6]
+    assert [s["id"] for s in third["strips"]] == [f"s{i}" for i in range(24, 30)]
+    assert third["payload"]["images"][0]["image"] == 1
+    assert third["contract"]["properties"]["entries"]["minItems"] == 6

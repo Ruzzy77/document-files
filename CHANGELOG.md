@@ -2,19 +2,18 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
-- Image read v5 reads a page's measured grid cells and its text lines in two bounded
-  requests: cells over the prepared page and lossless detail, lines over lossless page
-  strips of a few adjacent lines each (review images v2 adds the `line_strip`
-  purpose and several crops per preparation), each line entry naming its strip and
-  its rectangle inside it; a gap larger than one and a half times the taller line
-  starts a new strip, so a strip never spans a table between lines (the third
-  continued-table run's first strip had covered the table and the model filled the
-  line entries with table rows). Both parts must fit the remaining model-call budget before
-  either is spent, the merged answer is validated as one reading, and the checkpoint
-  records the parts and strip identities. Bounded probes had read every cell (12/12)
-  and every line on strips (4/4), while the single request over the scaled page put
-  the second continued-table run's header and first data row into the line entries
-  and answered every cell empty. Prior read checkpoints are incompatible.
+- Image read v5 reads a page's measured grid cells and its text lines in separate
+  bounded requests: cells over the prepared page and lossless detail, lines over
+  lossless page strips of exactly one line each (review images v2 adds the
+  `line_strip` purpose and several crops per preparation) in requests of up to twelve
+  strips in entry order, each entry naming its strip and its rectangle inside it.
+  Every part must fit the remaining model-call budget before any is spent, the merged
+  answer is validated as one reading, and the checkpoint records the parts and strip
+  identities. Bounded probes had read every cell (12/12) and every line on strips
+  (4/4); the single request over the scaled page put the second continued-table run's
+  header and first data row into the line entries and answered every cell empty, and
+  strips of several lines were filled in reading order regardless of the entry
+  rectangles (third and fourth runs). Prior read checkpoints are incompatible.
 - PDF page review v12 no longer fails a page when the model labels a pixel unit that
   references no observed string as `source_text` or `text_and_border`: the label
   accepts nothing, the receiver records it under `reinterpretations` as `unknown` and

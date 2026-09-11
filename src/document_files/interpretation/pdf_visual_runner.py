@@ -380,18 +380,19 @@ def review_pdf_pages(
             if reason:
                 pending(reason)
                 return
-            lines = next((r for r in requests if r["kind"] == "lines"), None)
+            all_strips = line_strips(plan)
             strips = (
                 prepare_pdf_line_strips(
                     content,
                     pages[page]["capture"],
-                    lines["strips"],
+                    all_strips,
                     deadline=deadline,
                     cancelled=cancelled,
                 )
-                if lines is not None
+                if all_strips
                 else None
             )
+            strip_index = {s["id"]: i for i, s in enumerate(all_strips)}
             attempt = {
                 "status": "running",
                 "plan": plan,
@@ -407,17 +408,18 @@ def review_pdf_pages(
                 usage["modelCalls"] += 1
                 usage["unreportedUsageCalls"] += 1
                 checkpoint(state)
-                shown = strips if request["kind"] == "lines" else images
+                shown = (
+                    strips.content_parts([strip_index[s["id"]] for s in request["strips"]])
+                    if request["kind"] == "lines"
+                    else images.content_parts()
+                )
                 response = client.infer(
                     InferenceRequest(
                         messages=[
                             {"role": "system", "content": READ_SYSTEM},
                             {
                                 "role": "user",
-                                "content": [
-                                    {"type": "text", "text": payload},
-                                    *shown.content_parts(),
-                                ],
+                                "content": [{"type": "text", "text": payload}, *shown],
                             },
                         ],
                         output_schema=request["contract"],

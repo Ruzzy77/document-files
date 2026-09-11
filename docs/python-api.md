@@ -631,12 +631,12 @@ final extraction-complete predicate and public v1 result/CLI/MCP contracts are u
 
 When review cannot inventory missing slots, or the model leaves page content unresolved,
 `document-files.pdf-image-read.v5` can make one additional literal-reading attempt. The
-attempt is two bounded requests within the same budget: measured grid cells are read
-over the prepared page and lossless detail, and text lines are read over lossless page
-strips of a few consecutive lines each (`document-files.pdf-review-images.v2`, purpose
-`line_strip`), each entry naming its strip and its rectangle inside it; both parts must
-fit the remaining model-call budget before either is spent, and the merged answer is
-validated as one reading. It lists measured rectangular cells, including grids not
+attempt is several bounded requests within the same budget: measured grid cells are
+read over the prepared page and lossless detail, and text lines are read over lossless
+page strips of exactly one line each (`document-files.pdf-review-images.v2`, purpose
+`line_strip`) in requests of up to twelve strips in entry order, each entry naming its
+strip and its rectangle inside it; every part must fit the remaining model-call budget
+before any is spent, and the merged answer is validated as one reading. It lists measured rectangular cells, including grids not
 linked to a recognized table, and existing non-table recognition text grouped into
 visual lines: fragments that share at least half of the shorter box height vertically
 and lie within one such height of each other horizontally form one entry whose plan

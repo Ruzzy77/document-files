@@ -25,18 +25,15 @@ MAX_OUTPUT_TOKENS = 2048
 # more than this multiple of that height horizontally.
 LINE_OVERLAP_RATIO = 0.5
 LINE_GAP_RATIO = 1.0
-# Text lines are read from lossless page strips of a few consecutive lines each; grid
-# cells are read from the page and its lossless detail. Bounded probes read every
-# cell (12/12) and every line on strips (4/4), while one request over the scaled page
-# assigned table rows to line entries on a new page (second continued-table run).
+# Text lines are read from lossless page strips, one strip per line, in requests of a
+# bounded number of lines; grid cells are read from the page and its lossless detail.
+# Bounded probes read every cell (12/12) and every line on strips (4/4), while one
+# request over the scaled page assigned table rows to line entries on a new page. With
+# several lines per strip the pinned model filled the entries in reading order and
+# ignored their rectangles (third and fourth continued-table runs), so a strip holds
+# exactly one entry and the entry order is the image order.
 STRIP_MARGIN = 24
-STRIP_MAX_LINES = 6
-STRIP_MAX_HEIGHT = 900
-# Consecutive lines share a strip only when the gap between them is small relative to
-# the taller line, so a strip never spans a table or other content between lines: the
-# third continued-table run's first strip covered the table between the unit statement
-# and the condition lines, and the model filled the line entries with table rows.
-STRIP_GAP_RATIO = 1.5
+LINES_PER_REQUEST = 12
 # The wording below is the v2 wording. A v3 sentence describing text entries as lines
 # "outside the grids" made the pinned model read grid cells as empty and table rows as
 # text lines on the same inputs (bounded probes, 2026-09-11); the v2 wording with the
@@ -55,8 +52,8 @@ content, optionally retaining a readable fragment in text. A cell without readab
 characters is empty or uncertain, never text. Do not infer missing characters. Return no
 schema, header roles, meaning, final values or document-complete flag. The original OCR
 remains separate; your response is an additional reading candidate requiring subsequent
-review. An entry that names an image is located by imageBounds inside that lossless
-strip of the page."""
+review. Images after the page images are lossless strips of the page in entry order:
+entry k that names image k is the single line inside that strip at imageBounds."""
 
 
 def _union(boxes):
@@ -283,52 +280,31 @@ def read_payload(plan):
 
 
 def line_strips(plan):
-    """Lossless page strips holding the text-line entries, a few consecutive lines each."""
+    """One lossless page strip per text-line entry, in reading order, with a margin."""
     width, height = plan["pixelSize"]
     lines = sorted(
         (e for e in plan["entries"] if e["kind"] == "text_region"),
         key=lambda e: (e["bounds"][1], e["bounds"][0], e["id"]),
     )
-    strips, group = [], []
-
-    def flush(group):
-        box = _union(e["bounds"] for e in group)
-        strips.append(
-            {
-                "id": f"s{len(strips)}",
-                "pageBounds": [
-                    max(0, box[0] - STRIP_MARGIN),
-                    max(0, box[1] - STRIP_MARGIN),
-                    min(width, box[2] + STRIP_MARGIN),
-                    min(height, box[3] + STRIP_MARGIN),
-                ],
-                "entryIds": [e["id"] for e in group],
-            }
-        )
-
-    for entry in lines:
-        if group:
-            box = _union(e["bounds"] for e in [*group, entry])
-            previous = group[-1]["bounds"]
-            gap = entry["bounds"][1] - max(e["bounds"][3] for e in group)
-            tallest = max(previous[3] - previous[1], entry["bounds"][3] - entry["bounds"][1])
-            if (
-                len(group) >= STRIP_MAX_LINES
-                or box[3] - box[1] > STRIP_MAX_HEIGHT
-                or gap > STRIP_GAP_RATIO * tallest
-            ):
-                flush(group)
-                group = []
-        group.append(entry)
-    if group:
-        flush(group)
-    return strips
+    return [
+        {
+            "id": f"s{index}",
+            "pageBounds": [
+                max(0, e["bounds"][0] - STRIP_MARGIN),
+                max(0, e["bounds"][1] - STRIP_MARGIN),
+                min(width, e["bounds"][2] + STRIP_MARGIN),
+                min(height, e["bounds"][3] + STRIP_MARGIN),
+            ],
+            "entryIds": [e["id"]],
+        }
+        for index, e in enumerate(lines)
+    ]
 
 
 def read_requests(plan, *, detail_bounds):
     """Bounded requests: grid cells over page and detail, text lines over lossless strips."""
     cells = [e for e in plan["entries"] if e["kind"] == "cell"]
-    lines = [e for e in plan["entries"] if e["kind"] == "text_region"]
+    by_id = {e["id"]: e for e in plan["entries"]}
     requests = []
     if cells:
         part = {**plan, "entries": cells}
@@ -340,28 +316,30 @@ def read_requests(plan, *, detail_bounds):
                 "contract": read_schema(part, detail_bounds=detail_bounds),
             }
         )
-    if lines:
-        strips = line_strips(plan)
-        placed = {eid: (k, s) for k, s in enumerate(strips) for eid in s["entryIds"]}
-        entries = []
-        for e in lines:
-            k, strip = placed[e["id"]]
-            b, o = e["bounds"], strip["pageBounds"]
-            entries.append(
-                {
-                    "id": e["id"],
-                    "kind": e["kind"],
-                    "bounds": b,
-                    "image": k + 1,
-                    "imageBounds": [b[0] - o[0], b[1] - o[1], b[2] - o[0], b[3] - o[1]],
-                }
-            )
+    strips = line_strips(plan)
+    for start in range(0, len(strips), LINES_PER_REQUEST):
+        chunk = strips[start : start + LINES_PER_REQUEST]
+        entries, lines = [], []
+        for k, strip in enumerate(chunk):
+            for eid in strip["entryIds"]:
+                e = by_id[eid]
+                b, o = e["bounds"], strip["pageBounds"]
+                lines.append(e)
+                entries.append(
+                    {
+                        "id": e["id"],
+                        "kind": e["kind"],
+                        "bounds": b,
+                        "image": k + 1,
+                        "imageBounds": [b[0] - o[0], b[1] - o[1], b[2] - o[0], b[3] - o[1]],
+                    }
+                )
         part = {**plan, "entries": lines}
         requests.append(
             {
                 "kind": "lines",
                 "entryIds": [e["id"] for e in lines],
-                "strips": strips,
+                "strips": chunk,
                 "payload": {
                     "page": plan["page"],
                     "pixelSize": plan["pixelSize"],
@@ -377,7 +355,7 @@ def read_requests(plan, *, detail_bounds):
                             ],
                             "lossless": True,
                         }
-                        for k, s in enumerate(strips)
+                        for k, s in enumerate(chunk)
                     ],
                 },
                 "contract": read_schema(part, detail_bounds=None),

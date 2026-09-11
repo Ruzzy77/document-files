@@ -58,7 +58,8 @@ class PdfReviewImages:
     def descriptor(self) -> dict:
         return deepcopy(self._descriptor)
 
-    def content_parts(self) -> list[dict]:
+    def content_parts(self, indices: list[int] | None = None) -> list[dict]:
+        selected = self.png_images if indices is None else [self.png_images[i] for i in indices]
         return [
             {
                 "type": "image_url",
@@ -66,7 +67,7 @@ class PdfReviewImages:
                     "url": "data:image/png;base64," + base64.b64encode(data).decode("ascii")
                 },
             }
-            for data in self.png_images
+            for data in selected
         ]
 
 
