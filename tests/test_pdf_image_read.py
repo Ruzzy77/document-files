@@ -89,7 +89,7 @@ def test_read_contract_binds_the_state_to_the_literal_string():
 
     from document_files.interpretation.backends import _local_grammar_schema, _strict_wire_schema
 
-    assert reading.VERSION == "document-files.pdf-image-read.v3"
+    assert reading.VERSION == "document-files.pdf-image-read.v4"
     doc, capture = fixture()
     plan = make_plan(doc, capture)
     contract = reading.read_schema(plan, detail_bounds=[0, 0, 90, 90])

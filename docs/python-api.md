@@ -615,7 +615,7 @@ final extraction-complete predicate and public v1 result/CLI/MCP contracts are u
 
 
 When review cannot inventory missing slots, or the model leaves page content unresolved,
-`document-files.pdf-image-read.v3` can make one additional literal-reading attempt using
+`document-files.pdf-image-read.v4` can make one additional literal-reading attempt using
 the same prepared images. It lists measured rectangular cells, including grids not
 linked to a recognized table, and existing non-table recognition text grouped into
 visual lines: fragments that share at least half of the shorter box height vertically
