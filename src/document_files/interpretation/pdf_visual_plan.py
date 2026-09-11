@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v11"
+VERSION = "document-files.pdf-visual-review.v12"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -570,7 +570,9 @@ or string; do not require the entire string to appear in every fragment. Choose 
 only when ALL its parts belong to the referenced text without extra marks. text_and_border
 allows a mixture with the displayed rule or its edge only when rule context is offered.
 Choose table_border only when the unit contains solely the observed table borders, including
-their faint edges, and onlyBoundaryPixels is true. An isolated dot, extra or unclear text,
+their faint edges, and onlyBoundaryPixels is true. A unit without sourceIds references no
+text: it is table_border only under that rule, otherwise unknown, never source_text.
+An isolated dot, extra or unclear text,
 or a mixed shape that is not fully accounted for must remain unknown. Do not correct or
 invent strings. Mark a missing slot empty only when its full interior and all borders appear
 in the detail image, its units contain only table borders, and no text/symbol/unclear mark
@@ -747,6 +749,7 @@ def validate_decision(plan, decision, *, detail_bounds, display=None):
     units = entries("units", [u["id"] for u in plan["units"]])
     slots = entries("slots", [s["id"] for s in plan["slots"]])
     matched = set()
+    reinterpreted = []
     unresolved = decision["unrepresentedContent"]
     if "imageReadProposal" in plan:
         proposal = plan["imageReadProposal"]
@@ -779,8 +782,15 @@ def validate_decision(plan, decision, *, detail_bounds, display=None):
             choice in {"source_text", "text_and_border", "table_border", "rule_edge", "unknown"},
             "visual_decision_invalid",
         )
-        if choice in {"source_text", "text_and_border"}:
-            require(bool(unit["sourceIds"]), "visual_text_without_source")
+        if choice in {"source_text", "text_and_border"} and not unit["sourceIds"]:
+            # Text that references no observed string is content nobody accounts
+            # for: the page stays unresolved for the literal-reading attempt instead
+            # of failing on a contradictory label. Nothing is accepted or matched.
+            reinterpreted.append(
+                {"unitId": unit["id"], "from": choice, "to": "unknown", "reason": "no_source"}
+            )
+            unresolved = True
+        elif choice in {"source_text", "text_and_border"}:
             if choice == "text_and_border":
                 require(
                     bool(unit["tableRefs"] or unit.get("ruleEdgeTableRefs")),
@@ -839,4 +849,5 @@ def validate_decision(plan, decision, *, detail_bounds, display=None):
         "detailBounds": deepcopy(detail_bounds),
         "ocrTruthVerified": False,
         **({"unitDisplayFingerprint": display_fingerprint} if display_fingerprint else {}),
+        **({"reinterpretations": reinterpreted} if reinterpreted else {}),
     }

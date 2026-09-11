@@ -104,10 +104,14 @@ def test_actual_foreground_outside_sources_is_not_silently_dropped():
     unmatched = [u for u in value["units"] if not u["sourceIds"]]
     assert len(unmatched) == 1 and unmatched[0]["pixelCount"] == 1
     decision = answer(value)
-    with pytest.raises(plan.PdfVisualReviewError, match="without_source"):
-        plan.validate_decision(value, decision, detail_bounds=None)
+    # A text label without a referenced string accepts nothing: the extra mark is
+    # recorded as reinterpreted unknown and the page stays unresolved.
+    labeled = plan.validate_decision(value, decision, detail_bounds=None)
+    assert labeled["status"] == "unresolved"
+    assert [r["unitId"] for r in labeled["reinterpretations"]] == [unmatched[0]["id"]]
     decision["units"][-1]["decision"] = "unknown"
-    assert plan.validate_decision(value, decision, detail_bounds=None)["status"] == "unresolved"
+    unknown = plan.validate_decision(value, decision, detail_bounds=None)
+    assert unknown["status"] == "unresolved" and "reinterpretations" not in unknown
 
 
 def test_connected_bounding_rectangle_is_not_all_owned_pixels():

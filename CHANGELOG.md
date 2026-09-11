@@ -2,6 +2,13 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- PDF page review v12 no longer fails a page when the model labels a pixel unit that
+  references no observed string as `source_text` or `text_and_border`: the label
+  accepts nothing, the receiver records it under `reinterpretations` as `unknown` and
+  the page stays unresolved for the literal-reading attempt; the prompt says such a unit
+  is never source text. The first continued-table development run (page 2 raster with
+  two new rows) had halted there with `visual_text_without_source`. Prior review
+  checkpoints are incompatible.
 - Semantic prompt v27 (v25 and v26 were intermediate development identities) lets
   the cross-region relation decision name a `duplicate`: the right table shows the
   same rows again (a copy, a second print, an image of the same page) and adds no

@@ -599,7 +599,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v11` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v12` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -613,7 +613,9 @@ Previous plans/checkpoints are incompatible and are not automatically migrated.
 
 The model classifies source-linked pixel units and missing slots and orders observed
 blocks. The receiver rejects unsupported structural pixels, incomplete detail coverage,
-unknown units and geometry-conflicting order. All pages must pass before atomic
+unknown units and geometry-conflicting order. A text label on a unit that references no
+observed string accepts nothing: the receiver records it under `reinterpretations` as
+`unknown` and leaves the page unresolved for the literal-reading attempt. All pages must pass before atomic
 application; original nodes, bindings and raw OCR remain unchanged. Added blank nodes
 use `observationBasis="visual_pdf_page_review"`, never native-proof metadata.
 `provenance.observation.pdfVisualReviewApplication` records the accepted page/decision

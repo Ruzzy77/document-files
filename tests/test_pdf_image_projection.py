@@ -454,6 +454,9 @@ def test_runner_rejects_unmeasured_proposal_before_spending_review_call(monkeypa
 
 
 def test_measured_rule_pixels_cannot_be_classified_as_cell_text():
+    # The first continued-table GPU run labeled the table's content unit, which
+    # referenced no observed string, as source_text; the page failed instead of
+    # continuing to the literal-reading attempt. Such a label accepts nothing.
     doc, capture, reading, _, pixels = example()
     plan = build_page_plan(proposal(doc, reading), capture, pixels, deadline=time.monotonic() + 30)
     boundaries = [u for u in plan["units"] if u["onlyBoundaryPixels"]]
@@ -461,8 +464,20 @@ def test_measured_rule_pixels_cannot_be_classified_as_cell_text():
     decision = approved(plan)
     selected = next(v for v in decision["units"] if v["id"] == boundaries[0]["id"])
     selected["decision"] = "source_text"
-    with pytest.raises(PdfVisualReviewError, match="visual_text_without_source"):
-        validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90])
+    validation = validate_decision(plan, decision, detail_bounds=[0, 0, 90, 90])
+    assert validation["status"] == "unresolved"
+    assert validation["reinterpretations"] == [
+        {
+            "unitId": boundaries[0]["id"],
+            "from": "source_text",
+            "to": "unknown",
+            "reason": "no_source",
+        }
+    ]
+    assert validation["decision"] == decision
+    assert "reinterpretations" not in validate_decision(
+        plan, approved(plan), detail_bounds=[0, 0, 90, 90]
+    )
 
 
 def test_core_geometry_does_not_turn_a_faint_mark_in_an_empty_candidate_into_blank():
