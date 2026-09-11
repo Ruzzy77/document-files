@@ -2,6 +2,16 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Applicability tasks no longer offer a unit or condition statement's own scalar
+  fields as candidates, and a repeat row whose every cell is cited as a column
+  definition is compiled as a header row with a recorded
+  `column_definition_row_relabeled_header` issue instead of a repair request. In the
+  seventh GPU whole-path run the scope protocol ran for the first time on the mixed
+  PDF but "applied" each unit and condition to the fields carrying its own wording
+  because they were offered, and the raster table's structure answer kept the header
+  row as data even after the repair feedback named it. Definition meanings keep their
+  own fields as candidates; table columns, containers and other fields are unchanged.
+
 - Recognition subsets are serialized deterministically. PDFium writes a per-process
   file identifier and the clock time into each single-page subset, so the same page
   received a new recognition identity on every run and every model payload that named

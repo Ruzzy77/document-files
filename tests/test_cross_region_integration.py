@@ -381,6 +381,40 @@ def test_same_region_candidates_are_offered_without_automatic_assignment():
     assert not result[0].semantic_details[1]["scope"]
 
 
+def test_statement_fields_are_not_offered_as_their_own_scope():
+    # The seventh GPU whole-path run offered the unit line's own label/value fields as
+    # candidates and the model "applied" the unit to its own wording every time.
+    obs, regions, compiled = fixture()
+    local = compiled[0]
+    local.semantics.extend(compiled[1].semantics)
+    local.value_evidence.extend(compiled[1].value_evidence)
+    local.schema_evidence.extend(compiled[1].schema_evidence)
+    own = {"space": "data", "path": "/note_text"}
+    schema = {"space": "dataSchema", "path": "/properties/note_text"}
+    local.semantics.append(
+        {
+            "id": "r1note",
+            "kind": "field_definition",
+            "description": "Cost is USD. Length is mm.",
+            "sourceRefs": ["note"],
+            "scope": [own],
+            "targets": [schema],
+            "status": "interpreted",
+            "basis": "ai_interpreted",
+        }
+    )
+    local.value_evidence.append(
+        {"target": own, "semanticIds": ["r1note"], "sourceRefs": ["note"], "raw": "original-value"}
+    )
+    local.schema_evidence.append(
+        {"target": schema, "semanticIds": ["r1note"], "sourceRefs": ["note"], "raw": "x"}
+    )
+    regions[0]["nodeIds"].extend(regions[1]["nodeIds"])
+    tasks = build_scope_tasks(obs, regions[:1], [local])
+    assert len(tasks) == 2
+    assert {c["label"] for t in tasks for c in t.payload["candidates"]} == {"Cost", "Length"}
+
+
 def test_scope_batch_is_bounded_and_valid_siblings_survive_bad_decisions():
     from dataclasses import replace
 

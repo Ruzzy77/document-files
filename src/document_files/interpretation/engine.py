@@ -1201,7 +1201,13 @@ def extract_schema_from_stream(
             i
             for i in fragment.issues
             if i.get("code")
-            not in {"semantic_scope_unresolved", "semantic_interpretation_uncertain"}
+            not in {
+                "semantic_scope_unresolved",
+                "semantic_interpretation_uncertain",
+                # Recorded program correction of a row role; repeating the request
+                # did not change the model's answer and the compiled view is usable.
+                "column_definition_row_relabeled_header",
+            }
         ]
 
     def interpret_table(region, payload):

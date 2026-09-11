@@ -574,8 +574,9 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             if set(role.sourceRefs) != actual_refs:
                 raise CompileError("repeat_row_role_sources_disagree_with_geometry")
         # A row whose every observed cell is cited as a column definition is a header
-        # row; reading it as data would parse the labels as values and fail later with
-        # an unspecific type error. Name the row for repair instead.
+        # row: definitions are never values. A response that still labels such a row
+        # as content is compiled with the row as header and the disagreement recorded;
+        # naming the row in repair feedback alone did not converge on the pinned model.
         cited = {ref for col in repeat.columns for ref in col.definitionRefs}
         for row, row_cells in observed.items():
             role = roles.get(row)
@@ -583,7 +584,15 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 continue
             row_refs = {cell["sourceRef"] for cell in row_cells}
             if row_refs and row_refs <= cited:
-                raise CompileError(f"column_definition_row_marked_{role.role}:{row}")
+                roles[row] = role.model_copy(update={"role": "header"})
+                out.issues.append(
+                    {
+                        "code": "column_definition_row_relabeled_header",
+                        "tableRef": repeat.tableRef,
+                        "row": row,
+                        "declaredRole": role.role,
+                    }
+                )
         # Header geometry is program knowledge: every column's definition carries the
         # declared header cells above it, and a cited header that does not sit above
         # the column, or a missing lowest header, is reported for repair.

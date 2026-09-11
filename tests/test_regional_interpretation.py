@@ -452,15 +452,29 @@ def _table():
     return doc, region, ir
 
 
-def test_header_row_marked_data_is_named_for_repair_before_values_are_read():
-    # The sixth GPU whole-path run marked the raster table's header row as data twice
-    # and only learned binding_cannot_represent_requested_type from the compiler.
+def test_header_row_marked_data_is_compiled_as_header_and_recorded():
+    # The sixth and seventh GPU whole-path runs marked the raster table's header row
+    # as data on every attempt, even when the repair feedback named the row.
     doc, region, ir = _table()
     region["requiredBindingIds"] = list(doc.bindings)
     ir.repeats[0].rowRoles[0].role = "data"
     ir.repeats[0].columns[1].valueType = "integer"
-    with pytest.raises(CompileError, match="^column_definition_row_marked_data:0$"):
-        compile_region(ir, doc, region)
+    compiled = compile_region(ir, doc, region)
+    assert {
+        "code": "column_definition_row_relabeled_header",
+        "tableRef": "t",
+        "row": 0,
+        "declaredRole": "data",
+    } in compiled.issues
+    result = combine_regions([compiled])
+    assert result["data"] == {
+        "rows": [
+            {"name": "A", "amount": 0},
+            {"name": "B", "amount": 0},
+            {"name": "C", "amount": ""},
+        ]
+    }
+    assert compiled.row_scopes["rows"]["rows"]["0"]["role"] == "header"
 
 
 def _statement():

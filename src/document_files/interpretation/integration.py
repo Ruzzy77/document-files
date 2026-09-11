@@ -490,6 +490,20 @@ def build_scope_tasks(
                         or any(t.get("space") != "data" for t in definition["scope"])
                     ):
                         continue
+                    if (
+                        same_region
+                        and detail.get("kind") in {"unit", "condition"}
+                        and definition["id"] not in column_paths
+                        and not any(
+                            definition["id"] == f"{target_region.id}:{repeat_id}"
+                            for repeat_id in target_region.row_scopes
+                        )
+                        and set(definition.get("sourceRefs", [])) <= refs
+                    ):
+                        # A scalar field that merely carries the statement's own text
+                        # is the statement, not a value it governs; offering it lets a
+                        # model "apply" a unit or condition to its own wording.
+                        continue
                     private = {
                         "regionId": target_region.id,
                         "dataOwnerRegionId": definition_owners.get(
