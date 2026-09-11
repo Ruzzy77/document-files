@@ -29,8 +29,10 @@ ROWS = (("Name", "Amount"), ("A", "1"), ("B", "2"), ("C", "3"))
 
 def _page(doc, prefix, page, rows, unit, *, key, extra_statement=False):
     statement = doc.node(f"{prefix}stmt", f"Unit: {unit}", role="text", locator={"page": page})
+    extra = []
     if extra_statement:
-        doc.node(f"{prefix}stmt2", f"Unit: {unit}", role="text", locator={"page": page})
+        # A second interpreted member with the same wording makes the text ambiguous.
+        extra = [doc.node(f"{prefix}stmt2", f"Unit: {unit}", role="text", locator={"page": page})]
     unit_binding = doc.bind(statement, start=6, end=6 + len(unit), candidateRole="content")
     cells = []
     for row, values in enumerate(rows):
@@ -59,7 +61,7 @@ def _page(doc, prefix, page, rows, unit, *, key, extra_statement=False):
     }
     text_region = {
         "id": f"{prefix}text",
-        "nodeIds": [statement],
+        "nodeIds": [statement, *extra],
         "bindingIds": [unit_binding],
         "contextNodeIds": [],
     }
@@ -94,7 +96,8 @@ def _page(doc, prefix, page, rows, unit, *, key, extra_statement=False):
                 }
             ],
             "dispositions": [
-                {"sourceRef": statement, "role": "data", "explanation": "Unit statement"}
+                {"sourceRef": ref, "role": "data", "explanation": "Unit statement"}
+                for ref in [statement, *extra]
             ],
         }
     )
@@ -157,10 +160,10 @@ def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False):
 
 
 def test_versions_and_contract_name_the_duplicate_decision():
-    assert PROMPT_VERSION == "document-files.semantic-prompts.v26"
+    assert PROMPT_VERSION == "document-files.semantic-prompts.v27"
     assert COMPILER_VERSION == "document-files.result-compiler.v20"
     assert SCOPE_VERSION == "document-files.scope-integration.v13"
-    assert "duplicate" in INTEGRATE and "rightRepeatsLeft=true" in INTEGRATE
+    assert "duplicate" in INTEGRATE and "continue is not offered there" in INTEGRATE
     assert "Cite sourceRefs from the sourceNodes keys only" in INTEGRATE
     schema = DocumentIntegration.model_json_schema()
     assert schema["$defs"]["ContinuationDecision"]["properties"]["decision"]["enum"] == [
@@ -195,8 +198,13 @@ def test_candidates_carry_row_identity_whole_edge_rows_and_text_counterparts():
             assert ref in refs
         assert f"{prefix}c2:0" not in refs and f"{prefix}c2:1" not in refs
     contract = integration_contract([candidate])
-    decision = contract["$defs"]["ContinuationDecision"]["properties"]
+    items = contract["properties"]["continuations"]
+    assert (items["minItems"], items["maxItems"]) == (1, 1) and "$defs" not in contract
+    (branch,) = items["items"]["anyOf"]
+    decision = branch["properties"]
+    assert branch["additionalProperties"] is False
     assert decision["candidateId"]["enum"] == ["continuation:1"]
+    assert decision["decision"]["enum"] == ["duplicate", "separate", "unresolved"]
     assert decision["sourceRefs"]["items"]["enum"] == refs
     assert list(decision) == ["candidateId", "decision", "sourceRefs", "explanation"]
     assert candidate["nodeCounterparts"] == {"p2stmt": "p1stmt"}
@@ -206,10 +214,22 @@ def test_candidates_carry_row_identity_whole_edge_rows_and_text_counterparts():
     doc, regions, _ = two_pages(rows2=(("Name", "Amount"), ("D", "4"), ("E", "5"), ("F", "6")))
     (candidate,) = continuation_candidates(doc, regions)
     assert candidate["rightRepeatsLeft"] is False
+    (branch,) = integration_contract([candidate])["properties"]["continuations"]["items"]["anyOf"]
+    assert branch["properties"]["decision"]["enum"] == ["continue", "separate", "unresolved"]
 
     doc, regions, _ = two_pages(extra_statement=True)
     (candidate,) = continuation_candidates(doc, regions)
     assert candidate["nodeCounterparts"] == {}
+
+    # Other channels' copies of the same line (native lines, recognizer source cells,
+    # superseded text) are not region members and do not make the wording ambiguous:
+    # the fourteenth GPU run had no counterparts because of them.
+    doc, regions, _ = two_pages()
+    doc.node("p1line", "Unit: pcs", role="line", locator={"page": 1})
+    doc.node("p1source", "Unit: pcs", role="recognition_source_cell", locator={"page": 1})
+    doc.node("p2superseded", "Unit: pcs", role="section_header", locator={"page": 2})
+    (candidate,) = continuation_candidates(doc, regions)
+    assert candidate["nodeCounterparts"] == {"p2stmt": "p1stmt"}
 
 
 def test_duplicate_binds_the_copy_to_the_same_rows_and_adds_only_provenance():

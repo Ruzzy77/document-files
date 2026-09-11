@@ -363,17 +363,36 @@ def integration_candidate(candidate):
 
 
 def integration_contract(candidates):
-    """The relation contract bound to this batch: only offered candidates and nodes."""
+    """The relation contract bound to this batch: one decision per offered candidate.
+
+    Each branch names its candidate, the nodes it may cite and the decisions its
+    evidence allows: rows that repeat every left cell at the same position add
+    nothing, so `continue` is not offered for them, and `duplicate` is offered
+    only for them. The compiler still verifies the compiled rows.
+    """
     contract = DocumentIntegration.model_json_schema()
-    properties = contract["$defs"]["ContinuationDecision"]["properties"]
-    properties["candidateId"] = {
-        "type": "string",
-        "enum": [c["id"] for c in candidates],
-    }
-    properties["sourceRefs"]["items"] = {
-        "type": "string",
-        "enum": list(dict.fromkeys(r for c in candidates for r in c["sourceRefs"])),
-    }
+    base = contract["$defs"].pop("ContinuationDecision")
+    if not contract["$defs"]:
+        del contract["$defs"]
+    branches = []
+    for candidate in candidates:
+        repeats = bool(candidate.get("rightRepeatsLeft"))
+        properties = copy.deepcopy(base["properties"])
+        properties["candidateId"] = {"type": "string", "enum": [candidate["id"]]}
+        properties["decision"] = {
+            "type": "string",
+            "enum": ["duplicate", "separate", "unresolved"]
+            if repeats
+            else ["continue", "separate", "unresolved"],
+        }
+        properties["sourceRefs"]["items"] = {
+            "type": "string",
+            "enum": list(dict.fromkeys(candidate["sourceRefs"])),
+        }
+        branches.append({**base, "properties": properties})
+    items = contract["properties"]["continuations"]
+    items["items"] = {"anyOf": branches}
+    items["minItems"] = items["maxItems"] = len(candidates)
     return contract
 
 

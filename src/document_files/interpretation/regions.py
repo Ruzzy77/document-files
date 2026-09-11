@@ -696,15 +696,19 @@ def _row_refs(table, rows, *, limit=8):
     return refs
 
 
-def _page_counterparts(observation, page_a, page_b):
-    """Right-page text nodes whose exact text appears once on each page, keyed to the left node.
+def _page_counterparts(observation, page_a, page_b, members):
+    """Right-page member nodes whose exact text appears once on each page, keyed to the left one.
 
-    Table cells follow the table relation instead. The map is program evidence for
-    the compiler after the model has related the two tables; it decides nothing.
+    Only interpreted region members count: the observation keeps every channel's
+    copy of a line (native lines, recognizer source cells, superseded text), and
+    those copies are not fields. Table cells follow the table relation instead. The
+    map is program evidence for the compiler after the model has related the two
+    tables; it decides nothing.
     """
     in_tables = {c["sourceRef"] for t in observation.tables.values() for c in t.get("cells", [])}
     by_page = {page_a: {}, page_b: {}}
-    for ref, node in observation.nodes.items():
+    for ref in members:
+        node = observation.nodes.get(ref, {})
         page = _node_page(node)
         if page not in by_page or ref in in_tables:
             continue
@@ -758,6 +762,9 @@ def continuation_candidates(observation, regions):
     """
     candidates = []
     table_regions = [r for r in regions if r.get("tableRef")]
+    members = list(
+        dict.fromkeys(ref for r in regions if not r.get("tableRef") for ref in r["nodeIds"])
+    )
     for left, right in zip(table_regions, table_regions[1:], strict=False):
         a, b = observation.tables[left["tableRef"]], observation.tables[right["tableRef"]]
         native_a, native_b = (
@@ -797,7 +804,7 @@ def continuation_candidates(observation, regions):
                         ]
                     )
                 ),
-                "nodeCounterparts": _page_counterparts(observation, page_a, page_b)
+                "nodeCounterparts": _page_counterparts(observation, page_a, page_b, members)
                 if page_adjacent
                 else {},
             }

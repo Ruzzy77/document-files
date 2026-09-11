@@ -2,16 +2,22 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
-- Semantic prompt v26 (v25 was an intermediate development identity) lets the
-  cross-region relation decision name a `duplicate`: the right table shows the same
-  rows again (a copy, a second print, an image of the same page) and adds no rows,
-  next to `continue`, `separate` and `unresolved`. Each adjacent-page candidate now
-  carries the observed row counts, whether every right cell repeats the left cell at
-  the same position (`rightRepeatsLeft`), and the same row positions of both tables
-  (first two rows and the last row, whole rows) as evidence instead of the last four
-  and first four cells; the prompt says what `rightRepeatsLeft` means and that cited
-  refs come from the offered nodes, and the relation contract of each batch binds
-  `candidateId` and `sourceRefs` to the offered candidates and nodes. The relation
+- Semantic prompt v27 (v25 and v26 were intermediate development identities) lets
+  the cross-region relation decision name a `duplicate`: the right table shows the
+  same rows again (a copy, a second print, an image of the same page) and adds no
+  rows, next to `continue`, `separate` and `unresolved`. Each adjacent-page candidate
+  now carries the observed row counts, whether every right cell repeats the left cell
+  at the same position (`rightRepeatsLeft`), and the same row positions of both
+  tables (first two rows and the last row, whole rows) as evidence instead of the
+  last four and first four cells. The relation contract of each batch has one branch
+  per candidate that binds `candidateId` and `sourceRefs` to the offered candidate
+  and nodes and offers only the decisions its evidence allows: rows that repeat every
+  left cell add nothing, so `continue` is not offered for them and `duplicate` is
+  offered only for them; the prompt says so. The fourteenth GPU run had called the
+  identical raster copy a continuation because it "appears on a subsequent page".
+  Repeated-text counterparts consider interpreted region members only, because the
+  observation keeps every channel's copy of a line (native lines, recognizer source
+  cells, superseded text) and those copies had made every wording ambiguous. The relation
   request sends a bounded position view of each cited node (text, role, page, box,
   table membership, row and column) instead of the full interpretation view, whose
   alignment and conflict metadata had pushed whole-row evidence past the 16,000
