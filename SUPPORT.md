@@ -11,7 +11,7 @@ recognition, llama.cpp runtime and model versions can be inspected independently
 | Windows x64 | Targeted | Native isolated Docling CPU pack |
 | Linux x64 | Targeted | Isolated Docling CPU pack / container |
 | Linux ARM64 | Targeted | Isolated Docling CPU pack / container |
-| DGX Spark (Linux ARM64, NVIDIA GB10) | **Deployment target** (user decision, 2026-09-11) | ARM64 recognition pack on CPU plus a CUDA runtime pack for inference; GPU qualification pending |
+| DGX Spark (Linux ARM64, NVIDIA GB10) | **Deployment target** (user decision, 2026-09-11) | ARM64 recognition pack on CPU plus a CUDA runtime pack for inference; development whole-path passes on the native HTML and mixed native/raster PDF cases (2026-09-11); independent qualification pending |
 
 **Targeted is not a claim of completed end-to-end qualification.** Each pack must
 state its actual minimum OS, libc/CPU requirements and compatible runtime digest.
@@ -87,14 +87,211 @@ mixed PDF, which is the reason for the GPU execution path below.
 **Deployment direction (2026-09-11):** the user set DGX Spark (Linux ARM64, NVIDIA
 GB10) as the production execution target for the back-office integration. Extraction
 quality on Spark is the priority; the five-platform CPU packaging remains supported
-but secondary. CUDA runtime packs are being built and qualified separately; no GPU
-result is recorded yet.
+but secondary.
+
+**CUDA runtime pack (development, not released).** `llama-cpp-cuda` `b10853-cuda.1`
+was built from clean `340ac47` on Spark-A inside a pinned builder image
+(`nvidia/cuda:13.0.2-devel-ubuntu22.04` arm64 digest `1c517d4f…` plus GCC 12.3.0,
+CMake 3.22.1, git, binutils) with the driver interface injected through CDI for the
+startup check: pinned llama.cpp `9dcf84e`, `GGML_CUDA=ON`, `GGML_STATIC=ON`
+(cudart/cuBLAS static), `GGML_CUDA_NCCL=OFF`, `CMAKE_CUDA_ARCHITECTURES=121a-real`,
+CUDA 13.0.88. The pack is 1,434,793,299 bytes (SHA `74931629…`, manifest SHA
+`24e43cf3…`); `llama-server` and `llama-quantize` depend only on glibc/libstdc++
+(GLIBC ≤ 2.34, GLIBCXX ≤ 3.4.30) and `libcuda.so.1`, and the NVIDIA CUDA Toolkit EULA
+text (SHA `9201149e…`, retrieved from docs.nvidia.com) is included as a notice. Three
+earlier attempts failed before packaging (isolated-mode interpreter, startup check
+without the driver, one startup failure without retained output) and are kept as
+records. The vision model pack was re-declared as `1.8.0-preparation.vision.2`
+(`--from-pack`, no reconversion; archive SHA `0e491d60…`, manifest SHA `301e694c…`)
+adding the CUDA runtime to `compatibleRuntimes`, and both packs were installed into
+a development store on Spark-A.
+
+**First GPU whole-path result.** The same native HTML development case, source
+`340ac47`, expected review, eight-call / 900-second budget, greedy sampling and
+reasoning policy as the CPU pass above, run with the CUDA runtime pack inside a
+32 GiB / 4 CPU container with the CDI GPU device and no network
+(`arm-gpu-html-product-01`, review SHA `9d1d9df3…`): **complete** in five calls and
+**112.10 product seconds** (CPU: 557.20), both rows with exact identifiers and
+decimals, unit scope exactly Length/Width, condition scope exactly Length, no ordinary
+definitions as meanings, and a fresh client resumed the complete checkpoint without
+calls. Prompt processing ran at 1,511–2,557 tokens/s (CPU about 45) and generation at
+34–39 tokens/s (CPU about 13). Cgroup peak 4,906,803,200 bytes; the model itself lives
+in unified GPU memory (about 6.3 GiB reported by the driver) shared with another
+user workload on the host. Client identity records `accelerator: cuda`. This is a
+development pass on one case; it is not release qualification, an independent
+holdout, or a redistribution review of the CUDA static libraries.
+
+**GPU mixed PDF whole path and the image-read v2/v3 contracts.** The same mixed
+native/raster PDF whole path on the CUDA pack (`arm-gpu-pdf-product-01`, source
+`340ac47`, twelve calls / 900 seconds including CPU recognition, review SHA
+`9148e956…`) returned **partial in 47.96 product seconds** (CPU: 702.66 seconds
+partial) after three vision calls: page 1 was reviewed, and page 2 halted in the
+literal image-reading stage with `image_read_text_missing`. All twelve grid cells of the
+raster table were read exactly (`품목 Item`, `수량 Qty`, `볼트 Bolt`, `0`, `12.50`,
+`너트 Nut`, `3`, `7.25`, `OK` and the headers), but the blank Note cell came back as
+`state: "text"` with an empty string, a combination image-read v1 only rejected after
+generation. Image-read v2 (`e3fc4ef`) writes each entry's literal text before its state
+and binds them on the wire, so an empty string can only be followed by `empty` or
+`uncertain` and no character is forced after a premature `text` state. The rerun
+(`arm-gpu-pdf-product-02`, source `e3fc4ef`, review SHA `3e1954dd…`) confirmed that
+change — the blank cell was read as `empty` and every grid cell again matched — and
+returned **partial in 58.33 product seconds** at the next check,
+`image_read_empty_without_detail`: the recognizer had split the printed lines `단위
+Unit: 개 / pcs`, `조건: 수량이 0이면 출고하지 않음.` and `Condition: Do not ship a zero
+count.` into label/value fragments (the original OCR of the Korean condition also carries
+spurious spaces), and the model read whole lines into the first fragment of each pair
+and answered the leftover fragments with `empty`, while page 1 keeps those lines as
+single native text nodes. Image-read v3 (`59f1912`) therefore plans non-table
+recognition text as visual lines (fragments sharing half of the shorter box height
+vertically within one such height horizontally), keeps every source reference in
+reading order, proposes one node and region per line, and offers the `empty` branch
+only to measured cells entirely inside the lossless detail. The third run
+(`arm-gpu-pdf-product-03`, source `59f1912`, review SHA `5dcfd622…`) passed the reading
+stage in 49.20 product seconds but the model now answered every grid cell `empty` and
+wrote the table header and first row into two of the four line entries, so the
+projection halted with `image_projection_empty_table_unresolved`. Four bounded probes on
+the same saved page images and read plan (`image-read-probe-01`, greedy, no expected
+answers sent, review SHA `9f5fccaa…`) isolated the cause: cells alone under the v3
+prompt read 12/12 exactly; the four lines on two lossless strips read 4/4; all sixteen
+entries under the **v2 prompt wording** with the v3 plan and contract read 16/16 exactly
+(blank Note cell `empty`); the four lines with the page and table detail under the v3
+prompt read 0/4, returning table cells as lines. The v3 sentence describing text
+entries as lines "outside the grids" was the regression, so image-read v4 keeps the v3
+plan and contract with the v2 wording. The fourth whole-path run on v4
+(`arm-gpu-pdf-product-04`, source `8fc5792`, review SHA `7a64dc0b…`) then read all
+sixteen entries exactly in the product path, proposed the alternate page view, and
+passed the separate projection review in a fourth vision call (every unit source text
+or table border, the blank slot empty, fifteen source checks exact, the grid
+rectangular, no unrepresented content) in 58.32 product seconds, before the atomic
+application step failed with `visual_apply_observation_changed`: the page observation
+fingerprint had included the mere presence of the projection list for every page, so
+the native page's review plan no longer matched once page 2 had a projection. The
+fingerprint now includes a projection only for its own page (identities of documents
+without projections are unchanged). The fifth run (`arm-gpu-pdf-product-05`, source
+`a8d75e9`, review SHA `e0854e35…`) then completed the page path and the atomic
+application (observation coverage `observed`, recognition content completeness
+`complete`) and entered semantic interpretation: regions 1–5 (page 1 title/unit line,
+page 1 table with two calls, page 1 conditions with the page 2 title, page 2 unit line,
+page 2 alternate table with two calls) were interpreted and every required value was
+bound (`볼트 Bolt`, `0`, `12.50`, blank Note, `너트 Nut`, `3`, `7.25`, `OK` on page 1;
+the same rows on page 2 as `item_list`); region 6 (page 2 conditions) answered with a
+duplicate key `condition` and the twelfth call was the last, so the run returned
+**partial** with `model_call_budget_exceeded`, the repair, integration (one
+adjacent-page continuation candidate) and applicability calls unreached, in 182.19
+product seconds of the 900-second budget. The twelve-call cap dates from the CPU
+profile; the whole raster path needs four vision calls, two calls per table region,
+one per text region, integration and applicability calls, so the GPU development
+profile is re-baselined to 24 calls within the same 900 seconds for the sixth run
+(recorded as a profile decision, not a within-run grant). The sixth run
+(`arm-gpu-pdf-product-06`, review SHA `58f53558…`) used 13 of those 24 calls in 201.63
+product seconds and again returned partial, this time for reasons the compiler could
+name only vaguely: the raster table's structure answer marked the header row as data
+in both attempts and received only `binding_cannot_represent_requested_type`; the
+bilingual condition pair reused the key `condition` in both attempts and received only
+`duplicate_data_property`; the unit and condition meanings of the text regions were
+attached to the string fields carrying their own statements, so the compiler treated
+their applicability as resolved and no scope-axis call was made; and the continuation
+candidate stayed unresolved because the failed table region was never compiled. The
+same run also showed that two otherwise identical runs diverge: PDFium writes a
+per-process file identifier and the clock time into every serialized single-page
+recognition subset, so the page's recognition identity — and the node identifiers in
+every model payload — changed per run, and the greedy model answered the table
+structure differently. Source `8e256fe` names the row (`column_definition_row_marked_
+<role>:<row>`) and the key (`duplicate_data_property:<key>`) in repair feedback,
+compiles a statement-only unit or condition as unresolved for the separate scope
+protocol, and serializes subsets deterministically. The seventh run
+(`arm-gpu-pdf-product-07`, review SHA `caf0227e…`, 16 of 24 calls, 302.75 product
+seconds, still partial) then ran the scope-axis protocol on the mixed PDF for the
+first time (three calls, five tasks, reasoning 1,024) but the candidates still
+included the statement's own label/value fields, and the model "applied" each unit
+and condition to its own wording while the Qty column was offered and not chosen; the
+raster table's structure answer kept the header row as data even after the feedback
+named it (two attempts); the bilingual condition pair passed on the first call with
+distinct keys. The next source removes a unit or condition statement's own scalar
+fields from its candidates (definition meanings keep them) and compiles a row whose
+every cell is cited as a column definition as a header row with a recorded
+`column_definition_row_relabeled_header` issue instead of asking again. The eighth run
+(`arm-gpu-pdf-product-08`, source `5715cf0`, review SHA `4b001764…`) then finished the
+whole path for the first time in 19 of 24 calls and 373.39 product seconds: both
+tables extracted with every required value, the raster table compiled with its header
+row relabeled, one integration call (the model called the raster table a continuation
+of the native one, which the program refused for conflicting column keys and kept
+separate), and five applicability calls. The page 1 condition was applied to the Qty
+column exactly; the page 1 unit was applied to the whole record container (the model's
+explanation names the Qty column but chooses the container), the page 2 unit stayed
+unresolved, and the two bilingual page 2 condition meanings each chose the other's
+statement field. Every applicability answer used about 1,150–1,220 completion tokens,
+at the 1,024 reasoning cap. Source `d61d205` keeps the fields of any unit or condition
+statement of the same region out of the candidates (so translations no longer attract
+each other) and records the header relabel under `coverage.programCorrections` instead
+of `issues`, so a deterministic correction no longer keeps a result partial.
+
+**Scope-axis v4 from bounded probes.** Replaying the eighth run's two unit tasks first
+suggested that neither a larger reasoning budget nor a prompt clarification changed the
+selection, but those two probes (`scope-budget-probe-01`, `scope-prompt-probe-01`,
+review SHAs `ed9023f4…`, `4980c2e2…`) had replayed contracts whose property order the
+recording harness had sorted, which changes the grammar; they are retained as records
+only, and request files now keep their order. With the product order restored
+(`scope-prompt-probe-02`, review SHA `b6933278…`) the two controls reproduced the
+product answers byte for byte, one added system sentence — the meaning's own statement
+is never a candidate; select the offered fields, columns or rows whose values it
+qualifies — made the native-page unit choose the Qty column at both 1,024 and 2,048,
+and the raster-page unit chose the Qty column at 2,048 while staying unresolved at
+1,024 (the managed output cap is 3,072, so 4,096 is not configurable). Scope-axis v4
+therefore adds that sentence and raises the managed policy to reasoning 2,048 within
+3,072 output tokens. The ninth mixed PDF run (`arm-gpu-pdf-product-09`, source
+`0939f58`, review SHA `2101deed…`, 19 of 24 calls, 499.85 product seconds) then applied
+the raster page's unit and both of its bilingual conditions to the Qty column and the
+native page's condition to Qty, but its native-page unit answer named the Qty column
+in its explanation and selected the title field: the standalone branch of the selection
+contract allowed only that field, so the grammar forced it. Selection wire v2 offers
+every column handle as a direct standalone target (all data rows of that column) and
+scope-axis v5 says so in one sentence while keeping the validated wording byte for
+byte. The same pair of runs also showed a second identity drift: the PDF native object
+inventory fingerprint included its elapsed time, which reached the native ruling
+consumption record and the table structure request and changed the column definition
+order; the identity now excludes usage.
+
+**Tenth run: complete.** `arm-gpu-pdf-product-10` (source `44c2dcd`, scope-axis v5,
+selection wire v2, image-read v4, 24 calls / 900 seconds, review SHA `f102e37f…`)
+returned **complete** in 19 calls and 493.08 product seconds with no issues, and a
+fresh client resumed the complete checkpoint without calls or re-observation. Every
+required value is bound on both pages, the blank Note cell of the raster page is a
+reviewed blank, both units and all three conditions apply to the Qty column only (the
+raster-page unit chose the column directly through the new standalone handle, the
+native-page unit through a record part), and the header relabel of the raster table is
+recorded under `coverage.programCorrections`. The integration call treated the raster
+table as a continuation of the native one and, with both structure answers now naming
+the same keys, the program joined them into one `item` repeat of four rows; because
+this synthetic document repeats the same two rows on both pages, whether that join is
+the intended reading is a judgment for the document owner, not a program defect, and
+the per-page unit and condition statements also remain as separate scalar fields.
+Applicability calls take about 57 seconds each at reasoning 2,048 on this GPU. This is
+a development pass on one mixed PDF; it is not independent holdout, CPU 16 GiB or
+release qualification.
+
+**Native HTML rerun under v5.** `arm-gpu-html-product-02` (source `44c2dcd`, review SHA
+`d54c4e39…`, five calls, 161.96 product seconds) kept the condition on Length but
+returned partial: the unit answer chose Length and Width as two direct standalone
+columns — the intended scope — and the first wire v2 decoder turned them into two
+record entries for the same record, which the axis codec rejected as a duplicate. The
+decoder now merges direct columns of one record into one record entry with one part;
+the HTML and mixed PDF cases were rerun on that source (`4e3e278`): the native HTML
+case returned **complete** and quality-passed in five calls and 162.81 product
+seconds with unit scope Length/Width (two direct columns merged) and condition scope
+Length (`arm-gpu-html-product-03`, review SHA `1e974396…`), and the mixed PDF returned
+**complete** again with the same decisions and the same token usage as the tenth run
+(`arm-gpu-pdf-product-11`, review SHA `0413008c…`, 19 calls, 491.33 product seconds).
+Both resumed their complete checkpoints without calls. These are development passes on
+two cases; not independent holdout, CPU 16 GiB or release qualification. Lossless text
+strips remain a candidate for small print.
 
 Evidence: `arm-scope-label-origin-{unit,whole}-01`, `arm-scope-column-review-{unit,
 condition,whole}-01`, `arm-scope-budget-1024-01`, `arm-scope-sampling-official-01`,
 `arm-scope-budget-html-product-01` (review SHA `7e2a0a86…`) and
-`arm-full-pdf-product-01..03` (review SHA `930634d4…` for the third) beneath the
-private DGX qualification directory. The section below is the previous v2 state.
+`arm-full-pdf-product-01..03` (review SHA `930634d4…` for the third),
+`arm-gpu-html-product-01` and `arm-gpu-pdf-product-01..` beneath the private DGX
+qualification directory. The section below is the previous v2 state.
 
 ### Previous content and scope separation (scope-axis v2)
 
@@ -223,9 +420,9 @@ original batch/context fingerprint and execution policy. Resume reconstructs and
 compares that evidence before accepting a saved choice or making another call.
 Incompatible older checkpoints are rejected. Public API v1 remains unchanged.
 
-Only managed scope requests use reasoning budget 1,024, within a total output ceiling
-of 2,048 tokens or a smaller client ceiling (scope-axis protocol v3; v2 used 512 within
-1,536 and its checkpoints are rejected on resume). Context checks and inference use the
+Only managed scope requests use reasoning budget 2,048, within a total output ceiling
+of 3,072 tokens or a smaller client ceiling (scope-axis protocol v5; v3 used 1,024
+within 2,048, v2 512 within 1,536, and older checkpoints are rejected on resume). Context checks and inference use the
 same override; other phases inherit the profile default. Generic/cloud reasoning
 and complete-only output limits remain client-owned and are recorded distinctly.
 No installed manifest or client profile is mutated. All phases share the cumulative

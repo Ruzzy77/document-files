@@ -23,10 +23,11 @@
   a duplicate record when the native HTML rerun chose Length and Width directly. The PDF native object inventory identity no longer includes its
   elapsed time, which had given the same document a new identity per run and changed
   the table structure request through the native ruling consumption record.
-  A subsequent whole-path mixed native/raster PDF development run under these
-  identities returned complete in 19 calls with every unit and condition applied to
-  the Qty column only and resumed without calls; this is development evidence on one
-  document, not qualification.
+  Subsequent whole-path development runs under these identities returned complete:
+  the mixed native/raster PDF in 19 calls with every unit and condition applied to the
+  Qty column only, and the native HTML case in five calls with unit scope Length/Width
+  and condition scope Length; both resumed without calls. This is development evidence
+  on two documents, not qualification.
 
 - Applicability tasks no longer offer the scalar fields that carry the wording of a
   unit or condition statement of the same region (the statement's own fields or a
