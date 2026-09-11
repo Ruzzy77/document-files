@@ -565,6 +565,12 @@ clients receive the same complete decoder schema through `output_schema`; no new
 shorthand schema dialect is required. Compatible checkpoint checks include the
 new prompt/planner versions; do not bypass a mismatch to reuse an earlier decision.
 
+Deterministic program corrections of a model label are listed in
+`coverage.programCorrections` rather than in `issues`: a repeat row whose every observed
+cell is cited as a column definition is compiled as a header row and recorded as
+`column_definition_row_relabeled_header` with the declared role, so the result can still
+complete while the disagreement stays auditable.
+
 ### OCR ruling evidence
 
 Recognition adapter v24 adds `recognitionNativeRulingObservations` to observation

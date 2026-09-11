@@ -454,6 +454,12 @@ def build_scope_tasks(
             if len(_encoded(payload)) > context_chars:
                 continue
             refs = set(detail["sourceRefs"])
+            statement_refs = refs | {
+                ref
+                for sibling in owner.semantic_details
+                if sibling["kind"] in {"unit", "condition"}
+                for ref in sibling.get("sourceRefs", [])
+            }
             candidates = []
             for target_region in compiled:
                 if target_region.id not in order:
@@ -498,11 +504,12 @@ def build_scope_tasks(
                             definition["id"] == f"{target_region.id}:{repeat_id}"
                             for repeat_id in target_region.row_scopes
                         )
-                        and set(definition.get("sourceRefs", [])) <= refs
+                        and set(definition.get("sourceRefs", [])) <= statement_refs
                     ):
-                        # A scalar field that merely carries the statement's own text
-                        # is the statement, not a value it governs; offering it lets a
-                        # model "apply" a unit or condition to its own wording.
+                        # A scalar field that merely carries the wording of this or a
+                        # sibling unit/condition statement is a statement, not a value
+                        # it governs; offering it lets a model "apply" a unit or
+                        # condition to its own wording or to its translation.
                         continue
                     private = {
                         "regionId": target_region.id,

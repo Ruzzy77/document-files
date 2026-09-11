@@ -409,6 +409,36 @@ def test_statement_fields_are_not_offered_as_their_own_scope():
     local.schema_evidence.append(
         {"target": schema, "semanticIds": ["r1note"], "sourceRefs": ["note"], "raw": "x"}
     )
+    # A sibling statement's field (its translation, say) is a statement too.
+    obs.nodes["rule"] = {"text": "Cost excludes tax."}
+    regions[0]["nodeIds"].append("rule")
+    sibling = {"space": "data", "path": "/rule_text"}
+    local.semantic_details.append(
+        {
+            "id": "rule",
+            "kind": "condition",
+            "scope": [sibling],
+            "sourceRefs": ["rule"],
+            "sourceText": ["Cost excludes tax."],
+            "interpretationStatus": "interpreted",
+            "executable": False,
+        }
+    )
+    local.semantics.append(
+        {
+            "id": "r1rule",
+            "kind": "field_definition",
+            "description": "Cost excludes tax.",
+            "sourceRefs": ["rule"],
+            "scope": [sibling],
+            "targets": [{"space": "dataSchema", "path": "/properties/rule_text"}],
+            "status": "interpreted",
+            "basis": "ai_interpreted",
+        }
+    )
+    local.value_evidence.append(
+        {"target": sibling, "semanticIds": ["r1rule"], "sourceRefs": ["rule"], "raw": "x"}
+    )
     regions[0]["nodeIds"].extend(regions[1]["nodeIds"])
     tasks = build_scope_tasks(obs, regions[:1], [local])
     assert len(tasks) == 2

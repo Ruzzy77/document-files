@@ -154,6 +154,9 @@ class CompiledRegion:
     header_value_bindings: set[str] = field(default_factory=set)
     dropped_fields: dict[str, str] = field(default_factory=dict)
     meaning_review: dict | None = None
+    # Deterministic program corrections of a model label, resolved and auditable;
+    # they are not unresolved processing issues.
+    corrections: list[dict] = field(default_factory=list)
 
 
 def compile_region(ir: RegionInterpretation, observation, region: dict, *, target_schema=None):
@@ -585,12 +588,14 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             row_refs = {cell["sourceRef"] for cell in row_cells}
             if row_refs and row_refs <= cited:
                 roles[row] = role.model_copy(update={"role": "header"})
-                out.issues.append(
+                out.corrections.append(
                     {
                         "code": "column_definition_row_relabeled_header",
+                        "regionId": out.id,
                         "tableRef": repeat.tableRef,
                         "row": row,
                         "declaredRole": role.role,
+                        "basis": "every_observed_cell_cited_as_column_definition",
                     }
                 )
         # Header geometry is program knowledge: every column's definition carries the
@@ -1095,6 +1100,7 @@ def combine_regions(compiled: list[CompiledRegion], *, target_schema=None):
     if target_schema is not None:
         schema = copy.deepcopy(target_schema)
     semantic, schema_ev, value_ev, details, values, issues = [], [], [], [], [], []
+    corrections = [copy.deepcopy(c) for region in compiled for c in region.corrections]
     seen_schema, seen_values, seen_semantics = set(), set(), set()
     for region in compiled:
         for item in region.semantics:
@@ -1145,6 +1151,7 @@ def combine_regions(compiled: list[CompiledRegion], *, target_schema=None):
         "semanticDetails": details,
         "valueObservations": values,
         "issues": issues,
+        "corrections": corrections,
         "errors": list(dict.fromkeys(errors))[:30],
     }
 

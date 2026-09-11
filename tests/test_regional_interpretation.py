@@ -460,13 +460,19 @@ def test_header_row_marked_data_is_compiled_as_header_and_recorded():
     ir.repeats[0].rowRoles[0].role = "data"
     ir.repeats[0].columns[1].valueType = "integer"
     compiled = compile_region(ir, doc, region)
-    assert {
-        "code": "column_definition_row_relabeled_header",
-        "tableRef": "t",
-        "row": 0,
-        "declaredRole": "data",
-    } in compiled.issues
+    assert compiled.corrections == [
+        {
+            "code": "column_definition_row_relabeled_header",
+            "regionId": "r",
+            "tableRef": "t",
+            "row": 0,
+            "declaredRole": "data",
+            "basis": "every_observed_cell_cited_as_column_definition",
+        }
+    ]
+    assert not compiled.issues
     result = combine_regions([compiled])
+    assert result["corrections"] == compiled.corrections and not result["issues"]
     assert result["data"] == {
         "rows": [
             {"name": "A", "amount": 0},
