@@ -67,7 +67,7 @@ def test_batches_use_exact_new_contract_size_not_the_old_schema():
 def test_policy_does_not_guess_managed_capabilities_or_change_client_defaults():
     generic = SimpleNamespace(infer=lambda r: None, max_output_tokens=4096)
     assert scope_policy(generic)["reasoningBudgetTokens"] is None
-    assert scope_policy(generic)["maxOutputTokens"] == 2048
+    assert scope_policy(generic)["maxOutputTokens"] == 3072
     smaller = SimpleNamespace(infer=lambda r: None, max_output_tokens=1536)
     assert scope_policy(smaller)["maxOutputTokens"] == 1536
     assert scope_policy(SimpleNamespace())["outputLimitOwner"] == "client"
@@ -76,10 +76,11 @@ def test_policy_does_not_guess_managed_capabilities_or_change_client_defaults():
     managed.max_output_tokens = 3072
     managed.reasoning_budget_tokens = None
     policy = scope_policy(managed)
-    assert policy["version"] == "document-files.scope-axis-protocol.v3"
+    assert policy["version"] == "document-files.scope-axis-protocol.v4"
     # Bounded thinking for applicability: 512 truncated the model's reasoning on the
-    # merged-header unit case (development evidence); 1024 must stay below the cap.
-    assert policy["reasoningBudgetTokens"] == 1024 and policy["maxOutputTokens"] == 2048
+    # merged-header unit case and 1,024 left the raster-page unit unresolved on the
+    # mixed PDF (development probes); 2,048 must stay below the managed output cap.
+    assert policy["reasoningBudgetTokens"] == 2048 and policy["maxOutputTokens"] == 3072
     assert policy["reasoningBudgetTokens"] < policy["maxOutputTokens"]
     assert managed.reasoning_budget_tokens is None
 

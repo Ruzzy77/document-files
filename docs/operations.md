@@ -42,10 +42,12 @@ CPU packs keep their existing identity. `deployment/compose.gpu.yaml` shows the 
 Spark profile with the CDI device request. GPU packs are qualified separately from
 the CPU 16 GiB profile; declaring one does not change CPU results.
 
-Scope-axis protocol v3 / selection wire v1 use one list for record and standalone
-selections, with shared column handles. Old policy/wire identities are rejected on
-resume, not silently translated. The phase has an engine-owned managed request policy: reasoning budget
-1,024, within a total output cap of 2,048 tokens or a smaller client ceiling. This does
+Scope-axis protocol v4 / selection wire v1 use one list for record and standalone
+selections, with shared column handles; the prompt states that a meaning's own
+statement is never a candidate and that the decision selects the values it qualifies.
+Old policy/wire identities are rejected on resume, not silently translated. The phase
+has an engine-owned managed request policy: reasoning budget 2,048, within a total
+output cap of 3,072 tokens or a smaller client ceiling. This does
 not enable reasoning globally or rewrite the installed model/profile. Other phases
 inherit the profile setting. Context checks, generation, diagnostics and private
 checkpoint v3 record the effective per-request policy. Old checkpoints are not

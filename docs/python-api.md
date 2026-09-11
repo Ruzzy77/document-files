@@ -35,8 +35,8 @@ absent and uncertain states remain distinct. Source binding and semantic accurac
 are separate checks. Overlaps, stale mappings and explicit expansion/source limits
 still fail closed. Long-range compact provenance remains unimplemented.
 
-On ManagedPackClient only, the engine requests reasoning budget 1,024 for this phase
-and caps total output at 2,048 tokens (or a smaller client ceiling). Other phases keep
+On ManagedPackClient only, the engine requests reasoning budget 2,048 for this phase
+and caps total output at 3,072 tokens (or a smaller client ceiling). Other phases keep
 the profile default. The same request override reaches template/token checks and
 inference, without mutating the profile or leaking to later calls. Generic/cloud
 clients keep their own reasoning policy; no llama-specific parameters are sent.

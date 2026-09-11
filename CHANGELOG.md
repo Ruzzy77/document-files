@@ -2,6 +2,21 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Scope-axis protocol v4 states in its prompt that a meaning's own statement text is
+  never offered as a candidate and that the decision selects the offered fields, columns
+  or rows whose values the meaning qualifies (a unit the measured or counted values, a
+  condition the values it constrains), and raises the managed applicability request
+  policy to reasoning budget 2,048 within a 3,072 total output cap (v3: 1,024 within
+  2,048; the managed output cap is 3,072). Bounded probes that replayed the eighth GPU
+  whole-path run's two unit tasks with the product contract order restored reproduced
+  the product answers exactly as controls, chose the Qty column for the native page at
+  both budgets with the added sentence, and chose the Qty column for the raster page at
+  2,048 (unresolved at 1,024). Two earlier probes had replayed contracts whose property
+  order the recording harness had sorted, which changes the grammar; they are retained
+  as records but are not evidence. Greedy sampling, the selection wire, source binding,
+  public v1 and document budgets are unchanged; v3 policy identities are rejected on
+  resume.
+
 - Applicability tasks no longer offer the scalar fields that carry the wording of a
   unit or condition statement of the same region (the statement's own fields or a
   sibling such as its translation), and a repeat row whose every cell is cited as a
