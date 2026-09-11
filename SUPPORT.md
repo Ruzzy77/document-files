@@ -286,6 +286,29 @@ Both resumed their complete checkpoints without calls. These are development pas
 two cases; not independent holdout, CPU 16 GiB or release qualification. Lossless text
 strips remain a candidate for small print.
 
+The two judgments that run had left open were settled in the product on 2026-09-12. A
+table on the next page with the same column count is now decided by the relation call
+as `continue`, `duplicate` (the same rows shown again: a copy, a second print, an image
+of the same page), `separate` or `unresolved`. The candidate carries the row counts,
+whether every right cell repeats the left cell at the same position, and the same row
+positions of both tables as bounded position views, and each batch's contract offers a
+candidate only the decisions its evidence allows. A decided duplicate binds the copy to
+the same rows with provenance only; after a `continue` or `duplicate`, a scalar field or
+unit/condition statement repeated on the joined page folds into the earlier one and is
+recorded in `coverage.programCorrections`. Five whole-path runs reached this: the
+twelfth exceeded the request budget with the full observation view (partial), the
+thirteenth compared mismatched rows and cited table identifiers (invalid decision), the
+fourteenth called the identical copy a continuation and folded nothing because every
+wording was ambiguous among channel copies, the fifteenth decided duplicate and folded
+every statement but let merged references into the applicability candidates so the
+page 1 condition chose every column, and the sixteenth (`arm-gpu-pdf-product-16`,
+source `f2f5f3f`, review SHA `97a48c86…`) returned **complete** and quality-passed in
+16 calls and 324.44 product seconds with two item rows, one title, unit and condition
+field each, unit and condition scope on the Qty column only, and a no-call resume. The
+native HTML case rerun on that source returned **complete** with the same decisions as
+before (`arm-gpu-html-product-04`, review SHA `d52af908…`, five calls, 162.34 product
+seconds). These remain development passes on two cases.
+
 Evidence: `arm-scope-label-origin-{unit,whole}-01`, `arm-scope-column-review-{unit,
 condition,whole}-01`, `arm-scope-budget-1024-01`, `arm-scope-sampling-official-01`,
 `arm-scope-budget-html-product-01` (review SHA `7e2a0a86…`) and
