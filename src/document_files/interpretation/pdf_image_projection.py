@@ -85,11 +85,13 @@ def propose_image_read(doc, reading, *, deadline, cancelled=None):
         replacements[matches[0]] = grid["id"]
         grids.append(grid)
     require(set(replacements) == set(tables), "image_projection_table_inventory")
-    text_entries = {e["sourceRef"]: e for e in entries.values() if e["kind"] == "text_region"}
-    require(
-        len(text_entries) == sum(e["kind"] == "text_region" for e in entries.values()),
-        "image_projection_text_duplicate",
-    )
+    text_entries = {}
+    for entry in entries.values():
+        if entry["kind"] != "text_region":
+            continue
+        for ref in entry["sourceRefs"]:
+            require(ref not in text_entries, "image_projection_text_duplicate")
+            text_entries[ref] = entry
     require(
         not any(overlap(e["bounds"], g["bounds"]) for e in text_entries.values() for g in grids),
         "image_projection_text_grid_overlap",
@@ -135,16 +137,15 @@ def propose_image_read(doc, reading, *, deadline, cancelled=None):
             continue  # A proposed empty cell remains missing until the pixel review.
         ref = f"{prefix}/{entry['id']}"
         table_ref = f"{prefix}/{entry['gridId']}" if entry["kind"] == "cell" else None
-        bounds = entry.get("sourceBounds")
-        bbox = (
-            dict(zip(("left", "top", "right", "bottom"), bounds, strict=True))
-            | {"origin": "TOPLEFT"}
-            if bounds
-            else deepcopy(doc.nodes[entry["sourceRef"]]["sourceStructure"]["bbox"])
-        )
-        role = (
-            "table_cell" if table_ref else doc.nodes[entry["sourceRef"]].get("semanticRole", "span")
-        )
+        bbox = dict(zip(("left", "top", "right", "bottom"), entry["sourceBounds"], strict=True)) | {
+            "origin": "TOPLEFT"
+        }
+        if table_ref:
+            role = "table_cell"
+        else:
+            # One visual line may join fragments the recognizer labeled differently.
+            roles = {doc.nodes[r].get("semanticRole", "span") for r in entry["sourceRefs"]}
+            role = roles.pop() if len(roles) == 1 else "span"
         result.node(
             ref,
             values[entry["id"]]["text"],
@@ -166,7 +167,7 @@ def propose_image_read(doc, reading, *, deadline, cancelled=None):
                         "observationFingerprint": entry["observationFingerprint"],
                     }
                     if table_ref
-                    else {"priorObservationRef": entry["sourceRef"]}
+                    else {"priorObservationRefs": list(entry["sourceRefs"])}
                 ),
             },
         )
@@ -239,27 +240,39 @@ def propose_image_read(doc, reading, *, deadline, cancelled=None):
             }
         )
     text_refs = {old: refs[e["id"]] for old, e in text_entries.items()}
-    new_regions = []
+    new_regions, line_regions = [], {}
     for region in old_regions:
+        context = [text_refs[r] for r in region.get("contextNodeIds", []) if r in text_refs]
         if region.get("tableRef"):
             grid_id = replacements[region["tableRef"]]
             ids = next(g["entryIds"] for g in grids if g["id"] == grid_id)
             table_ref = new_tables[grid_id]
         else:
-            ids = [text_entries[region["nodeIds"][0]]["id"]]
-            table_ref = None
-        context = [text_refs[r] for r in region.get("contextNodeIds", []) if r in text_refs]
+            ids, table_ref = [text_entries[region["nodeIds"][0]]["id"]], None
+            joined = line_regions.get(ids[0])
+            if joined is not None:
+                # Fragments of one visual line share the single proposed region.
+                joined["contextNodeIds"] = [
+                    c
+                    for c in dict.fromkeys(joined["contextNodeIds"] + context)
+                    if c not in joined["nodeIds"]
+                ]
+                continue
+        node_ids = [refs[i] for i in ids if i in refs]
+        context = [c for c in dict.fromkeys(context) if c not in node_ids]
         new_regions.append(
             {
                 "id": f"{prefix}/region/{len(new_regions)}",
-                "nodeIds": [refs[i] for i in ids if i in refs],
+                "nodeIds": node_ids,
                 "bindingIds": [b for i in ids for b in bindings.get(i, [])],
-                "contextNodeIds": list(dict.fromkeys(context)),
+                "contextNodeIds": context,
                 **({"tableRef": table_ref} if table_ref else {}),
             }
         )
         if table_ref:
-            result.tables[table_ref]["contextNodeIds"] = list(dict.fromkeys(context))
+            result.tables[table_ref]["contextNodeIds"] = context
+        else:
+            line_regions[ids[0]] = new_regions[-1]
     old_ids = {r["id"] for r in old_regions}
     result.regions = [r for r in result.regions if r["id"] not in old_ids] + new_regions
     projection = {

@@ -615,16 +615,21 @@ final extraction-complete predicate and public v1 result/CLI/MCP contracts are u
 
 
 When review cannot inventory missing slots, or the model leaves page content unresolved,
-`document-files.pdf-image-read.v2` can make one additional literal-reading attempt using
+`document-files.pdf-image-read.v3` can make one additional literal-reading attempt using
 the same prepared images. It lists measured rectangular cells, including grids not
-linked to a recognized table, and existing non-table recognition regions. The model
+linked to a recognized table, and existing non-table recognition text grouped into
+visual lines: fragments that share at least half of the shorter box height vertically
+and lie within one such height of each other horizontally form one entry whose plan
+keeps every source reference in reading order, because a recognizer may split one
+printed line into label and value pieces that a model reads as a single line. The model
 receives pixel bounds, not original OCR strings or reference answers. It returns exactly
 one entry per candidate, writing the literal text before its state: `text` requires at
-least one character, `empty` requires the empty string, and `uncertain` may keep a
-fragment. The output contract itself excludes a `text` state with nothing read; v1 only
-rejected that combination after generation. Text is not normalized. An empty cell
-candidate additionally requires full detail coverage. Entry count, aggregate text,
-context, output, model-call and time limits remain finite.
+least one character, `empty` is offered only for measured cells entirely inside the
+lossless detail and requires the empty string, and `uncertain` may keep a fragment. The
+output contract itself excludes a `text` state with nothing read and an `empty` reading
+outside that detail; earlier versions rejected those only after generation. Text is not
+normalized. Entry count, aggregate text, context, output, model-call and time limits
+remain finite.
 
 The existing raw observations and active tables are not replaced. Partial results expose
 these readings at `provenance.observation.pdfImageReadCandidates`, with source, capture,
@@ -637,7 +642,9 @@ checkpoints are incompatible.
 
 `document-files.pdf-image-projection.v1` prepares a reversible alternative view from
 an entirely readable candidate set. Only uniquely matched, non-overlapping rectangular
-grids and existing single-region text are proposed; ambiguous mappings remain partial.
+grids and text lines whose fragments each form a single existing region are proposed;
+the fragments of one line share one proposed node and region, which records every prior
+observation reference. Ambiguous mappings remain partial.
 Original nodes, bindings, tables and region records are preserved. New nodes carry exact
 read strings and source-pixel/reading identities. Header roles are not inferred. Proposed
 empty cells remain missing and require the existing pixel-border/detail review.

@@ -2,13 +2,19 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
-- Image-read contract v2 binds each reading's state to its literal string on the wire:
-  the string precedes the state, `text` requires at least one character, `empty` requires
-  the empty string, and `uncertain` may keep a fragment. v1 let the model return `text`
-  with an empty string and rejected it only after generation, which halted the first GPU
-  whole-path mixed PDF development run on a blank Note cell. Validation, budgets,
-  candidate exposure and the public v1 result are unchanged; v1 read checkpoints are
-  incompatible on resume.
+- Image-read contract v3 (v2 was an intermediate development identity). Each reading
+  writes its literal text before its state and the wire contract binds them: `text`
+  requires at least one character, `empty` is offered only for measured cells entirely
+  inside the lossless detail and requires the empty string, and `uncertain` may keep a
+  fragment. Non-table recognition text is planned as visual lines (fragments sharing
+  half of the shorter box height vertically within one such height horizontally), each
+  keeping its source references in reading order; the projection proposes one node and
+  region per line and maps fragment context to it. v1 accepted `text` with an empty
+  string and fragment-level entries that the model answered line by line, rejecting
+  both only after generation, which halted the first two GPU whole-path mixed PDF
+  development runs (`image_read_text_missing`, `image_read_empty_without_detail`).
+  Validation, budgets, candidate exposure and the public v1 result are unchanged;
+  older read checkpoints are incompatible on resume.
 
 - CUDA runtime packs. A `llama-cpp-runtime` manifest may declare `accelerator: cuda`
   with explicit `cudaArchitectures` (Linux only); the managed server then offloads

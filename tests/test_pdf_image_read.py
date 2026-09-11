@@ -89,16 +89,30 @@ def test_read_contract_binds_the_state_to_the_literal_string():
 
     from document_files.interpretation.backends import _local_grammar_schema, _strict_wire_schema
 
-    assert reading.VERSION == "document-files.pdf-image-read.v2"
+    assert reading.VERSION == "document-files.pdf-image-read.v3"
     doc, capture = fixture()
     plan = make_plan(doc, capture)
-    contract = reading.read_schema(plan)
+    contract = reading.read_schema(plan, detail_bounds=[0, 0, 90, 90])
     branches = contract["properties"]["entries"]["items"]["anyOf"]
     ids = [e["id"] for e in plan["entries"]]
+    cells = [e["id"] for e in plan["entries"] if e["kind"] == "cell"]
     assert [b["properties"]["state"]["const"] for b in branches] == ["text", "empty", "uncertain"]
     assert all(list(b["properties"]) == ["id", "text", "state"] for b in branches)
-    assert all(b["properties"]["id"]["enum"] == ids for b in branches)
+    assert [b["properties"]["id"]["enum"] for b in branches] == [ids, cells, ids]
     assert all(b["additionalProperties"] is False for b in branches)
+    # Only cells entirely inside the detail are offered the empty branch at all.
+    partial = reading.read_schema(plan, detail_bounds=[0, 0, 60, 40])
+    assert partial["properties"]["entries"]["items"]["anyOf"][1]["properties"]["id"]["enum"] == [
+        "i0",
+        "i1",
+        "i2",
+        "i3",
+    ]
+    without = reading.read_schema(plan, detail_bounds=None)
+    assert [
+        b["properties"]["state"]["const"]
+        for b in without["properties"]["entries"]["items"]["anyOf"]
+    ] == ["text", "uncertain"]
     text, empty, uncertain = (b["properties"]["text"] for b in branches)
     assert text == {"type": "string", "maxLength": reading.MAX_TEXT_CHARS, "minLength": 1}
     assert empty == {"type": "string", "const": ""}
@@ -120,14 +134,48 @@ def test_read_contract_binds_the_state_to_the_literal_string():
         assert valid(reply(text="", state="empty"))
         assert valid(reply(text="", state="uncertain"))
         assert valid(reply(text="0.0?", state="uncertain"))
-        # The combination that halted the first GPU whole-path run cannot be generated.
+        # The combinations that halted the first two GPU whole-path runs cannot be
+        # generated: text with nothing read, and empty for a text line.
         assert not valid(reply(text="", state="text"))
         assert not valid(reply(text="0", state="empty"))
         assert not valid(reply(text="A", state="inferred"))
         assert not valid(reply(text="A" * (reading.MAX_TEXT_CHARS + 1), state="text"))
+        line = answer(plan)
+        line["entries"][6] = {"id": ids[6], "text": "", "state": "empty"}
+        assert plan["entries"][6]["kind"] == "text_region" and not valid(line)
     # Whitespace-only text still fails product validation, not only the grammar.
     with pytest.raises(PdfVisualReviewError):
         reading.validate_read(plan, reply(text=" ", state="text"), detail_bounds=[0, 0, 90, 90])
+
+
+def test_text_fragments_on_one_visual_line_form_one_entry_in_reading_order():
+    doc, capture = fixture()
+
+    def box(x, y, r, b):
+        return {"left": x, "top": y, "right": r, "bottom": b, "origin": "TOPLEFT"}
+
+    # foot is [0, 60, 30, 75] px. near: 6 px gap on the same line (height 15);
+    # far: 24 px gap on the same line; below: the next line.
+    for ref, bbox in (
+        ("below", box(0, 26, 10, 29)),
+        ("far", box(28, 20, 30, 25)),
+        ("near", box(12, 20, 20, 25)),
+    ):
+        doc.node(ref, ref, observationBasis="recognition", locator={"page": 1, "bbox": bbox})
+        doc.regions.append(
+            {"id": f"{ref}-region", "nodeIds": [ref], "bindingIds": [], "contextNodeIds": []}
+        )
+    plan = make_plan(doc, capture)
+    lines = [e for e in plan["entries"] if e["kind"] == "text_region"]
+    assert [e["sourceRefs"] for e in lines] == [["foot", "near"], ["far"], ["below"]]
+    assert lines[0]["bounds"] == [0, 60, 60, 75] and lines[0]["sourceBounds"] == [0, 20, 20, 25]
+    assert [e["id"] for e in lines] == ["i6", "i7", "i8"]
+    payload = json.dumps(reading.read_payload(plan))
+    assert "sourceRef" not in payload and "near" not in payload and "sourceBounds" not in payload
+    assert reading.same_visual_line([0, 0, 10, 10], [20, 0, 30, 10])
+    assert not reading.same_visual_line([0, 0, 10, 10], [21, 0, 30, 10])
+    assert not reading.same_visual_line([0, 0, 10, 10], [0, 6, 10, 16])
+    assert plan == make_plan(doc, capture)
 
 
 @pytest.mark.parametrize(

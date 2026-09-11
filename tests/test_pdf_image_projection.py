@@ -175,6 +175,52 @@ def test_each_literal_and_grid_requires_separate_review(change):
             validate_decision(plan, decision, detail_bounds=detail)
 
 
+def test_fragments_of_one_visual_line_share_one_proposed_node_and_region():
+    doc, capture, reading, _, pixels = example()
+    doc.node(
+        "near",
+        "near",
+        observationBasis="recognition",
+        locator={
+            "page": 1,
+            "bbox": {"left": 12, "top": 24, "right": 20, "bottom": 28, "origin": "TOPLEFT"},
+        },
+    )
+    doc.regions.insert(
+        1, {"id": "near-region", "nodeIds": ["near"], "bindingIds": [], "contextNodeIds": ["foot"]}
+    )
+    plan = make_plan(doc, capture)
+    line = next(e for e in plan["entries"] if e["kind"] == "text_region")
+    assert line["sourceRefs"] == ["foot", "near"]
+    reading = {
+        **reading,
+        "plan": plan,
+        "validation": validate_read(plan, answer(plan), detail_bounds=[0, 0, 90, 90]),
+    }
+    before = deepcopy(doc)
+    view = proposal(doc, reading)
+    assert doc == before and doc.nodes["foot"]["text"] == "foot"
+    p = view.provenance["pdfImageReadProjections"][0]
+    assert len(p["originalRegions"]) == 3 and len(p["regionIds"]) == 2
+    ref = next(r for r in p["selectedNodeIds"] if view.nodes[r]["text"] == "Unit: mm")
+    structure = view.nodes[ref]["sourceStructure"]
+    assert structure["priorObservationRefs"] == ["foot", "near"]
+    assert structure["bbox"] == {
+        "left": 0,
+        "top": 24,
+        "right": 20,
+        "bottom": 28,
+        "origin": "TOPLEFT",
+    }
+    regions = {r["id"]: r for r in view.regions if r["id"] in p["regionIds"]}
+    line_region = next(r for r in regions.values() if not r.get("tableRef"))
+    table_region = next(r for r in regions.values() if r.get("tableRef"))
+    assert line_region["nodeIds"] == [ref] and line_region["contextNodeIds"] == []
+    assert table_region["contextNodeIds"] == [ref]
+    page_plan = build_page_plan(view, capture, pixels, deadline=time.monotonic() + 30)
+    assert [s["sourceRef"] for s in page_plan["sources"] if not s["tableRef"]] == [ref]
+
+
 def test_empty_read_is_still_missing_and_needs_pixel_border_review():
     doc, capture, reading, _, pixels = example(empty=True)
     view = proposal(doc, reading)

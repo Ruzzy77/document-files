@@ -323,7 +323,9 @@ def review_pdf_pages(
                 state["haltReason"] = cause
                 checkpoint(state)
                 return
-            contract = read_schema(plan)
+            descriptors = images.descriptor["images"]
+            detail = descriptors[1]["sourcePixelBounds"] if len(descriptors) == 2 else None
+            contract = read_schema(plan, detail_bounds=detail)
             payload = encode({**read_payload(plan), "outputContract": contract})
             if len(READ_SYSTEM) + len(payload) > context_chars:
                 raise ModelError("pdf_image_read_context_budget_exceeded")
@@ -359,8 +361,6 @@ def review_pdf_pages(
             _response_usage(usage, response)
             if response.finish_reason != "stop":
                 raise ModelError("ai_response_incomplete")
-            descriptors = images.descriptor["images"]
-            detail = descriptors[1]["sourcePixelBounds"] if len(descriptors) == 2 else None
             validation = validate_read(plan, decode(response.text), detail_bounds=detail)
             attempt.update(status=validation["status"], validation=validation)
             record.update(status="unresolved", reason="pdf_image_read_requires_review")
