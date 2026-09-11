@@ -108,8 +108,13 @@ def observation_page_fingerprint(doc, page):
                     "recognitionCoordinateEvidence",
                 )
                 + (
+                    # A projection changes only its own page's identity; another page's
+                    # review plan must survive the proposal without a new fingerprint.
                     ("pdfImageReadProjections",)
-                    if "pdfImageReadProjections" in doc.provenance
+                    if any(
+                        p.get("page") == page
+                        for p in doc.provenance.get("pdfImageReadProjections", [])
+                    )
                     else ()
                 )
             },

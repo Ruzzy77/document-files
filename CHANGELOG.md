@@ -2,6 +2,13 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- A PDF image-read projection now changes only its own page's observation identity.
+  Previously the presence of any projection entered every page's fingerprint, so a
+  multi-page document whose raster page had been read, proposed and reviewed failed the
+  atomic application step with `visual_apply_observation_changed` because the native
+  page's review plan no longer matched. Identities of documents without projections
+  are unchanged.
+
 - Image-read contract v4 (v2 and v3 were intermediate development identities). Each
   reading writes its literal text before its state and the wire contract binds them:
   `text` requires at least one character, `empty` is offered only for measured cells

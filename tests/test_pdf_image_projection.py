@@ -24,6 +24,7 @@ from document_files.interpretation.pdf_visual_plan import (
     PdfVisualReviewError,
     build_page_plan,
     digest,
+    observation_page_fingerprint,
     output_schema,
     review_payload,
     validate_decision,
@@ -219,6 +220,15 @@ def test_fragments_of_one_visual_line_share_one_proposed_node_and_region():
     assert table_region["contextNodeIds"] == [ref]
     page_plan = build_page_plan(view, capture, pixels, deadline=time.monotonic() + 30)
     assert [s["sourceRef"] for s in page_plan["sources"] if not s["tableRef"]] == [ref]
+
+
+def test_projection_changes_only_its_own_page_identity():
+    # The fourth GPU whole-path run reviewed page 2 on its proposal and then failed the
+    # atomic application because page 1's identity had changed with the projection key.
+    doc, _, reading, _, _ = example()
+    view = proposal(doc, reading)
+    assert observation_page_fingerprint(view, 1) != observation_page_fingerprint(doc, 1)
+    assert observation_page_fingerprint(view, 2) == observation_page_fingerprint(doc, 2)
 
 
 def test_empty_read_is_still_missing_and_needs_pixel_border_review():
