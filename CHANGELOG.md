@@ -2,6 +2,28 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Recognition subsets are serialized deterministically. PDFium writes a per-process
+  file identifier and the clock time into each single-page subset, so the same page
+  received a new recognition identity on every run and every model payload that named
+  its nodes carried a different hash; two otherwise identical GPU whole-path runs then
+  diverged in the table structure answer. The worker now replaces both values in
+  place (same byte length, offsets intact) with an identity derived from the source
+  hash and page number. Recognition fingerprints of documents processed before this
+  change differ from new ones; no released identity is affected.
+
+- Regional compilation names three repairable defects precisely and routes
+  statement-only applicability to the scope protocol. A repeat row whose every
+  observed cell is cited as a column definition but is marked `data` (or `subtotal`/
+  `note`) now fails with `column_definition_row_marked_<role>:<row>` before any header
+  label is parsed as a value (the sixth GPU whole-path run saw only
+  `binding_cannot_represent_requested_type` twice); a colliding scalar key fails with
+  `duplicate_data_property:<key>` (the same run repeated `condition` for a bilingual
+  pair); and a `unit` or `condition` meaning whose only targets are the string fields
+  carrying its own statement is compiled as unresolved, so the separate scope-axis
+  protocol decides which values it governs instead of the statement qualifying
+  itself. A unit on a numeric field of its own statement keeps its scope. Public
+  contracts and budgets are unchanged.
+
 - A PDF image-read projection now changes only its own page's observation identity.
   Previously the presence of any projection entered every page's fingerprint, so a
   multi-page document whose raster page had been read, proposed and reviewed failed the

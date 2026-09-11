@@ -258,7 +258,8 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             data, shape = data[token], shape["properties"][token]
         key = tokens[-1]
         if key in data:
-            raise CompileError("duplicate_data_property")
+            # Name the colliding key so a repair can rename it rather than guess.
+            raise CompileError(f"duplicate_data_property:{key}")
         data[key], shape["properties"][key] = value, schema
         shape["required"].append(key)
         out.has_data = True
@@ -572,6 +573,17 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             actual_refs = {cell["sourceRef"] for cell in observed[role.row]}
             if set(role.sourceRefs) != actual_refs:
                 raise CompileError("repeat_row_role_sources_disagree_with_geometry")
+        # A row whose every observed cell is cited as a column definition is a header
+        # row; reading it as data would parse the labels as values and fail later with
+        # an unspecific type error. Name the row for repair instead.
+        cited = {ref for col in repeat.columns for ref in col.definitionRefs}
+        for row, row_cells in observed.items():
+            role = roles.get(row)
+            if role is None or role.role in {"header", "blank", "unresolved"}:
+                continue
+            row_refs = {cell["sourceRef"] for cell in row_cells}
+            if row_refs and row_refs <= cited:
+                raise CompileError(f"column_definition_row_marked_{role.role}:{row}")
         # Header geometry is program knowledge: every column's definition carries the
         # declared header cells above it, and a cited header that does not sit above
         # the column, or a missing lowest header, is reported for repair.
@@ -799,6 +811,22 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         "groupIds": set(groups),
         "repeatIds": {r.id for r in ir.repeats},
     }
+
+    def statement_fields(source_refs):
+        """String fields that merely carry the statement's own text (label/value)."""
+        statement = set(source_refs)
+        owned = set()
+        for item in ir.fields:
+            if item.id in out.dropped_fields or item.valueType != "string":
+                continue
+            binding = bindings.get(item.bindingId) if item.bindingId else None
+            if binding is not None:
+                if binding.get("sourceRef") in statement:
+                    owned.add(item.id)
+            elif set(item.definitionRefs) <= statement:
+                owned.add(item.id)
+        return owned
+
     repeats_by_id = {r.id: r for r in ir.repeats}
     for meaning in ir.meanings:
         if meaning.id in meaning_ids or meaning.id in ids:
@@ -845,6 +873,17 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         if scope_errors:
             # A malformed applicability link must not discard valid field/value
             # bindings in the same response or silently apply only its valid half.
+            targets = []
+        elif (
+            meaning.kind in {"unit", "condition"}
+            and not meaning.groupIds
+            and not meaning.repeatIds
+            and meaning.fieldIds
+            and set(meaning.fieldIds) <= statement_fields(source_refs)
+        ):
+            # A unit or condition that only qualifies the string fields carrying its
+            # own statement has no applicability yet; the separate scope protocol
+            # chooses the values it governs, as it does for table meanings.
             targets = []
         elif meaning.rowStart is not None:
             bounded = []

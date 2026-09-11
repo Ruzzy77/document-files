@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 import time
 from copy import deepcopy
@@ -19,6 +20,34 @@ from importlib.metadata import version
 from pathlib import Path
 
 from .docling_adapter import RecognitionConfig
+
+_SUBSET_FILE_ID = re.compile(rb"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]")
+_SUBSET_CREATION_DATE = re.compile(rb"/CreationDate\s*\(D:([^)]*)\)")
+
+
+def deterministic_subset(page_content: bytes, source_hash: str, page_number: int) -> bytes:
+    """Replace PDFium's per-process file identifier and clock time in place.
+
+    Both change on every run while the serialized page does not, which gave the same
+    page a new recognition identity per run and put a different hash into every model
+    payload that names its nodes. Each replacement keeps the byte length, so the
+    cross-reference offsets of the serialized single-page document stay valid; an
+    unexpected shape is left untouched rather than patched.
+    """
+    identity = hashlib.sha256(f"{source_hash}:{page_number}".encode()).hexdigest().upper()
+
+    def file_id(match):
+        first, second = match.group(1), match.group(2)
+        if len(first) != len(second) or len(first) > len(identity):
+            return match.group(0)
+        replacement = identity[: len(first)].encode()
+        return match.group(0).replace(first, replacement).replace(second, replacement)
+
+    def creation_date(match):
+        payload = re.sub(rb"[0-9]", b"0", match.group(1))
+        return match.group(0).replace(match.group(1), payload)
+
+    return _SUBSET_CREATION_DATE.sub(creation_date, _SUBSET_FILE_ID.sub(file_id, page_content))
 
 
 def _offline_network_guard(event, _args):
@@ -258,7 +287,7 @@ def page_batches(
                 subset.import_pages(document, pages=[index])
                 stream = io.BytesIO()
                 subset.save(stream)
-                page_content = stream.getvalue()
+                page_content = deterministic_subset(stream.getvalue(), source_hash, index + 1)
             finally:
                 subset.close()
             try:

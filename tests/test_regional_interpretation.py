@@ -452,6 +452,131 @@ def _table():
     return doc, region, ir
 
 
+def test_header_row_marked_data_is_named_for_repair_before_values_are_read():
+    # The sixth GPU whole-path run marked the raster table's header row as data twice
+    # and only learned binding_cannot_represent_requested_type from the compiler.
+    doc, region, ir = _table()
+    region["requiredBindingIds"] = list(doc.bindings)
+    ir.repeats[0].rowRoles[0].role = "data"
+    ir.repeats[0].columns[1].valueType = "integer"
+    with pytest.raises(CompileError, match="^column_definition_row_marked_data:0$"):
+        compile_region(ir, doc, region)
+
+
+def _statement():
+    doc = ObservationDocument()
+    ref = doc.node("n0", "Unit: pcs")
+    label = doc.bind(ref, start=0, end=4, candidateRole="label")
+    value = doc.bind(ref, start=6, end=9, candidateRole="value")
+    region = {
+        "id": "r",
+        "nodeIds": [ref],
+        "bindingIds": [label, value],
+        "contextNodeIds": [],
+        "requiredBindingIds": [label, value],
+    }
+    return doc, region, label, value
+
+
+def _statement_ir(key_label, key_value, meaning=None):
+    doc, region, label, value = _statement()
+    ir = RegionInterpretation.model_validate(
+        {
+            "regionId": "r",
+            "fields": [
+                {
+                    "id": "f1",
+                    "key": key_label,
+                    "label": "Unit",
+                    "definitionRefs": ["n0"],
+                    "bindingId": label,
+                },
+                {
+                    "id": "f2",
+                    "key": key_value,
+                    "label": "pcs",
+                    "definitionRefs": ["n0"],
+                    "bindingId": value,
+                },
+            ],
+            "meanings": [meaning] if meaning else [],
+            "dispositions": [{"sourceRef": "n0", "role": "data", "explanation": "Statement"}],
+        }
+    )
+    return doc, region, ir
+
+
+def test_duplicate_field_key_names_the_key_for_repair():
+    doc, region, ir = _statement_ir("condition", "condition")
+    with pytest.raises(CompileError, match="^duplicate_data_property:condition$"):
+        compile_region(ir, doc, region)
+
+
+def test_unit_that_only_qualifies_its_own_statement_stays_unresolved_for_scope():
+    doc, region, ir = _statement_ir(
+        "unit_label",
+        "unit_value",
+        {
+            "id": "m1",
+            "kind": "unit",
+            "description": "Pieces",
+            "sourceRefs": ["n0"],
+            "fieldIds": ["f1", "f2"],
+        },
+    )
+    compiled = compile_region(ir, doc, region)
+    assertion = next(item for item in compiled.semantics if item["id"] == "r:m1")
+    assert assertion["kind"] == "unresolved_unit"
+    assert {"code": "semantic_scope_unresolved", "semanticId": "r:m1"} in compiled.issues
+    result = combine_regions([compiled])
+    assert result["data"] == {"unit_label": "Unit", "unit_value": "pcs"}
+
+
+def test_unit_on_a_numeric_field_of_its_own_statement_keeps_its_scope():
+    doc = ObservationDocument()
+    ref = doc.node("n0", "Weight: 12 kg")
+    label = doc.bind(ref, start=0, end=6, candidateRole="label")
+    value = doc.bind(ref, start=8, end=10, candidateRole="value")
+    region = {
+        "id": "r",
+        "nodeIds": [ref],
+        "bindingIds": [label, value],
+        "contextNodeIds": [],
+        "requiredBindingIds": [label, value],
+    }
+    ir = RegionInterpretation.model_validate(
+        {
+            "regionId": "r",
+            "fields": [
+                {
+                    "id": "weight",
+                    "key": "weight",
+                    "label": "Weight",
+                    "valueType": "integer",
+                    "definitionRefs": ["n0"],
+                    "bindingId": value,
+                }
+            ],
+            "meanings": [
+                {
+                    "id": "kg",
+                    "kind": "unit",
+                    "description": "Kilograms",
+                    "sourceRefs": ["n0"],
+                    "fieldIds": ["weight"],
+                }
+            ],
+            "dispositions": [{"sourceRef": "n0", "role": "data", "explanation": "Statement"}],
+        }
+    )
+    compiled = compile_region(ir, doc, region)
+    assertion = next(item for item in compiled.semantics if item["id"] == "r:kg")
+    assert assertion["kind"] == "unit"
+    assert [target["path"] for target in assertion["targets"]] == ["/weight"]
+    assert not any(i["code"] == "semantic_scope_unresolved" for i in compiled.issues)
+    assert combine_regions([compiled])["data"] == {"weight": 12}
+
+
 def test_repeat_expands_every_observed_row_and_semantic_scope():
     doc, region, ir = _table()
     region["requiredBindingIds"] = list(doc.bindings)
