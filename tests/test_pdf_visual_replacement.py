@@ -190,7 +190,8 @@ def test_rehashed_page_cannot_move_new_cells_away_from_their_source_slots(field)
 def test_owned_runner_empty_cell_reaches_semantic_region_and_resumes_without_calls(monkeypatch):
     run, calls, _, _, doc = setup(monkeypatch, empty=True)
     result, state = run()
-    assert result is not None and len(calls) == 2
+    # Two reading parts (cells, lines) and one review of the reading.
+    assert result is not None and len(calls) == 3
     assert result.tables["table"] == doc.tables["table"]
     region = next(r for r in result.regions if r.get("tableRef"))
     blank_ref = f"{region['tableRef']}/visual-blank/1:1"
@@ -198,7 +199,7 @@ def test_owned_runner_empty_cell_reaches_semantic_region_and_resumes_without_cal
     assert payload["nodes"][blank_ref]["text"] == ""
     assert any(b["sourceRef"] == blank_ref and b.get("blank") for b in payload["bindings"].values())
     assert "table" not in payload["tables"]
-    assert run(state)[0] == result and len(calls) == 2
+    assert run(state)[0] == result and len(calls) == 3
 
 
 @pytest.mark.parametrize("old_version", [None, "document-files.pdf-visual-apply.v3"])
@@ -211,4 +212,4 @@ def test_old_application_checkpoint_cannot_gain_new_resolutions_on_resume(monkey
         state["applicationVersion"] = old_version
     with pytest.raises(ValueError, match="incompatible"):
         run(state)
-    assert len(calls) == 2
+    assert len(calls) == 3

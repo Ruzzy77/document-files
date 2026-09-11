@@ -42,7 +42,7 @@ def fixture():
         "validation": validate_read(read_plan, answer(read_plan), detail_bounds=[0, 0, 90, 90]),
     }
     base = {
-        "version": "document-files.pdf-review-images.v1",
+        "version": "document-files.pdf-review-images.v2",
         "sourceSha256": capture["sourceSha256"],
         "sourceCaptureFingerprint": capture["fingerprint"],
         "sourcePixelSha256": capture["pixelSha256"],
@@ -225,6 +225,7 @@ def test_runner_transmits_the_real_panels_and_resumes_without_render_or_model(mo
     import json
     from types import SimpleNamespace
 
+    from test_pdf_image_read import requested_ids, strip_images
     from test_pdf_visual_plan import wire_response
 
     from document_files.interpretation import pdf_visual_runner as runner
@@ -235,6 +236,8 @@ def test_runner_transmits_the_real_panels_and_resumes_without_render_or_model(mo
     calls, checkpoints = [], []
     usage = {"modelCalls": 0, "unreportedUsageCalls": 0, "promptTokens": 0, "completionTokens": 0}
     monkeypatch.setattr(runner, "prepare_pdf_review_images", lambda *a, **kw: images)
+    strips = strip_images(reading["plan"])
+    monkeypatch.setattr(runner, "prepare_pdf_line_strips", lambda *a, **kw: strips)
     original_build = runner.build_page_plan
 
     def build(doc, *args, **kwargs):
@@ -247,11 +250,16 @@ def test_runner_transmits_the_real_panels_and_resumes_without_render_or_model(mo
     def infer(request):
         calls.append(request)
         if request.messages[0]["content"] == READ_SYSTEM:
-            decision = reading["validation"]["decision"]
+            ids = set(requested_ids(request))
+            decision = {
+                "entries": [
+                    e for e in reading["validation"]["decision"]["entries"] if e["id"] in ids
+                ]
+            }
         else:
             record = checkpoints[-1]["pages"]["1"]["imageReview"]
             assert record["status"] == "running" and record["images"]["version"] == display.VERSION
-            assert record["plan"] == plan and usage["modelCalls"] == 2
+            assert record["plan"] == plan and usage["modelCalls"] == 3
             content = request.messages[1]["content"]
             wire = json.loads(content[0]["text"])
             assert wire["unitDisplay"]["imageIndex"] == 1
@@ -275,7 +283,7 @@ def test_runner_transmits_the_real_panels_and_resumes_without_render_or_model(mo
             doc,
             client=SimpleNamespace(infer=infer),
             usage=usage,
-            max_calls=2,
+            max_calls=3,
             deadline=time.monotonic() + 30,
             context_chars=16000,
             checkpoint=lambda s: checkpoints.append(deepcopy(s)),
@@ -283,7 +291,8 @@ def test_runner_transmits_the_real_panels_and_resumes_without_render_or_model(mo
         )
 
     result, state = run()
-    assert result is not None and doc == before and len(calls) == 2
+    # Two reading parts and one review of the reading.
+    assert result is not None and doc == before and len(calls) == 3
     record = state["pages"]["1"]["imageReview"]
     assert record["validation"]["unitDisplayFingerprint"] == record["images"]["fingerprint"]
     assert (
@@ -296,12 +305,12 @@ def test_runner_transmits_the_real_panels_and_resumes_without_render_or_model(mo
         runner, "prepare_pdf_review_images", lambda *a, **kw: pytest.fail("render replay")
     )
     again, _ = run(state)
-    assert again.to_dict() == result.to_dict() and len(calls) == usage["modelCalls"] == 2
+    assert again.to_dict() == result.to_dict() and len(calls) == usage["modelCalls"] == 3
     broken = deepcopy(state)
     broken["pages"]["1"]["imageReview"]["images"] = images.descriptor
     with pytest.raises(ValueError, match="checkpoint is incompatible"):
         run(broken)
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 @pytest.mark.parametrize("change", ["absent", "original_only", "forged_rgb"])

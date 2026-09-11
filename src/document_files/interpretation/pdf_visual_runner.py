@@ -12,9 +12,19 @@ from .pdf_image_projection import propose_image_read
 from .pdf_image_read import MAX_OUTPUT_TOKENS as READ_MAX_OUTPUT_TOKENS
 from .pdf_image_read import SYSTEM as READ_SYSTEM
 from .pdf_image_read import VERSION as READ_VERSION
-from .pdf_image_read import build_read_plan, read_payload, read_schema, validate_read
+from .pdf_image_read import (
+    build_read_plan,
+    line_strips,
+    merge_read_parts,
+    read_requests,
+    validate_read,
+)
 from .pdf_review_images import VERSION as IMAGE_VERSION
-from .pdf_review_images import PdfReviewImageError, prepare_pdf_review_images
+from .pdf_review_images import (
+    PdfReviewImageError,
+    prepare_pdf_line_strips,
+    prepare_pdf_review_images,
+)
 from .pdf_visual_apply import VERSION as APPLY_VERSION
 from .pdf_visual_display import VERSION as DISPLAY_VERSION
 from .pdf_visual_display import display_argument, display_payload, prepare_display, validate_display
@@ -128,6 +138,16 @@ def _validated_read(doc, page, record):
     descriptors = record["images"]["images"]
     detail = descriptors[1]["sourcePixelBounds"] if len(descriptors) == 2 else None
     _validated_images(doc, plan, record["images"], detail)
+    requests = read_requests(plan, detail_bounds=detail)
+    require(
+        record.get("requests")
+        == [{"kind": r["kind"], "entryIds": r["entryIds"]} for r in requests],
+        "image_read_checkpoint_changed",
+    )
+    if any(r["kind"] == "lines" for r in requests):
+        _validated_strips(doc, plan, record.get("lineImages"))
+    else:
+        require("lineImages" not in record, "image_read_checkpoint_changed")
     if record["status"] in {"read", "unresolved"}:
         validation = record["validation"]
         require(
@@ -135,6 +155,26 @@ def _validated_read(doc, page, record):
             and record["status"] == validation["status"],
             "image_read_checkpoint_changed",
         )
+
+
+def _validated_strips(doc, plan, descriptor):
+    images = deepcopy(descriptor)
+    require(isinstance(images, dict), "image_read_checkpoint_changed")
+    fingerprint = images.pop("fingerprint", None)
+    images["usage"].pop("elapsedSeconds")
+    require(fingerprint == digest(images), "image_read_checkpoint_changed")
+    strips = line_strips(plan)
+    require(
+        images["sourceSha256"] == plan["sourceSha256"] == doc.provenance["sourceSha256"]
+        and images["sourceCaptureFingerprint"] == plan["captureFingerprint"]
+        and images["pageNo"] == plan["page"]
+        and [
+            (i["requestedPurpose"], i["requestedSlotKey"], i["sourcePixelBounds"])
+            for i in images["images"]
+        ]
+        == [("line_strip", s["id"], s["pageBounds"]) for s in strips],
+        "image_read_checkpoint_changed",
+    )
 
 
 def _response_usage(usage, response):
@@ -325,43 +365,75 @@ def review_pdf_pages(
                 return
             descriptors = images.descriptor["images"]
             detail = descriptors[1]["sourcePixelBounds"] if len(descriptors) == 2 else None
-            contract = read_schema(plan, detail_bounds=detail)
-            payload = encode({**read_payload(plan), "outputContract": contract})
-            if len(READ_SYSTEM) + len(payload) > context_chars:
+            requests = read_requests(plan, detail_bounds=detail)
+            payloads = [
+                encode({**request["payload"], "outputContract": request["contract"]})
+                for request in requests
+            ]
+            if any(len(READ_SYSTEM) + len(payload) > context_chars for payload in payloads):
                 raise ModelError("pdf_image_read_context_budget_exceeded")
+            # One attempt spends every part or none: a half-read page is not resumed.
+            if usage["modelCalls"] + len(requests) > max_calls:
+                pending("model_call_budget_exceeded")
+                return
             reason = stop_reason()
             if reason:
                 pending(reason)
                 return
-            attempt = {"status": "running", "plan": plan, "images": images.descriptor}
+            lines = next((r for r in requests if r["kind"] == "lines"), None)
+            strips = (
+                prepare_pdf_line_strips(
+                    content,
+                    pages[page]["capture"],
+                    lines["strips"],
+                    deadline=deadline,
+                    cancelled=cancelled,
+                )
+                if lines is not None
+                else None
+            )
+            attempt = {
+                "status": "running",
+                "plan": plan,
+                "images": images.descriptor,
+                "requests": [{"kind": r["kind"], "entryIds": r["entryIds"]} for r in requests],
+                **({"lineImages": strips.descriptor} if strips is not None else {}),
+            }
             record.update(status="reading", imageRead=attempt)
             record.pop("reason", None)
             state.pop("haltReason", None)
-            usage["modelCalls"] += 1
-            usage["unreportedUsageCalls"] += 1
-            checkpoint(state)
-            response = client.infer(
-                InferenceRequest(
-                    messages=[
-                        {"role": "system", "content": READ_SYSTEM},
-                        {
-                            "role": "user",
-                            "content": [{"type": "text", "text": payload}, *images.content_parts()],
-                        },
-                    ],
-                    output_schema=contract,
-                    max_output_tokens=min(
-                        READ_MAX_OUTPUT_TOKENS,
-                        getattr(client, "max_output_tokens", None) or READ_MAX_OUTPUT_TOKENS,
-                    ),
-                    timeout=deadline - time.monotonic(),
-                    cancelled=cancelled,
+            parts = []
+            for request, payload in zip(requests, payloads, strict=True):
+                usage["modelCalls"] += 1
+                usage["unreportedUsageCalls"] += 1
+                checkpoint(state)
+                shown = strips if request["kind"] == "lines" else images
+                response = client.infer(
+                    InferenceRequest(
+                        messages=[
+                            {"role": "system", "content": READ_SYSTEM},
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": payload},
+                                    *shown.content_parts(),
+                                ],
+                            },
+                        ],
+                        output_schema=request["contract"],
+                        max_output_tokens=min(
+                            READ_MAX_OUTPUT_TOKENS,
+                            getattr(client, "max_output_tokens", None) or READ_MAX_OUTPUT_TOKENS,
+                        ),
+                        timeout=deadline - time.monotonic(),
+                        cancelled=cancelled,
+                    )
                 )
-            )
-            _response_usage(usage, response)
-            if response.finish_reason != "stop":
-                raise ModelError("ai_response_incomplete")
-            validation = validate_read(plan, decode(response.text), detail_bounds=detail)
+                _response_usage(usage, response)
+                if response.finish_reason != "stop":
+                    raise ModelError("ai_response_incomplete")
+                parts.append(decode(response.text))
+            validation = validate_read(plan, merge_read_parts(plan, parts), detail_bounds=detail)
             attempt.update(status=validation["status"], validation=validation)
             record.update(status="unresolved", reason="pdf_image_read_requires_review")
         except (ModelError, PdfVisualReviewError) as exc:

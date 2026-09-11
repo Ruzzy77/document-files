@@ -54,6 +54,37 @@ def make_plan(doc, capture):
     return reading.build_read_plan(doc, capture, deadline=time.monotonic() + 30)
 
 
+def strip_images(plan):
+    """Synthetic lossless strip images matching the plan's strips, for runner tests."""
+    strips = reading.line_strips(plan)
+    descriptor = {
+        "sourceSha256": plan["sourceSha256"],
+        "sourceCaptureFingerprint": plan["captureFingerprint"],
+        "pageNo": plan["page"],
+        "usage": {"elapsedSeconds": 0.01},
+        "images": [
+            {
+                "requestedPurpose": "line_strip",
+                "requestedSlotKey": s["id"],
+                "sourcePixelBounds": s["pageBounds"],
+            }
+            for s in strips
+        ],
+    }
+    descriptor["fingerprint"] = digest({**descriptor, "usage": {}})
+    return PdfReviewImages(tuple(b"synthetic-strip" for _ in strips), descriptor)
+
+
+def requested_ids(request):
+    return [e["id"] for e in json.loads(request.messages[1]["content"][0]["text"])["entries"]]
+
+
+def part_answer(plan, request):
+    """The full synthetic answer restricted to the entries this request asks for."""
+    ids = set(requested_ids(request))
+    return {"entries": [e for e in answer(plan)["entries"] if e["id"] in ids]}
+
+
 def answer(plan):
     strings = ["Item", "Length", "A-01", "0.020", "B-02", "8.25", "Unit: mm"]
     return {
@@ -89,7 +120,7 @@ def test_read_contract_binds_the_state_to_the_literal_string():
 
     from document_files.interpretation.backends import _local_grammar_schema, _strict_wire_schema
 
-    assert reading.VERSION == "document-files.pdf-image-read.v4"
+    assert reading.VERSION == "document-files.pdf-image-read.v5"
     doc, capture = fixture()
     plan = make_plan(doc, capture)
     contract = reading.read_schema(plan, detail_bounds=[0, 0, 90, 90])
@@ -263,6 +294,7 @@ def setup_runner(monkeypatch, failure=None):
     }
     descriptors["fingerprint"] = digest({**descriptors, "usage": {}})
     images = PdfReviewImages((b"synthetic-full", b"synthetic-detail"), descriptors)
+    strips = strip_images(plan)
     calls, checkpoints = {"render": 0, "pixel": 0, "model": 0}, []
     usage = {
         "modelCalls": 0,
@@ -286,6 +318,7 @@ def setup_runner(monkeypatch, failure=None):
         raise PdfVisualReviewError("visual_slot_inventory_incomplete")
 
     monkeypatch.setattr(runner, "prepare_pdf_review_images", render)
+    monkeypatch.setattr(runner, "prepare_pdf_line_strips", lambda *a, **kw: strips)
     monkeypatch.setattr(runner, "extract_visual_pixels", pixels)
     monkeypatch.setattr(runner, "build_page_plan", review)
 
@@ -301,7 +334,7 @@ def setup_runner(monkeypatch, failure=None):
             assert usage["unreportedUsageCalls"] == 1
             if failure == "timeout":
                 raise ModelError("ai_timeout")
-            value = answer(plan)
+            value = part_answer(plan, request)
             if failure == "unknown":
                 value["entries"][0].update(state="uncertain", text="I?")
             return SimpleNamespace(
@@ -310,7 +343,7 @@ def setup_runner(monkeypatch, failure=None):
                 usage={"prompt_tokens": 100, "completion_tokens": 20},
             )
 
-    def run(*, restore=None, max_calls=1, expired=False, cancelled=None, context_chars=16000):
+    def run(*, restore=None, max_calls=2, expired=False, cancelled=None, context_chars=16000):
         return runner.review_pdf_pages(
             b"synthetic",
             doc,
@@ -332,32 +365,35 @@ def test_reading_attempt_is_counted_and_preserved_without_applying_or_repeating(
     before = deepcopy(doc)
     result, state = run()
     assert result is None and doc == before
-    assert calls == {"render": 1, "pixel": 1, "model": 1}
+    # Cells over page and detail, then text lines over lossless strips: two parts.
+    assert calls == {"render": 1, "pixel": 1, "model": 2}
     record = state["pages"]["1"]
     assert record["imageRead"]["status"] == "read"
+    assert [r["kind"] for r in record["imageRead"]["requests"]] == ["cells", "lines"]
+    assert record["imageRead"]["lineImages"]["images"][0]["requestedPurpose"] == "line_strip"
     assert state["haltReason"] == "model_call_budget_exceeded"
-    assert usage["modelCalls"] == 1 and usage["unreportedUsageCalls"] == 0
+    assert usage["modelCalls"] == 2 and usage["unreportedUsageCalls"] == 0
     assert "data:image" not in json.dumps(checkpoints)
     assert run(restore=state)[0] is None
-    assert calls == {"render": 1, "pixel": 1, "model": 1}
+    assert calls == {"render": 1, "pixel": 1, "model": 2}
     interrupted = next(s for s in checkpoints if s["pages"].get("1", {}).get("status") == "reading")
     assert run(restore=interrupted)[1]["haltReason"] == "pdf_image_read_interrupted"
-    assert calls["model"] == 1
+    assert calls["model"] == 2
 
 
 @pytest.mark.parametrize(
-    "failure,code",
+    "failure,code,spent",
     [
-        ("timeout", "ai_timeout"),
-        ("length", "ai_response_incomplete"),
-        ("unknown", "pdf_image_read_requires_review"),
+        ("timeout", "ai_timeout", 1),
+        ("length", "ai_response_incomplete", 1),
+        ("unknown", "pdf_image_read_requires_review", 2),
     ],
 )
-def test_failed_or_uncertain_reading_does_not_become_complete(monkeypatch, failure, code):
+def test_failed_or_uncertain_reading_does_not_become_complete(monkeypatch, failure, code, spent):
     _, calls, _, _, run = setup_runner(monkeypatch, failure)
     result, state = run()
     assert result is None and state["haltReason"] == code
-    assert run(restore=state)[0] is None and calls["model"] == 1
+    assert run(restore=state)[0] is None and calls["model"] == spent
 
 
 def test_unattempted_read_can_resume_without_replaying_the_review(monkeypatch):
@@ -366,10 +402,13 @@ def test_unattempted_read_can_resume_without_replaying_the_review(monkeypatch):
     assert result is None and state["pages"]["1"]["status"] == "read_pending"
     assert calls["model"] == 0
     assert run(restore=state, max_calls=1)[0] is None and calls["render"] == 1
-    result, resumed = run(restore=state, max_calls=2)
+    # Both parts of one attempt must fit the remaining budget; two calls cannot.
+    assert run(restore=state, max_calls=2)[1]["pages"]["1"]["status"] == "read_pending"
+    assert calls["model"] == 0
+    result, resumed = run(restore=state, max_calls=3)
     assert result is None and resumed["haltReason"] == "model_call_budget_exceeded"
-    assert calls == {"render": 2, "pixel": 1, "model": 1}
-    assert usage["modelCalls"] == 2  # The saved earlier call was not reset.
+    assert calls == {"render": 3, "pixel": 1, "model": 2}
+    assert usage["modelCalls"] == 3  # The saved earlier call was not reset.
 
 
 @pytest.mark.parametrize("change", ["text", "source", "image", "promote"])
@@ -387,7 +426,7 @@ def test_changed_read_checkpoint_or_false_completion_is_rejected(monkeypatch, ch
         state["pages"]["1"]["status"] = "reviewed"
     with pytest.raises(ValueError, match="incompatible"):
         run(restore=state)
-    assert calls["model"] == 1
+    assert calls["model"] == 2
 
 
 def test_context_budget_stops_before_the_additional_model_call(monkeypatch):
@@ -415,9 +454,9 @@ def test_engine_returns_additional_readings_in_partial_result_and_resumes_withou
         calls["model"] += 1
         assert request.messages[0]["content"] == reading.SYSTEM
         assert checkpoints[-1]["phase"] == "reviewing_pdf"
-        assert checkpoints[-1]["usage"]["modelCalls"] == 1
+        assert checkpoints[-1]["usage"]["modelCalls"] == calls["model"]
         return SimpleNamespace(
-            text=json.dumps(answer(plan)),
+            text=json.dumps(part_answer(plan, request)),
             finish_reason="stop",
             usage={"prompt_tokens": 100, "completion_tokens": 20},
         )
@@ -444,7 +483,7 @@ def test_engine_returns_additional_readings_in_partial_result_and_resumes_withou
     monkeypatch.setattr(engine, "observe_document", observe)
     content = b"%PDF-synthetic-image-reading"
     job = AnalysisJob(job_id="image-read", input=AnalysisInput.from_bytes(content, format_id="pdf"))
-    options = ExtractionOptions(reconstructionContext=False, maxModelCalls=1)
+    options = ExtractionOptions(reconstructionContext=False, maxModelCalls=2)
     result = engine.extract_schema_from_stream(
         job,
         io.BytesIO(content),
@@ -457,10 +496,88 @@ def test_engine_returns_additional_readings_in_partial_result_and_resumes_withou
     assert result["extraction"]["status"] == "partial" and result["data"] is None
     assert result["document"]["nodes"] == before.nodes
     assert result["document"]["structure"]["tables"] == before.tables
-    assert doc == before and calls["model"] == len(observations) == 1
+    assert doc == before and calls["model"] == 2 and len(observations) == 1
     assert checkpoints[-1]["identity"]["pdfVisualReview"]["imageRead"] == reading.VERSION
     again = engine.extract_schema_from_stream(
         job, io.BytesIO(content), model_client=client, options=options, restore=checkpoints[-1]
     )
     assert again["provenance"]["observation"]["pdfImageReadCandidates"] == candidates
-    assert again["data"] is None and calls["model"] == len(observations) == 1
+    assert again["data"] is None and calls["model"] == 2 and len(observations) == 1
+
+
+def test_cells_and_lines_are_read_in_two_bounded_requests_with_lossless_strips():
+    doc, capture = fixture()
+    plan = make_plan(doc, capture)
+    assert reading.VERSION == "document-files.pdf-image-read.v5"
+    strips = reading.line_strips(plan)
+    line = next(e for e in plan["entries"] if e["kind"] == "text_region")
+    assert [s["entryIds"] for s in strips] == [[line["id"]]]
+    b = line["bounds"]
+    assert strips[0]["pageBounds"] == [
+        max(0, b[0] - reading.STRIP_MARGIN),
+        max(0, b[1] - reading.STRIP_MARGIN),
+        min(plan["pixelSize"][0], b[2] + reading.STRIP_MARGIN),
+        min(plan["pixelSize"][1], b[3] + reading.STRIP_MARGIN),
+    ]
+    cells, lines = reading.read_requests(plan, detail_bounds=[0, 0, 90, 90])
+    assert cells["kind"] == "cells" and len(cells["entryIds"]) == 6
+    assert cells["payload"]["grids"] and all(
+        e["kind"] == "cell" for e in cells["payload"]["entries"]
+    )
+    branches = cells["contract"]["properties"]["entries"]["items"]["anyOf"]
+    assert [br["properties"]["state"]["const"] for br in branches] == ["text", "empty", "uncertain"]
+    assert branches[0]["properties"]["id"]["enum"] == cells["entryIds"]
+    assert lines["kind"] == "lines" and lines["entryIds"] == [line["id"]]
+    entry = lines["payload"]["entries"][0]
+    o = strips[0]["pageBounds"]
+    assert entry["image"] == 1 and entry["imageBounds"] == [
+        b[0] - o[0],
+        b[1] - o[1],
+        b[2] - o[0],
+        b[3] - o[1],
+    ]
+    assert lines["payload"]["images"][0]["lossless"] is True and "grids" not in lines["payload"]
+    line_branches = lines["contract"]["properties"]["entries"]["items"]["anyOf"]
+    assert [br["properties"]["state"]["const"] for br in line_branches] == ["text", "uncertain"]
+    full = answer(plan)
+    parts = [
+        {"entries": [e for e in full["entries"] if e["id"] in cells["entryIds"]]},
+        {"entries": [e for e in full["entries"] if e["id"] in lines["entryIds"]]},
+    ]
+    merged = reading.merge_read_parts(plan, parts)
+    assert merged == full
+    assert reading.validate_read(plan, merged, detail_bounds=[0, 0, 90, 90])["status"] == "read"
+    with pytest.raises(PdfVisualReviewError, match="image_read_entry_inventory"):
+        reading.merge_read_parts(plan, parts[:1])
+    with pytest.raises(PdfVisualReviewError, match="image_read_entry_inventory"):
+        reading.merge_read_parts(plan, [parts[0], parts[0], parts[1]])
+
+
+def test_line_strips_group_consecutive_lines_and_bound_their_height():
+    doc, capture = fixture()
+    plan = make_plan(doc, capture)
+    entries = [e for e in plan["entries"] if e["kind"] == "cell"]
+    tall = {**plan, "pixelSize": [2000, 4000]}
+    tall["entries"] = entries + [
+        {"id": f"t{i}", "kind": "text_region", "bounds": [10, 100 + i * 200, 900, 130 + i * 200]}
+        for i in range(8)
+    ]
+    strips = reading.line_strips(tall)
+    assert [s["entryIds"] for s in strips] == [
+        ["t0", "t1", "t2", "t3", "t4"],
+        ["t5", "t6", "t7"],
+    ]
+    assert all(
+        s["pageBounds"][3] - s["pageBounds"][1]
+        <= reading.STRIP_MAX_HEIGHT + 2 * reading.STRIP_MARGIN
+        for s in strips
+    )
+    many = {
+        **tall,
+        "entries": entries
+        + [
+            {"id": f"t{i}", "kind": "text_region", "bounds": [10, 100 + i * 40, 900, 120 + i * 40]}
+            for i in range(8)
+        ],
+    }
+    assert [len(s["entryIds"]) for s in reading.line_strips(many)] == [6, 2]

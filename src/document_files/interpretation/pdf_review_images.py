@@ -14,7 +14,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from importlib.metadata import version
 
-VERSION = "document-files.pdf-review-images.v1"
+VERSION = "document-files.pdf-review-images.v2"
 MAX_SOURCE_BYTES = 128 * 1024**2
 MAX_IMAGE_BYTES = 16 * 1024**2
 MAX_IMAGE_PIXELS = 16000000
@@ -80,11 +80,45 @@ class _BoundedPng(io.BytesIO):
         return super().write(data)
 
 
+def prepare_pdf_line_strips(
+    content: bytes,
+    capture: dict,
+    strips: list[dict],
+    *,
+    deadline: float,
+    cancelled: Callable[[], bool] | None = None,
+) -> PdfReviewImages:
+    """Lossless page strips for text-line reading, without the scaled page image.
+
+    Each strip is ``{"id", "pageBounds"}`` in capture pixels; the descriptor records
+    the strip id as ``requestedSlotKey`` and ``line_strip`` as its purpose. Strips
+    locate pixels only; they establish no reading, order or completeness.
+    """
+    _require(isinstance(strips, list) and strips, "pdf_review_crop_invalid")
+    return prepare_pdf_review_images(
+        content,
+        capture,
+        crops=[
+            {
+                "pixelBounds": strip.get("pageBounds") if isinstance(strip, dict) else None,
+                "kind": "line_strip",
+                "slotKey": strip.get("id") if isinstance(strip, dict) else None,
+            }
+            for strip in strips
+        ],
+        include_page=False,
+        deadline=deadline,
+        cancelled=cancelled,
+    )
+
+
 def prepare_pdf_review_images(
     content: bytes,
     capture: dict,
     *,
     crop: dict | None = None,
+    crops: list[dict] | None = None,
+    include_page: bool = True,
     deadline: float,
     cancelled: Callable[[], bool] | None = None,
 ) -> PdfReviewImages:
@@ -94,7 +128,9 @@ def prepare_pdf_review_images(
     Crop bounds use integer pixel edges [x0,x1) x [y0,y1), including the outer
     image edge. ``kind='full_slot'`` records requested purpose only. It cannot
     establish a structural slot association, blank value, reading order or OCR
-    correctness. No global observations/issues are mutated.
+    correctness. ``crops`` lists several crops (``line_strip`` strips carry their
+    strip id as ``slotKey``); ``include_page=False`` omits the scaled page image.
+    No global observations/issues are mutated.
 
     Native render/decode calls have before/after deadline checks; hard preemption
     remains the owned job supervisor's responsibility, as in the existing worker.
@@ -117,7 +153,10 @@ def prepare_pdf_review_images(
     _require(type(content) is bytes and content.startswith(b"%PDF-"), "pdf_review_source_invalid")
     _require(len(content) <= MAX_SOURCE_BYTES, "pdf_review_source_byte_budget_exceeded")
     _require(isinstance(capture, dict), "pdf_review_capture_invalid")
-    document = page = bitmap = native_image = image = detail = None
+    _require(crop is None or crops is None, "pdf_review_crop_invalid")
+    _require(type(include_page) is bool, "pdf_review_configuration_invalid")
+    document = page = bitmap = native_image = image = None
+    details = []
     try:
         import pypdfium2 as pdfium
 
@@ -125,7 +164,12 @@ def prepare_pdf_review_images(
         from ..document_model.recognition_visual import visual_profile
         from ..document_model.recognition_worker import _render_coordinate_evidence
 
-        frozen, selected = deepcopy(capture), deepcopy(crop)
+        frozen = deepcopy(capture)
+        requested = (
+            deepcopy(crops) if crops is not None else [deepcopy(crop)] if crop is not None else []
+        )
+        _require(isinstance(requested, list) and len(requested) <= 64, "pdf_review_crop_invalid")
+        _require(include_page or requested, "pdf_review_crop_invalid")
         _require(len(_json(frozen).encode()) <= 16 * 1024**2)
         _require(frozen.get("fingerprint") == page_render_fingerprint(frozen))
         source_hash = _sha(content)
@@ -177,8 +221,8 @@ def prepare_pdf_review_images(
             and coordinates.get("status") == "verified"
             and coordinates.get("version") == "document-files.render-coordinates.v1"
         )
-        total_pixels = width * height
-        if selected is not None:
+        total_pixels = width * height if include_page else 0
+        for selected in requested:
             _require(
                 isinstance(selected, dict) and set(selected) == {"pixelBounds", "kind", "slotKey"},
                 "pdf_review_crop_invalid",
@@ -193,7 +237,7 @@ def prepare_pdf_review_images(
             x0, y0, x1, y1 = bounds
             _require(0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height, "pdf_review_crop_invalid")
             _require(
-                selected["kind"] in {"detail", "full_slot"}
+                selected["kind"] in {"detail", "full_slot", "line_strip"}
                 and (
                     selected["slotKey"] is None
                     or (
@@ -205,7 +249,7 @@ def prepare_pdf_review_images(
                 "pdf_review_crop_invalid",
             )
             _require(
-                selected["kind"] != "full_slot" or selected["slotKey"] is not None,
+                selected["kind"] == "detail" or selected["slotKey"] is not None,
                 "pdf_review_crop_invalid",
             )
             total_pixels += (x1 - x0) * (y1 - y0)
@@ -263,14 +307,16 @@ def prepare_pdf_review_images(
         check_time()
         _require(raw_sha == frozen.get("pixelSha256"), "pdf_review_pixels_changed")
         a, b, c, d, e, f = actual_coordinates["pixelToPageAffine"]
-        inputs = [(image, full_bounds, "full_page", None)]
-        if selected is not None:
+        inputs = [(image, full_bounds, "full_page", None)] if include_page else []
+        for selected in requested:
+            check_time()
             detail = image.crop(tuple(selected["pixelBounds"]))
+            details.append(detail)
             inputs.append((detail, selected["pixelBounds"], selected["kind"], selected["slotKey"]))
         png_images, descriptors, total_bytes = [], [], 0
         for ordinal, (current, bounds, purpose, slot_key) in enumerate(inputs):
             check_time()
-            pixel_sha = raw_sha if ordinal == 0 else _sha(current.tobytes())
+            pixel_sha = raw_sha if purpose == "full_page" else _sha(current.tobytes())
             check_time()
             with _BoundedPng(MAX_IMAGE_BYTES - total_bytes) as output:
                 current.save(output, format="PNG", compress_level=6, optimize=False)
@@ -328,7 +374,7 @@ def prepare_pdf_review_images(
                 "sourceBytes": MAX_SOURCE_BYTES,
                 "imageBytes": MAX_IMAGE_BYTES,
                 "imagePixels": MAX_IMAGE_PIXELS,
-                "images": 2,
+                "images": max(2, len(inputs)),
             },
             "captureReproduced": True,
             "contentCompletenessVerified": False,
@@ -351,7 +397,7 @@ def prepare_pdf_review_images(
         # Each returned byte string owns its data; all native/PIL handles close.
         failing = sys.exc_info()[0] is not None
         close_failed = False
-        for resource in (detail, image, native_image, bitmap, page, document):
+        for resource in (*details, image, native_image, bitmap, page, document):
             if resource is not None:
                 try:
                     resource.close()

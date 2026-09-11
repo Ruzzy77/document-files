@@ -2,6 +2,16 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Image read v5 reads a page's measured grid cells and its text lines in two bounded
+  requests: cells over the prepared page and lossless detail, lines over lossless page
+  strips of a few consecutive lines each (review images v2 adds the `line_strip`
+  purpose and several crops per preparation), each line entry naming its strip and
+  its rectangle inside it. Both parts must fit the remaining model-call budget before
+  either is spent, the merged answer is validated as one reading, and the checkpoint
+  records the parts and strip identities. Bounded probes had read every cell (12/12)
+  and every line on strips (4/4), while the single request over the scaled page put
+  the second continued-table run's header and first data row into the line entries
+  and answered every cell empty. Prior read checkpoints are incompatible.
 - PDF page review v12 no longer fails a page when the model labels a pixel unit that
   references no observed string as `source_text` or `text_and_border`: the label
   accepts nothing, the receiver records it under `reinterpretations` as `unknown` and

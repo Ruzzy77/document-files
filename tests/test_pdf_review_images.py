@@ -348,3 +348,44 @@ def test_mutated_actual_geometry_rejected_before_render(source, monkeypatch):
     monkeypatch.setattr(pdfium.PdfPage, "render", lambda *a, **kw: pytest.fail("unexpected render"))
     with pytest.raises(review.PdfReviewImageError, match="geometry_changed"):
         run(source)
+
+
+def test_line_strips_are_lossless_crops_without_the_page_image(source):
+    content, capture = source
+    strips = [
+        {"id": "s0", "pageBounds": [0, 0, 60, 30]},
+        {"id": "s1", "pageBounds": [0, 30, 120, 80]},
+    ]
+    result = review.prepare_pdf_line_strips(
+        content, capture, strips, deadline=time.monotonic() + 30
+    )
+    images = result.descriptor["images"]
+    assert [
+        (i["requestedPurpose"], i["requestedSlotKey"], i["sourcePixelBounds"]) for i in images
+    ] == [
+        ("line_strip", "s0", [0, 0, 60, 30]),
+        ("line_strip", "s1", [0, 30, 120, 80]),
+    ]
+    assert all(i["resampling"] is False for i in images) and len(result.png_images) == 2
+    assert result.descriptor["version"] == "document-files.pdf-review-images.v2"
+    assert result.descriptor["limits"]["images"] == 2
+    page = run(source)
+    with (
+        Image.open(io.BytesIO(page.png_images[0])) as full,
+        Image.open(io.BytesIO(result.png_images[1])) as strip,
+    ):
+        assert strip.size == (120, 50)
+        assert full.crop((0, 30, 120, 80)).tobytes() == strip.tobytes()
+    again = review.prepare_pdf_line_strips(content, capture, strips, deadline=time.monotonic() + 30)
+    assert again.descriptor["fingerprint"] == result.descriptor["fingerprint"]
+    for invalid in (
+        [],
+        [{"id": "s0", "pageBounds": [0, 0, 361, 30]}],
+        [{"id": None, "pageBounds": [0, 0, 60, 30]}],
+    ):
+        with pytest.raises(review.PdfReviewImageError, match="crop_invalid"):
+            review.prepare_pdf_line_strips(
+                content, capture, invalid, deadline=time.monotonic() + 30
+            )
+    with pytest.raises(review.PdfReviewImageError, match="crop_invalid"):
+        run(source, crop={"pixelBounds": [0, 0, 1, 1], "kind": "detail", "slotKey": None}, crops=[])

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 from PIL import Image, ImageDraw
-from test_pdf_image_read import answer, fixture, make_plan
+from test_pdf_image_read import answer, fixture, make_plan, requested_ids, strip_images
 from test_pdf_visual_plan import wire_response
 
 from document_files.document_model.recognition_cell_observations import fingerprint
@@ -291,6 +291,8 @@ def setup(monkeypatch, choice="accepted", empty=False):
     checkpoints = []
     usage = {"modelCalls": 0, "unreportedUsageCalls": 0, "promptTokens": 0, "completionTokens": 0}
     monkeypatch.setattr(runner, "prepare_pdf_review_images", lambda *a, **kw: images)
+    strips = strip_images(reading["plan"])
+    monkeypatch.setattr(runner, "prepare_pdf_line_strips", lambda *a, **kw: strips)
     monkeypatch.setattr(runner, "extract_visual_pixels", lambda *a, **kw: pixels)
     original = runner.build_page_plan
 
@@ -306,7 +308,12 @@ def setup(monkeypatch, choice="accepted", empty=False):
         assert usage["modelCalls"] == len(calls) and usage["unreportedUsageCalls"] == 1
         is_read = request.messages[0]["content"] == READ_SYSTEM
         if is_read:
-            decision = reading["validation"]["decision"]
+            ids = set(requested_ids(request))
+            decision = {
+                "entries": [
+                    e for e in reading["validation"]["decision"]["entries"] if e["id"] in ids
+                ]
+            }
         else:
             assert checkpoints[-1]["pages"]["1"]["imageReview"]["status"] == "running"
             if choice == "timeout":
@@ -322,7 +329,7 @@ def setup(monkeypatch, choice="accepted", empty=False):
 
     client = SimpleNamespace(infer=infer)
 
-    def run(restore=None, max_calls=2):
+    def run(restore=None, max_calls=3):
         result, state = runner.review_pdf_pages(
             b"synthetic",
             doc,
@@ -345,7 +352,8 @@ def test_reachable_review_applies_only_selected_view_and_restores_without_new_mo
 ):
     run, calls, checkpoints, usage, doc = setup(monkeypatch)
     result, state = run()
-    assert result is not None and len(calls) == 2
+    # Two reading parts (cells, lines) and one review of the reading.
+    assert result is not None and len(calls) == 3
     assert result.provenance["pdfVisualReviewApplication"]["status"] == "applied"
     assert result.provenance["pdfVisualReviewApplication"]["selectedImageProjectionFingerprints"]
     assert result.tables["table"] == doc.tables["table"] and result.issues == []
@@ -355,31 +363,31 @@ def test_reachable_review_applies_only_selected_view_and_restores_without_new_mo
         r["basis"] == "owned_visual_replacement_table"
         for r in result.provenance["pdfVisualReviewApplication"]["resolvedIssues"]
     )
-    assert run(state)[0] == result and len(calls) == 2
+    assert run(state)[0] == result and len(calls) == 3
     interrupted = next(
         s
         for s in checkpoints
         if s["pages"].get("1", {}).get("imageReview", {}).get("status") == "running"
     )
     assert run(interrupted)[1]["haltReason"] == "pdf_image_projection_review_interrupted"
-    assert usage["modelCalls"] == 2 and "data:image" not in json.dumps(checkpoints)
+    assert usage["modelCalls"] == 3 and "data:image" not in json.dumps(checkpoints)
 
 
 @pytest.mark.parametrize("choice", ["unknown", "timeout"])
 def test_failed_or_unknown_review_retains_original_and_is_not_retried(monkeypatch, choice):
     run, calls, _, _, _ = setup(monkeypatch, choice)
     result, state = run()
-    assert result is None and len(calls) == 2
-    assert run(state)[0] is None and len(calls) == 2
+    assert result is None and len(calls) == 3
+    assert run(state)[0] is None and len(calls) == 3
 
 
 def test_unattempted_review_resumes_without_reading_again(monkeypatch):
     run, calls, _, _, _ = setup(monkeypatch)
-    result, state = run(max_calls=1)
-    assert result is None and len(calls) == 1
+    result, state = run(max_calls=2)
+    assert result is None and len(calls) == 2
     assert state["haltReason"] == "model_call_budget_exceeded"
-    assert run(state, max_calls=1)[0] is None and len(calls) == 1
-    assert run(state)[0] is not None and len(calls) == 2
+    assert run(state, max_calls=2)[0] is None and len(calls) == 2
+    assert run(state)[0] is not None and len(calls) == 3
 
 
 @pytest.mark.parametrize("change", ["text", "grid", "image", "input", "decision"])
@@ -399,7 +407,7 @@ def test_completed_review_checkpoint_cannot_change_inputs_or_decisions(monkeypat
         review["validation"]["decision"]["sourceChecks"][0]["decision"] = "unknown"
     with pytest.raises(ValueError, match="incompatible"):
         run(state)
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 def test_failed_preparation_is_preserved_without_repeated_pixel_work(monkeypatch):
@@ -416,7 +424,7 @@ def test_failed_preparation_is_preserved_without_repeated_pixel_work(monkeypatch
     monkeypatch.setattr(runner, "build_page_plan", fail)
     result, state = run()
     assert result is None and state["haltReason"] == "visual_comparison_budget"
-    assert run(state)[0] is None and len(calls) == len(preparations) == 1
+    assert run(state)[0] is None and len(calls) == 2 and len(preparations) == 1
 
 
 @pytest.mark.parametrize("change", ["unresolved", "missing", "duplicate", "wrong_observation"])
@@ -450,7 +458,7 @@ def test_runner_rejects_unmeasured_proposal_before_spending_review_call(monkeypa
     monkeypatch.setattr(runner, "build_page_plan", unmeasured)
     result, state = run()
     assert result is None and state["haltReason"] == "visual_proposal_grid_unmeasured"
-    assert run(state)[0] is None and len(calls) == 1
+    assert run(state)[0] is None and len(calls) == 2
 
 
 def test_measured_rule_pixels_cannot_be_classified_as_cell_text():
@@ -516,8 +524,8 @@ def test_core_geometry_does_not_turn_a_faint_mark_in_an_empty_candidate_into_bla
 
 def test_invalid_display_source_blocks_before_spending_model_call(monkeypatch):
     run, calls, checkpoints, usage, doc = setup(monkeypatch)
-    _, waiting = run(max_calls=1)
-    assert len(calls) == usage["modelCalls"] == 1
+    _, waiting = run(max_calls=2)
+    assert len(calls) == usage["modelCalls"] == 2
     original = runner.build_page_plan
     builds = []
 
@@ -530,8 +538,8 @@ def test_invalid_display_source_blocks_before_spending_model_call(monkeypatch):
 
     monkeypatch.setattr(runner, "build_page_plan", undisplayed)
     result, state = run(restore=waiting)
-    assert result is None and len(calls) == usage["modelCalls"] == 1
+    assert result is None and len(calls) == usage["modelCalls"] == 2
     assert state["pages"]["1"]["imageReviewPreparationFailure"] == "visual_display_source_changed"
     assert "imageReview" not in state["pages"]["1"] and len(builds) == 1
     again, _ = run(restore=state)
-    assert again is None and len(calls) == 1 and len(builds) == 1
+    assert again is None and len(calls) == 2 and len(builds) == 1

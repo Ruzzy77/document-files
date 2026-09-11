@@ -11,6 +11,7 @@ from copy import deepcopy
 from importlib.metadata import version
 
 from .pdf_review_images import MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, PdfReviewImages, _BoundedPng
+from .pdf_review_images import VERSION as IMAGES_VERSION
 from .pdf_visual_plan import MAX_SPLIT_RUNS, MAX_UNITS, PdfVisualReviewError, digest, require
 
 VERSION = "document-files.pdf-unit-display.v2"
@@ -65,7 +66,7 @@ def _base(plan, descriptor):
     base["usage"].pop("elapsedSeconds", None)
     require(claimed == digest(base), "visual_display_source_changed")
     require(
-        descriptor.get("version") == "document-files.pdf-review-images.v1"
+        descriptor.get("version") == IMAGES_VERSION
         and descriptor.get("sourceSha256") == plan["sourceSha256"]
         and descriptor.get("sourceCaptureFingerprint") == plan["captureFingerprint"]
         and descriptor.get("sourcePixelSha256") == plan["rgbSha256"]
