@@ -161,7 +161,7 @@ def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False):
 
 def test_versions_and_contract_name_the_duplicate_decision():
     assert PROMPT_VERSION == "document-files.semantic-prompts.v27"
-    assert COMPILER_VERSION == "document-files.result-compiler.v20"
+    assert COMPILER_VERSION == "document-files.result-compiler.v21"
     assert SCOPE_VERSION == "document-files.scope-integration.v13"
     assert "duplicate" in INTEGRATE and "continue is not offered there" in INTEGRATE
     assert "Cite sourceRefs from the sourceNodes keys only" in INTEGRATE
@@ -257,7 +257,11 @@ def test_duplicate_binds_the_copy_to_the_same_rows_and_adds_only_provenance():
         if s["kind"] == "field_definition"
         and s["targets"][0]["path"] == "/properties/rows/items/properties/name"
     ]
-    assert len(definitions) == 1 and definitions[0]["sourceRefs"] == ["p1c0:0", "p2c0:0"]
+    # The assertion keeps the earlier definition's own references; the copy's
+    # header joins the schema evidence and the correction record.
+    assert len(definitions) == 1 and definitions[0]["sourceRefs"] == ["p1c0:0"]
+    schema = {e["target"]["path"]: e for e in result["schemaEvidence"]}
+    assert schema["/properties/rows/items/properties/name"]["sourceRefs"] == ["p1c0:0", "p2c0:0"]
     right = next(r for r in joined if r.id == "p2table")
     assert right.row_scopes == {} and right.repeat_paths == {} and right.data == {}
     codes = {c["code"] for c in result["corrections"]}
@@ -302,9 +306,11 @@ def test_repeated_statement_fields_and_meanings_fold_into_the_earlier_page(decis
     assert schema["/properties/unit"]["semanticIds"] == ["p1text:unit"]
     units = [s for s in result["semantics"] if s["kind"] in {"unit", "unresolved_unit"}]
     assert [u["id"] for u in units] == ["p1text:u"]
-    assert units[0]["sourceRefs"] == ["p1stmt", "p2stmt"]
+    assert units[0]["sourceRefs"] == ["p1stmt"]
     definitions = [s for s in result["semantics"] if s["targets"][0]["path"] == "/properties/unit"]
-    assert len(definitions) == 1 and definitions[0]["sourceRefs"] == ["p1stmt", "p2stmt"]
+    assert len(definitions) == 1 and definitions[0]["sourceRefs"] == ["p1stmt"]
+    merged = [c for c in result["corrections"] if c["code"] == "repeated_meaning_merged"]
+    assert merged[0]["sourceRefs"] == ["p2stmt"] and merged[0]["into"] == "p1text:u"
     assert [i for i in result["issues"] if i["code"] == "semantic_scope_unresolved"] == [
         {"code": "semantic_scope_unresolved", "semanticId": "p1text:u"}
     ]
@@ -315,6 +321,9 @@ def test_repeated_statement_fields_and_meanings_fold_into_the_earlier_page(decis
     # The repeated wording on page 2 is statement text, never an applicability candidate.
     offered = [item["definition"]["id"] for item in tasks[0].target_map.values()]
     assert "p1text:unit" not in offered
+    # Candidates present each definition as it was interpreted on its own page.
+    for candidate in tasks[0].payload["candidates"]:
+        assert all(ref.startswith("p1") for ref in candidate["definitionRefs"])
 
 
 def test_repeated_wording_with_a_different_value_or_separate_tables_is_kept():

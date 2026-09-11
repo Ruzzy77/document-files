@@ -24,7 +24,8 @@
   character request budget in the twelfth GPU run; the thirteenth run, which had
   offered the left table's first and last rows against the right table's first two,
   compared the left last row with the right second row, answered `separate` and cited
-  table identifiers instead of nodes. Compiler v20
+  table identifiers instead of nodes. Compiler v21 (v20 was an intermediate
+  development identity)
   binds a decided duplicate to the same rows: the copy adds cell and column-definition
   provenance to the earlier rows and its table definitions fold into the earlier ones
   (`duplicate_table_definition_merged`); a duplicate whose compiled rows differ is
@@ -33,12 +34,16 @@
   (every cited node is a page text whose exact wording appears once on each page, the
   earlier field cites those counterparts and carries the same value, or the earlier
   meaning cites them in the same resolution state) folds into the earlier field or
-  meaning with its provenance, recorded as `repeated_statement_merged` and
-  `repeated_meaning_merged` in `coverage.programCorrections`; text identity never
-  relates pages by itself. Scope integration v13 treats the merged wording as statement
-  text, so it is not offered as an applicability candidate. The mixed native/raster
-  development document had compiled the raster copy as four rows with the title, unit
-  and condition statements twice.
+  meaning, recorded as `repeated_statement_merged` and `repeated_meaning_merged` in
+  `coverage.programCorrections`; text identity never relates pages by itself. The
+  later page's nodes join the schema and value evidence and the correction record,
+  while each assertion keeps the earlier definition's own references: the fifteenth
+  GPU run had presented merged references and the copy's cells inside applicability
+  candidates, and the page 1 condition then chose every column of the record instead
+  of the Qty column it had chosen before. Scope integration v13 treats the merged
+  wording as statement text, so it is not offered as an applicability candidate. The
+  mixed native/raster development document had compiled the raster copy as four rows
+  with the title, unit and condition statements twice.
 - Scope-axis protocol v5 (v4 was an intermediate development identity) states in its
   prompt that a meaning's own statement text is never offered as a candidate and that the decision selects the offered fields, columns
   or rows whose values the meaning qualifies (a unit the measured or counted values, a

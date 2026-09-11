@@ -1254,7 +1254,10 @@ def _merge_repeated_statements(compiled, counterparts, candidate_id, aliases):
     whose text appears once on each page, the earlier leaf cites those counterparts
     and both carry the same observed value. Statement meanings follow the same node
     identity in the same resolution state. Text identity applies the model's page
-    relation to repeated wording; it never relates pages by itself.
+    relation to repeated wording; it never relates pages by itself. The later page's
+    nodes join the schema and value evidence and the correction record; the
+    assertion keeps the earlier definition's own references, so applicability
+    candidates present each definition as it was interpreted.
     """
     leaves = list(_leaves(compiled))
     for right, record, schema_path, value in leaves:
@@ -1289,7 +1292,6 @@ def _merge_repeated_statements(compiled, counterparts, candidate_id, aliases):
                     for t in earlier["targets"]
                 ):
                     aliases[item["id"]] = earlier["id"]
-                    earlier["sourceRefs"] = _union(earlier["sourceRefs"], item["sourceRefs"])
                     _drop_semantic(right, item["id"])
                     break
         other["sourceRefs"] = _union(other["sourceRefs"], record["sourceRefs"])
@@ -1330,7 +1332,6 @@ def _merge_repeated_statements(compiled, counterparts, candidate_id, aliases):
         left, other = matches[0]
         item = next(i for i in right.semantics if i["id"] == detail["id"])
         earlier = next(i for i in left.semantics if i["id"] == other["id"])
-        earlier["sourceRefs"] = _union(earlier["sourceRefs"], item["sourceRefs"])
         if not _unresolved(right, detail["id"]):
             earlier["targets"] = _union(earlier["targets"], item["targets"])
             earlier["scope"] = _union(earlier["scope"], item["scope"])
@@ -1368,7 +1369,6 @@ def _merge_duplicate_table(left, right, a, candidate_id, aliases):
         earlier = signatures.get(_signature(item))
         if earlier is None:
             continue
-        earlier["sourceRefs"] = _union(earlier["sourceRefs"], item["sourceRefs"])
         aliases[item["id"]] = earlier["id"]
         right.corrections.append(
             {
