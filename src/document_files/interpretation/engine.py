@@ -45,9 +45,9 @@ from .pdf_visual_runner import review_identity, review_pdf_pages
 from .regions import (
     REGION_PLAN_VERSION,
     continuation_candidates,
-    model_node,
     prepare_regions,
     region_payload,
+    relation_node,
     route_table_values,
 )
 from .scope_protocol import SYSTEM as SCOPE_SYSTEM
@@ -360,6 +360,21 @@ def _initial_result(job, observation, analyzer, selected, client, content):
 def integration_candidate(candidate):
     """The relation evidence the model sees; text counterparts stay compiler evidence."""
     return {k: v for k, v in candidate.items() if k != "nodeCounterparts"}
+
+
+def integration_request(observation, candidates):
+    """Candidates with bounded position views of their cited nodes and table cells."""
+    refs = list(dict.fromkeys(r for c in candidates for r in c["sourceRefs"]))
+    cells = {}
+    for candidate in candidates:
+        for key in ("leftTable", "rightTable"):
+            table = observation.tables.get(candidate.get(key), {})
+            for cell in table.get("cells", []):
+                cells.setdefault(cell["sourceRef"], cell)
+    return {
+        "candidates": [integration_candidate(c) for c in candidates],
+        "sourceNodes": {r: relation_node(observation.nodes[r], cell=cells.get(r)) for r in refs},
+    }
 
 
 def extract_schema_from_stream(
@@ -1661,11 +1676,7 @@ def extract_schema_from_stream(
     )
 
     def integration_payload(items):
-        refs = list(dict.fromkeys(r for c in items for r in c["sourceRefs"]))
-        return {
-            "candidates": [integration_candidate(c) for c in items],
-            "sourceNodes": {r: model_node(observation.nodes[r]) for r in refs},
-        }
+        return integration_request(observation, items)
 
     for candidate in pending:
         trial = [*batch, candidate]

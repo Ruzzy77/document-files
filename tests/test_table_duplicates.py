@@ -8,8 +8,9 @@ from document_files.interpretation.compiler import (
     compile_region,
     join_continuations,
 )
-from document_files.interpretation.engine import integration_candidate
+from document_files.interpretation.engine import integration_candidate, integration_request
 from document_files.interpretation.integration import SCOPE_VERSION, build_scope_tasks
+from document_files.interpretation.legacy_engine import encode
 from document_files.interpretation.regions import continuation_candidates
 from document_files.interpretation.semantic_prompts import INTEGRATE, PROMPT_VERSION
 from document_files.interpretation.semantic_types import (
@@ -286,3 +287,37 @@ def test_repeated_wording_with_a_different_value_or_separate_tables_is_kept():
     assert not issues and not links
     result = combine_regions(joined)
     assert result["data"]["unit"] == "pcs" and result["data"]["unit_2"] == "pcs"
+
+
+def test_integration_request_sends_bounded_position_views_of_whole_rows():
+    doc, regions, _ = two_pages()
+    doc.nodes["p1c2:1"]["semanticInput"] = {"role": "representative", "conflicts": ["x"] * 50}
+    doc.nodes["p1c2:1"]["sourceStructure"]["bbox"] = {
+        "left": 1.23456,
+        "top": 2.0,
+        "right": 3.5,
+        "bottom": 4.0,
+        "sourceBox": [0, 0, 1, 1],
+    }
+    doc.nodes["p1c2:1"]["sourceStructure"]["tableRef"] = "p1t"
+    candidates = continuation_candidates(doc, regions)
+    request = integration_request(doc, candidates)
+    assert "nodeCounterparts" not in request["candidates"][0]
+    assert request["candidates"][0]["rightRepeatsLeft"] is True
+    node = request["sourceNodes"]["p1c2:1"]
+    assert node == {
+        "text": "2",
+        "semanticRole": "table_cell",
+        "page": 1,
+        "bbox": {"left": 1.2, "top": 2.0, "right": 3.5, "bottom": 4.0},
+        "tableRef": "p1t",
+        "row": 2,
+        "col": 1,
+    }
+    assert request["sourceNodes"]["p1stmt"] == {
+        "text": "Unit: pcs",
+        "semanticRole": "text",
+        "page": 1,
+    }
+    # The twelfth GPU run could not send whole-row evidence in the full observation view.
+    assert len(encode(request)) < 2500

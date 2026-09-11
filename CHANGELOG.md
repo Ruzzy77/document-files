@@ -7,7 +7,11 @@
   same page) and adds no rows, next to `continue`, `separate` and `unresolved`. Each
   adjacent-page candidate now carries the observed row counts, whether every right
   cell repeats the left cell (`rightRepeatsLeft`), and the whole first/last rows of
-  both tables as evidence instead of the last four and first four cells. Compiler v20
+  both tables as evidence instead of the last four and first four cells; the relation
+  request sends a bounded position view of each cited node (text, role, page, box,
+  table membership, row and column) instead of the full interpretation view, whose
+  alignment and conflict metadata had pushed the whole-row evidence past the 16,000
+  character request budget in the twelfth GPU run. Compiler v20
   binds a decided duplicate to the same rows: the copy adds cell and column-definition
   provenance to the earlier rows and its table definitions fold into the earlier ones
   (`duplicate_table_definition_merged`); a duplicate whose compiled rows differ is

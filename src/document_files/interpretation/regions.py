@@ -720,6 +720,34 @@ def _page_counterparts(observation, page_a, page_b):
     }
 
 
+def relation_node(node, *, cell=None):
+    """Bounded relation evidence: wording and position, not the full observation view.
+
+    The cross-region decision needs each node's text, page, box and table membership.
+    The complete observation view sent for interpretation carries alignment and
+    conflict metadata that made whole-row evidence exceed the request budget.
+    """
+    structure = node.get("sourceStructure")
+    structure = structure if isinstance(structure, dict) else {}
+    result = {
+        "text": node.get("text"),
+        "semanticRole": node.get("semanticRole"),
+        "page": structure.get("page"),
+    }
+    bbox = structure.get("bbox")
+    if isinstance(bbox, dict):
+        result["bbox"] = {
+            key: round(value, 1) if isinstance(value, float) else value
+            for key, value in bbox.items()
+            if key in {"left", "top", "right", "bottom"}
+        }
+    if structure.get("tableRef"):
+        result["tableRef"] = structure["tableRef"]
+    if cell is not None:
+        result["row"], result["col"] = cell["row"], cell["col"]
+    return result
+
+
 def continuation_candidates(observation, regions):
     """Require positional and structural evidence; header similarity alone is insufficient.
 
