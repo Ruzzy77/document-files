@@ -381,28 +381,17 @@ def prepare(args: argparse.Namespace) -> dict:
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     inventory_sha = sha256_file(args.snapshot_inventory)
     receipt_sha = sha256_file(receipt_path)
-    compatible_runtimes = [
-        {
-            "id": runtime["id"],
-            "version": runtime["version"],
-            "manifestSha256": sha256_file(args.runtime_manifest),
-        }
-    ]
-    for path in args.compatible_runtime_manifest:
-        other = validate_manifest(json.loads(path.read_text()))
-        if other["kind"] != "llama-cpp-runtime" or not any(
-            source.get("uri", "").startswith(LLAMA_URI)
-            and source.get("revision") == args.llama_revision
-            for source in other["provenance"]["sources"]
-        ):
-            raise PackError("model_incompatible_additional_runtime")
-        entry = {
-            "id": other["id"],
-            "version": other["version"],
-            "manifestSha256": sha256_file(path),
-        }
-        if entry not in compatible_runtimes:
-            compatible_runtimes.append(entry)
+    compatible_runtimes = additional_runtimes(
+        args.compatible_runtime_manifest,
+        args.llama_revision,
+        [
+            {
+                "id": runtime["id"],
+                "version": runtime["version"],
+                "manifestSha256": sha256_file(args.runtime_manifest),
+            }
+        ],
+    )
     declaration = {
         "schemaVersion": "document-files.pack.v1",
         "id": "qwen3.5-9b-q4-k-m",
@@ -452,8 +441,102 @@ def prepare(args: argparse.Namespace) -> dict:
     return result
 
 
+def additional_runtimes(paths: list[Path], llama_revision: str, existing: list[dict]) -> list[dict]:
+    """Only llama.cpp runtime packs built from the same pinned converter revision."""
+    compatible = [dict(entry) for entry in existing]
+    for path in paths:
+        other = validate_manifest(json.loads(path.read_text()))
+        if other["kind"] != "llama-cpp-runtime" or not any(
+            source.get("uri", "").startswith(LLAMA_URI) and source.get("revision") == llama_revision
+            for source in other["provenance"]["sources"]
+        ):
+            raise PackError("model_incompatible_additional_runtime")
+        entry = {
+            "id": other["id"],
+            "version": other["version"],
+            "manifestSha256": sha256_file(path),
+        }
+        if entry not in compatible:
+            compatible.append(entry)
+    return compatible
+
+
+def rebind(args: argparse.Namespace) -> dict:
+    """Re-declare runtime compatibility of an already converted pack without reconversion.
+
+    The weights, projector, receipt and inventory are copied byte for byte from a
+    verified installed pack; only the version and compatible runtime list change,
+    and the origin pack is recorded in provenance. No conversion or quantization runs.
+    """
+    root = args.from_pack
+    manifest_path = root / "manifest.json"
+    if root.is_symlink() or not manifest_path.is_file() or manifest_path.is_symlink():
+        raise PackError("model_rebind_source_invalid")
+    manifest = validate_manifest(json.loads(manifest_path.read_text()))
+    if manifest["kind"] != "model" or manifest["id"] != "qwen3.5-9b-q4-k-m":
+        raise PackError("model_rebind_wrong_pack")
+    if args.version == manifest["version"] or (args.output.exists() or args.output.is_symlink()):
+        raise PackError("pack_output_exists")
+    args.work.mkdir(parents=True, exist_ok=False)
+    stage = args.work / "stage"
+    stage.mkdir()
+    for item in manifest["files"]:
+        source = root / safe_relative(item["path"])
+        if source.is_symlink() or not source.is_file() or sha256_file(source) != item["sha256"]:
+            raise PackError("model_rebind_file_hash_mismatch")
+        destination = stage / item["path"]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+    receipt = json.loads((stage / "conversion.json").read_text())
+    llama_revision = receipt["converterRevision"]
+    compatible = additional_runtimes(
+        args.compatible_runtime_manifest, llama_revision, manifest["compatibleRuntimes"]
+    )
+    if compatible == manifest["compatibleRuntimes"]:
+        raise PackError("model_rebind_without_change")
+    sources = {}
+    for source in manifest["provenance"]["sources"]:
+        name = {
+            "file-inventory-v1": "source-inventory.json",
+            "conversion-receipt-v1": "conversion.json",
+            "conversion-receipt-v2": "conversion.json",
+        }.get(source.get("digestKind"))
+        if name is None or sha256_file(stage / name) != source["sha256"]:
+            raise PackError("model_rebind_provenance_unbound")
+        sources[source["sha256"]] = stage / name
+    provenance = {key: value for key, value in manifest["provenance"].items() if key != "build"}
+    provenance["rebinding"] = {
+        "fromPack": {
+            "id": manifest["id"],
+            "version": manifest["version"],
+            "manifestSha256": sha256_file(manifest_path),
+        },
+        "reconverted": False,
+    }
+    declaration = {
+        "schemaVersion": manifest["schemaVersion"],
+        "id": manifest["id"],
+        "version": args.version,
+        "kind": "model",
+        "platform": manifest["platform"],
+        "minimumOS": manifest["minimumOS"],
+        "licenses": manifest["licenses"],
+        "fileLicenses": {item["path"]: item["license"] for item in manifest["files"]},
+        "executables": [item["path"] for item in manifest["files"] if item.get("executable")],
+        "provenance": provenance,
+        "compatibleRuntimes": compatible,
+        "model": manifest["model"],
+    }
+    return build_pack(stage, declaration, args.output, sources)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--from-pack",
+        type=Path,
+        help="installed model pack root; re-declare runtime compatibility without reconversion",
+    )
     for option in (
         "source",
         "snapshot-inventory",
@@ -462,19 +545,39 @@ def main() -> None:
         "converter-lock",
         "quantize",
         "runtime-manifest",
-        "work",
-        "output",
     ):
+        parser.add_argument("--" + option, type=Path)
+    for option in ("work", "output"):
         parser.add_argument("--" + option, type=Path, required=True)
-    for option in ("model-revision", "llama-revision", "version"):
-        parser.add_argument("--" + option, required=True)
+    for option in ("model-revision", "llama-revision"):
+        parser.add_argument("--" + option)
+    parser.add_argument("--version", required=True)
     parser.add_argument("--compatible-runtime-manifest", type=Path, action="append", default=[])
     parser.add_argument("--context-tokens", type=int, default=8192)
     parser.add_argument("--include-vision-projector", action="store_true")
     parser.add_argument("--image-min-tokens", type=int)
     parser.add_argument("--image-max-tokens", type=int)
     parser.add_argument("--timeout", type=int, default=7200)
-    print(json.dumps(prepare(parser.parse_args())))
+    args = parser.parse_args()
+    if args.from_pack is not None:
+        if not args.compatible_runtime_manifest:
+            parser.error("--from-pack requires at least one --compatible-runtime-manifest")
+        print(json.dumps(rebind(args)))
+        return
+    for option in (
+        "source",
+        "snapshot_inventory",
+        "llama_source",
+        "converter_python",
+        "converter_lock",
+        "quantize",
+        "runtime_manifest",
+        "model_revision",
+        "llama_revision",
+    ):
+        if getattr(args, option) is None:
+            parser.error(f"--{option.replace('_', '-')} is required without --from-pack")
+    print(json.dumps(prepare(args)))
 
 
 if __name__ == "__main__":

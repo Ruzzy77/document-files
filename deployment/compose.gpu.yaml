@@ -1,0 +1,51 @@
+# DGX Spark (Linux ARM64, NVIDIA GB10) profile: same image contract as compose.yaml,
+# plus a CDI GPU device request for a runtime pack that declares accelerator: cuda.
+# The image performs no pulls; the driver interface is injected by the container
+# runtime (Docker with CDI enabled), never bundled in a pack.
+services:
+  document-files:
+    image: ${DOCUMENT_FILES_IMAGE:?set a locally loaded digest-pinned image}
+    pull_policy: never
+    platform: linux/arm64
+    user: "10001:10001"
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    # Unified memory: host RAM and GPU allocations share this budget on GB10.
+    mem_limit: ${DOCUMENT_FILES_MEMORY_LIMIT:-32g}
+    memswap_limit: ${DOCUMENT_FILES_MEMORY_LIMIT:-32g}
+    cpus: ${DOCUMENT_FILES_CPU_LIMIT:-8}
+    devices:
+      - nvidia.com/gpu=all
+    stop_grace_period: 30s
+    ports: ["127.0.0.1:8765:8765"]
+    environment:
+      DOCUMENT_FILES_SERVER_TOKEN_FILE: /run/secrets/server_token
+    secrets: [server_token]
+    volumes:
+      - type: bind
+        source: ${DOCUMENT_FILES_STATE:?create an owner-only state directory}
+        target: /state
+      - type: bind
+        source: ${DOCUMENT_FILES_PACKS:?directory containing installed packs by id/version}
+        target: /state/packs/packs
+        read_only: true
+      - type: bind
+        source: ${DOCUMENT_FILES_ACTIVE:?verified active.json}
+        target: /state/packs/active.json
+        read_only: true
+      - type: bind
+        source: ${DOCUMENT_FILES_CONFIG:?administrator server.json with a gpu profile}
+        target: /config/server.json
+        read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=1073741824,uid=10001,gid=10001,mode=0700
+    networks: [offline]
+networks:
+  offline:
+    internal: true
+secrets:
+  server_token:
+    file: ${DOCUMENT_FILES_TOKEN_FILE:?owner-only random bearer token file}

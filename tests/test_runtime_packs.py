@@ -208,9 +208,11 @@ def test_busy_store_and_foreign_runtime(tmp_path):
         store.activate("core", "2")
 
 
-def installed_cpu_packs(tmp_path, *, vision=False, projector=b"GGUFsynthetic projector"):
+def installed_cpu_packs(
+    tmp_path, *, vision=False, projector=b"GGUFsynthetic projector", runtime_extra=None
+):
     store = PackStore(tmp_path / "store")
-    runtime = install(store, fixture_pack(tmp_path, kind="llama-cpp-runtime"))
+    runtime = install(store, fixture_pack(tmp_path, kind="llama-cpp-runtime", extra=runtime_extra))
     store.activate("llama-cpp-runtime", "1")
     model = fixture_pack(
         tmp_path,
@@ -810,3 +812,81 @@ def test_projector_mutation_and_non_gguf_never_launch(tmp_path):
         ):
             pytest.fail("mutated projector must never start")
         popen.assert_not_called()
+
+
+LINUX_CUDA = {
+    "platform": "linux-aarch64",
+    "minimumOS": {"name": "linux", "version": "5.15"},
+    "accelerator": "cuda",
+    "cudaArchitectures": ["121a-real"],
+    "minimumDriverVersion": "580.0",
+}
+
+
+@pytest.mark.parametrize(
+    "change,code",
+    [
+        ({"cudaArchitectures": None}, "cuda_architectures"),
+        ({"cudaArchitectures": []}, "cuda_architectures"),
+        ({"cudaArchitectures": ["sm_121"]}, "cuda_architectures"),
+        ({"accelerator": "rocm"}, "invalid_accelerator"),
+        ({"minimumDriverVersion": "latest"}, "driver_version"),
+        (
+            {"platform": "macos-aarch64", "minimumOS": {"name": "macos", "version": "13.3"}},
+            "cuda_requires_linux",
+        ),
+    ],
+)
+def test_cuda_runtime_manifest_is_explicit_and_linux_only(tmp_path, change, code):
+    store = PackStore(tmp_path / "store")
+    install(store, fixture_pack(tmp_path, "cuda", kind="llama-cpp-runtime", extra=LINUX_CUDA))
+    extra = {k: v for k, v in {**LINUX_CUDA, **change}.items() if v is not None}
+    with pytest.raises(PackError, match=code):
+        install(store, fixture_pack(tmp_path, "bad", kind="llama-cpp-runtime", extra=extra))
+
+
+def test_accelerator_belongs_to_runtime_packs_only(tmp_path):
+    store = PackStore(tmp_path / "store")
+    with pytest.raises(PackError, match="invalid_accelerator"):
+        install(store, fixture_pack(tmp_path, "core-cuda", extra={"accelerator": "cuda"}))
+    explicit = install(
+        store, fixture_pack(tmp_path, "cpu", kind="llama-cpp-runtime", extra={"accelerator": "cpu"})
+    )
+    assert runtime_packs_module().runtime_accelerator(explicit.manifest) == "cpu"
+
+
+def runtime_packs_module():
+    from document_files import runtime_packs
+
+    return runtime_packs
+
+
+def test_cuda_runtime_offloads_every_layer_and_keeps_the_projector_on_device(tmp_path, monkeypatch):
+    runtime_packs = runtime_packs_module()
+    monkeypatch.setattr(runtime_packs, "check_host", lambda manifest: None)
+    store = installed_cpu_packs(tmp_path, vision=True, runtime_extra=LINUX_CUDA)
+    with (
+        patch("document_files.runtime_packs.private_path"),
+        patch("document_files.runtime_packs.subprocess.Popen") as popen,
+        patch("document_files.runtime_packs.WindowsJob"),
+        patch("document_files.runtime_packs.kill_process_tree"),
+        patch("document_files.runtime_packs.urllib.request.build_opener") as opener,
+    ):
+        popen.return_value.poll.return_value = None
+        response = opener.return_value.open.return_value.__enter__.return_value
+        response.read.return_value = b'{"data":[{"id":"Qwen3.5-9B-Q4_K_M"}]}'
+        with managed_llama_endpoint(store, "llama-cpp-runtime", "model") as endpoint:
+            assert endpoint.accelerator == "cuda"
+            command = popen.call_args.args[0]
+            assert command[command.index("--n-gpu-layers") + 1] == "999"
+            assert command[command.index("--device") + 1] == "CUDA0"
+            assert "--mmproj" in command
+            assert not {"--no-mmproj-offload", "--no-op-offload", "--no-kv-offload"} & set(command)
+            assert "--parallel" in command and '{"enable_thinking":false}' in command
+    from document_files.interpretation.backends import ManagedPackClient
+
+    cuda = ManagedPackClient(store.root, "llama-cpp-runtime", "model")
+    assert cuda.identity["accelerator"] == "cuda"
+    cpu_store = installed_cpu_packs(tmp_path / "cpu")
+    cpu = ManagedPackClient(cpu_store.root, "llama-cpp-runtime", "model")
+    assert "accelerator" not in cpu.identity

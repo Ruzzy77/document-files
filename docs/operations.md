@@ -26,6 +26,22 @@ ten generation threads slowed generation by about a third. Under a container CPU
 quota keep both values within the quota. These values are part of the profile
 fingerprint and of the recorded model identity, like the other profile settings.
 
+### CUDA runtime packs (DGX Spark)
+
+A runtime pack whose manifest declares `accelerator: cuda` (Linux only, with an explicit
+`cudaArchitectures` list and an optional `minimumDriverVersion`) runs the managed
+llama.cpp server with every layer, the vision projector and the KV cache on `CUDA0`
+instead of the CPU-only placement. The pack is built with
+`scripts/build_cpu_runtime.py --accelerator cuda` inside a GCC 12 / CUDA 13 build
+container: cudart and cuBLAS are linked statically, so the pack needs only the host
+driver interface (`libcuda.so.1`), which the container runtime injects through CDI. A
+model pack lists the CUDA runtime in `compatibleRuntimes`; `prepare_model_pack.py
+--from-pack` re-declares that list for an already converted pack without reconversion.
+The client identity records `accelerator: cuda`, so CPU and GPU checkpoints never mix;
+CPU packs keep their existing identity. `deployment/compose.gpu.yaml` shows the DGX
+Spark profile with the CDI device request. GPU packs are qualified separately from
+the CPU 16 GiB profile; declaring one does not change CPU results.
+
 Scope-axis protocol v3 / selection wire v1 use one list for record and standalone
 selections, with shared column handles. Old policy/wire identities are rejected on
 resume, not silently translated. The phase has an engine-owned managed request policy: reasoning budget

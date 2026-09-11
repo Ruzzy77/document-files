@@ -627,7 +627,10 @@ class _ManagedLlamaTransport(ChatCompletionsClient):
 
 
 class ManagedPackClient:
-    """Lazy CPU llama.cpp slot, pinned to verified installed manifest identities.
+    """Lazy local llama.cpp slot, pinned to verified installed manifest identities.
+
+    Placement follows the runtime pack: CPU-only, or every layer on the first CUDA
+    device when the pack declares ``accelerator: cuda``. Nothing is chosen by probing.
 
     ``threads`` (generation) and ``threads_batch`` (prompt processing) are explicit
     execution settings recorded in the identity. Unset keeps the pinned runtime's
@@ -648,7 +651,12 @@ class ManagedPackClient:
         threads_batch: int | None = None,
         reasoning_budget_tokens: int | None = None,
     ):
-        from ..runtime_packs import PackError, PackStore, model_vision_config
+        from ..runtime_packs import (
+            PackError,
+            PackStore,
+            model_vision_config,
+            runtime_accelerator,
+        )
 
         if interpretation_protocol not in {"compact", "legacy"} or any(
             value is not None and (type(value) is not int or not 1 <= value <= 1024)
@@ -689,9 +697,12 @@ class ManagedPackClient:
                 or model_config.get("quantization") != "Q4_K_M"
             ):
                 raise ModelError("ai_pack_model_unapproved")
+            accelerator = runtime_accelerator(runtime.manifest)
             self._identity = {
                 "adapter": "managed-llama-cpp.v1",
                 "model": model_id,
+                # CPU packs keep their existing identity; a CUDA pack is named explicitly.
+                **({"accelerator": accelerator} if accelerator != "cpu" else {}),
                 "runtimeManifestSha256": runtime.manifest_sha256,
                 "modelManifestSha256": model.manifest_sha256,
                 "interpretationProtocol": interpretation_protocol,

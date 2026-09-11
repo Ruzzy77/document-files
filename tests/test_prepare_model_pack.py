@@ -388,3 +388,99 @@ def test_preprocessor_parameters_rejected_before_conversion(prepared, key, value
     with pytest.raises(tool.PackError, match="vision_source_configuration"):
         tool.prepare(args)
     assert not state["runs"]
+
+
+def test_rebind_extends_runtime_compatibility_without_reconversion(prepared, tmp_path):
+    tool, args, state, refresh = prepared
+    args.include_vision_projector = True
+    tool.prepare(args)
+    original_manifest, original_receipt, original_names = unpack(args)
+    conversions = len(state["runs"])
+    root = tmp_path / "installed"
+    root.mkdir()
+    with zipfile.ZipFile(args.output) as archive:
+        archive.extractall(root)
+    cuda = tmp_path / "runtime-cuda"
+    cuda.mkdir()
+    for name in ["quantize", "server", "LICENSE"]:
+        (cuda / name).write_text("cuda-" + name)
+    manifest = json.loads((tmp_path / "runtime/manifest.json").read_text())
+    manifest.update(
+        id="llama-cuda",
+        accelerator="cuda",
+        cudaArchitectures=["121a-real"],
+        files=[
+            {
+                "path": n,
+                "sha256": digest(cuda / n),
+                "size": (cuda / n).stat().st_size,
+                "license": "runtime",
+                "executable": n != "LICENSE",
+            }
+            for n in ["quantize", "server", "LICENSE"]
+        ],
+    )
+    (cuda / "manifest.json").write_text(json.dumps(manifest))
+    rebound = argparse.Namespace(
+        from_pack=root,
+        compatible_runtime_manifest=[cuda / "manifest.json"],
+        version="test.2",
+        work=tmp_path / "work2",
+        output=tmp_path / "pack2.zip",
+    )
+    tool.rebind(rebound)
+    assert len(state["runs"]) == conversions, "rebinding must not convert or quantize"
+    new_manifest, new_receipt, new_names = unpack(rebound)
+    assert new_receipt == original_receipt and new_names == original_names
+    assert new_manifest["version"] == "test.2"
+    assert [r["id"] for r in new_manifest["compatibleRuntimes"]] == ["llama-cpu", "llama-cuda"]
+    assert new_manifest["compatibleRuntimes"][0] == original_manifest["compatibleRuntimes"][0]
+    assert new_manifest["compatibleRuntimes"][1]["manifestSha256"] == digest(cuda / "manifest.json")
+    assert {i["path"]: i["sha256"] for i in new_manifest["files"]} == {
+        i["path"]: i["sha256"] for i in original_manifest["files"]
+    }
+    assert new_manifest["model"] == original_manifest["model"]
+    assert new_manifest["provenance"]["sources"] == original_manifest["provenance"]["sources"]
+    assert new_manifest["provenance"]["rebinding"] == {
+        "fromPack": {
+            "id": "qwen3.5-9b-q4-k-m",
+            "version": "test.1",
+            "manifestSha256": digest(root / "manifest.json"),
+        },
+        "reconverted": False,
+    }
+    with pytest.raises(tool.PackError, match="rebind_without_change"):
+        tool.rebind(
+            argparse.Namespace(
+                from_pack=root,
+                compatible_runtime_manifest=[tmp_path / "runtime/manifest.json"],
+                version="test.3",
+                work=tmp_path / "work3",
+                output=tmp_path / "pack3.zip",
+            )
+        )
+    foreign = json.loads((cuda / "manifest.json").read_text())
+    foreign["provenance"]["sources"][0]["revision"] = "c" * 40
+    (cuda / "manifest.json").write_text(json.dumps(foreign))
+    with pytest.raises(tool.PackError, match="incompatible_additional_runtime"):
+        tool.rebind(
+            argparse.Namespace(
+                from_pack=root,
+                compatible_runtime_manifest=[cuda / "manifest.json"],
+                version="test.4",
+                work=tmp_path / "work4",
+                output=tmp_path / "pack4.zip",
+            )
+        )
+    (root / "Qwen3.5-9B-Q4_K_M.gguf").write_bytes(b"GGUF-tampered")
+    (cuda / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(tool.PackError, match="rebind_file_hash_mismatch"):
+        tool.rebind(
+            argparse.Namespace(
+                from_pack=root,
+                compatible_runtime_manifest=[cuda / "manifest.json"],
+                version="test.5",
+                work=tmp_path / "work5",
+                output=tmp_path / "pack5.zip",
+            )
+        )

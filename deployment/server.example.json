@@ -10,6 +10,14 @@
       "runtimeId": "llama-cpp-cpu",
       "modelId": "qwen3.5-9b-q4-k-m",
       "recognitionPackId": "docling-cpu"
+    },
+    "gpu": {
+      "type": "local-pack",
+      "revision": "gpu-profile-1",
+      "packRoot": "/state/packs",
+      "runtimeId": "llama-cpp-cuda",
+      "modelId": "qwen3.5-9b-q4-k-m",
+      "recognitionPackId": "docling-cpu"
     }
   }
 }

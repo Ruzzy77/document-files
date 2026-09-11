@@ -225,3 +225,99 @@ def test_new_ci_pack_version_is_explicit_and_valid_without_reusing_old_default(
         builder.build("linux-x86_64", tmp_path, tmp_path / "pack.zip", "b10853-cpu.4")
     with pytest.raises(builder.PackError, match="invalid_cpu_build_options"):
         builder.build("linux-x86_64", tmp_path / "new", tmp_path / "pack.zip", "b10853-cpu.0")
+
+
+def test_cuda_options_are_static_explicit_and_linux_only():
+    options = builder.cmake_options("linux-aarch64", "cuda")
+    assert options["GGML_CUDA"] == "ON" and options["GGML_STATIC"] == "ON"
+    assert options["GGML_CUDA_NCCL"] == "OFF"
+    assert options["CMAKE_CUDA_ARCHITECTURES"] == builder.DEFAULT_CUDA_ARCHITECTURES == "121a-real"
+    assert options["CMAKE_CUDA_HOST_COMPILER"] == "/usr/bin/g++-12"
+    assert all(options[name] == "OFF" for name in builder.DISABLED if name != "GGML_CUDA")
+    assert builder.cmake_options("linux-aarch64")["GGML_CUDA"] == "OFF"
+    assert "GGML_STATIC" not in builder.cmake_options("linux-aarch64")
+    explicit = builder.cmake_options("linux-x86_64", "cuda", "90-real;120a-real")
+    assert explicit["CMAKE_CUDA_ARCHITECTURES"] == "90-real;120a-real"
+    for target in ("macos-aarch64", "windows-x86_64"):
+        with pytest.raises(builder.PackError, match="cuda_requires_linux"):
+            builder.cmake_options(target, "cuda")
+    with pytest.raises(builder.PackError, match="cuda_architectures"):
+        builder.cmake_options("linux-aarch64", "cuda", "sm_121")
+    with pytest.raises(builder.PackError, match="cuda_architectures"):
+        builder.cmake_options("linux-aarch64", "cuda", "native")
+    with pytest.raises(builder.PackError, match="accelerator"):
+        builder.cmake_options("linux-aarch64", "rocm")
+
+
+def test_cuda_audit_allows_only_the_driver_interface():
+    driver = (
+        "libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x01)\n"
+        "libcuda.so.1 => not found\n/lib/ld-linux-aarch64.so.1 (0x02)"
+    )
+    assert "libcuda.so.1" in builder.audit_dependencies("linux-aarch64", driver, "cuda")
+    with pytest.raises(builder.PackError, match="dependency"):
+        builder.audit_dependencies("linux-aarch64", driver)
+    leak = (
+        "libcublas.so.13 => /usr/local/cuda/lib64/libcublas.so.13 (0x01)\n"
+        "/lib/ld-linux-aarch64.so.1 (0x02)"
+    )
+    with pytest.raises(builder.PackError, match="dependency"):
+        builder.audit_dependencies("linux-aarch64", leak, "cuda")
+
+
+def test_cuda_build_requires_license_and_matching_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(builder, "current_target", lambda: "linux-aarch64")
+    monkeypatch.setattr(builder, "run", lambda *a, **k: pytest.fail("no command expected"))
+    with pytest.raises(builder.PackError, match="invalid_cpu_build_options"):
+        builder.build(
+            "linux-aarch64",
+            tmp_path / "w1",
+            tmp_path / "p1.zip",
+            "b10853-cpu.1",
+            accelerator="cuda",
+        )
+    with pytest.raises(builder.PackError, match="cuda_license_required"):
+        builder.build(
+            "linux-aarch64",
+            tmp_path / "w2",
+            tmp_path / "p2.zip",
+            "b10853-cuda.1",
+            accelerator="cuda",
+        )
+    short = tmp_path / "short.txt"
+    short.write_text("NVIDIA CUDA")
+    with pytest.raises(builder.PackError, match="cuda_license_invalid"):
+        builder.build(
+            "linux-aarch64",
+            tmp_path / "w3",
+            tmp_path / "p3.zip",
+            "b10853-cuda.1",
+            accelerator="cuda",
+            cuda_license=short,
+        )
+
+
+def test_cuda_notice_is_a_separate_component(tmp_path):
+    source, stage = tmp_path / "source", tmp_path / "stage"
+    source.mkdir()
+    stage.mkdir()
+    for original in [
+        "LICENSE",
+        "vendor/cpp-httplib/LICENSE",
+        "licenses/LICENSE-jsonhpp",
+        "vendor/stb/stb_image.h",
+        "vendor/miniaudio/miniaudio.h",
+        "vendor/hash/xxhash/xxhash.h",
+        "vendor/hash/sha1/sha1.c",
+        "vendor/hash/sha256/sha256.c",
+    ]:
+        path = source / original
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"notice {original}\n")
+    eula = tmp_path / "eula.txt"
+    eula.write_text("NVIDIA CUDA Toolkit End User License Agreement fixture. " * 40)
+    licenses, components, files = builder.stage_notices(source, stage, None, eula)
+    assert files["licenses/nvidia-cuda-toolkit.txt"] == "nvidia-cuda-toolkit"
+    assert (stage / "licenses/nvidia-cuda-toolkit.txt").read_bytes() == eula.read_bytes()
+    assert any(c["name"].startswith("NVIDIA CUDA Toolkit") for c in components)
+    assert builder.CUDA_LICENSE_SPDX in licenses[-1]["spdx"]

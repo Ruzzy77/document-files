@@ -36,6 +36,9 @@ ACTIVE_SCHEMA = "document-files.active-packs.v1"
 # Bound its metadata separately from the multi-GB weights and archive file count.
 MAX_MANIFEST_BYTES = 16 * 1024**2
 KINDS = {"core", "recognition", "llama-cpp-runtime", "model"}
+ACCELERATORS = {"cpu", "cuda"}
+# llama.cpp clamps the requested layer count to the model; every layer is offloaded.
+MANAGED_GPU_LAYERS = 999
 TARGETS = {
     "macos-aarch64",
     "macos-x86_64",
@@ -192,6 +195,14 @@ def model_vision_config(manifest: dict) -> dict | None:
     return dict(vision)
 
 
+def runtime_accelerator(manifest: dict) -> str:
+    """The pinned execution backend of a llama.cpp runtime pack; absent means CPU."""
+    value = manifest.get("accelerator", "cpu")
+    if value not in ACCELERATORS:
+        raise PackError("pack_invalid_accelerator")
+    return value
+
+
 def validate_manifest(manifest: dict) -> dict:
     """Validate a manifest independently of the archive it describes."""
     try:
@@ -272,6 +283,29 @@ def validate_manifest(manifest: dict) -> dict:
             for key in ("server", "quantize")
         ):
             raise PackError("pack_missing_llama_executable")
+        if manifest["kind"] == "llama-cpp-runtime":
+            if runtime_accelerator(manifest) == "cuda":
+                # A CUDA pack is a Linux-only build for explicitly listed GPU architectures.
+                if not manifest["platform"].startswith("linux-"):
+                    raise PackError("pack_cuda_requires_linux")
+                architectures = manifest.get("cudaArchitectures")
+                if (
+                    not isinstance(architectures, list)
+                    or not architectures
+                    or any(
+                        not isinstance(item, str)
+                        or not re.fullmatch(r"\d{2,3}[af]?(?:-real|-virtual)?", item)
+                        for item in architectures
+                    )
+                ):
+                    raise PackError("pack_invalid_cuda_architectures")
+                driver = manifest.get("minimumDriverVersion")
+                if driver is not None and (
+                    not isinstance(driver, str) or not re.fullmatch(r"\d+(?:\.\d+)*", driver)
+                ):
+                    raise PackError("pack_invalid_driver_version")
+        elif "accelerator" in manifest:
+            raise PackError("pack_invalid_accelerator")
         if manifest["kind"] == "recognition":
             recognition = manifest["recognition"]
             required_settings = {
@@ -632,6 +666,7 @@ class LocalModelEndpoint:
     context_tokens: int = 8192
     runtime_manifest_sha256: str = ""
     model_manifest_sha256: str = ""
+    accelerator: str = "cpu"
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -651,7 +686,11 @@ def managed_llama_endpoint(
     threads_batch: int | None = None,
     parent_managed: bool = False,
 ):
-    """Start one CPU slot using only verified local files; stop its whole process tree.
+    """Start one local slot using only verified local files; stop its whole process tree.
+
+    The runtime pack decides placement: a CPU pack keeps every tensor, the projector
+    and the KV cache on the CPU; a CUDA pack offloads all layers to the first CUDA
+    device. No other backend or automatic fallback is selected.
 
     No model selection fallback, inherited LLAMA_ARG/HF/proxy variables, model URLs,
     or arbitrary command arguments are accepted. Native code is not sandboxed.
@@ -681,6 +720,20 @@ def managed_llama_endpoint(
         for value in (threads, threads_batch)
     ):
         raise PackError("local_model_invalid_budget")
+    accelerator = runtime_accelerator(runtime.manifest)
+    placement = (
+        [
+            "--n-gpu-layers",
+            "0",
+            "--device",
+            "none",
+            "--no-mmproj-offload",
+            "--no-op-offload",
+            "--no-kv-offload",
+        ]
+        if accelerator == "cpu"
+        else ["--n-gpu-layers", str(MANAGED_GPU_LAYERS), "--device", "CUDA0"]
+    )
     executable = runtime.file(runtime.manifest["entrypoints"]["server"])
     model_file = model.file(config["file"])
     with model_file.open("rb") as stream:
@@ -721,13 +774,7 @@ def managed_llama_endpoint(
             str(context_tokens),
             "--parallel",
             "1",
-            "--n-gpu-layers",
-            "0",
-            "--device",
-            "none",
-            "--no-mmproj-offload",
-            "--no-op-offload",
-            "--no-kv-offload",
+            *placement,
             "--jinja",
             "--chat-template-kwargs",
             '{"enable_thinking":false}',
@@ -797,6 +844,7 @@ def managed_llama_endpoint(
                 context_tokens,
                 runtime.manifest_sha256,
                 model.manifest_sha256,
+                accelerator,
             )
         finally:
             if process is not None:

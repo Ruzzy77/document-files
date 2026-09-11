@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Build a pinned, CPU-only llama.cpp pack on its matching release host.
+"""Build a pinned llama.cpp runtime pack (CPU-only, or CUDA on Linux) on its matching host.
 
 Only the initial explicit source checkout uses the network. CMake dependency
-fetching, HTTPS support, embedded UI downloads and GPU backends are disabled.
+fetching, HTTPS support, embedded UI downloads and every other GPU backend are
+disabled. A CUDA pack statically links the CUDA runtime and cuBLAS for explicitly
+listed GPU architectures and needs only the host driver interface at run time.
 This is a build command, never a document-processing installation step. x64
 packs require AVX2/FMA/F16C/BMI2; they are not generic pre-AVX x64 binaries.
 """
@@ -26,6 +28,13 @@ from document_files.runtime_packs import PackError, current_target
 REVISION = "9dcf84e5ae2718947188b539aab8b9c2b15d3ba1"
 SOURCE_URL = "https://github.com/ggml-org/llama.cpp.git"
 TARGETS = {"macos-aarch64", "macos-x86_64", "windows-x86_64", "linux-x86_64", "linux-aarch64"}
+ACCELERATORS = ("cpu", "cuda")
+# DGX Spark GB10 (compute capability 12.1); an explicit list, never "native" detection.
+DEFAULT_CUDA_ARCHITECTURES = "121a-real"
+CUDA_ARCHITECTURE = r"\d{2,3}[af]?(?:-real|-virtual)?"
+CUDA_MINIMUM_DRIVER = "580.0"
+CUDA_LICENSE_ID = "nvidia-cuda-toolkit"
+CUDA_LICENSE_SPDX = "LicenseRef-NVIDIA-CUDA-Toolkit-EULA"
 DISABLED = (
     "BUILD_SHARED_LIBS",
     "GGML_BACKEND_DL",
@@ -121,9 +130,20 @@ def smoke_binary(binary, *, quantize=False):
     return {"argument": option, "exitCode": process.returncode, "output": text}
 
 
-def cmake_options(target):
+def cuda_architectures(value):
+    architectures = (value or DEFAULT_CUDA_ARCHITECTURES).split(";")
+    if not architectures or any(not re.fullmatch(CUDA_ARCHITECTURE, a) for a in architectures):
+        raise PackError("invalid_cuda_architectures")
+    return architectures
+
+
+def cmake_options(target, accelerator="cpu", cuda_arch=None):
     if target not in TARGETS:
         raise PackError("unsupported_cpu_target")
+    if accelerator not in ACCELERATORS:
+        raise PackError("unsupported_accelerator")
+    if accelerator == "cuda" and not target.startswith("linux"):
+        raise PackError("cuda_requires_linux")
     options = {key: "OFF" for key in DISABLED}
     options.update(
         {
@@ -151,6 +171,17 @@ def cmake_options(target):
         options.update(CMAKE_C_COMPILER=CC, CMAKE_CXX_COMPILER=CXX)
     if target.startswith("windows"):
         options["CMAKE_MSVC_RUNTIME_LIBRARY"] = "MultiThreaded"
+    if accelerator == "cuda":
+        options.update(
+            {
+                "GGML_CUDA": "ON",
+                # Static cudart/cuBLAS: the pack depends on the driver interface only.
+                "GGML_STATIC": "ON",
+                "GGML_CUDA_NCCL": "OFF",
+                "CMAKE_CUDA_ARCHITECTURES": ";".join(cuda_architectures(cuda_arch)),
+                "CMAKE_CUDA_HOST_COMPILER": options["CMAKE_CXX_COMPILER"],
+            }
+        )
     return options
 
 
@@ -165,8 +196,12 @@ def validate_cache(cache, requested):
             raise PackError(f"cpu_build_configuration_mismatch:{key}")
 
 
-def audit_dependencies(target, output):
-    """Reject non-system dependencies rather than silently bundling host libraries."""
+def audit_dependencies(target, output, accelerator="cpu"):
+    """Reject non-system dependencies rather than silently bundling host libraries.
+
+    A CUDA pack may additionally reference the NVIDIA driver interface library, which
+    the deployment host or container runtime supplies; it is never bundled.
+    """
     if target.startswith("macos"):
         libraries = [
             line.strip().split(" (", 1)[0] for line in output.splitlines()[1:] if line.strip()
@@ -201,6 +236,9 @@ def audit_dependencies(target, output):
         if "=>" in line:
             name, destination = (part.strip() for part in line.split("=>", 1))
             path = destination.split(" ", 1)[0]
+            if accelerator == "cuda" and name == "libcuda.so.1":
+                libraries.append(name)
+                continue
             if name not in allowed or not path.startswith(
                 ("/lib/", "/lib64/", "/usr/lib/", "/usr/lib64/")
             ):
@@ -222,7 +260,16 @@ def required_glibc(symbol_versions):
     return max(values, key=lambda v: tuple(map(int, v.split("."))))
 
 
-def stage_notices(source, stage, windows_license=None):
+def validate_cuda_license(path):
+    if path is None or path.is_symlink() or not path.is_file():
+        raise PackError("cuda_license_required")
+    text = path.read_text(encoding="utf-8", errors="strict")
+    if len(text) < 1000 or "NVIDIA" not in text or "CUDA" not in text:
+        raise PackError("cuda_license_invalid")
+    return text
+
+
+def stage_notices(source, stage, windows_license=None, cuda_license=None):
     # Preserve full upstream texts where the license is embedded in a header.
     # This also retains miniaudio's embedded decoder notices, not just its footer.
     entries = [
@@ -268,6 +315,19 @@ def stage_notices(source, stage, windows_license=None):
                 "licenses": [{"expression": spdx}],
             }
         )
+    if cuda_license:
+        validate_cuda_license(cuda_license)
+        destination = f"licenses/{CUDA_LICENSE_ID}.txt"
+        shutil.copyfile(cuda_license, stage / destination)
+        licenses.append({"id": CUDA_LICENSE_ID, "spdx": CUDA_LICENSE_SPDX, "path": destination})
+        file_licenses[destination] = CUDA_LICENSE_ID
+        components.append(
+            {
+                "type": "library",
+                "name": "NVIDIA CUDA Toolkit runtime and cuBLAS static libraries",
+                "licenses": [{"expression": CUDA_LICENSE_SPDX}],
+            }
+        )
     expression = " AND ".join(f"({item['spdx']})" for item in licenses)
     (stage / "THIRD_PARTY_NOTICES.txt").write_text(
         "This pack statically links the components listed below. Their original notices\n"
@@ -280,11 +340,38 @@ def stage_notices(source, stage, windows_license=None):
     return licenses, components, file_licenses
 
 
-def build(target, work, output, version, *, jobs=2, windows_runtime_license=None):
+def cuda_toolkit_version():
+    nvcc = shutil.which("nvcc") or "/usr/local/cuda/bin/nvcc"
+    text = subprocess.check_output([nvcc, "--version"], text=True, timeout=60)
+    match = re.search(r"release (\d+\.\d+), V(\d+\.\d+\.\d+)", text)
+    if not match:
+        raise PackError("cuda_toolkit_version_unknown")
+    return {"nvcc": nvcc, "release": match[1], "version": match[2]}
+
+
+def build(
+    target,
+    work,
+    output,
+    version,
+    *,
+    jobs=2,
+    windows_runtime_license=None,
+    accelerator="cpu",
+    cuda_arch=None,
+    cuda_license=None,
+):
     if target not in TARGETS or current_target() != target:
         raise PackError("cpu_build_requires_matching_host")
-    if not 1 <= jobs <= 64 or not re.fullmatch(r"b10853-cpu\.[1-9][0-9]*", version):
+    if accelerator not in ACCELERATORS:
+        raise PackError("unsupported_accelerator")
+    if not 1 <= jobs <= 64 or not re.fullmatch(rf"b10853-{accelerator}\.[1-9][0-9]*", version):
         raise PackError("invalid_cpu_build_options")
+    if accelerator == "cuda":
+        if not target.startswith("linux"):
+            raise PackError("cuda_requires_linux")
+        validate_cuda_license(cuda_license)
+        cuda_arch = cuda_architectures(cuda_arch)
     if work.exists() or work.is_symlink() or output.exists():
         raise PackError("cpu_build_requires_fresh_paths")
     if target.startswith("windows") and (
@@ -311,7 +398,8 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
     artifact = work / "llama-source.tar"
     run("git", "archive", "--format=tar", f"--output={artifact}", REVISION, cwd=source)
     source_sha = sha256_file(artifact)
-    options = cmake_options(target)
+    options = cmake_options(target, accelerator, ";".join(cuda_arch) if cuda_arch else None)
+    toolkit = cuda_toolkit_version() if accelerator == "cuda" else None
     configure = ["cmake", "-S", str(source), "-B", str(build_dir)]
     if target.startswith("windows"):
         configure += ["-A", "x64"]
@@ -354,21 +442,24 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
             if target.startswith("windows")
             else ("ldd",)
         )
-        dependencies[name] = audit_dependencies(target, run(*command, stage / name))
+        dependencies[name] = audit_dependencies(target, run(*command, stage / name), accelerator)
         if target.startswith("linux"):
             from linux_abi import audit
 
             linux_abi[name] = audit(stage / name, stage / f"{name}-abi.txt", target=target)
             symbols += (stage / f"{name}-abi.txt").read_text()
         versions[name] = smoke_binary(stage / name, quantize=name.startswith("llama-quantize"))
-    licenses, components, file_licenses = stage_notices(source, stage, windows_runtime_license)
+    licenses, components, file_licenses = stage_notices(
+        source, stage, windows_runtime_license, cuda_license if accelerator == "cuda" else None
+    )
     cpu = "armv8.2-a+fp16+dotprod" if target.endswith("aarch64") else "x86_64+avx2+fma+f16c+bmi2"
     declaration = {
         "schemaVersion": "document-files.pack.v1",
-        "id": "llama-cpp-cpu",
+        "id": f"llama-cpp-{accelerator}",
         "version": version,
         "kind": "llama-cpp-runtime",
         "platform": target,
+        "accelerator": accelerator,
         "minimumOS": {
             "name": target.split("-")[0],
             "version": "13.3"
@@ -391,8 +482,15 @@ def build(target, work, output, version, *, jobs=2, windows_runtime_license=None
     }
     if target.startswith("linux"):
         declaration["minimumGlibc"] = required_glibc(symbols)
+    if accelerator == "cuda":
+        declaration["cudaArchitectures"] = list(cuda_arch)
+        declaration["minimumDriverVersion"] = CUDA_MINIMUM_DRIVER
     receipt = {
         "schemaVersion": "document-files.cpu-runtime-build.v1",
+        "accelerator": accelerator,
+        "cudaToolkit": toolkit,
+        "cudaArchitectures": list(cuda_arch) if cuda_arch else None,
+        "cudaLicenseSha256": sha256_file(cuda_license) if accelerator == "cuda" else None,
         "revision": REVISION,
         "sourceArchiveSha256": source_sha,
         "target": target,
@@ -425,6 +523,9 @@ def main():
     parser.add_argument("--version", required=True)
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--windows-runtime-license", type=Path)
+    parser.add_argument("--accelerator", choices=ACCELERATORS, default="cpu")
+    parser.add_argument("--cuda-architectures", help="semicolon-separated CMake CUDA architectures")
+    parser.add_argument("--cuda-license", type=Path, help="NVIDIA CUDA Toolkit EULA text file")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -435,6 +536,9 @@ def main():
                 args.version,
                 jobs=args.jobs,
                 windows_runtime_license=args.windows_runtime_license,
+                accelerator=args.accelerator,
+                cuda_arch=args.cuda_architectures,
+                cuda_license=args.cuda_license,
             )
         )
     )

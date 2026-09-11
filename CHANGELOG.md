@@ -2,6 +2,16 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- CUDA runtime packs. A `llama-cpp-runtime` manifest may declare `accelerator: cuda`
+  with explicit `cudaArchitectures` (Linux only); the managed server then offloads
+  every layer, the projector and the KV cache to `CUDA0` instead of forcing CPU
+  placement, and the client identity names the accelerator. CPU packs and their
+  identities are unchanged. The runtime builder gains `--accelerator cuda` (static
+  cudart/cuBLAS, GCC 12, explicit architectures, NVIDIA CUDA EULA notice) and the
+  model pack builder gains `--from-pack` to re-declare compatible runtimes without
+  reconversion. Deployment adds a DGX Spark GPU compose profile. No GPU pack is built
+  or qualified by this change alone.
+
 - Scope-axis protocol v3 raises the managed applicability request policy to reasoning
   budget 1,024 within a 2,048 total output cap (v2: 512 within 1,536). Greedy sampling,
   the selection wire, source binding, public v1 and document budgets are unchanged; v2
