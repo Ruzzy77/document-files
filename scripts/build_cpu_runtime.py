@@ -114,19 +114,25 @@ def run(*args, cwd=None, env=None):
 def smoke_binary(binary, *, quantize=False):
     # Pinned llama-quantize has no --version and deliberately exits 1 on --help.
     option = "--help" if quantize else "--version"
-    process = subprocess.run(
-        [str(binary), option],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    try:
+        process = subprocess.run(
+            [str(binary), option],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PackError("cpu_build_binary_identity_or_smoke_failed") from exc
     text = process.stdout + process.stderr
     if quantize:
         valid = process.returncode == 1 and "usage:" in text and "--allow-requantize" in text
     else:
         valid = process.returncode == 0 and REVISION[:7] in text
     if not valid:
-        raise PackError("cpu_build_binary_identity_or_smoke_failed")
+        # Retain the actual observation for diagnosis; the code stays stable.
+        raise PackError("cpu_build_binary_identity_or_smoke_failed") from RuntimeError(
+            f"{Path(binary).name} {option}: exit {process.returncode}; output {text[-400:]!r}"
+        )
     return {"argument": option, "exitCode": process.returncode, "output": text}
 
 

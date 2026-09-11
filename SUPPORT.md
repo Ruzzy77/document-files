@@ -11,6 +11,7 @@ recognition, llama.cpp runtime and model versions can be inspected independently
 | Windows x64 | Targeted | Native isolated Docling CPU pack |
 | Linux x64 | Targeted | Isolated Docling CPU pack / container |
 | Linux ARM64 | Targeted | Isolated Docling CPU pack / container |
+| DGX Spark (Linux ARM64, NVIDIA GB10) | **Deployment target** (user decision, 2026-09-11) | ARM64 recognition pack on CPU plus a CUDA runtime pack for inference; GPU qualification pending |
 
 **Targeted is not a claim of completed end-to-end qualification.** Each pack must
 state its actual minimum OS, libc/CPU requirements and compatible runtime digest.
@@ -71,10 +72,29 @@ minimum available 15.9 GiB; no container swap/OOM and no host OOM change. This i
 **development quality pass on one HTML case**, not independent holdout, full-recognition
 16 GiB or release qualification.
 
+A first whole-path development run of the public mixed native/raster PDF on the
+same source (`arm-full-pdf-product-03`: installed ARM64 recognition pack, vision page
+review, table protocol v17, scope-axis v3, twelve calls / 900 seconds including
+recognition) returned **partial** inside the page-review stage: recognition took
+15.73 seconds, four vision review calls consumed 702.66 product seconds, and no
+table, meaning or applicability call was reached. Cgroup peak 8,990,048,256 bytes;
+no swap/OOM. Two earlier attempts failed before recognition for harness reasons
+(engine run under the recognition pack Python without pypdf; regression child run
+under the core Python without pygments) and are retained as records. On this CPU
+profile the page-review cost alone exceeds the short-document budget for a two-page
+mixed PDF, which is the reason for the GPU execution path below.
+
+**Deployment direction (2026-09-11):** the user set DGX Spark (Linux ARM64, NVIDIA
+GB10) as the production execution target for the back-office integration. Extraction
+quality on Spark is the priority; the five-platform CPU packaging remains supported
+but secondary. CUDA runtime packs are being built and qualified separately; no GPU
+result is recorded yet.
+
 Evidence: `arm-scope-label-origin-{unit,whole}-01`, `arm-scope-column-review-{unit,
-condition,whole}-01`, `arm-scope-budget-1024-01`, `arm-scope-sampling-official-01`
-and `arm-scope-budget-html-product-01` (review SHA `7e2a0a86…`) beneath the private
-DGX qualification directory. The section below is the previous v2 state.
+condition,whole}-01`, `arm-scope-budget-1024-01`, `arm-scope-sampling-official-01`,
+`arm-scope-budget-html-product-01` (review SHA `7e2a0a86…`) and
+`arm-full-pdf-product-01..03` (review SHA `930634d4…` for the third) beneath the
+private DGX qualification directory. The section below is the previous v2 state.
 
 ### Previous content and scope separation (scope-axis v2)
 
