@@ -1156,15 +1156,249 @@ def combine_regions(compiled: list[CompiledRegion], *, target_schema=None):
     }
 
 
+def _schema_pointer(data_path):
+    """dataSchema pointer of an object-nested data leaf; repeat rows are not scalar fields."""
+    segments = data_path.split("/")[1:] if data_path else []
+    if not segments or any(segment.isdigit() for segment in segments):
+        return None
+    return "".join("/properties/" + segment for segment in segments)
+
+
+def _rewrite(target, mapping):
+    """Rewrite one target in place by exact or nested pointer within its space."""
+    space, path = target.get("space"), target.get("path")
+    for (old_space, old), new in mapping:
+        if old_space != space:
+            continue
+        if path == old:
+            target["path"] = new
+            return
+        if path.startswith(old + "/"):
+            target["path"] = new + path[len(old) :]
+            return
+
+
+def _targets(region):
+    for item in region.semantics:
+        yield from item["targets"]
+        yield from item["scope"]
+    for item in [*region.schema_evidence, *region.value_evidence, *region.value_observations]:
+        yield item["target"]
+    for item in region.semantic_details:
+        yield from item["scope"]
+    for row_scope in region.row_scopes.values():
+        for row in row_scope["rows"].values():
+            yield from row["targets"].values()
+
+
+def _delete_leaf(region, data_path, schema_path):
+    parent_path, _, key = data_path.rpartition("/")
+    key = key.replace("~1", "/").replace("~0", "~")
+    del pointer(region.data, parent_path)[key]
+    parent = pointer(region.schema, schema_path.rsplit("/properties/", 1)[0])
+    del parent["properties"][key]
+    if key in parent.get("required", []):
+        parent["required"].remove(key)
+
+
+def _unresolved(region, semantic_id):
+    return any(
+        i.get("code") == "semantic_scope_unresolved" and i.get("semanticId") == semantic_id
+        for i in region.issues
+    )
+
+
+def _drop_semantic(region, semantic_id):
+    region.semantics[:] = [i for i in region.semantics if i["id"] != semantic_id]
+    region.semantic_details[:] = [d for d in region.semantic_details if d["id"] != semantic_id]
+    region.issues[:] = [i for i in region.issues if i.get("semanticId") != semantic_id]
+    region.meaning_statuses.pop(semantic_id, None)
+
+
+def _union(items, extra):
+    result = list(items)
+    for item in extra:
+        if item not in result:
+            result.append(item)
+    return result
+
+
+def _signature(item):
+    return (
+        item["kind"],
+        frozenset((t["space"], t["path"]) for t in item["targets"]),
+        frozenset((t["space"], t["path"]) for t in item["scope"]),
+    )
+
+
+def _leaves(compiled):
+    for region in compiled:
+        for record in region.value_evidence:
+            target = record["target"]
+            schema_path = _schema_pointer(target["path"]) if target.get("space") == "data" else None
+            if schema_path is None:
+                continue
+            try:
+                value = pointer(region.data, target["path"])
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+            if isinstance(value, dict | list):
+                continue
+            yield region, record, schema_path, value
+
+
+def _merge_repeated_statements(compiled, counterparts, candidate_id, aliases):
+    """Fold fields and meanings repeated on a joined page into the earlier ones.
+
+    A leaf repeats an earlier leaf when every node it cites is a later-page node
+    whose text appears once on each page, the earlier leaf cites those counterparts
+    and both carry the same observed value. Statement meanings follow the same node
+    identity in the same resolution state. Text identity applies the model's page
+    relation to repeated wording; it never relates pages by itself.
+    """
+    leaves = list(_leaves(compiled))
+    for right, record, schema_path, value in leaves:
+        refs = record.get("sourceRefs") or []
+        if record not in right.value_evidence or not refs:
+            continue
+        if any(ref not in counterparts for ref in refs):
+            continue
+        mapped = {counterparts[ref] for ref in refs}
+        matches = [
+            (left, other, other_schema)
+            for left, other, other_schema, other_value in leaves
+            if other is not record
+            and other in left.value_evidence
+            and mapped <= set(other.get("sourceRefs") or [])
+            and other.get("status") == record.get("status")
+            and type(other_value) is type(value)
+            and other_value == value
+        ]
+        if len(matches) != 1:
+            continue
+        left, other, other_schema = matches[0]
+        data_old, data_new = record["target"]["path"], other["target"]["path"]
+        for item in list(right.semantics):
+            if item["kind"] != "field_definition" or not any(
+                t["space"] == "dataSchema" and t["path"] == schema_path for t in item["targets"]
+            ):
+                continue
+            for earlier in left.semantics:
+                if earlier["kind"] == "field_definition" and any(
+                    t["space"] == "dataSchema" and t["path"] == other_schema
+                    for t in earlier["targets"]
+                ):
+                    aliases[item["id"]] = earlier["id"]
+                    earlier["sourceRefs"] = _union(earlier["sourceRefs"], item["sourceRefs"])
+                    _drop_semantic(right, item["id"])
+                    break
+        other["sourceRefs"] = _union(other["sourceRefs"], record["sourceRefs"])
+        other["semanticIds"] = _union(other["semanticIds"], record["semanticIds"])
+        right.value_evidence.remove(record)
+        _delete_leaf(right, data_old, schema_path)
+        mapping = [(("data", data_old), data_new), (("dataSchema", schema_path), other_schema)]
+        for target in _targets(right):
+            _rewrite(target, mapping)
+        right.corrections.append(
+            {
+                "code": "repeated_statement_merged",
+                "regionId": right.id,
+                "candidateId": candidate_id,
+                "path": data_old,
+                "into": data_new,
+                "sourceRefs": list(record["sourceRefs"]),
+                "basis": "same_text_and_value_on_joined_page",
+            }
+        )
+    details = [(region, detail) for region in compiled for detail in region.semantic_details]
+    for right, detail in details:
+        refs = detail.get("sourceRefs") or []
+        if detail["id"] in aliases or not refs or any(ref not in counterparts for ref in refs):
+            continue
+        mapped = {counterparts[ref] for ref in refs}
+        matches = [
+            (left, other)
+            for left, other in details
+            if other is not detail
+            and other["id"] not in aliases
+            and other["kind"] == detail["kind"]
+            and mapped <= set(other.get("sourceRefs") or [])
+            and _unresolved(left, other["id"]) == _unresolved(right, detail["id"])
+        ]
+        if len(matches) != 1:
+            continue
+        left, other = matches[0]
+        item = next(i for i in right.semantics if i["id"] == detail["id"])
+        earlier = next(i for i in left.semantics if i["id"] == other["id"])
+        earlier["sourceRefs"] = _union(earlier["sourceRefs"], item["sourceRefs"])
+        if not _unresolved(right, detail["id"]):
+            earlier["targets"] = _union(earlier["targets"], item["targets"])
+            earlier["scope"] = _union(earlier["scope"], item["scope"])
+            other["scope"] = _union(other["scope"], detail["scope"])
+        aliases[detail["id"]] = other["id"]
+        right.corrections.append(
+            {
+                "code": "repeated_meaning_merged",
+                "regionId": right.id,
+                "candidateId": candidate_id,
+                "semanticId": detail["id"],
+                "into": other["id"],
+                "sourceRefs": list(item["sourceRefs"]),
+                "basis": "same_statement_text_on_joined_page",
+            }
+        )
+        _drop_semantic(right, detail["id"])
+
+
+def _merge_duplicate_table(left, right, a, candidate_id, aliases):
+    """A duplicate presentation adds provenance to the earlier rows, never rows."""
+    by_path = {(e["target"]["space"], e["target"]["path"]): e for e in left.value_evidence}
+    kept = []
+    for record in right.value_evidence:
+        key = (record["target"]["space"], record["target"]["path"])
+        earlier = by_path.get(key)
+        if earlier is None or not (key[1] == a["path"] or key[1].startswith(a["path"] + "/")):
+            kept.append(record)
+            continue
+        earlier["sourceRefs"] = _union(earlier["sourceRefs"], record["sourceRefs"])
+        earlier["semanticIds"] = _union(earlier["semanticIds"], record["semanticIds"])
+    right.value_evidence[:] = kept
+    signatures = {_signature(item): item for item in left.semantics}
+    for item in list(right.semantics):
+        earlier = signatures.get(_signature(item))
+        if earlier is None:
+            continue
+        earlier["sourceRefs"] = _union(earlier["sourceRefs"], item["sourceRefs"])
+        aliases[item["id"]] = earlier["id"]
+        right.corrections.append(
+            {
+                "code": "duplicate_table_definition_merged",
+                "regionId": right.id,
+                "candidateId": candidate_id,
+                "semanticId": item["id"],
+                "into": earlier["id"],
+                "sourceRefs": list(item["sourceRefs"]),
+                "basis": "same_definition_over_the_same_rows",
+            }
+        )
+        _drop_semantic(right, item["id"])
+
+
 def join_continuations(compiled, candidates, decisions):
-    """Apply confirmed table continuations and rewrite dependent generated pointers only."""
+    """Apply decided table relations and rewrite dependent generated pointers only.
+
+    continue appends the right rows; duplicate binds the right presentation to the
+    same rows and adds only provenance; both fold statements repeated on the joined
+    page into the earlier fields and meanings.
+    """
     result = copy.deepcopy(compiled)
     regions = {r.id: r for r in result}
     issues, relations = [], []
     roots = {}
     for candidate in candidates:
         decision = decisions.get(candidate["id"])
-        if not candidate["confirmed"] and decision != "continue":
+        duplicate = not candidate["confirmed"] and decision == "duplicate"
+        if not candidate["confirmed"] and decision not in {"continue", "duplicate"}:
             if decision != "separate":
                 issues.append(
                     {"code": "table_continuation_unresolved", "candidateId": candidate["id"]}
@@ -1201,8 +1435,16 @@ def join_continuations(compiled, candidates, decisions):
                 {"code": "table_continuation_column_conflict", "candidateId": candidate["id"]}
             )
             continue
-        offset = len(rows_a)
-        rows_a.extend(rows_b)
+        if duplicate:
+            if rows_a != rows_b:
+                issues.append(
+                    {"code": "table_duplicate_rows_differ", "candidateId": candidate["id"]}
+                )
+                continue
+            offset = 0
+        else:
+            offset = len(rows_a)
+            rows_a.extend(rows_b)
         if candidate["confirmed"]:
             a["rowEnd"] = b["rowEnd"]
 
@@ -1230,6 +1472,7 @@ def join_continuations(compiled, candidates, decisions):
         for item in right.semantic_details:
             for target in item["scope"]:
                 remap(target)
+        repeat_id = next(k for k, v in right.repeat_paths.items() if v is b)
         for row_scope in right.row_scopes.values():
             if row_scope["tableRef"] == b["tableRef"]:
                 for row in row_scope["rows"].values():
@@ -1247,11 +1490,25 @@ def join_continuations(compiled, candidates, decisions):
             parent = pointer(right.schema, schema_parent)
             del parent["properties"][key]
             parent["required"].remove(key)
+        aliases = {}
+        if duplicate:
+            right.row_scopes.pop(repeat_id, None)
+            right.repeat_paths.pop(repeat_id, None)
+            _merge_duplicate_table(left, right, a, candidate["id"], aliases)
+        _merge_repeated_statements(
+            result, candidate.get("nodeCounterparts") or {}, candidate["id"], aliases
+        )
+        if aliases:
+            for region in result:
+                for record in [*region.schema_evidence, *region.value_evidence]:
+                    record["semanticIds"] = list(
+                        dict.fromkeys(aliases.get(s, s) for s in record["semanticIds"])
+                    )
         roots[candidate["rightRegion"]] = left_id
         relations.append(
             {
                 "id": candidate["id"],
-                "kind": "tableContinuation",
+                "kind": "tableDuplicate" if duplicate else "tableContinuation",
                 "sourceTable": candidate["leftTable"],
                 "targetTable": candidate["rightTable"],
                 "sourceRefs": candidate["sourceRefs"],

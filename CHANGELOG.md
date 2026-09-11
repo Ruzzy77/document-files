@@ -2,6 +2,26 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Semantic prompt v25 lets the cross-region relation decision name a `duplicate`:
+  the right table shows the same rows again (a copy, a second print, an image of the
+  same page) and adds no rows, next to `continue`, `separate` and `unresolved`. Each
+  adjacent-page candidate now carries the observed row counts, whether every right
+  cell repeats the left cell (`rightRepeatsLeft`), and the whole first/last rows of
+  both tables as evidence instead of the last four and first four cells. Compiler v20
+  binds a decided duplicate to the same rows: the copy adds cell and column-definition
+  provenance to the earlier rows and its table definitions fold into the earlier ones
+  (`duplicate_table_definition_merged`); a duplicate whose compiled rows differ is
+  refused as `table_duplicate_rows_differ` and stays unresolved. After a `continue` or
+  `duplicate`, a scalar field or unit/condition statement repeated on the joined page
+  (every cited node is a page text whose exact wording appears once on each page, the
+  earlier field cites those counterparts and carries the same value, or the earlier
+  meaning cites them in the same resolution state) folds into the earlier field or
+  meaning with its provenance, recorded as `repeated_statement_merged` and
+  `repeated_meaning_merged` in `coverage.programCorrections`; text identity never
+  relates pages by itself. Scope integration v13 treats the merged wording as statement
+  text, so it is not offered as an applicability candidate. The mixed native/raster
+  development document had compiled the raster copy as four rows with the title, unit
+  and condition statements twice.
 - Scope-axis protocol v5 (v4 was an intermediate development identity) states in its
   prompt that a meaning's own statement text is never offered as a candidate and that the decision selects the offered fields, columns
   or rows whose values the meaning qualifies (a unit the measured or counted values, a

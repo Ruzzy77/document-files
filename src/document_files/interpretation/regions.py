@@ -665,8 +665,68 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
     return result
 
 
+def _norm_text(value):
+    return " ".join(value.split()) if isinstance(value, str) else None
+
+
+def _node_page(node):
+    structure = node.get("sourceStructure") if isinstance(node, dict) else None
+    page = structure.get("page") if isinstance(structure, dict) else None
+    return page if type(page) is int else None
+
+
+def _cell_texts(observation, table):
+    """Observed cell text by absolute (row, col): program geometry, no interpretation."""
+    return {
+        (cell["row"], cell["col"]): _norm_text(
+            observation.nodes.get(cell["sourceRef"], {}).get("text")
+        )
+        for cell in table.get("cells", [])
+    }
+
+
+def _row_refs(table, rows, *, limit=8):
+    """Cell references of whole rows, bounded to the first columns of wide tables."""
+    refs = []
+    for row in rows:
+        cells = sorted(
+            (c for c in table.get("cells", []) if c["row"] == row), key=lambda c: c["col"]
+        )
+        refs.extend(c["sourceRef"] for c in cells[:limit])
+    return refs
+
+
+def _page_counterparts(observation, page_a, page_b):
+    """Right-page text nodes whose exact text appears once on each page, keyed to the left node.
+
+    Table cells follow the table relation instead. The map is program evidence for
+    the compiler after the model has related the two tables; it decides nothing.
+    """
+    in_tables = {c["sourceRef"] for t in observation.tables.values() for c in t.get("cells", [])}
+    by_page = {page_a: {}, page_b: {}}
+    for ref, node in observation.nodes.items():
+        page = _node_page(node)
+        if page not in by_page or ref in in_tables:
+            continue
+        if node.get("semanticRole") in {"source_text", "recognition_source_cell"}:
+            continue
+        text = _norm_text(node.get("text"))
+        if text:
+            by_page[page].setdefault(text, []).append(ref)
+    return {
+        refs_b[0]: by_page[page_a][text][0]
+        for text, refs_b in by_page[page_b].items()
+        if len(refs_b) == 1 and len(by_page[page_a].get(text, [])) == 1
+    }
+
+
 def continuation_candidates(observation, regions):
-    """Require positional and structural evidence; header similarity alone is insufficient."""
+    """Require positional and structural evidence; header similarity alone is insufficient.
+
+    Each candidate carries the observed row counts, whether every right cell repeats
+    the left cell, whole first/last rows of both tables as evidence, and the
+    repeated-text counterparts of the two pages for the compiler.
+    """
     candidates = []
     table_regions = [r for r in regions if r.get("tableRef")]
     for left, right in zip(table_regions, table_regions[1:], strict=False):
@@ -680,6 +740,10 @@ def continuation_candidates(observation, regions):
         page_adjacent = type(page_a) is int and type(page_b) is int and page_b == page_a + 1
         if not same_source and not (page_adjacent and a.get("colCount") == b.get("colCount")):
             continue
+        texts_a, texts_b = _cell_texts(observation, a), _cell_texts(observation, b)
+        rows_a = sorted({row for row, _ in texts_a})
+        rows_b = sorted({row for row, _ in texts_b})
+        edge_a = list(dict.fromkeys([rows_a[0], rows_a[-1]])) if rows_a else []
         candidates.append(
             {
                 "id": f"continuation:{len(candidates) + 1}",
@@ -689,16 +753,22 @@ def continuation_candidates(observation, regions):
                 "rightTable": right["tableRef"],
                 "basis": "same_native_table" if same_source else "adjacent_page_column_candidate",
                 "confirmed": same_source,
+                "leftRows": len(rows_a),
+                "rightRows": len(rows_b),
+                "rightRepeatsLeft": bool(texts_a) and texts_a == texts_b,
                 "sourceRefs": list(
                     dict.fromkeys(
                         [
                             *left.get("contextNodeIds", []),
                             *right.get("contextNodeIds", []),
-                            *[c["sourceRef"] for c in a["cells"][-4:]],
-                            *[c["sourceRef"] for c in b["cells"][:4]],
+                            *_row_refs(a, edge_a),
+                            *_row_refs(b, rows_b[:2]),
                         ]
                     )
                 ),
+                "nodeCounterparts": _page_counterparts(observation, page_a, page_b)
+                if page_adjacent
+                else {},
             }
         )
     return candidates

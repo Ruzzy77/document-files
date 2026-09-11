@@ -10,7 +10,7 @@ from pydantic import Field
 from ..result_types import Contract
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v19"
+COMPILER_VERSION = "document-files.result-compiler.v20"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -322,7 +322,7 @@ def _share_repeated_constraints(schema):
 
 class ContinuationDecision(Contract):
     candidateId: str
-    decision: Literal["continue", "separate", "unresolved"]
+    decision: Literal["continue", "duplicate", "separate", "unresolved"]
     sourceRefs: list[str] = Field(min_length=1, max_length=100)
     explanation: str = Field(min_length=1, max_length=1000)
 

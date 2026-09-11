@@ -93,6 +93,11 @@ The original internal contract, post-generation Pydantic checks, and token/byte
 budgets remain intact. This is tested for the product's internal decision schemas,
 not a promise to support arbitrary external JSON Schema grammars.
 
+A decided table relation is applied by the program: `continue` appends the later
+rows, `duplicate` binds a repeated presentation of the same rows (a copy or an image
+of the same page) to the earlier rows as provenance only, and both fold a field or
+statement whose exact wording and value repeat on the joined page into the earlier
+one; a duplicate whose compiled rows differ stays unresolved.
 After table continuation remaps generated pointers, unresolved unit/note/condition
 statements can be linked to same-region definitions, bounded neighboring definitions
 or explicit native note references. Same-region membership is not applicability proof. The product issues target handles and resolves their scope; the model

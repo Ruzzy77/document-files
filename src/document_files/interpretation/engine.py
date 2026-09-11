@@ -357,6 +357,11 @@ def _initial_result(job, observation, analyzer, selected, client, content):
     return result
 
 
+def integration_candidate(candidate):
+    """The relation evidence the model sees; text counterparts stay compiler evidence."""
+    return {k: v for k, v in candidate.items() if k != "nodeCounterparts"}
+
+
 def extract_schema_from_stream(
     job: AnalysisJob,
     source: BinaryIO,
@@ -1658,7 +1663,7 @@ def extract_schema_from_stream(
     def integration_payload(items):
         refs = list(dict.fromkeys(r for c in items for r in c["sourceRefs"]))
         return {
-            "candidates": items,
+            "candidates": [integration_candidate(c) for c in items],
             "sourceNodes": {r: model_node(observation.nodes[r]) for r in refs},
         }
 

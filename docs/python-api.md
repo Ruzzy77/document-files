@@ -569,7 +569,14 @@ Deterministic program corrections of a model label are listed in
 `coverage.programCorrections` rather than in `issues`: a repeat row whose every observed
 cell is cited as a column definition is compiled as a header row and recorded as
 `column_definition_row_relabeled_header` with the declared role, so the result can still
-complete while the disagreement stays auditable.
+complete while the disagreement stays auditable. After a decided table relation, a
+`duplicate` presentation's table definitions fold into the earlier ones
+(`duplicate_table_definition_merged`), and a scalar field or unit/condition statement
+whose exact wording and value repeat on the joined page folds into the earlier field or
+meaning (`repeated_statement_merged`, `repeated_meaning_merged`); each record names
+the merged path or semantic id, the target it folded into and its source references.
+A duplicate whose compiled rows differ is refused as the issue
+`table_duplicate_rows_differ` and the relation stays unresolved.
 
 ### OCR ruling evidence
 
