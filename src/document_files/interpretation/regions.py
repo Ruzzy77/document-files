@@ -752,8 +752,9 @@ def continuation_candidates(observation, regions):
     """Require positional and structural evidence; header similarity alone is insufficient.
 
     Each candidate carries the observed row counts, whether every right cell repeats
-    the left cell, whole first/last rows of both tables as evidence, and the
-    repeated-text counterparts of the two pages for the compiler.
+    the left cell, the same row positions of both tables (first two rows and the last
+    row) as evidence, and the repeated-text counterparts of the two pages for the
+    compiler.
     """
     candidates = []
     table_regions = [r for r in regions if r.get("tableRef")]
@@ -771,7 +772,9 @@ def continuation_candidates(observation, regions):
         texts_a, texts_b = _cell_texts(observation, a), _cell_texts(observation, b)
         rows_a = sorted({row for row, _ in texts_a})
         rows_b = sorted({row for row, _ in texts_b})
-        edge_a = list(dict.fromkeys([rows_a[0], rows_a[-1]])) if rows_a else []
+        # The same row positions of both tables: the first two rows and the last row.
+        edge_a = list(dict.fromkeys([*rows_a[:2], *rows_a[-1:]]))
+        edge_b = list(dict.fromkeys([*rows_b[:2], *rows_b[-1:]]))
         candidates.append(
             {
                 "id": f"continuation:{len(candidates) + 1}",
@@ -790,7 +793,7 @@ def continuation_candidates(observation, regions):
                             *left.get("contextNodeIds", []),
                             *right.get("contextNodeIds", []),
                             *_row_refs(a, edge_a),
-                            *_row_refs(b, rows_b[:2]),
+                            *_row_refs(b, edge_b),
                         ]
                     )
                 ),

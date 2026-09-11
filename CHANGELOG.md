@@ -2,16 +2,23 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
-- Semantic prompt v25 lets the cross-region relation decision name a `duplicate`:
-  the right table shows the same rows again (a copy, a second print, an image of the
-  same page) and adds no rows, next to `continue`, `separate` and `unresolved`. Each
-  adjacent-page candidate now carries the observed row counts, whether every right
-  cell repeats the left cell (`rightRepeatsLeft`), and the whole first/last rows of
-  both tables as evidence instead of the last four and first four cells; the relation
+- Semantic prompt v26 (v25 was an intermediate development identity) lets the
+  cross-region relation decision name a `duplicate`: the right table shows the same
+  rows again (a copy, a second print, an image of the same page) and adds no rows,
+  next to `continue`, `separate` and `unresolved`. Each adjacent-page candidate now
+  carries the observed row counts, whether every right cell repeats the left cell at
+  the same position (`rightRepeatsLeft`), and the same row positions of both tables
+  (first two rows and the last row, whole rows) as evidence instead of the last four
+  and first four cells; the prompt says what `rightRepeatsLeft` means and that cited
+  refs come from the offered nodes, and the relation contract of each batch binds
+  `candidateId` and `sourceRefs` to the offered candidates and nodes. The relation
   request sends a bounded position view of each cited node (text, role, page, box,
   table membership, row and column) instead of the full interpretation view, whose
-  alignment and conflict metadata had pushed the whole-row evidence past the 16,000
-  character request budget in the twelfth GPU run. Compiler v20
+  alignment and conflict metadata had pushed whole-row evidence past the 16,000
+  character request budget in the twelfth GPU run; the thirteenth run, which had
+  offered the left table's first and last rows against the right table's first two,
+  compared the left last row with the right second row, answered `separate` and cited
+  table identifiers instead of nodes. Compiler v20
   binds a decided duplicate to the same rows: the copy adds cell and column-definition
   provenance to the earlier rows and its table definitions fold into the earlier ones
   (`duplicate_table_definition_merged`); a duplicate whose compiled rows differ is

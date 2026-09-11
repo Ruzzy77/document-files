@@ -8,7 +8,11 @@ from document_files.interpretation.compiler import (
     compile_region,
     join_continuations,
 )
-from document_files.interpretation.engine import integration_candidate, integration_request
+from document_files.interpretation.engine import (
+    integration_candidate,
+    integration_contract,
+    integration_request,
+)
 from document_files.interpretation.integration import SCOPE_VERSION, build_scope_tasks
 from document_files.interpretation.legacy_engine import encode
 from document_files.interpretation.regions import continuation_candidates
@@ -20,7 +24,7 @@ from document_files.interpretation.semantic_types import (
     RegionInterpretation,
 )
 
-ROWS = (("Name", "Amount"), ("A", "1"), ("B", "2"))
+ROWS = (("Name", "Amount"), ("A", "1"), ("B", "2"), ("C", "3"))
 
 
 def _page(doc, prefix, page, rows, unit, *, key, extra_statement=False):
@@ -153,10 +157,11 @@ def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False):
 
 
 def test_versions_and_contract_name_the_duplicate_decision():
-    assert PROMPT_VERSION == "document-files.semantic-prompts.v25"
+    assert PROMPT_VERSION == "document-files.semantic-prompts.v26"
     assert COMPILER_VERSION == "document-files.result-compiler.v20"
     assert SCOPE_VERSION == "document-files.scope-integration.v13"
-    assert "duplicate" in INTEGRATE and "rightRepeatsLeft" in INTEGRATE
+    assert "duplicate" in INTEGRATE and "rightRepeatsLeft=true" in INTEGRATE
+    assert "Cite sourceRefs from the sourceNodes keys only" in INTEGRATE
     schema = DocumentIntegration.model_json_schema()
     assert schema["$defs"]["ContinuationDecision"]["properties"]["decision"]["enum"] == [
         "continue",
@@ -174,18 +179,31 @@ def test_candidates_carry_row_identity_whole_edge_rows_and_text_counterparts():
     doc, regions, _ = two_pages()
     (candidate,) = continuation_candidates(doc, regions)
     assert candidate["basis"] == "adjacent_page_column_candidate"
-    assert (candidate["leftRows"], candidate["rightRows"]) == (3, 3)
+    assert (candidate["leftRows"], candidate["rightRows"]) == (4, 4)
     assert candidate["rightRepeatsLeft"] is True
     refs = candidate["sourceRefs"]
-    # Whole first/last rows of the left table and first two rows of the right table.
-    for ref in ("p1c0:0", "p1c0:1", "p1c2:0", "p1c2:1", "p2c0:0", "p2c0:1", "p2c1:0", "p2c1:1"):
-        assert ref in refs
-    assert "p1c1:0" not in refs and "p2c2:0" not in refs
+    # The same positions of both tables: first two rows and the last row, whole rows.
+    for prefix in ("p1", "p2"):
+        for ref in (
+            f"{prefix}c0:0",
+            f"{prefix}c0:1",
+            f"{prefix}c1:0",
+            f"{prefix}c1:1",
+            f"{prefix}c3:0",
+            f"{prefix}c3:1",
+        ):
+            assert ref in refs
+        assert f"{prefix}c2:0" not in refs and f"{prefix}c2:1" not in refs
+    contract = integration_contract([candidate])
+    decision = contract["$defs"]["ContinuationDecision"]["properties"]
+    assert decision["candidateId"]["enum"] == ["continuation:1"]
+    assert decision["sourceRefs"]["items"]["enum"] == refs
+    assert list(decision) == ["candidateId", "decision", "sourceRefs", "explanation"]
     assert candidate["nodeCounterparts"] == {"p2stmt": "p1stmt"}
     assert "nodeCounterparts" not in integration_candidate(candidate)
     assert integration_candidate(candidate)["rightRepeatsLeft"] is True
 
-    doc, regions, _ = two_pages(rows2=(("Name", "Amount"), ("C", "3"), ("D", "4")))
+    doc, regions, _ = two_pages(rows2=(("Name", "Amount"), ("D", "4"), ("E", "5"), ("F", "6")))
     (candidate,) = continuation_candidates(doc, regions)
     assert candidate["rightRepeatsLeft"] is False
 
@@ -204,7 +222,11 @@ def test_duplicate_binds_the_copy_to_the_same_rows_and_adds_only_provenance():
     assert [link["kind"] for link in links] == ["tableDuplicate"]
     result = combine_regions(joined)
     assert not result["errors"]
-    assert result["data"]["rows"] == [{"name": "A", "amount": "1"}, {"name": "B", "amount": "2"}]
+    assert result["data"]["rows"] == [
+        {"name": "A", "amount": "1"},
+        {"name": "B", "amount": "2"},
+        {"name": "C", "amount": "3"},
+    ]
     evidence = {e["target"]["path"]: e for e in result["valueEvidence"]}
     # Cell and column-definition provenance of both presentations, earlier page first.
     assert evidence["/rows/0/name"]["sourceRefs"] == ["p1c1:0", "p1c0:0", "p2c1:0", "p2c0:0"]
@@ -228,7 +250,9 @@ def test_duplicate_binds_the_copy_to_the_same_rows_and_adds_only_provenance():
 
 
 def test_duplicate_with_different_rows_is_refused_not_joined():
-    doc, regions, compiled = two_pages(rows2=(("Name", "Amount"), ("C", "3"), ("D", "4")))
+    doc, regions, compiled = two_pages(
+        rows2=(("Name", "Amount"), ("D", "4"), ("E", "5"), ("F", "6"))
+    )
     candidates = continuation_candidates(doc, regions)
     joined, issues, links = join_continuations(
         compiled, candidates, {"continuation:1": "duplicate"}
@@ -249,7 +273,7 @@ def test_repeated_statement_fields_and_meanings_fold_into_the_earlier_page(decis
     assert not result["errors"]
     assert "unit_2" not in result["data"] and result["data"]["unit"] == "pcs"
     assert "unit_2" not in result["dataSchema"]["properties"]
-    assert len(result["data"]["rows"]) == (2 if decision == "duplicate" else 4)
+    assert len(result["data"]["rows"]) == (3 if decision == "duplicate" else 6)
     evidence = {e["target"]["path"]: e for e in result["valueEvidence"]}
     assert evidence["/unit"]["sourceRefs"] == ["p1stmt", "p2stmt"]
     assert evidence["/unit"]["semanticIds"] == ["p1text:unit"]
@@ -291,27 +315,27 @@ def test_repeated_wording_with_a_different_value_or_separate_tables_is_kept():
 
 def test_integration_request_sends_bounded_position_views_of_whole_rows():
     doc, regions, _ = two_pages()
-    doc.nodes["p1c2:1"]["semanticInput"] = {"role": "representative", "conflicts": ["x"] * 50}
-    doc.nodes["p1c2:1"]["sourceStructure"]["bbox"] = {
+    doc.nodes["p1c3:1"]["semanticInput"] = {"role": "representative", "conflicts": ["x"] * 50}
+    doc.nodes["p1c3:1"]["sourceStructure"]["bbox"] = {
         "left": 1.23456,
         "top": 2.0,
         "right": 3.5,
         "bottom": 4.0,
         "sourceBox": [0, 0, 1, 1],
     }
-    doc.nodes["p1c2:1"]["sourceStructure"]["tableRef"] = "p1t"
+    doc.nodes["p1c3:1"]["sourceStructure"]["tableRef"] = "p1t"
     candidates = continuation_candidates(doc, regions)
     request = integration_request(doc, candidates)
     assert "nodeCounterparts" not in request["candidates"][0]
     assert request["candidates"][0]["rightRepeatsLeft"] is True
-    node = request["sourceNodes"]["p1c2:1"]
+    node = request["sourceNodes"]["p1c3:1"]
     assert node == {
-        "text": "2",
+        "text": "3",
         "semanticRole": "table_cell",
         "page": 1,
         "bbox": {"left": 1.2, "top": 2.0, "right": 3.5, "bottom": 4.0},
         "tableRef": "p1t",
-        "row": 2,
+        "row": 3,
         "col": 1,
     }
     assert request["sourceNodes"]["p1stmt"] == {
@@ -320,4 +344,4 @@ def test_integration_request_sends_bounded_position_views_of_whole_rows():
         "page": 1,
     }
     # The twelfth GPU run could not send whole-row evidence in the full observation view.
-    assert len(encode(request)) < 2500
+    assert len(encode(request)) < 3200

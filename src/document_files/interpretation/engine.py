@@ -362,6 +362,21 @@ def integration_candidate(candidate):
     return {k: v for k, v in candidate.items() if k != "nodeCounterparts"}
 
 
+def integration_contract(candidates):
+    """The relation contract bound to this batch: only offered candidates and nodes."""
+    contract = DocumentIntegration.model_json_schema()
+    properties = contract["$defs"]["ContinuationDecision"]["properties"]
+    properties["candidateId"] = {
+        "type": "string",
+        "enum": [c["id"] for c in candidates],
+    }
+    properties["sourceRefs"]["items"] = {
+        "type": "string",
+        "enum": list(dict.fromkeys(r for c in candidates for r in c["sourceRefs"])),
+    }
+    return contract
+
+
 def integration_request(observation, candidates):
     """Candidates with bounded position views of their cited nodes and table cells."""
     refs = list(dict.fromkeys(r for c in candidates for r in c["sourceRefs"]))
@@ -1670,7 +1685,6 @@ def extract_schema_from_stream(
         and c["rightRegion"] in compiled
     ]
     batches, batch = [], []
-    integration_contract = DocumentIntegration.model_json_schema()
     input_limit = min(
         selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
     )
@@ -1681,7 +1695,7 @@ def extract_schema_from_stream(
     for candidate in pending:
         trial = [*batch, candidate]
         size = len(INTEGRATE) + len(
-            encode({**integration_payload(trial), "outputContract": integration_contract})
+            encode({**integration_payload(trial), "outputContract": integration_contract(trial)})
         )
         if batch and (len(trial) > 8 or size > input_limit):
             batches.append(batch)
@@ -1695,7 +1709,7 @@ def extract_schema_from_stream(
         payload = integration_payload(batch)
         try:
             integrated = DocumentIntegration.model_validate(
-                invoke(INTEGRATE, payload, integration_contract)
+                invoke(INTEGRATE, payload, integration_contract(batch))
             )
             ids = [c.candidateId for c in integrated.continuations]
             if set(ids) != {c["id"] for c in batch} or len(ids) != len(set(ids)):
