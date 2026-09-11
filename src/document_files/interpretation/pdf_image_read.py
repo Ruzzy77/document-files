@@ -32,6 +32,11 @@ LINE_GAP_RATIO = 1.0
 STRIP_MARGIN = 24
 STRIP_MAX_LINES = 6
 STRIP_MAX_HEIGHT = 900
+# Consecutive lines share a strip only when the gap between them is small relative to
+# the taller line, so a strip never spans a table or other content between lines: the
+# third continued-table run's first strip covered the table between the unit statement
+# and the condition lines, and the model filled the line entries with table rows.
+STRIP_GAP_RATIO = 1.5
 # The wording below is the v2 wording. A v3 sentence describing text entries as lines
 # "outside the grids" made the pinned model read grid cells as empty and table rows as
 # text lines on the same inputs (bounded probes, 2026-09-11); the v2 wording with the
@@ -304,7 +309,14 @@ def line_strips(plan):
     for entry in lines:
         if group:
             box = _union(e["bounds"] for e in [*group, entry])
-            if len(group) >= STRIP_MAX_LINES or box[3] - box[1] > STRIP_MAX_HEIGHT:
+            previous = group[-1]["bounds"]
+            gap = entry["bounds"][1] - max(e["bounds"][3] for e in group)
+            tallest = max(previous[3] - previous[1], entry["bounds"][3] - entry["bounds"][1])
+            if (
+                len(group) >= STRIP_MAX_LINES
+                or box[3] - box[1] > STRIP_MAX_HEIGHT
+                or gap > STRIP_GAP_RATIO * tallest
+            ):
                 flush(group)
                 group = []
         group.append(entry)

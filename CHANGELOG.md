@@ -4,9 +4,12 @@
 
 - Image read v5 reads a page's measured grid cells and its text lines in two bounded
   requests: cells over the prepared page and lossless detail, lines over lossless page
-  strips of a few consecutive lines each (review images v2 adds the `line_strip`
+  strips of a few adjacent lines each (review images v2 adds the `line_strip`
   purpose and several crops per preparation), each line entry naming its strip and
-  its rectangle inside it. Both parts must fit the remaining model-call budget before
+  its rectangle inside it; a gap larger than one and a half times the taller line
+  starts a new strip, so a strip never spans a table between lines (the third
+  continued-table run's first strip had covered the table and the model filled the
+  line entries with table rows). Both parts must fit the remaining model-call budget before
   either is spent, the merged answer is validated as one reading, and the checkpoint
   records the parts and strip identities. Bounded probes had read every cell (12/12)
   and every line on strips (4/4), while the single request over the scaled page put

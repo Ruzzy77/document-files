@@ -553,31 +553,35 @@ def test_cells_and_lines_are_read_in_two_bounded_requests_with_lossless_strips()
         reading.merge_read_parts(plan, [parts[0], parts[0], parts[1]])
 
 
-def test_line_strips_group_consecutive_lines_and_bound_their_height():
+def test_line_strips_hold_only_adjacent_lines_and_bound_their_height():
     doc, capture = fixture()
     plan = make_plan(doc, capture)
-    entries = [e for e in plan["entries"] if e["kind"] == "cell"]
+    cells = [e for e in plan["entries"] if e["kind"] == "cell"]
+
+    def line(i, top, height=30, left=10):
+        return {"id": f"t{i}", "kind": "text_region", "bounds": [left, top, 900, top + height]}
+
     tall = {**plan, "pixelSize": [2000, 4000]}
-    tall["entries"] = entries + [
-        {"id": f"t{i}", "kind": "text_region", "bounds": [10, 100 + i * 200, 900, 130 + i * 200]}
-        for i in range(8)
+    # A title with a marker beside it, a statement below, a table's worth of space,
+    # then two condition lines: the gap keeps the table out of any strip.
+    tall["entries"] = cells + [
+        line(0, 127, 71),
+        line(1, 144, 35, left=904),
+        line(2, 253, 38),
+        line(3, 972, 34),
+        line(4, 1033, 35),
     ]
     strips = reading.line_strips(tall)
-    assert [s["entryIds"] for s in strips] == [
-        ["t0", "t1", "t2", "t3", "t4"],
-        ["t5", "t6", "t7"],
-    ]
+    assert [s["entryIds"] for s in strips] == [["t0", "t1", "t2"], ["t3", "t4"]]
+    assert strips[0]["pageBounds"] == [0, 103, 924, 315]
+    assert strips[1]["pageBounds"] == [0, 948, 924, 1092]
+    # Dense lines are capped by count and by height.
+    dense = {**tall, "entries": cells + [line(i, 100 + i * 40, 30) for i in range(8)]}
+    assert [len(s["entryIds"]) for s in reading.line_strips(dense)] == [6, 2]
+    stacked = {**tall, "entries": cells + [line(i, 100 + i * 200, 180) for i in range(6)]}
+    assert [len(s["entryIds"]) for s in reading.line_strips(stacked)] == [4, 2]
     assert all(
         s["pageBounds"][3] - s["pageBounds"][1]
         <= reading.STRIP_MAX_HEIGHT + 2 * reading.STRIP_MARGIN
-        for s in strips
+        for s in reading.line_strips(stacked)
     )
-    many = {
-        **tall,
-        "entries": entries
-        + [
-            {"id": f"t{i}", "kind": "text_region", "bounds": [10, 100 + i * 40, 900, 120 + i * 40]}
-            for i in range(8)
-        ],
-    }
-    assert [len(s["entryIds"]) for s in reading.line_strips(many)] == [6, 2]
