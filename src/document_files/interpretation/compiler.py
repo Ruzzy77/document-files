@@ -18,6 +18,7 @@ from ..result_types import Assertion, Evidence, SourceBinding, Target
 from .accounting import bound_node_dispositions, observed_heading
 from .bindings import resolve
 from .document_outline import compile_elements
+from .field_identity import exact_field_identity
 from .semantic_types import RegionInterpretation
 from .table_revisions import meaning_revision
 from .table_sources import SourceReviewError, review_ranges, source_inventory
@@ -495,7 +496,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             continue
         value_lines.setdefault(binding["sourceRef"], []).append((item.id, labels))
     collapsed = set()
-    bound_fields = {}
+    bound_fields, field_aliases = {}, {}
 
     resolved_fields = []
     for field_link in ir.fields:
@@ -572,31 +573,33 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                     }
                 )
                 continue
-        if (
-            field_link.bindingId in candidates
-            and field_link.status in {"present", "blank"}
-            and field_link.bindingId in bound_fields
-        ):
-            # One bound source span is one value: a second field over the same binding
-            # repeats it under another key. The delivery-form run emitted a note field
-            # twice over one binding.
-            out.dropped_fields[field_link.id] = bindings[field_link.bindingId]["sourceRef"]
-            collapsed.add(field_link.id)
-            out.corrections.append(
-                {
-                    "code": "duplicate_binding_field_dropped",
-                    "regionId": out.id,
-                    "fieldId": field_link.id,
-                    "bindingId": field_link.bindingId,
-                    "keptFieldId": bound_fields[field_link.bindingId],
-                    "basis": "same_binding_as_an_earlier_field",
-                }
-            )
-            continue
-        if field_link.bindingId in candidates and field_link.status in {"present", "blank"}:
-            bound_fields.setdefault(field_link.bindingId, field_link.id)
-        resolved_fields.append(field_link)
+        # The source alone does not identify a field. Keep different definitions
+        # and destinations; a wrong first field must not erase a later correct one.
         tokens, sp = location(field_link.key, field_link.groupId, field_link.targetHandle)
+        if field_link.bindingId in candidates and field_link.status in {"present", "blank"}:
+            identity = exact_field_identity(
+                field_link, bindings[field_link.bindingId], nodes, tokens
+            )
+            duplicate = bound_fields.get(identity)
+            if duplicate is not None:
+                kept, kept_binding = duplicate
+                if kept_binding in out.consumed_bindings:
+                    out.consumed_bindings.add(field_link.bindingId)
+                out.dropped_fields[field_link.id] = bindings[field_link.bindingId]["sourceRef"]
+                field_aliases[field_link.id] = kept
+                out.corrections.append(
+                    {
+                        "code": "duplicate_binding_field_dropped",
+                        "regionId": out.id,
+                        "fieldId": field_link.id,
+                        "bindingId": field_link.bindingId,
+                        "keptFieldId": kept,
+                        "basis": "same_source_definition_and_destination",
+                    }
+                )
+                continue
+            bound_fields[identity] = (field_link.id, field_link.bindingId)
+        resolved_fields.append(field_link)
         path = "/" + "/".join(map(escape, tokens)) if tokens else ""
         target = Target(space="data", path=path)
         sid = definition(field_link.id, field_link.label, field_link.definitionRefs, sp, [target])
@@ -1114,6 +1117,14 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         return observed_heading(nodes.get(ref, {})) and ref not in consumed_refs
 
     for meaning in ir.meanings:
+        if field_aliases:
+            meaning = meaning.model_copy(
+                update={
+                    "fieldIds": list(
+                        dict.fromkeys(field_aliases.get(fid, fid) for fid in meaning.fieldIds)
+                    )
+                }
+            )
         if meaning.id in meaning_ids or meaning.id in ids:
             raise CompileError("duplicate_meaning_id")
         meaning_ids.add(meaning.id)

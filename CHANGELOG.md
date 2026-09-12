@@ -4,6 +4,12 @@
 
 ### Document extraction
 
+- Constrain native value sources to one binding, exact quote or missingness branch
+  in protocol v4, including independent decoding when a backend ignores grammar.
+  Compiler v31 folds only identical source/definition/destination aliases and keeps
+  their meaning scopes; shared source alone no longer deletes a later field. Prompt
+  v36 rejects old checkpoints. This is not approval of model field selection.
+
 - Add exact-source quotation grounding and logical records for HWP/HWPX native text.
   Compile ordered values, explicit blanks/missing states and field/row scopes without
   inventing native table geometry. Preserve source observations, public evidence and

@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,756 tests,
+The full local check including the native outline path passed **2,807 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -215,6 +215,14 @@ host OOM count did not increase. The owned server/container and source/transfer/
 copies were removed after collecting responses and review. Shared services and installed
 packs were retained. GPU memory is not covered by the cgroup-only memory figure.
 
+The current correction uses native protocol v4's single `valueSource` choice and
+compiler v31's exact field identity. Mixed binding/quote/missingness combinations are
+rejected by both the closed wire alternatives and the independent decoder. Different
+labels, definition sources or destinations are not silently folded, even over one
+binding; exact aliases retain their scopes and source accounting. Local regressions
+cover these failures. The updated actual-model comparison is pending; retained wrong
+fields or extra aliases do not count as semantic correctness.
+
 ## Earlier HTML/PDF development evidence
 
 These earlier HTML/PDF runs exercise shared interpretation code, not independent
@@ -263,7 +271,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native product comparisons failed.** The wire allows conflicting value sources; first-field-wins duplicate removal deleted a correctly named field. Managed packing separates item occurrences and logical records are not joined across regions. | First constrain mutually exclusive binding/quote/missingness choices and audit duplicate removal against field provenance. Then recheck fixed-budget product comparisons and address packing/continuation and model-selection failures. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v3 comparison failed on mixed value sources and first-field-wins deletion. Those rules are corrected in v4/compiler v31; actual-model revalidation is pending. Managed packing separates item occurrences and logical records are not joined across regions. | Recheck the corrected source in fixed-budget product comparisons, including the actual decoder contract. Then address remaining field/value associations, source occurrence choices, packing/continuation and bounded repairs without suppressing facts. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

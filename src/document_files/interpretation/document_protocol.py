@@ -18,7 +18,7 @@ from .document_outline import (
     structural_value_allowed,
 )
 
-VERSION = "document-files.document-protocol.v3"
+VERSION = "document-files.document-protocol.v4"
 MAX_CALLS = 2
 REASONING_BUDGET = 1024
 
@@ -55,14 +55,16 @@ attributes, not descriptions of the document's formatting, structure or mere exi
 Choose supplied valueBindingIds for fields: code reads their exact values. Real inner
 values in structural text remain available. Preserve identifiers, decimal spelling,
 explicit blanks and native types; distinguish absent, unreadable and uncertain. Fields
-require definitionRefs, key, label, valueType, bindingId and status. Null bindingId is
-only for absent/unreadable/uncertain or an exact sourceQuote, not omission of an observed
-value. Never write output values,
-offsets or JSON Pointers. If no offered binding selects the exact value, set bindingId
-null and sourceQuote to its EXACT source text and sourceRef. Copy source spelling, not a
-normalized value. Repeated matches need an explicit zero-based occurrence. Empty quotes
-are invalid: use an observed blank binding, or evidence-backed absent/unreadable/uncertain.
-Do not set both bindingId and sourceQuote. Groups express nesting.
+require definitionRefs, key, label, valueType and exactly one valueSource choice:
+- kind binding: select an offered bindingId and status present or blank.
+- kind quote: supply quote with sourceRef and EXACT nonempty source text; this is present.
+- kind missing: status absent, unreadable or uncertain, with definition/source evidence.
+Never combine choices or add the old bindingId/sourceQuote/status fields beside valueSource.
+Use a quote when no offered binding selects the exact value. Copy source spelling, not a
+normalized value. occurrence counts matches of THAT EXACT quoted text within the owned
+source view, starting at zero; it is not an item, sentence or row number. Repeated matches
+need an explicit occurrence. Empty quotes do not establish blanks: use an actual empty
+binding. Never write output values, offsets or JSON Pointers. Groups express nesting.
 Use logicalRecords for repeated items in prose or forms without physical table geometry.
 Define columns once and provide every occurrence's sourceQuotes and exactly one value
 per column, with its sourceRefs and binding/quote/presence. Row source quotes must cover
@@ -211,11 +213,9 @@ def content_request(payload, schema, decision, observation, region):
     schema["$defs"]["FieldLink"]["properties"]["sourceQuote"] = {
         "anyOf": [{"$ref": "#/$defs/SourceQuote"}, {"type": "null"}]
     }
-    # Logical value links inherit the exact admitted native binding choices.
-    schema["$defs"]["LogicalValue"]["properties"]["bindingId"] = deepcopy(
-        schema["$defs"]["FieldLink"]["properties"]["bindingId"]
-    )
-    schema["$defs"]["LogicalValue"]["required"].extend(["bindingId", "sourceQuote"])
+    from .native_value_wire import constrain as constrain_value_sources
+
+    constrain_value_sources(schema, allowed)
     schema["$defs"]["FieldDefinition"]["required"].append("valueType")
     return payload, _compact_contract(schema)
 
@@ -223,4 +223,6 @@ def content_request(payload, schema, decision, observation, region):
 def attach_content(value, decision):
     if not isinstance(value, dict) or "documentElements" in value:
         raise ValueError("document_content_cannot_change_roles")
-    return {**value, "documentElements": deepcopy(decision["documentElements"])}
+    from .native_value_wire import decode_content
+
+    return {**decode_content(value), "documentElements": deepcopy(decision["documentElements"])}

@@ -335,7 +335,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     import io
     import json
 
-    from test_document_outline import OutlineModel, make_file
+    from test_document_outline import OutlineModel, make_file, native_wire
 
     from document_files.api import (
         AnalysisInput,
@@ -398,6 +398,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
                 for b in payload["requiredBindingIds"]
                 if b != blank
             ]
+            response = native_wire(response)
             Draft202012Validator(payload["outputContract"]).validate(response)
             return InferenceResponse(json.dumps(response), {})
 

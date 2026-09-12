@@ -50,6 +50,27 @@ def make_file(tmp_path, *, table=True, blocks=None):
     return p.read_bytes()
 
 
+def native_wire(value):
+    """Express a scripted compiler fixture using the exclusive native model wire."""
+    value = copy.deepcopy(value)
+    links = [
+        *value.get("fields", []),
+        *(v for r in value.get("logicalRecords", []) for row in r["rows"] for v in row["values"]),
+    ]
+    for link in links:
+        binding = link.pop("bindingId", None)
+        quote = link.pop("sourceQuote", None)
+        status = link.pop("status", "present")
+        if quote is not None:
+            assert binding is None and status == "present"
+            link["valueSource"] = {"kind": "quote", "quote": quote}
+        elif binding is not None:
+            link["valueSource"] = {"kind": "binding", "bindingId": binding, "status": status}
+        else:
+            link["valueSource"] = {"kind": "missing", "status": status}
+    return value
+
+
 class OutlineModel(PlainRegisterModel):
     def __init__(self, *, bad=None):
         super().__init__()
@@ -132,7 +153,7 @@ class OutlineModel(PlainRegisterModel):
                 }
             )
         return InferenceResponse(
-            json.dumps({"regionId": payload["regionId"], "fields": fields}), {}
+            json.dumps(native_wire({"regionId": payload["regionId"], "fields": fields})), {}
         )
 
 
@@ -357,6 +378,7 @@ def test_checkpoint_rebuilds_outline_and_rejects_old_policies_or_invalid_role_re
         ("regionPlanVersion", "document-files.region-plan.v18"),
         ("documentProtocolVersion", "document-files.document-protocol.v1"),
         ("documentProtocolVersion", "document-files.document-protocol.v2"),
+        ("documentProtocolVersion", "document-files.document-protocol.v3"),
     ]:
         checkpoint = copy.deepcopy(states[-1])
         checkpoint["identity"][key] = old

@@ -110,7 +110,7 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v30, prompt v35, region plan v19 and document-outline v1 / document-protocol v3 identify this
+Compiler v31, prompt v36, region plan v19 and document-outline v1 / document-protocol v4 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
@@ -174,19 +174,31 @@ HWP and long source views still need characterization and independent comparison
 
 #### Exact text values and logical records
 
-Native content protocol v3 adds `FieldLink.sourceQuote` and `logicalRecords` to the
-private HWP/HWPX non-table response. Physical-table and other-format requests do not
-offer them, and the compiler rejects them outside native text regions. A relevance
-flag is not a loss gate: document identifiers, metadata and explicit missing states
-remain in scope. Pure titles and headings do not require duplicate scalar fields.
+Native content protocol v4 sends one `valueSource` per scalar field or logical-record
+value. `native_value_wire.py` offers three closed alternatives:
 
-**Value grounding.** A present value selects either an offered `bindingId` or a
-nonempty `sourceQuote` (`sourceRef`, exact `text`, optional zero-based `occurrence`).
-The shared source-inventory resolver verifies owned views, exact Unicode spelling
-and ambiguous/overlapping literal occurrences. Repeated matches require an explicit
-occurrence. Models cannot supply offsets, normalized values or output pointers.
-Blank values still require an actual empty native binding; absence, unreadability
-and uncertainty are separate presence states, not empty quotations.
+- `kind: binding`, an offered `bindingId`, and `status: present | blank`;
+- `kind: quote`, a nonempty exact `quote` with `sourceRef`, `text` and optional
+  zero-based `occurrence`; this branch denotes a present value;
+- `kind: missing` and `status: absent | unreadable | uncertain`.
+
+These alternatives are shared by fields and record values in both the prompt and
+transported decoder schema. There are no independent nullable binding/quote fields
+to combine, and no quote can accompany a missingness choice. The independent decoder
+also rejects mixed/old links for unconstrained backends; it never selects one of
+contradictory sources. It translates a valid choice to the existing private
+`FieldLink`/`LogicalValue` binding, quote and status fields before compilation. Old
+native-protocol checkpoints cannot resume under this changed wire.
+
+**Value grounding.** The shared source-inventory resolver verifies owned views,
+exact Unicode spelling and repeated/overlapping literal occurrences. An occurrence
+is the match index of that exact text in its owned view, not an item or sentence
+number. Omission stays omitted through decoding so repeated matches still require
+an explicit occurrence. Models cannot supply offsets, normalized values or output
+pointers. Blank values require an actual empty native binding; a narrative sentence
+about missing data is not itself an empty value. Physical-table and other-format
+requests do not offer this extension. Identifiers, metadata and missing states remain
+in scope; a relevance flag is not a loss gate.
 
 `native_records.prepare` builds a compilation-local binding overlay. Quote IDs hash
 the verified source range/text identity; original nodes, native bindings and source
@@ -226,14 +238,17 @@ Direct regressions exercise the actual HWPX reader, native role/content wire, ex
 values, ordering, blank/absence, column and row-specific scopes, target-schema handles,
 source immutability and checkpoint rebuilding. They do **not** approve AI quality.
 
-**Observed wire/model defects.** The first actual quote/record product comparison
-failed on both layouts. The grammar currently admits simultaneous binding/quote
-choices and quotes on non-present values, which the compiler rejects. Tighten the
-wire to exclusive choices before another comparison; do not normalize contradictory
-sources into an accepted answer. The existing same-binding scalar collapse also
-kept an incorrectly defined first field and dropped a correctly named later field.
-Source identity alone does not prove field identity. This needs a provenance-aware
-repair, not a semantic relevance gate. See `SUPPORT.md` for the bounded outcomes.
+**Scalar identity.** Compiler v31 no longer folds fields merely because their
+source binding matches. `field_identity.py` compares the exact source address,
+value type/presence, label, definition-source set and compiler-resolved destination.
+Different definitions or destinations remain separate, including legitimate shared
+values. Incompatible definitions at one destination fail rather than choosing the
+first. Only fully identical aliases can fold; their meaning scopes map to the kept
+field, and equivalent source addresses retain required-candidate accounting.
+This prevents a wrongly named first field from deleting a correctly named later one.
+It does not establish that either name or value association is semantically correct;
+extra/wrong fields still fail independent whole-result review. Label/whole-line and
+physical record-cell duplicate rules are separate, not strengthened by this change.
 
 **Remaining boundaries.** The original seed receipt is split into four text regions
 at the managed 16,000-character request budget. This extension does not yet join
@@ -504,8 +519,8 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v35 / v19 / v30 |
-| Document outline / native role-content protocol | v1 / v3 |
+| Semantic prompt / region plan / result compiler | v36 / v19 / v31 |
+| Document outline / native role-content protocol | v1 / v4 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |

@@ -8,7 +8,7 @@ from xml.sax.saxutils import escape
 
 import pytest
 from jsonschema import Draft202012Validator
-from test_document_outline import OutlineModel, decision, unit
+from test_document_outline import OutlineModel, decision, native_wire, unit
 
 from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.interpretation import document_protocol as protocol
@@ -236,17 +236,21 @@ def test_inner_structural_value_retained_but_whole_title_copy_rejected():
         "status": "present",
     }
     value = {"regionId": region["id"], "fields": [field]}
-    assert Draft202012Validator(schema).is_valid(value)
+    assert Draft202012Validator(schema).is_valid(native_wire(value))
     out = compile_region(
-        RegionInterpretation.model_validate(protocol.attach_content(value, roles)), doc, region
+        RegionInterpretation.model_validate(protocol.attach_content(native_wire(value), roles)),
+        doc,
+        region,
     )
     assert out.data == {"count": "0007"} and out.document_elements[0]["role"] == "title"
     assert not out.issues
     bad = {"regionId": region["id"], "fields": [{**field, "bindingId": whole_id}]}
-    assert not Draft202012Validator(schema).is_valid(bad)
+    assert not Draft202012Validator(schema).is_valid(native_wire(bad))
     with pytest.raises(CompileError, match="document_role_value_conflict"):
         compile_region(
-            RegionInterpretation.model_validate(protocol.attach_content(bad, roles)), doc, region
+            RegionInterpretation.model_validate(protocol.attach_content(native_wire(bad), roles)),
+            doc,
+            region,
         )
     missing = compile_region(
         RegionInterpretation.model_validate(
@@ -314,7 +318,9 @@ def test_structural_text_keeps_unit_meaning_without_inventing_a_scalar():
         ],
     }
     out = compile_region(
-        RegionInterpretation.model_validate(protocol.attach_content(value, roles)), doc, region
+        RegionInterpretation.model_validate(protocol.attach_content(native_wire(value), roles)),
+        doc,
+        region,
     )
     assert out.data == {} and out.document_elements[0]["role"] == "title"
     assert any(

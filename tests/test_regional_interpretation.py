@@ -2071,7 +2071,7 @@ class TripleFieldModel(ReferenceModel):
 def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     from document_files.interpretation.semantic_types import COMPILER_VERSION
 
-    assert COMPILER_VERSION == "document-files.result-compiler.v30"
+    assert COMPILER_VERSION == "document-files.result-compiler.v31"
     model = TripleFieldModel()
     result = run(b"cond: do not ship\n", model)
     assert result["data"] == {"cond": "do not ship"}
@@ -2205,16 +2205,15 @@ class DuplicateFieldModel(ReferenceModel):
         return json.dumps(value)
 
 
-def test_second_field_over_the_same_binding_is_dropped():
+def test_same_source_at_distinct_destinations_is_not_silently_dropped():
     result = run(b"name: Kim\ncount: 3\n", DuplicateFieldModel())
-    assert result["data"] == {"name": "Kim", "count": "3"}
+    assert result["data"] == {"name": "Kim", "name_copy": "Kim", "count": "3", "count_copy": "3"}
     dropped = [
         c
         for c in result["coverage"]["programCorrections"]
         if c["code"] == "duplicate_binding_field_dropped"
     ]
-    assert [c["fieldId"].endswith("-copy") for c in dropped] == [True, True]
-    assert all(c["keptFieldId"] + "-copy" == c["fieldId"] for c in dropped)
+    assert not dropped  # An alias-looking key is not proof of a duplicate destination.
     assert result["extraction"]["status"] == "complete", result["issues"]
 
 
