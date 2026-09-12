@@ -22,6 +22,12 @@ from .table_revisions import meaning_revision
 from .table_sources import SourceReviewError, review_ranges, source_inventory
 from .validation import check_schema, escape, leaves, pointer, schema_definitions
 
+_BARE_NUMBER = re.compile(r"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$")
+
+
+def _bare_number(text):
+    return isinstance(text, str) and text != "" and bool(_BARE_NUMBER.match(text.strip()))
+
 
 class CompileError(ValueError):
     """Only product-written diagnostics; never raw model values or document text."""
@@ -468,6 +474,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             continue
         value_lines.setdefault(binding["sourceRef"], []).append((item.id, labels))
     collapsed = set()
+    bound_fields = {}
 
     resolved_fields = []
     for field_link in ir.fields:
@@ -544,6 +551,29 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                     }
                 )
                 continue
+        if (
+            field_link.bindingId in candidates
+            and field_link.status in {"present", "blank"}
+            and field_link.bindingId in bound_fields
+        ):
+            # One bound source span is one value: a second field over the same binding
+            # repeats it under another key. The delivery-form run emitted a note field
+            # twice over one binding.
+            out.dropped_fields[field_link.id] = bindings[field_link.bindingId]["sourceRef"]
+            collapsed.add(field_link.id)
+            out.corrections.append(
+                {
+                    "code": "duplicate_binding_field_dropped",
+                    "regionId": out.id,
+                    "fieldId": field_link.id,
+                    "bindingId": field_link.bindingId,
+                    "keptFieldId": bound_fields[field_link.bindingId],
+                    "basis": "same_binding_as_an_earlier_field",
+                }
+            )
+            continue
+        if field_link.bindingId in candidates and field_link.status in {"present", "blank"}:
+            bound_fields.setdefault(field_link.bindingId, field_link.id)
         resolved_fields.append(field_link)
         tokens, sp = location(field_link.key, field_link.groupId, field_link.targetHandle)
         path = "/" + "/".join(map(escape, tokens)) if tokens else ""
@@ -636,7 +666,14 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             if role is None or role.role in {"header", "blank", "unresolved"}:
                 continue
             row_refs = {cell["sourceRef"] for cell in row_cells}
-            if row_refs and row_refs <= cited:
+            # A bare number is a value, never a definition (table protocol v18), so a
+            # fully cited row holding one is a content row whose citations are wrong,
+            # not a header row: the delivery-form run cited every cell of each column.
+            if (
+                row_refs
+                and row_refs <= cited
+                and not any(_bare_number(nodes.get(ref, {}).get("text")) for ref in row_refs)
+            ):
                 roles[row] = role.model_copy(update={"role": "header"})
                 out.corrections.append(
                     {
@@ -648,6 +685,34 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                         "basis": "every_observed_cell_cited_as_column_definition",
                     }
                 )
+        # A cell of a content row (data, subtotal, note) is a value, not a column
+        # definition: such citations are dropped from the column and recorded. A column
+        # that would keep no citation retains them for the header checks below.
+        content_refs = {
+            cell["sourceRef"]
+            for row, row_cells in observed.items()
+            if row in roles and roles[row].role in {"data", "subtotal", "note"}
+            for cell in row_cells
+        }
+        columns = []
+        for col in repeat.columns:
+            dropped = [ref for ref in col.definitionRefs if ref in content_refs]
+            kept = [ref for ref in col.definitionRefs if ref not in content_refs]
+            if dropped and kept:
+                out.corrections.append(
+                    {
+                        "code": "column_definition_content_cells_dropped",
+                        "regionId": out.id,
+                        "tableRef": repeat.tableRef,
+                        "columnId": col.id,
+                        "column": col.column,
+                        "sourceRefs": dropped,
+                        "basis": "cells_of_rows_labeled_data_subtotal_or_note",
+                    }
+                )
+                col = col.model_copy(update={"definitionRefs": kept})
+            columns.append(col)
+        repeat = repeat.model_copy(update={"columns": columns})
         # Header geometry is program knowledge: every column's definition carries the
         # declared header cells above it, and a cited header that does not sit above
         # the column, or a missing lowest header, is reported for repair.

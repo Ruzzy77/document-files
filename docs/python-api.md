@@ -580,7 +580,11 @@ A duplicate whose compiled rows differ is refused as the issue
 delimiter label/value line is one scalar: when a field binds the line's value span, a
 further field that binds only its label span or the whole line is dropped and recorded as
 `label_value_line_field_dropped` with the field, binding, source and the value field it
-restates; a meaning that listed the dropped field keeps its remaining scope.
+restates; a meaning that listed the dropped field keeps its remaining scope. A second
+field over the same binding is dropped as `duplicate_binding_field_dropped`, and a column
+definition citation of a cell in a data, subtotal or note row is dropped as
+`column_definition_content_cells_dropped`; a fully cited content row becomes a header row
+only when none of its cells is a bare number.
 
 ### OCR ruling evidence
 

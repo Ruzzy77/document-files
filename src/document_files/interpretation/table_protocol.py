@@ -35,7 +35,7 @@ from .table_source_decisions import (
 )
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v18"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v19"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -58,6 +58,8 @@ group observed cells by actual row and column; missing cells remain absent. Neve
 shift the next cell into a missing slot, or return sourceRefs in rowRoles.
 Declared headers are definitions, never values. Cite the lowest header over each
 column; columnCandidates are geometric evidence, not predetermined field names.
+definitionRefs name the header cells that define a column, never its data, subtotal
+or note cells.
 leadingCells are unclassified context, not assumed headers. Observe conflicts in
 semanticInput; overlapping source text is not independent corroboration.
 For scalar_form/unresolved return record:null. Do not create fields, meanings,

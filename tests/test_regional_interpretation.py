@@ -2049,7 +2049,7 @@ class TripleFieldModel(ReferenceModel):
 def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     from document_files.interpretation.semantic_types import COMPILER_VERSION
 
-    assert COMPILER_VERSION == "document-files.result-compiler.v23"
+    assert COMPILER_VERSION == "document-files.result-compiler.v24"
     model = TripleFieldModel()
     result = run(b"cond: do not ship\n", model)
     assert result["data"] == {"cond": "do not ship"}
@@ -2068,3 +2068,63 @@ def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     details = [d for d in result["semanticDetails"] if d["kind"] == "condition"]
     assert len(details) == 1
     assert result["validation"]["valid"], result["validation"]
+
+
+def test_content_row_citations_are_dropped_and_rows_with_bare_numbers_stay_data():
+    # The delivery-form development run cited every cell of each column as its
+    # definition; the fully cited data rows were then compiled as header rows.
+    doc, region, ir = _table()
+    region["requiredBindingIds"] = list(doc.bindings)
+    ir.repeats[0].columns[0].definitionRefs = ["c0:0", "c1:0", "c2:0"]
+    ir.repeats[0].columns[1].definitionRefs = ["c0:1", "c1:1", "c2:1"]
+    ir.repeats[0].columns[1].valueType = "integer"
+    compiled = compile_region(ir, doc, region)
+    assert [c["code"] for c in compiled.corrections] == [
+        "column_definition_content_cells_dropped",
+        "column_definition_content_cells_dropped",
+    ]
+    assert compiled.corrections[0]["sourceRefs"] == ["c1:0", "c2:0"]
+    assert compiled.corrections[1]["sourceRefs"] == ["c1:1", "c2:1"]
+    assert not compiled.issues
+    result = combine_regions([compiled])
+    assert result["data"] == {
+        "rows": [
+            {"name": "A", "amount": 0},
+            {"name": "B", "amount": 0},
+            {"name": "C", "amount": ""},
+        ]
+    }
+    definitions = [
+        s for s in compiled.semantics if s["kind"] == "field_definition" and "column" in s["id"]
+    ]
+    assert all(set(s["sourceRefs"]) <= {"c0:0", "c0:1"} for s in definitions)
+    assert {r["role"] for r in compiled.row_scopes["rows"]["rows"].values()} == {"header", "data"}
+
+
+class DuplicateFieldModel(ReferenceModel):
+    """Repeats every label/value scalar under a second key over the same binding."""
+
+    def complete(self, messages, *, timeout):
+        value = json.loads(super().complete(messages, timeout=timeout))
+        value["fields"] = [
+            item
+            for field in value["fields"]
+            for item in (
+                field,
+                {**field, "id": field["id"] + "-copy", "key": field["key"] + "_copy"},
+            )
+        ]
+        return json.dumps(value)
+
+
+def test_second_field_over_the_same_binding_is_dropped():
+    result = run(b"name: Kim\ncount: 3\n", DuplicateFieldModel())
+    assert result["data"] == {"name": "Kim", "count": "3"}
+    dropped = [
+        c
+        for c in result["coverage"]["programCorrections"]
+        if c["code"] == "duplicate_binding_field_dropped"
+    ]
+    assert [c["fieldId"].endswith("-copy") for c in dropped] == [True, True]
+    assert all(c["keptFieldId"] + "-copy" == c["fieldId"] for c in dropped)
+    assert result["extraction"]["status"] == "complete", result["issues"]

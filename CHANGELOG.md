@@ -2,6 +2,17 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Compiler v24 drops a column definition citation of a cell in a row the structure
+  decision labels data, subtotal or note (`column_definition_content_cells_dropped`),
+  relabels a fully cited content row as a header only when none of its cells is a bare
+  number, and drops a second field over the same binding
+  (`duplicate_binding_field_dropped`). Table protocol v19 says that definitionRefs name
+  the header cells that define a column, never its data, subtotal or note cells, and
+  semantic prompt v30 says that a statement giving the unit or currency of values is a
+  unit meaning, not a definition. The delivery-form development run cited every cell of
+  each column, so its three data rows were compiled as headers and its item list was
+  empty; the same run bound one note line under two keys and read the amount-unit
+  statement as a definition. Prior table-stage checkpoints are incompatible.
 - PDF page review v16 records whether a pixel unit lies entirely on the page's own vector
   line objects (`onlyNativeRulePixels`, from a complete PDF object inventory) and offers
   such a unit `native_rule` when it is not a recognized table border; a native rule proves
