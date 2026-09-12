@@ -5,9 +5,10 @@
 ### Document extraction
 
 - Fit explicit native structure review by sharing property names in prior object
-  arrays (native-structure v10 / revision v3). Preserve all previous decisions and
+  arrays (native-structure v11 / revision v4). Preserve all previous decisions and
   source context, keep the canonical checkpoint unmodified, and retain complete
-  entity/source checks. Clarify that value quotes select the exact inner value,
+  entity/source checks. Explicitly review extraction correctness on the same source,
+  not changes to that source. Clarify that value quotes select the exact inner value,
   not a surrounding citation sentence; this does not establish correct occurrence
   selection or approve model quality.
 

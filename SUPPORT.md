@@ -1,16 +1,10 @@
 # Extraction readiness and priorities
 
-This file records current capability, checked outcomes and unresolved defects.
-Implementation details belong in [the extraction engine](docs/extraction-engine.md),
-not in an accumulating experiment log. Last source audit: **2026-09-13**. Current
-XLSX candidate-boundary check used **d7334e9eb0d23cdbfd926f54aa677bf87faf90dc**.
-The HWPX and relation development checks used **b97fe61df3c3195f592e50f7099724e3ea14d9ed**.
-The first native-outline comparison used **6dacdff4c9ec5d2528138bcbf783c1458e43a522**;
-it did not pass document-role quality.
-The formatting/role-contract correction used **0d0a4548a18bb3650654d0edce9a3a4fb5568d09**;
-its source-preservation checks passed, but both role comparisons still failed.
-Earlier HTML/PDF runs used **8744a5c1c89b87370c8b6dd3c8d49cd464400277**. None of these is independent approval of the structural KPI.
-Version **1.8.0 is not formally released**.
+Current capability, confirmed defects and the next acceptance checks. Last verified:
+**2026-09-13**. Implementation and checkpoint behavior belong in
+[the extraction engine](docs/extraction-engine.md); raw comparisons remain in private
+qualification evidence. This is not a chronological work log. Version **1.8.0 is not
+formally released**, and the primary-format structural KPI is not yet approved.
 
 ## Current scope
 
@@ -66,461 +60,135 @@ files and application-specific linkage. Host-source bundles now include their de
 launchers, and each generated Skill points to its own runtime. These checks do not
 qualify a platform installer, a live agent session or a formal release.
 
-## Native-format and relation checks on Spark
-
-The development sources ran on Spark-A with the installed CUDA/model packs and
-Python 3.12 recognition-pack runtime. ARM regressions passed **213 tests** before the
-HWPX/relation checks and **83 tests** before the affected XLSX rerun. Expected
-answers stayed outside the extractor input.
-
-| Check | Actual calls / seconds | Result |
-|---|---|---|
-| Relation stage, four equal-cell-text contexts | 4 / 91.8 | New occurrences → continue; same-page copy → duplicate; different register → separate; ambiguous identity → unresolved. This checks only the relation stage, not whole-document quality. |
-| HWPX record table | 3 / 38.9 | Two ordered records, exact values and column/value sources are correct. The title and caption became two generic scalar fields instead of distinct document roles. Engine `complete` does not close this structural defect. |
-| XLSX record table, candidate correction | 2 / 25.6 | The unchanged file now returns `complete` without the four false missing candidates. Both ordered records, all four exact cell bindings and their own column headers match the frozen expectations. No extra scalar or invented meaning; original nodes remain unchanged. |
-
-These cases remain development-only, not independent approval of the primary-format
-KPI. The plain XLSX case passes its frozen comparison; HWPX document roles remain
-incorrect. Requests, results, expectations and separate comparison are retained in
-`private/qualification/structural-kpi-20260912/first-native-01/` and
-`xlsx-candidates-02/` under the same parent. The original XLSX failure is retained.
-
-Source/input hashes matched; owned servers and containers stopped; task-only source
-exports, transfer archives and activation copies were removed. Shared services and
-installed packs were unchanged. The runs used a 16 GiB cgroup limit with no cgroup
-swap or OOM, but GPU memory was not captured by that counter; this is not a CPU-only
-16 GiB qualification.
-
-### Native logical outline comparison
-
-Current native text handling separates role decisions from immutable-role content
-interpretation (compiler v29, prompt v34, region plan v19, document protocol v2).
-Exact source text and formatting remain separate from business data. Failed content
-preserves accepted roles and compiled table records; resume checks stage identity,
-source context and cumulative cost. This boundary is implemented and regression-tested,
-not a claim that model role/content judgments are accurate.
-
-The latest complete-path comparison used
-**d7357750d6cd51e8deab4005a5f145e0c2dd1d4c** after **137 ARM regressions**
-(the seven fixture-authoring tests excluded there passed on Mac). Both unchanged
-HWPX inputs were compared with unchanged prior expectations, never supplied to the
-model, under their original 12-call / 900-second limits.
-
-| Document | Calls / seconds | Whole-result review |
-|---|---|---|
-| English register | 5 / 149.7 | Partial. The intended caption became a section heading; content invented two unresolved title/heading fields and notes about formatting. |
-| Korean inspection | 9 / 265.6 | Engine `complete`, but review failed. Caption and heading hierarchy differed; the body was bound as a title value and the caption as a heading value. Notes described document structure rather than additional source meaning. |
-
-All expected table records, row order, exact decimal/identifier spelling and actual
-cell/header source links match in both cases. Original nodes/input hashes are
-unchanged; 22 formatting text-element references were compared with original XML.
-These preservation checks do not excuse extra fields or incorrect relationships.
-
-The caption expectations describe the author's intended table labels. Neither input
-has a native caption XML element: the inspected fixture writer emits the caption as
-an ordinary paragraph with heading formatting. In particular, the repeated English
-label admits a section-heading reading. Preserve this author-intent comparison as
-failed, but do not misreport it as loss of an explicit native caption marker. New
-qualification must distinguish explicit source roles, contextual interpretations
-and genuinely ambiguous cases. The unrelated invented fields remain definite defects.
-
-Transport diagnostics confirm protocol v2's 1,024-token reasoning-block allowance
-was applied. It did **not** correct these defects and increased cost relative to the
-non-thinking staged comparison (5 / 60.5 seconds and 9 / 118.4 seconds). A larger
-reasoning allowance is not the next quality fix. Inspect input/response representation
-and explicit content decisions before adding further repair instructions.
-
-Evidence is retained under `private/qualification/structural-kpi-20260913/`:
-`outline-native-01/`, `outline-formatting-02/`, `roles-staged-03/` and
-`roles-thinking-04/`. Frozen expectations, raw failures, independent binding checks
-and the source-role ambiguity review remain available. Owned servers/containers,
-source exports, transfer archives and activation copies are removed; shared services
-and installed packs are unchanged. Host OOM did not increase; there was no cgroup
-swap/OOM. GPU allocations are not included in that memory counter, so this is not
-CPU-only or total-memory qualification. None of these is a new independent holdout.
-
-### Native prose and forms: confirmed representation gap
-
-The four-call negative request comparison was followed by positive controls: split
-label/value lines, an identifier, explicit blanks, units/conditions and a seed-receipt
-form with two items written as sentences. Both non-thinking and bounded-thinking
-9B runs completed within their fixed six-call budget. An already running alternative
-model was also checked in three idle-slot requests, without installing, restarting
-or changing its shared service. Neither comparison qualifies an extraction path.
-
-An identifier was incorrectly marked as neither a field nor meaning in both models'
-non-thinking/default comparisons. The 9B thinking run also rejected explicit
-missingness in prose. Differences between a field route and a meaning route alone
-are **not** evidence of lost facts: units or missingness could be preserved through
-meaning details. Private routing labels are not the product KPI. A tested source-
-relevance guard prototype was therefore **not adopted**; no relevance-based field
-suppression was added to the product. Calling the target only “business fields” is
-also too narrow for document identifiers, metadata and explicit missing states.
-
-A native-parser/planner audit of the seed receipt established a representation limit
-in the previous source:
-
-- The source has two item records in prose and **no native table**. Every generated
-  region contract sets `repeats.maxItems = 0`; `RepeatLink` requires a table reference.
-- `SEED-604` is offered exactly, but `Basil`, `Marigold`, the individual `8`/`5` counts
-  and `packets` are not. Existing whole-text/delimiter candidates combine several
-  attributes; globally hidden token candidates cannot supply those exact choices.
-- The model cannot select missing binding IDs or emit a forbidden record structure.
-  More role repair or a different model cannot remove this representation limit.
-
-Native content protocol v4 / compiler v31 implement exact owned-source quotes
-and logical records without native table geometry. The compiler reads the original
-values, preserves ordered occurrences, blank/missing states and source links, and
-connects columns/individual rows to applicability. Source observations remain
-immutable; public grounding coverage and rebuild-on-resume checks are included.
-The actual HWPX product interface passes scripted regressions, but both managed-pack
-Spark model comparisons below failed. The original receipt still spans four managed-budget
-regions; logical-record continuation remains unimplemented.
-
-`content-positive-diagnostic-06/` retains the requests, local prior expectations,
-explicit pre-review truth correction, rejected prototype and native representation
-audit. `shared-model-diagnostic-07/` retains the alternative-model comparison and
-service/slot checks. These are under the same private parent. Task-only exports were
-removed; raw evidence remains. The shared model's shards were not fully hashed and
-its memory was not isolated, so no model-pack or resource qualification is claimed.
-
-### Native quote/record product comparison
-
-Source **acff5803eae149d80514ced82049e0a73b6b1511** uses native protocol v4,
-prompt v36 and compiler v31. The existing managed 9B CUDA pack ran the same two
-HWPX documents within **12 calls / 900 seconds each**, with unchanged sampling and
-output limits. Spark ARM Python 3.12 passed **211 related tests**; eight optional
-fixture-writer tests were deselected, not counted as passes. Prior facts stayed
-outside the extractor.
-
-| Native development input | Calls / seconds | Whole-result judgment |
-|---|---:|---|
-| Original seed receipt, eight paragraphs | 12 / 479.8 | `partial`; donation code is retained, but an extra title reads that code too. One Basil row is compiled, with both counts citing the first `8`. Marigold is not a record, its empty received value is marked absent, and required scopes/metadata are missing. |
-| Same facts, both items in one paragraph | 5 / 230.7 | `partial`; compound text bindings cannot be read as integer values in either content attempt. Final data contains only the handling paragraph; no item rows. |
-
-All ten native content responses used one valid `valueSource` choice. The earlier
-binding/quote/missingness conflicts are gone in this run. Exact field identity also
-prevents the wrong first field from deleting the donation code. These improvements
-do **not** validate the retained field names, values or applicability.
-
-The same-valued counts demonstrate why comparing values alone is insufficient: both
-are `8`, but the received-count binding points to the requested occurrence. Blank
-and absent must also remain distinct. The Basil repair drops the accepted record;
-keeping the previous row is correct, not a reason to weaken loss protection. The
-original exhausts its call budget, whereas the compact input fails without a timeout
-or output truncation. Neither is fixed by automatically increasing limits.
-
-Evidence: private `structural-kpi-20260913/native-records-09/`; the earlier failures
-remain in `native-records-08/`. These are development inputs, not holdouts. Original
-observations, source files and input hashes stayed unchanged. Cgroup swap/OOM were
-zero, host OOM count did not increase, and the owned server/container stopped.
-Shared services and installed packs are retained. GPU memory is not covered by the
-cgroup-only memory figure.
-
-
-### Existing stronger-model product check
-
-The same compact input and `acff580` source also ran through the actual product
-interface using the already-running Motif-3-314B-Q4_K_M service. Its schema-constrained
-request was rejected by the server's grammar parser after one successful role call.
-An explicit `json_object` configuration retained the full contract in the prompt and
-all compiler checks, with only the remaining **10 calls / 870 seconds** allowed.
-Together the attempts used **7 requests / 273.9 seconds**; six completed inference.
-
-The product run itself returned `partial` after **5 calls / 244.8 seconds**. It again
-selected compound text as integer values and compiled only the handling paragraph.
-No item records or complete applicability were retained. Model size alone did not
-resolve the failure. This is not an independent, isolated-memory or model-pack check;
-the shared model shards are not fully hashed. The service, slot, source and input
-were checked before/after, and no service settings changed. Private evidence is in
-`structural-kpi-20260913/shared-product-10/` and `shared-product-11/`.
-
-The next source correction is implemented as native protocol v5 / prompt v37:
-program-resolved `exactText` beside offered text bindings, plus the failed binding ID
-and type in native repair feedback. Positions are no longer the only way to determine
-what a candidate actually reads. Candidates remain mechanical proposals, not semantic
-labels; no field is automatically renamed or dropped. The `cbc94f6` recheck passed 223 ARM regressions (eight writer tests deselected),
-then ran **4 calls / 157.0 seconds** within the unchanged document allowance. Both
-content requests displayed every selected text exactly and stayed below 16,000
-characters. The engine returned `complete`, but independent comparison **failed**:
-it saved compound unit text, attached Marigold's requested quantity to Basil, and
-created no item records or complete scopes. It chose strings rather than the earlier
-failing numeric types, so binding-specific type repair was not exercised. Donation
-code and receipt-date absence alone do not make the document correct. Evidence is in
-`structural-kpi-20260913/native-candidates-12/`; source/input hashes, original
-observations and shutdown checks passed, and task-only transfer copies were removed.
-
-
-### Structure-first native implementation
-
-Native protocol v7 / native-structure v10, compiler v32 and prompt v39 now discover
-fields/types/repeated occurrences from original blocks before showing parser value
-candidates. Value choices cannot rename, remove or change those commitments. Exact
-meaning quotes remain separate from their applicability decisions. Failed values
-preserve the partial structure, and resume rebuilds it from the recorded decisions.
-Region plan v20 sizes actual role/structure requests instead of the fixed native
-reserve; value requests still receive the same hard dispatch check. In the existing
-seed examples, planning keeps the compact file in one region and the original
-file in two rather than the earlier four. This is not a quality approval.
-
-Scripted regressions cover field/row/type preservation, separate definition/value
-sources, exact precision and repeated values, blank/absence, meaning ranges,
-unknown-response resume, checkpoint tampering and disjoint long-source views.
-The `750da84` Spark comparison (native-structure v3 / wire v1) passed 273 ARM
-tests; eight optional writer fixtures remained deselected and passed locally.
-Both documents still failed whole-result quality under the unchanged 12-call / 900-second
-budget, 16,000-character input limit and 3,072-token response limit:
-
-- **Original: 2 calls / 90.3 seconds, partial.** A source-grounded two-row record
-  compiled, including integer count definitions and Marigold's declared blank.
-  No business values were read: the initial value request was 18,884 characters.
-  The preserved structure also contained an unnecessary title field and a scalar
-  unit without applicability; the final region was unprocessed.
-- **Compact: 2 calls / 123.2 seconds, partial.** The retained raw response creates
-  item-numbered scalar fields and duplicates them in a document-wide one-row record.
-  It truncates at 3,072 tokens. No structure or values were accepted, and no automatic
-  retry occurred. Reducing repeated JSON alone did not fix item organization.
-
-Original observations, exact row ranges and input/source hashes matched. Cgroup
-swap/OOM stayed zero, host OOM did not increase, and the owned server/container stopped.
-Task-only source/transfer/activation copies were removed; shared services and packs
-were unchanged. This GPU development run is not CPU or GPU memory qualification.
-Evidence is `structural-kpi-20260913/native-wire-14/`; the earlier quotation/output
-failures remain in `native-structure-13/`.
-
-Native-structure v4 shares identical closed value-choice definitions, removes the
-handle duplicated inside its own keyed entry, and sends no placeholder-skeleton
-errors as initial value feedback. Source text, formatting, bindings and per-handle
-constraints stay intact. On the retained original structure, the complete initial
-request falls to 15,760 characters; this is a request-size check, **not an actual
-model result**. Scripted HWPX extraction and checkpoint reuse pass at 16,000 characters.
-The `c4b775d` v4 actual-model checks also failed whole-result quality:
-
-- **Managed 9B, original: 2 calls / 121.5 seconds.** Nine scalar fields were
-  duplicated in three one-row records. Eighteen value handles produced an
-  18,510-character request, so no values were dispatched. The earlier 15,760-character
-  measurement was for a different accepted structure, not a guarantee for every output.
-  ARM regressions passed 275 tests with the same eight writer fixtures excluded.
-- **Existing 314B, compact: 10 calls / 414.4 seconds.** Two source-ordered item
-  occurrences, integer count columns and the declared blank compiled in one region.
-  Unit applicability selected both count columns, not the name or whole record.
-  Value requests fit (13,083 / 13,123 characters), but both replies selected a blank
-  for a committed present value. Neither response was accepted. Unnecessary title/
-  recorded-flag fields, unresolved lending applicability and incorrect candidate reads
-  still prevent quality approval. The backend used its supported `json_object` mode
-  with the full contract and unchanged product validation; it was not an isolated or
-  model-pack qualification run.
-
-Evidence is `native-values-15/` and `shared-structure-16/` under the same private
-qualification directory. Original observations and source hashes matched. The shared
-service and its settings stayed unchanged, its slot was idle afterward, and temporary
-source/transfer/activation copies were removed after both consumers finished.
-
-The v5 follow-up reports the invalid program-issued value handle and required state
-instead of disguising a valid JSON response's selection error as `invalid_model_json`.
-It never echoes raw source/model text, weakens the contract or alters the committed
-structure. Specific feedback and checkpoint reuse pass locally; **v5 has not been
-rerun on an actual model**. Native-structure v6 now partitions oversized value
-requests without trimming original text/formatting or changing the frozen structure.
-It saves accepted reads per batch, then accounts for remaining source candidates;
-unread work stays partial and completed batches are not replayed. Scripted HWPX
-extraction preserves 32 measurements and all evidence in eight calls at 16,000
-characters. The `ab8fe39` v6 Spark check passed **298 ARM tests**, with the same eight optional
-writer fixtures excluded. The managed runtime failed during startup before any model
-response (one adapter attempt / 4.5 seconds). An explicit continuation on the existing
-314B service used seven calls / 297.8 seconds: combined eight attempts / 302.3 seconds,
-inside the original 12-call / 900-second allowance. It still failed whole-result quality.
-Both business-region proposals put values in attribute labels, use item-numbered scalars
-instead of records, and repeat a null label rejected by the contract. The final region
-then selects nonempty text as blank values. No present business value or item record
-is accepted. The value-batch path is **not reached by this model run**; its operation is
-verified by scripted controller/ARM tests, not by a successful real-model extraction.
-Source/observation hashes matched, the shared service stayed unchanged and idle afterward,
-and source/transfer/activation copies were removed after collection. Evidence is
-`native-batches-17/` and `shared-batches-18/` in the same private qualification directory.
-The managed startup cause remains undetermined; no CPU/GPU memory qualification is claimed.
-
-The v7 follow-up filters impossible binding choices with the unchanged source reader,
-including type/presence conflicts and values outside their logical occurrence anchors.
-Original candidates remain available for context and accounting; exact inner quotes
-remain an alternative. Structural contract repair now identifies the invalid member
-and expected type without exposing raw text. Nineteen focused regressions cover these
-constraints, including equal-valued occurrences and null-label repair.
-
-The `b22dcae` v7 Spark check passed **317 ARM tests**, with the same eight optional
-writer fixtures excluded. The unchanged original then used eight calls / 336.8 seconds
-(351.1 seconds including regressions) on the existing 314B service. The impossible blank
-was offered only as unresolved, and both value responses left it unresolved rather than
-binding nonempty text as blank. All 40 displayed binding reads matched the original.
-This necessary correction **does not pass whole-result quality**: the model creates
-whole-paragraph string attributes instead of two item records. The first region's
-value replies also use an unsupported accounting role and are rejected. The final
-region retains date/check-result absence and two overlapping note strings, but no
-item records or separate unit/condition relations are produced. All requests fit the
-single-value path; this is still not actual-model verification of value batching.
-Both structure responses were contract-valid, so precise null-label repair was checked
-by replaying the previous raw failures locally, not exercised in this model run.
-
-Evidence and full comparison are in `native-choices-19/` in the same private
-qualification directory. Input, canonical nodes/bindings and source hashes matched;
-the shared service stayed unchanged and idle afterward. The temporary source export
-and transfer archive were removed after review. This is not a memory, pack or independent
-holdout qualification. Actual-model structure revision, cross-region logical context
-and varied independent quality remain open; an accounting-only repair will not correct
-the wrong committed structure. No field is removed to manufacture success.
-
-
-
-### Explicit native structure revision
-
-Native-structure v8 / structure-revision v1 now reviews a region after its value or
-batch-local attempts are exhausted. The model retains the old structure or proposes
-an entire replacement with source-backed old/new entity accounting. The compiler
-validates that replacement before changing current state. Rejected, interrupted or
-truncated reviews keep the earlier partial data intact. Accepted changes invalidate
-current values, batches/accounting and applicability; values are reread rather than
-reused by the same key or position. Retired reads and their costs stay in the checked
-history. This is not automatic independent review of already `complete` outputs.
-
-Twenty-one focused regressions cover source/ledger validation, retained or rejected
-changes, precise rereading, old/new state identity, budgets, unknown responses and
-batch replanning. The 32-field replan case remains partial at 12 calls and requires an
-explicit two-call grant for final accounting; no budget increase is automatic. The
-previous actual failure's full review request measures 14,894 characters without
-source trimming (sizing only, not an inference result).
-
-Source **eda8706d10fa6bddfb05d6f040a8986ba1f90c6f** was exported for the same
-bounded Spark comparison. Its fixed starting-memory check stopped execution before
-extraction: available memory was 16,907,100,160 bytes against a 16 GiB minimum
-(17,179,869,184 bytes). **No model call occurred.** The guard was not relaxed.
-A separate, CPU-only regression check on that same ARM64 source passed **338 tests**
-with eight fixture-writer tests deselected; it did not invoke the model.
-
-Evidence is retained in private `structural-kpi-20260913/native-revision-20/`.
-Source/input hashes, shared service identity and the idle slot were unchanged;
-host OOM did not increase. The source export and transfer archive were removed
-after review, retaining inputs, stopped-run records and regression evidence.
-Spark-B currently runs the shared model's RPC worker, not an independent HTTP
-inference endpoint. No shared service, installed pack, authentication or swap setting
-was changed. These checks do not establish model quality, memory qualification or
-independent accuracy. Actual-model verification of v8 and cross-region logical
-continuation remain unfinished.
-
-### Whole native source context without repeated metadata
-
-Native-structure v9 / document protocol v7 shares repeated source metadata across all
-native stages. Every source text, formatting property, conditional flag and XML reference
-round-trips unchanged; text, native role and text range remain explicit per block.
-The template is used only when the complete request is smaller, including its decoding
-instruction. Nine focused regressions cover exact JSON types, full source recovery in
-roles/structure/values/batches, actual native parsing, fixed limits and checkpoint reuse.
-
-The unchanged eight-paragraph seed receipt now plans as one region at the original
-16,000-character limit rather than two. Its conservative structure request is 15,242
-characters, compared with 17,175 for the equivalent unshared metadata. Sizing alone is
-not cross-region continuation or proof of understanding.
-
-Source **825971ac208061fa3011e4cdb03379ea28195c6e** then ran on **Spark-B** using a
-separate, task-owned 9B CUDA server. Existing verified model/runtime components and
-Python dependencies were copied from Spark-A; no model download or global installation
-was performed. The shared RPC service was unchanged. Spark-B Python 3.12.3 passed
-**347 tests**, with eight fixture-writer tests deselected.
-
-The actual product returned **partial after six calls / 91.9 seconds** under the original
-12-call / 900-second allowance. All eight source blocks reached every native request;
-48 complete source views and 80 displayed binding texts match the original observations.
-This is the first actual-model execution of native value batches, **not a batching
-quality pass**. The model made individual scalar attributes instead of two item records,
-kept unnecessary title fields and combined distinct meanings. Title-value conflicts and
-whole-paragraph numeric quotes caused both value batches to fail. No non-null data value
-was accepted; the absent receipt date and two unresolved meanings do not pass the KPI.
-
-The subsequent structure-revision request measured **18,819 characters**, exceeding the
-unchanged 16,000-character limit, so it made no model call. Source-grounded revision quality
-therefore remains unverified. The next correction must make that review callable without
-losing its source/history checks, and address why structure/value decisions still fail;
-full source context alone did not fix them.
-
-Evidence is in private `structural-kpi-20260913/native-context-21/`. Input, original
-nodes/bindings and committed source matched. The owned server stopped and its container
-was removed; the temporary source export/archive were deleted after review. The verified
-Spark-B components are retained for the next bounded primary-format check, not as a
-persistent service. Shared RPC identity/settings and host OOM were unchanged. The model
-server had a 16 GiB cgroup limit and no cgroup swap allowance; the host still had swap
-configured, and GPU allocations are not fully represented by that cgroup counter. This
-is not CPU-only memory, managed-pack, independent holdout or formal runtime qualification.
-
-### Focused native review and value-selector correction
-
-Two four-call Spark-B diagnostics compared shorter instructions, record-first property
-ordering, explicit inner-value selection and typed decoding on the same source requests.
-No expected answers were supplied. Neither whole prompt replacement nor property
-reordering passed structural quality, so they were not adopted. Typed decoding removed
-syntax/type violations but did not fix missing row states or wrong structure. Explicit
-substring wording selected numeric literals, yet the two equal counts still pointed to
-the first occurrence. Adding accepted roles alone did not prevent a whole-title value.
-These are diagnostic comparisons, not full-product or independent accuracy passes.
-
-Native-structure v10 / revision v3 now shares repeated property names in the previous
-structure and accepted-role arrays. Their complete values, order and optional-key states
-round-trip unchanged; the saved canonical history is not rewritten. The same blocked
-review request measures **15,878 characters**, down from 18,819, within the unchanged
-16,000-character input limit. This is sizing and regression evidence, not a model review
-success. Value instructions now explicitly permit exact inner value substrings instead
-of surrounding citation sentences. Correct repeated-value positions, primary-format
-structure and whole-result quality remain unapproved. Evidence is retained in private
-`native-prompt-study-22/`, `native-schema-study-23/` and `native-review-24/` under
-`structural-kpi-20260913/`.
-
-## Earlier HTML/PDF development evidence
-
-These earlier HTML/PDF runs exercise shared interpretation code, not independent
-HWP/HWPX or XLSX quality. The following runs used the earlier HTML/PDF source identified above. Their 182 source files were
-rechecked against the committed tree, and collection hashes were checked. Expected
-answers were kept outside extractor input. These documents have already influenced
-development and cannot be reused as independent holdouts.
-
-| Case / evidence directory | Actual calls / seconds | Checked output and remaining qualification limits |
-|---|---|---|
-| Merged-header HTML / `arm-gpu-html-product-09` | 5 / 158.3 | Two rows, identifiers and decimal spelling retained. mm applies to Length and Width; the condition applies only to Length. |
-| Native/raster duplicate PDF / `arm-gpu-pdf-product-21` | 18 / 424.5 | Two records retained after joining repeated presentations. A development result, not general duplicate-detection proof. |
-| Continued PDF table / `arm-gpu-pdf-continued-19` | 17 / 427.3 | Four rows and quantity applicability retained. The final output still contains a repeated condition field. |
-| Delivery form / `arm-gpu-pdf-form-09` | 10 / 247.6 | Three item rows and subtotal values 34 / 160 retained. A blank-cell field and insufficiently strict review predicates remain. |
-
-All four returned engine `complete`; that does not close the issues below. Private
-raw evidence remains under `private/qualification/dgx-preparation-20260909/`.
-Some old run-plan fields say 1,024 scope reasoning tokens while actual requests used
-2,048, and some source/patch receipt fields are stale. Preserve those originals;
-use the separately checked source-file identity, not a rewritten success receipt.
-GPU cgroup measurements must not be advertised as a CPU-only 16 GiB qualification.
-
-## Row-preservation correction
-
-Compiler v27 no longer infers a header from definition citations or numeric spelling.
-Native-declared header-only rows use the same geometry rule as the table structure
-protocol. Other data, subtotal and note roles stay intact. Content-cell citations
-are removed when other citations remain; content-only definitions are uncertain and
-request structural repair. An exhausted repair does not report complete extraction.
-
-Local regressions cover English/Korean text records, numbers and precise strings,
-explicit empty cells, subtotal/note roles, predicted or mixed headers, repeated
-headers, exact value bindings, bounded repair and incompatible old checkpoints.
-These deterministic checks close the reproduced compiler defect. They do not approve
-AI row classification or primary-format quality; affected real-model examples still
-need bounded reruns on the corrected source.
-
-Prompt v31 also removes the forced choice between continuation and duplicate
-presentation when cell text matches. Equal-valued new records may continue; identical
-presentations may fold only after the contextual decision and compiled-row check.
-Regressions cover all four decisions, original per-page bindings and prior-checkpoint
-rejection. The bounded real-model relation comparison above matched all four contexts;
-general duplicate/continuation quality still requires varied document tests.
+## Current extraction behavior
+
+The current internal contracts are document protocol v7, native-structure v11,
+structure-revision v4, prompt v39, region plan v20 and compiler v32. Public v1 result
+and API contracts are unchanged. Old incompatible checkpoints cannot resume.
+
+- **Document roles and hierarchy:** source text, native markers, direct formatting
+  and XML references remain separate from inferred title/heading/caption roles.
+  Ambiguous roles and unjoined long-document fragments remain partial. Font size or
+  alignment alone does not determine a logical role.
+- **Native prose and forms:** logical item rows no longer require a physical table.
+  Structure defines attributes, types, ordered occurrences, missing states and exact
+  meanings before value choices. Value reading cannot silently rename or remove them.
+- **Values and provenance:** code reads original bindings or exact quoted substrings.
+  Impossible type/state/row choices are excluded, but an offered choice is not proof
+  that it belongs to the right attribute. Two equal values require their own correct
+  source positions. Blank, absent, unreadable and uncertain remain distinct.
+- **Bounded requests:** repeated source metadata is shared losslessly, including
+  formatting and native references. Oversized value work can be divided into checked
+  batches without discarding context or replaying completed batches. Real cross-region
+  logical continuation is still missing.
+- **Explicit review:** failed value reading may trigger one bounded correctness review
+  of the structure on the same source. It is not source-change detection. Full prior
+  decisions are displayed through lossless property-name sharing, while canonical
+  checkpoints keep the original objects. Only fully checked replacements are committed;
+  current values are reread and retired responses/costs remain. `retain` is not approval.
+- **Table preservation:** header roles are not inferred from a definition citation or
+  numeric spelling. Data, subtotal/note rows, precise values and original cell bindings
+  survive the reproduced compiler cases. Equal-valued new rows may continue; duplicate
+  folding needs a separate contextual decision and compiled-row check.
+
+Regression coverage verifies these mechanics, not the model's decisions. No relevance
+filter, fixed business template, automatic deletion of legitimate fields or silent
+budget increase is used to manufacture a successful result.
+
+## Latest Spark-B verification
+
+The actual product source **f277210db781d313b92b7a7cf31bdeec307e81e4** (native-structure
+v10 / revision v3) was tested with the existing Qwen3.5-9B Q4_K_M components and a
+separate, task-owned CUDA server. Python 3.12.3 passed **357 tests**, with eight
+fixture-authoring tests deselected; those are not deployment-environment passes.
+
+The unchanged eight-paragraph HWPX seed receipt returned **partial after 3 calls /
+72.2 seconds** under the fixed 12-call / 900-second document allowance, 16,000-character
+input limit and 3,072-token output cap. Typed decoding used `json_schema`, `strict=false`.
+Actual server token probes matched usage and preserved the configured output reservation.
+
+Both structure proposals contain two item rows, but the second item's requested count
+is incorrectly blank and its received count incorrectly absent. Their row-local states
+also cite a separate paragraph outside the allowed row anchors, so the compiler rejects
+both with `logical_value_evidence_outside_occurrence`. Extra title/unit/handling fields,
+per-item receipt dates and missing separate applicability remain. **No item values are
+accepted; neither value reading nor the new structure-review stage is reached.**
+
+All 24 displayed source views, original nodes/bindings, committed source and input hashes
+match. This source-preservation check does not excuse the semantic failure. The separate
+server/container and temporary source/input copies were removed after evidence collection;
+shared RPC settings and host OOM stayed unchanged. Evidence: private
+`structural-kpi-20260913/native-review-24/`.
+
+### What the targeted diagnostics establish
+
+Two four-call comparisons on the same source requests (`native-prompt-study-22/` and
+`native-schema-study-23/`) tested shorter instructions, record-first property ordering,
+exact value substrings and typed decoding. Neither wholesale prompt replacement nor
+property reordering passed structure quality; neither was adopted. Typed decoding fixed
+syntax/types, not missing row states or wrong organization. Explicit substring wording
+selected numeric literals, but both equal counts still cited the first occurrence.
+Accepted roles alone did not prevent a whole-title value choice.
+
+Lossless prior-decision tables reduced the previously blocked review request from
+18,819 to 15,878 characters, preserving every previous structure/role value. A separate
+one-call probe of that review returned `retain` in **6.4 seconds**, citing unchanged
+source text. It reached the model, but answered source-change detection instead of
+reviewing the failed extraction. It did not approve or replace the old partial result.
+This is a stage diagnostic, not checkpoint resume or complete-product qualification
+(`native-review-probe-25/`).
+
+Revision v4 now explicitly asks for correctness review on the **same** source. Its
+complete request measures **15,980 characters** at the same 16,000-character limit;
+source/history and acceptance rules remain unchanged. Sizing alone does not establish
+review quality. Values must still cite exact inner substrings and distinct occurrences.
+
+## Earlier evidence that still limits the claim
+
+The documents below have influenced development and are **not independent holdouts**.
+Raw requests, responses, prior expectations, source identities and root reviews remain
+in their existing qualification directories rather than being rewritten as successes.
+
+| Comparison | Confirmed result and limitation |
+|---|---|
+| Plain XLSX record table | Two ordered rows, exact cell values, header/value sources and no extra scalar matched prior expectations after the candidate fix. This single development case does not establish diverse-form quality. |
+| HWPX native record tables | Exact rows, precision and cell/header links matched, but title/caption hierarchy and extra fields failed whole-result review. |
+| Native prose, 9B and existing 314B | Representation, type/state, record grouping and value-source failures remain across both models. Model size or more reasoning alone did not fix them. |
+| Whole-context native v9 | All eight paragraphs reached every request; actual value batches ran, but both failed. The review was too large to call. Full context is not understanding. |
+| Relation-only equal-text contexts | Continue, duplicate, separate and unresolved matched four deliberately different contexts. This is not general whole-document duplicate/continuation approval. |
+| Earlier merged-header HTML | Two rows and precise values retained; mm applied to Length/Width and the condition only to Length. Secondary-format development evidence. |
+| Earlier PDF duplicate/continued/form cases | Records were retained, but repeated condition fields, blank-cell scalars and insufficiently strict review predicates remain. Engine `complete` did not close these defects. |
+
+Two older HWPX title/caption expectations describe author intent, not explicit caption
+XML: the fixture writer emitted ordinary paragraphs with heading formatting. Preserve
+the failed author-intent comparison, but do not misreport it as loss of a native caption
+marker. New qualification must separate explicit roles, contextual readings and genuine
+ambiguity. Unrelated invented fields are still definite defects.
+
+Evidence locations: `structural-kpi-20260912/first-native-01/` and
+`xlsx-candidates-02/`; `structural-kpi-20260913/outline-*`, `roles-*`, `native-*` and
+`shared-*`; earlier HTML/PDF records under `dgx-preparation-20260909/`. Some old PDF
+plan/receipt fields are stale; use the separately verified source identities and actual
+requests, not rewritten historical receipts.
+
+## Environment and qualification boundaries
+
+Spark-B retains verified copies of the existing model, CUDA runtime, licenses and core
+Python dependencies for the next bounded primary-format check. They are not a complete
+installed model pack or an always-running service. No external model download or global
+installation was added, and the shared RPC/model services were not reconfigured.
+
+Owned servers use loopback authentication, read-only components, four CPUs, a 16 GiB
+cgroup limit with no cgroup swap allowance, and host-memory/OOM safeguards. The host has
+swap configured; GPU allocations are not fully represented by cgroup memory. These GPU
+development checks are **not CPU-only 16 GiB, whole-host no-swap, GPU-memory, managed-pack,
+platform-installer or independent quality qualification**.
 
 ## Unresolved defects and next implementation order
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The v9 Spark-B run retains all eight paragraphs in one region, but still produces per-item scalar attributes, title copies and compound numeric quotes. Both actual value batches fail. | Make the source-grounded review fit its unchanged input budget (18,819 vs 16,000 characters in this run), and diagnose the structure/value representation rather than adding accounting-only repairs. Preserve atomic replacement, complete history and source/type/state checks. Then implement genuine cross-region continuation and validate new native forms. Do not delete legitimate fields or raise limits automatically to pass. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The latest Spark-B product proposes two rows but mislabels the second item's counts and cites missing-state evidence outside the row's allowed anchors. Neither structure attempt compiles. Other runs retain per-item scalars, title copies and wrong equal-valued source occurrences. | Reassess the structure-decision and repair representation before another broad run. Distinguish values inside an item from separate metadata/missing-state evidence; do not relax row ownership as a shortcut. Confirm logical rows, all statuses and distinct source positions together. The smaller review request now fits, but a callable review is not a correct replacement. Preserve atomic transitions and finite budgets, then implement genuine cross-region continuation. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

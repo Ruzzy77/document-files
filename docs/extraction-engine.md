@@ -175,7 +175,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v7 and native-structure v10 identify the three-stage execution;
+own configured reasoning behavior. Protocol v7 and native-structure v11 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 Native role, structure, value, batch-accounting and structure-review requests use the
@@ -409,15 +409,17 @@ or independent approval of otherwise `complete` outputs.
 
 The review request includes accepted roles, the previous complete structural response,
 program-issued entity references, the prior content-state hash and failure codes.
-Revision v3 shows previous structure and accepted roles through lossless `{columns,rows}`
+Revision v4 shows previous structure and accepted roles through lossless `{columns,rows}`
 tables when equal-shaped object arrays become smaller. Every property value and array
 position remains; differently shaped objects stay explicit, including absent optional
 keys. Nested tables follow the same rule. The canonical checkpoint base is never replaced
 by this display encoding. Before-entity references are offered in the closed response
 contract rather than duplicated in a payload list. `native_structure_history.py` owns
 this projection; response structure, exhaustive change accounting and compilation are
-unchanged. The focused review instruction avoids repeating the entire initial discovery
-instruction, while the full output contract remains visible and enforced.
+unchanged. The review explicitly reassesses a failed extraction on the same source; it is not
+source-change detection, and unchanged source text is no justification for retain. It
+avoids repeating the entire initial discovery instruction, while the full output
+contract remains visible and enforced.
 
 A shared dictionary template and per-block patches preserve every original source
 property, including text, formatting and XML references. This is lossless factoring,
@@ -804,8 +806,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v39 / v20 / v32 |
-| Document outline / native role-content protocol / native structure | v1 / v7 / v10 |
-| Native structural response wire / native value batches / structure revision | v1 / v2 / v3 |
+| Document outline / native role-content protocol / native structure | v1 / v7 / v11 |
+| Native structural response wire / native value batches / structure revision | v1 / v2 / v4 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
