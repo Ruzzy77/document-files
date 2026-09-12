@@ -2,6 +2,13 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Compiler v23 reads a delimiter label/value line as one scalar within a region: when a
+  field binds the line's value span, a further field that binds only the label span or
+  the whole line is dropped and recorded as `label_value_line_field_dropped`, and a
+  meaning that listed the dropped field keeps its remaining scope. The fifteenth
+  continued-table run's raster page emitted three fields per repeated condition line
+  (whole line, label, value); only the value folded into the earlier page's field, so
+  the whole-line and label fields survived as extra properties.
 - Applicability batches are sized to the input budget minus a 4,500-character reserve
   for the applicability output allowance, because the managed context check counts
   that allowance and Korean-heavy JSON runs near 2.3 characters per token: a batch

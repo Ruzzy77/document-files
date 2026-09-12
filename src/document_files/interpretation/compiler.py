@@ -442,6 +442,33 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                             if value_type != "decimal" or _decimal_literal(raw):
                                 record_bindings.setdefault(bid, set()).add(value_type)
 
+    # A delimiter label/value line is one scalar: its value span, labelled by its
+    # label span. When a region binds that value span, further fields that bind
+    # only the label span or the whole line restate the same scalar and are
+    # dropped with a correction. Region 6 of the fifteenth continued-table run
+    # emitted three fields per repeated condition line, which left a whole-line
+    # field and a label field beside the value the earlier page had folded.
+    value_lines = {}
+    for item in ir.fields:
+        binding = bindings.get(item.bindingId) if item.bindingId in candidates else None
+        if (
+            binding is None
+            or item.status not in {"present", "blank"}
+            or binding.get("candidateRole") != "value"
+            or binding.get("candidateStatus") == "unresolved_conflict"
+        ):
+            continue
+        labels = list(binding.get("labelRefs") or [])
+        if not labels or any(
+            bindings.get(label) is None
+            or bindings[label].get("candidateRole") != "label"
+            or bindings[label]["sourceRef"] != binding["sourceRef"]
+            for label in labels
+        ):
+            continue
+        value_lines.setdefault(binding["sourceRef"], []).append((item.id, labels))
+    collapsed = set()
+
     resolved_fields = []
     for field_link in ir.fields:
         transformation = "source_binding"
@@ -494,6 +521,29 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         ):
             out.dropped_fields[field_link.id] = bindings[field_link.bindingId]["sourceRef"]
             continue
+        binding = bindings.get(field_link.bindingId) if field_link.bindingId in candidates else None
+        owners = value_lines.get(binding["sourceRef"]) if binding is not None else None
+        if owners and field_link.status in {"present", "blank"}:
+            basis = None
+            if any(field_link.bindingId in labels for _, labels in owners):
+                basis = "label_span_of_bound_value"
+            elif binding.get("candidateRole") == "content":
+                basis = "whole_line_of_bound_value"
+            if basis is not None:
+                out.dropped_fields[field_link.id] = binding["sourceRef"]
+                collapsed.add(field_link.id)
+                out.corrections.append(
+                    {
+                        "code": "label_value_line_field_dropped",
+                        "regionId": out.id,
+                        "fieldId": field_link.id,
+                        "bindingId": field_link.bindingId,
+                        "sourceRef": binding["sourceRef"],
+                        "valueFieldIds": [owner for owner, _ in owners],
+                        "basis": basis,
+                    }
+                )
+                continue
         resolved_fields.append(field_link)
         tokens, sp = location(field_link.key, field_link.groupId, field_link.targetHandle)
         path = "/" + "/".join(map(escape, tokens)) if tokens else ""
@@ -851,8 +901,12 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         targets = []
         invalid_ids = []
         scope_errors = []
+        field_ids = [entity for entity in meaning.fieldIds if entity not in collapsed]
         for kind, known in scope_ids.items():
             for entity in getattr(meaning, kind):
+                if kind == "fieldIds" and entity in collapsed:
+                    # The dropped label or whole-line field is read by its value field.
+                    continue
                 if entity not in known:
                     invalid_ids.append(entity)
                 else:
@@ -893,8 +947,8 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             meaning.kind in {"unit", "condition"}
             and not meaning.groupIds
             and not meaning.repeatIds
-            and meaning.fieldIds
-            and set(meaning.fieldIds) <= statement_fields(source_refs)
+            and field_ids
+            and set(field_ids) <= statement_fields(source_refs)
         ):
             # A unit or condition that only qualifies the string fields carrying its
             # own statement has no applicability yet; the separate scope protocol
@@ -1018,12 +1072,16 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         entry = next((d for d in out.dispositions if d["sourceRef"] == ref), None)
         if entry is None:
             header = ref in mapped_headers
+            if header:
+                explanation = "Declares a mapped repeat column"
+            elif field_id in collapsed:
+                explanation = "Label/value line read as one scalar by its value field"
+            else:
+                explanation = "Read as a record value by a repeat column"
             entry = {
                 "sourceRef": ref,
                 "role": "structural" if header else "data",
-                "explanation": "Declares a mapped repeat column"
-                if header
-                else "Read as a record value by a repeat column",
+                "explanation": explanation,
                 "basis": "program_derived",
                 "bindingIds": [],
             }

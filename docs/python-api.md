@@ -576,7 +576,11 @@ whose exact wording and value repeat on the joined page folds into the earlier f
 meaning (`repeated_statement_merged`, `repeated_meaning_merged`); each record names
 the merged path or semantic id, the target it folded into and its source references.
 A duplicate whose compiled rows differ is refused as the issue
-`table_duplicate_rows_differ` and the relation stays unresolved.
+`table_duplicate_rows_differ` and the relation stays unresolved. Within one region, a
+delimiter label/value line is one scalar: when a field binds the line's value span, a
+further field that binds only its label span or the whole line is dropped and recorded as
+`label_value_line_field_dropped` with the field, binding, source and the value field it
+restates; a meaning that listed the dropped field keeps its remaining scope.
 
 ### OCR ruling evidence
 

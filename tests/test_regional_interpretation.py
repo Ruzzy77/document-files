@@ -1980,3 +1980,91 @@ def test_additional_span_on_record_cell_is_not_dropped_as_a_duplicate_read():
     assert compiled.data["rows"][0]["name"] == "A [note]"
     assert compiled.data["annotation"] == "[note]"
     assert compiled.dropped_fields == {}
+
+
+class TripleFieldModel(ReferenceModel):
+    """Emits the whole line and the label as fields beside every label/value scalar."""
+
+    def __init__(self):
+        super().__init__()
+        self.scope_payloads = []
+
+    def complete(self, messages, *, timeout):
+        payload = json.loads(messages[-1]["content"])
+        if "tasks" in payload or "taskId" in payload:
+            self.scope_payloads.append(payload)
+            decisions = [
+                {
+                    "explanation": "Scripted: no offered candidate carries governed values.",
+                    "taskId": task["taskId"],
+                    "decision": "unresolved",
+                    "selections": [],
+                }
+                for task in payload.get("tasks", [payload])
+            ]
+            return json.dumps({"decisions": decisions} if "tasks" in payload else decisions[0])
+        value = json.loads(super().complete(messages, timeout=timeout))
+        fields = []
+        for item in value["fields"]:
+            binding = payload["bindings"][item["bindingId"]]
+            line = next(
+                bid
+                for bid, candidate in payload["bindings"].items()
+                if candidate["sourceRef"] == binding["sourceRef"]
+                and candidate.get("candidateRole") == "content"
+            )
+            fields.append(
+                {
+                    **item,
+                    "id": item["id"] + "-line",
+                    "key": item["key"] + "_line",
+                    "bindingId": line,
+                }
+            )
+            fields.append(
+                {
+                    **item,
+                    "id": item["id"] + "-label",
+                    "key": item["key"] + "_label",
+                    "bindingId": binding["labelRefs"][0],
+                }
+            )
+            fields.append(item)
+        value["fields"] = fields
+        value["meanings"] = [
+            {
+                "id": "meaning-" + item["id"],
+                "kind": "condition",
+                "description": item["label"],
+                "sourceRefs": item["definitionRefs"],
+                "fieldIds": [item["id"] + "-line", item["id"] + "-label", item["id"]],
+                "status": "interpreted",
+            }
+            for item in value["fields"]
+            if not item["id"].endswith(("-line", "-label"))
+        ]
+        return json.dumps(value)
+
+
+def test_label_and_whole_line_fields_collapse_into_the_bound_value():
+    from document_files.interpretation.semantic_types import COMPILER_VERSION
+
+    assert COMPILER_VERSION == "document-files.result-compiler.v23"
+    model = TripleFieldModel()
+    result = run(b"cond: do not ship\n", model)
+    assert result["data"] == {"cond": "do not ship"}
+    assert result["dataSchema"]["properties"].keys() == {"cond"}
+    corrections = [
+        c
+        for c in result["coverage"]["programCorrections"]
+        if c["code"] == "label_value_line_field_dropped"
+    ]
+    assert [c["basis"] for c in corrections] == [
+        "whole_line_of_bound_value",
+        "label_span_of_bound_value",
+    ]
+    assert all(c["valueFieldIds"] == [c["fieldId"].rsplit("-", 1)[0]] for c in corrections)
+    assert not [i for i in result["issues"] if i["code"] == "meaning_has_unknown_scope"]
+    details = [d for d in result["semanticDetails"] if d["kind"] == "condition"]
+    assert len(details) == 1
+    assert result["validation"]["valid"], result["validation"]
