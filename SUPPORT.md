@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,934 tests,
+The full local check including the native outline path passed **2,943 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -253,7 +253,7 @@ observations and shutdown checks passed, and task-only transfer copies were remo
 
 ### Structure-first native implementation
 
-Native protocol v6 / native-structure v8, compiler v32 and prompt v39 now discover
+Native protocol v7 / native-structure v9, compiler v32 and prompt v39 now discover
 fields/types/repeated occurrences from original blocks before showing parser value
 candidates. Value choices cannot rename, remove or change those commitments. Exact
 meaning quotes remain separate from their applicability decisions. Failed values
@@ -405,6 +405,19 @@ inference endpoint. No shared service, installed pack, authentication or swap se
 was changed. These checks do not establish model quality, memory qualification or
 independent accuracy. Actual-model verification of v8 and cross-region logical
 continuation remain unfinished.
+
+### Whole native source context without repeated metadata
+
+Native-structure v9 / document protocol v7 shares repeated source metadata across all
+native stages. Every source text, formatting property, conditional flag and XML reference
+round-trips unchanged; text, native role and text range remain explicit per block.
+The template is used only when the complete request is smaller, including its decoding
+instruction. Nine focused regressions cover exact JSON types, full source recovery in
+roles/structure/values/batches, actual native parsing, fixed limits and checkpoint reuse.
+
+The unchanged eight-paragraph seed receipt now plans as one region at the original
+16,000-character limit rather than two. This is source-preserving request sizing, not
+an inference result or cross-region continuation. Actual-model quality remains unverified.
 
 ## Earlier HTML/PDF development evidence
 

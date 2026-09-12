@@ -4,6 +4,14 @@
 
 ### Document extraction
 
+- Share repeated native source metadata across role, structure, value, accounting
+  and revision requests without trimming original text, formatting or XML references
+  (document protocol v7 / native-structure v9). Keep per-source text/role/range explicit,
+  preserve exact JSON types, and include decoding cost in planning and dispatch.
+  Source observations and public contracts remain unchanged; changed internal
+  identities reject prior checkpoints. This reduces artificial context splitting,
+  not the work needed for cross-region continuity or independent quality approval.
+
 - Add one explicit source-grounded native structure revision cycle after exhausted
   value reading (native-structure v8 / structure-revision v1). Validate a complete
   old/new entity ledger and the replacement before changing current state. Preserve

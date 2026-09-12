@@ -250,20 +250,10 @@ def test_revision_checkpoint_rebuilds_base_changes_and_current_values(damage):
 def test_revision_request_preserves_every_source_property_with_lossless_factoring():
     model, states = RevisionModel(), []
     run(model, states=states)
-    factored = model.revision_requests[0]["blocks"]
+    from document_files.interpretation.source_dictionary import source_nodes
 
-    def merge(a, b):
-        result = copy.deepcopy(a)
-        for k, v in b.items():
-            result[k] = (
-                merge(result[k], v)
-                if isinstance(v, dict) and isinstance(result.get(k), dict)
-                else copy.deepcopy(v)
-            )
-        return result
-
-    restored = {k: merge(factored["template"], patch) for k, patch in factored["rows"]}
-    assert restored == model.structure_requests[0]["blocks"]
+    restored = source_nodes(model.revision_requests[0], "blocks")
+    assert restored == source_nodes(model.structure_requests[0], "blocks")
     assert (
         "bindings" not in model.revision_requests[0]
         and "expected" not in model.revision_requests[0]

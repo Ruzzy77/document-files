@@ -34,6 +34,10 @@ def contract_messages(system, payload, contract, feedback=None):
     A transport grammar does not make its schema visible to the model. Preserve
     the original payload, and put repair feedback after the unchanged contract.
     """
+    if "sourceTemplate" in payload:
+        from .source_dictionary import SOURCE_SYSTEM
+
+        system += SOURCE_SYSTEM
     content = {**payload, "outputContract": contract}
     if feedback is not None:
         content["repairFeedback"] = feedback

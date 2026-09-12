@@ -170,8 +170,26 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v6 and native-structure v8 identify the three-stage execution;
+own configured reasoning behavior. Protocol v7 and native-structure v9 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
+
+Native role, structure, value, batch-accounting and structure-review requests use the
+same lossless source dictionary (`source_dictionary.py`). When sharing is smaller,
+`sourceTemplate` contains common metadata and each `blocks`/`nodes` entry contains
+its differences. Recursive dictionary merging reconstructs every source property;
+arrays and null replace rather than merge. Text, native role and owned text range
+remain explicit per source. Formatting, conditional/unresolved flags, XML references,
+source order and Unicode spelling are neither summarized nor dropped. Exact JSON types
+are preserved, including booleans versus numbers. Single or dissimilar sources stay
+inline when a template plus its decoding instruction would be larger.
+
+The common request serializer adds the decoding instruction only when a template is
+present. Planning, batch sizing and actual dispatch therefore count the same full
+message, including that instruction and the output contract. Checkpoint identity
+includes the changed role/structure protocols and regenerates the same request view.
+The public source observation, bindings and extracted values do not use this compact
+encoding. This can prevent an unnecessary short-document split; it does not implement
+logical continuation across genuinely separate regions or prove model understanding.
 
 The unchanged native development comparison did not improve with reasoning enabled;
 see `SUPPORT.md`. Transport completion, valid role grammar and preserved source
@@ -435,7 +453,7 @@ context and a relation decision; nearby text or equal keys cannot authorize merg
 
 ### Bounded native value requests
 
-Native-structure v6 / native-value-batches v1 keeps the existing single request when
+Native-structure v9 / native-value-batches v2 keeps the existing single request when
 it fits. An oversized request instead uses deterministic batches of at most 16 value
 handles, sized from the actual system, payload and closed output contract. Every batch
 retains **all original nodes, formatting and binding text**; relevant occurrence
@@ -771,8 +789,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v39 / v20 / v32 |
-| Document outline / native role-content protocol / native structure | v1 / v6 / v8 |
-| Native structural response wire / native value batches / structure revision | v1 / v1 / v1 |
+| Document outline / native role-content protocol / native structure | v1 / v7 / v9 |
+| Native structural response wire / native value batches / structure revision | v1 / v2 / v2 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |

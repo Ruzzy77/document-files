@@ -17,8 +17,9 @@ from .document_outline import (
     role_context,
     structural_value_allowed,
 )
+from .source_dictionary import compact_sources
 
-VERSION = "document-files.document-protocol.v6"
+VERSION = "document-files.document-protocol.v7"
 MAX_CALLS = 2
 REASONING_BUDGET = 1024
 
@@ -165,7 +166,7 @@ def role_request(observation, region, fragments=()):
     schema["properties"]["regionId"] = {"type": "string", "const": region["id"]}
     constrain_schema(schema, observation, region)
     schema = _compact_contract(schema)
-    return payload, schema
+    return compact_sources(payload, "blocks"), schema
 
 
 def accept_roles(value, observation, region):

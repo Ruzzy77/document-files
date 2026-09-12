@@ -13,8 +13,9 @@ from .compiler import compile_region
 from .document_protocol import digest
 from .legacy_engine import contract_messages
 from .semantic_types import _compact_contract
+from .source_dictionary import factor_reads
 
-VERSION = "document-files.native-value-batches.v1"
+VERSION = "document-files.native-value-batches.v2"
 MAX_KEYS = 16
 REPAIR_RESERVE = 1024
 VALUE_SYSTEM = (
@@ -44,36 +45,6 @@ class BatchError(ValueError):
     pass
 
 
-def factor_reads(reads):
-    """Losslessly share repeated facts, including nested source-choice metadata."""
-
-    def common(values):
-        result = {}
-        for key, first in values[0].items():
-            if not all(key in v for v in values):
-                continue
-            column = [v[key] for v in values]
-            if all(v == first for v in column):
-                result[key] = deepcopy(first)
-            elif all(isinstance(v, dict) for v in column):
-                shared = common(column)
-                if shared:
-                    result[key] = shared
-        return result
-
-    def difference(value, template):
-        return {
-            k: difference(v, template[k])
-            if isinstance(v, dict) and isinstance(template.get(k), dict)
-            else deepcopy(v)
-            for k, v in value.items()
-            if k not in template or v != template[k]
-        }
-
-    template = common(list(reads.values())) if reads else {}
-    return {"template": template, "rows": [[h, difference(v, template)] for h, v in reads.items()]}
-
-
 def size(system, payload, schema, feedback=None):
     return sum(len(m["content"]) for m in contract_messages(system, payload, schema, feedback))
 
@@ -95,6 +66,8 @@ def _request(payload, schema, kind, keys, selections=None):
         "nodes": payload["nodes"],
         "bindings": payload["bindings"],
     }
+    if "sourceTemplate" in payload:
+        p["sourceTemplate"] = payload["sourceTemplate"]
     s = {
         "type": "object",
         "properties": {
