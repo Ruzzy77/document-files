@@ -34,6 +34,12 @@ LINE_GAP_RATIO = 1.0
 # exactly one entry and the entry order is the image order.
 STRIP_MARGIN = 24
 LINES_PER_REQUEST = 12
+# A request shows its strips on one line sheet: strips stacked in entry order with a
+# label column, because the managed vision policy admits two images per request.
+SHEET_MARGIN = 8
+SHEET_LABEL_WIDTH = 40
+SHEET_GAP = 12
+SHEET_MAX_HEIGHT = 3000
 # The wording below is the v2 wording. A v3 sentence describing text entries as lines
 # "outside the grids" made the pinned model read grid cells as empty and table rows as
 # text lines on the same inputs (bounded probes, 2026-09-11); the v2 wording with the
@@ -52,8 +58,9 @@ content, optionally retaining a readable fragment in text. A cell without readab
 characters is empty or uncertain, never text. Do not infer missing characters. Return no
 schema, header roles, meaning, final values or document-complete flag. The original OCR
 remains separate; your response is an additional reading candidate requiring subsequent
-review. Images after the page images are lossless strips of the page in entry order:
-entry k that names image k is the single line inside that strip at imageBounds."""
+review. A line sheet image stacks lossless strips of the page in entry order, each
+labeled with its entry number at the left: entry k is the strip labeled k, and its
+imageBounds locate the line inside the sheet."""
 
 
 def _union(boxes):
@@ -301,8 +308,50 @@ def line_strips(plan):
     ]
 
 
+def line_sheets(plan):
+    """Line sheets: up to LINES_PER_REQUEST one-line strips stacked in entry order."""
+    strips = line_strips(plan)
+    sheets = []
+    for start in range(0, len(strips), LINES_PER_REQUEST):
+        chunk = strips[start : start + LINES_PER_REQUEST]
+        while chunk:
+            width = max(b[2] - b[0] for b in (s["pageBounds"] for s in chunk))
+            width += SHEET_LABEL_WIDTH + 2 * SHEET_MARGIN
+            y, placed = SHEET_MARGIN, []
+            for k, strip in enumerate(chunk):
+                b = strip["pageBounds"]
+                w, h = b[2] - b[0], b[3] - b[1]
+                if placed and y + h + SHEET_MARGIN > SHEET_MAX_HEIGHT:
+                    break
+                placed.append(
+                    {
+                        "id": strip["id"],
+                        "entryIds": list(strip["entryIds"]),
+                        "label": str(k + 1),
+                        "pageBounds": list(b),
+                        "labelBounds": [SHEET_MARGIN, y, SHEET_MARGIN + SHEET_LABEL_WIDTH, y + h],
+                        "sheetBounds": [
+                            SHEET_MARGIN + SHEET_LABEL_WIDTH,
+                            y,
+                            SHEET_MARGIN + SHEET_LABEL_WIDTH + w,
+                            y + h,
+                        ],
+                    }
+                )
+                y += h + SHEET_GAP
+            sheets.append(
+                {
+                    "id": f"sheet{len(sheets)}",
+                    "pixelSize": [width, y - SHEET_GAP + SHEET_MARGIN],
+                    "strips": placed,
+                }
+            )
+            chunk = chunk[len(placed) :]
+    return sheets
+
+
 def read_requests(plan, *, detail_bounds):
-    """Bounded requests: grid cells over page and detail, text lines over lossless strips."""
+    """Bounded requests: grid cells over page and detail, text lines over line sheets."""
     cells = [e for e in plan["entries"] if e["kind"] == "cell"]
     by_id = {e["id"]: e for e in plan["entries"]}
     requests = []
@@ -316,22 +365,26 @@ def read_requests(plan, *, detail_bounds):
                 "contract": read_schema(part, detail_bounds=detail_bounds),
             }
         )
-    strips = line_strips(plan)
-    for start in range(0, len(strips), LINES_PER_REQUEST):
-        chunk = strips[start : start + LINES_PER_REQUEST]
+    for sheet in line_sheets(plan):
         entries, lines = [], []
-        for k, strip in enumerate(chunk):
+        for strip in sheet["strips"]:
             for eid in strip["entryIds"]:
                 e = by_id[eid]
-                b, o = e["bounds"], strip["pageBounds"]
+                b, o, sb = e["bounds"], strip["pageBounds"], strip["sheetBounds"]
                 lines.append(e)
                 entries.append(
                     {
                         "id": e["id"],
                         "kind": e["kind"],
                         "bounds": b,
-                        "image": k + 1,
-                        "imageBounds": [b[0] - o[0], b[1] - o[1], b[2] - o[0], b[3] - o[1]],
+                        "image": 1,
+                        "label": strip["label"],
+                        "imageBounds": [
+                            b[0] - o[0] + sb[0],
+                            b[1] - o[1] + sb[1],
+                            b[2] - o[0] + sb[0],
+                            b[3] - o[1] + sb[1],
+                        ],
                     }
                 )
         part = {**plan, "entries": lines}
@@ -339,23 +392,23 @@ def read_requests(plan, *, detail_bounds):
             {
                 "kind": "lines",
                 "entryIds": [e["id"] for e in lines],
-                "strips": chunk,
+                "sheet": sheet,
                 "payload": {
                     "page": plan["page"],
                     "pixelSize": plan["pixelSize"],
                     "entries": entries,
                     "images": [
                         {
-                            "id": s["id"],
-                            "image": k + 1,
-                            "pageBounds": s["pageBounds"],
-                            "pixelSize": [
-                                s["pageBounds"][2] - s["pageBounds"][0],
-                                s["pageBounds"][3] - s["pageBounds"][1],
-                            ],
+                            "id": sheet["id"],
+                            "image": 1,
+                            "kind": "line_sheet",
+                            "pixelSize": sheet["pixelSize"],
                             "lossless": True,
+                            "strips": [
+                                {k: strip[k] for k in ("id", "label", "pageBounds", "sheetBounds")}
+                                for strip in sheet["strips"]
+                            ],
                         }
-                        for k, s in enumerate(chunk)
                     ],
                 },
                 "contract": read_schema(part, detail_bounds=None),

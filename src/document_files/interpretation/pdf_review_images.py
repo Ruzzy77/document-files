@@ -71,6 +71,89 @@ class PdfReviewImages:
         ]
 
 
+SHEET_VERSION = "document-files.pdf-line-sheet.v1"
+
+
+def compose_line_sheet(sheet, strips, *, deadline, cancelled=None):
+    """One image of lossless strips pasted at their sheet bounds with entry labels.
+
+    Strip pixels are copied without resampling from the prepared strip images; the
+    labels are generated navigation, not document content. Returns PNG bytes and a
+    descriptor bound to the strip preparation. Nothing here reads or approves text.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        raise PdfReviewImageError("pdf_review_renderer_unavailable") from None
+
+    def check_time():
+        if cancelled is not None and cancelled():
+            raise PdfReviewImageError("pdf_review_cancelled")
+        if time.monotonic() >= deadline:
+            raise PdfReviewImageError("pdf_review_timeout")
+
+    check_time()
+    _require(
+        isinstance(sheet, dict) and isinstance(sheet.get("strips"), list), "pdf_review_crop_invalid"
+    )
+    width, height = sheet["pixelSize"]
+    _require(
+        type(width) is int and type(height) is int and 0 < width * height <= MAX_IMAGE_PIXELS,
+        "pdf_review_pixel_budget_exceeded",
+    )
+    by_key = {d.get("requestedSlotKey"): i for i, d in enumerate(strips.descriptor["images"])}
+    canvas = Image.new("RGB", (width, height), "white")
+    try:
+        draw = ImageDraw.Draw(canvas)
+        font = ImageFont.load_default(size=16)
+        for strip in sheet["strips"]:
+            check_time()
+            index = by_key.get(strip["id"])
+            _require(index is not None, "pdf_review_crop_invalid")
+            descriptor = strips.descriptor["images"][index]
+            x0, y0, x1, y1 = strip["sheetBounds"]
+            _require(
+                descriptor["requestedPurpose"] == "line_strip"
+                and descriptor["sourcePixelBounds"] == strip["pageBounds"]
+                and descriptor["pixelSize"] == [x1 - x0, y1 - y0]
+                and 0 <= x0 < x1 <= width
+                and 0 <= y0 < y1 <= height,
+                "pdf_review_crop_invalid",
+            )
+            with Image.open(io.BytesIO(strips.png_images[index]), formats=["PNG"]) as image:
+                _require(list(image.size) == descriptor["pixelSize"], "pdf_review_crop_invalid")
+                canvas.paste(image.convert("RGB"), (x0, y0))
+            label = strip["label"]
+            box = draw.textbbox((0, 0), label, font=font)
+            lx0, ly0, lx1, ly1 = strip["labelBounds"]
+            _require(
+                box[2] - box[0] <= lx1 - lx0 and box[3] - box[1] <= ly1 - ly0,
+                "pdf_review_crop_invalid",
+            )
+            draw.text((lx0, ly0), label, fill="black", font=font)
+        check_time()
+        with _BoundedPng(MAX_IMAGE_BYTES) as output:
+            canvas.save(output, format="PNG", compress_level=6, optimize=False)
+            data = output.getvalue()
+        pixel_sha = _sha(canvas.tobytes())
+    finally:
+        canvas.close()
+    descriptor = {
+        "version": SHEET_VERSION,
+        "id": sheet["id"],
+        "requestedPurpose": "line_sheet",
+        "pixelSize": [width, height],
+        "pixelMode": "RGB",
+        "pixelSha256": pixel_sha,
+        "pngSha256": _sha(data),
+        "pngBytes": len(data),
+        "sourceStrips": strips.descriptor["fingerprint"],
+        "strips": deepcopy(sheet["strips"]),
+        "resampling": False,
+    }
+    return data, descriptor
+
+
 class _BoundedPng(io.BytesIO):
     def __init__(self, limit):
         super().__init__()

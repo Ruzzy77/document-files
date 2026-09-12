@@ -75,6 +75,19 @@ def strip_images(plan):
     return PdfReviewImages(tuple(b"synthetic-strip" for _ in strips), descriptor)
 
 
+def synthetic_sheet(sheet, strips, **kwargs):
+    """Runner tests never rasterize: a synthetic sheet image with the real layout."""
+    return b"synthetic-sheet", {
+        "version": "document-files.pdf-line-sheet.v1",
+        "id": sheet["id"],
+        "requestedPurpose": "line_sheet",
+        "pixelSize": sheet["pixelSize"],
+        "pngSha256": "0" * 64,
+        "sourceStrips": strips.descriptor["fingerprint"],
+        "strips": sheet["strips"],
+    }
+
+
 def requested_ids(request):
     return [e["id"] for e in json.loads(request.messages[1]["content"][0]["text"])["entries"]]
 
@@ -319,6 +332,7 @@ def setup_runner(monkeypatch, failure=None):
 
     monkeypatch.setattr(runner, "prepare_pdf_review_images", render)
     monkeypatch.setattr(runner, "prepare_pdf_line_strips", lambda *a, **kw: strips)
+    monkeypatch.setattr(runner, "compose_line_sheet", synthetic_sheet)
     monkeypatch.setattr(runner, "extract_visual_pixels", pixels)
     monkeypatch.setattr(runner, "build_page_plan", review)
 
@@ -505,7 +519,7 @@ def test_engine_returns_additional_readings_in_partial_result_and_resumes_withou
     assert again["data"] is None and calls["model"] == 2 and len(observations) == 1
 
 
-def test_cells_and_lines_are_read_in_two_bounded_requests_with_lossless_strips():
+def test_cells_and_lines_are_read_in_two_bounded_requests_with_line_sheets():
     doc, capture = fixture()
     plan = make_plan(doc, capture)
     assert reading.VERSION == "document-files.pdf-image-read.v5"
@@ -528,15 +542,24 @@ def test_cells_and_lines_are_read_in_two_bounded_requests_with_lossless_strips()
     assert [br["properties"]["state"]["const"] for br in branches] == ["text", "empty", "uncertain"]
     assert branches[0]["properties"]["id"]["enum"] == cells["entryIds"]
     assert lines["kind"] == "lines" and lines["entryIds"] == [line["id"]]
+    (sheet,) = reading.line_sheets(plan)
+    assert lines["sheet"] == sheet and sheet["strips"][0]["label"] == "1"
+    placed = sheet["strips"][0]
+    o, sb = placed["pageBounds"], placed["sheetBounds"]
+    assert (
+        sb[0] == reading.SHEET_MARGIN + reading.SHEET_LABEL_WIDTH and sb[1] == reading.SHEET_MARGIN
+    )
     entry = lines["payload"]["entries"][0]
-    o = strips[0]["pageBounds"]
-    assert entry["image"] == 1 and entry["imageBounds"] == [
-        b[0] - o[0],
-        b[1] - o[1],
-        b[2] - o[0],
-        b[3] - o[1],
+    assert entry["image"] == 1 and entry["label"] == "1"
+    assert entry["imageBounds"] == [
+        b[0] - o[0] + sb[0],
+        b[1] - o[1] + sb[1],
+        b[2] - o[0] + sb[0],
+        b[3] - o[1] + sb[1],
     ]
-    assert lines["payload"]["images"][0]["lossless"] is True and "grids" not in lines["payload"]
+    image = lines["payload"]["images"][0]
+    assert image["kind"] == "line_sheet" and image["lossless"] is True and image["image"] == 1
+    assert "grids" not in lines["payload"]
     line_branches = lines["contract"]["properties"]["entries"]["items"]["anyOf"]
     assert [br["properties"]["state"]["const"] for br in line_branches] == ["text", "uncertain"]
     full = answer(plan)
@@ -579,7 +602,21 @@ def test_line_strips_are_one_line_each_and_line_requests_are_chunked():
     assert [r["kind"] for r in requests] == ["cells", "lines", "lines", "lines"]
     assert [len(r["entryIds"]) for r in requests[1:]] == [12, 12, 6]
     third = requests[3]
-    assert [e["image"] for e in third["payload"]["entries"]] == [1, 2, 3, 4, 5, 6]
-    assert [s["id"] for s in third["strips"]] == [f"s{i}" for i in range(24, 30)]
-    assert third["payload"]["images"][0]["image"] == 1
+    assert [e["label"] for e in third["payload"]["entries"]] == ["1", "2", "3", "4", "5", "6"]
+    assert all(e["image"] == 1 for e in third["payload"]["entries"])
+    assert [s["id"] for s in third["sheet"]["strips"]] == [f"s{i}" for i in range(24, 30)]
     assert third["contract"]["properties"]["entries"]["minItems"] == 6
+    # Strips are stacked in entry order with a label column and gaps.
+    first, second = third["sheet"]["strips"][:2]
+    assert first["sheetBounds"][1] == reading.SHEET_MARGIN
+    assert second["sheetBounds"][1] == first["sheetBounds"][3] + reading.SHEET_GAP
+    assert (
+        third["sheet"]["pixelSize"][1]
+        == third["sheet"]["strips"][-1]["sheetBounds"][3] + reading.SHEET_MARGIN
+    )
+    # A sheet never exceeds its height budget: tall strips split into more sheets.
+    huge = {**tall, "entries": cells + [line(i, 100 + i * 700, 650) for i in range(6)]}
+    assert [len(r["entryIds"]) for r in reading.read_requests(huge, detail_bounds=None)[1:]] == [
+        4,
+        2,
+    ]

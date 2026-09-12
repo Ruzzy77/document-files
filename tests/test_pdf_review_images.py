@@ -389,3 +389,55 @@ def test_line_strips_are_lossless_crops_without_the_page_image(source):
             )
     with pytest.raises(review.PdfReviewImageError, match="crop_invalid"):
         run(source, crop={"pixelBounds": [0, 0, 1, 1], "kind": "detail", "slotKey": None}, crops=[])
+
+
+def test_line_sheet_pastes_lossless_strips_in_order_with_labels(source):
+    content, capture = source
+    strips = [
+        {"id": "s0", "pageBounds": [0, 0, 60, 30]},
+        {"id": "s1", "pageBounds": [0, 30, 120, 80]},
+    ]
+    prepared = review.prepare_pdf_line_strips(
+        content, capture, strips, deadline=time.monotonic() + 30
+    )
+    sheet = {
+        "id": "sheet0",
+        "pixelSize": [8 + 40 + 120 + 8, 8 + 30 + 12 + 50 + 8],
+        "strips": [
+            {
+                "id": "s0",
+                "entryIds": ["a"],
+                "label": "1",
+                "pageBounds": [0, 0, 60, 30],
+                "labelBounds": [8, 8, 48, 38],
+                "sheetBounds": [48, 8, 108, 38],
+            },
+            {
+                "id": "s1",
+                "entryIds": ["b"],
+                "label": "2",
+                "pageBounds": [0, 30, 120, 80],
+                "labelBounds": [8, 50, 48, 100],
+                "sheetBounds": [48, 50, 168, 100],
+            },
+        ],
+    }
+    png, descriptor = review.compose_line_sheet(sheet, prepared, deadline=time.monotonic() + 30)
+    assert descriptor["requestedPurpose"] == "line_sheet" and descriptor["pixelSize"] == [176, 108]
+    assert descriptor["sourceStrips"] == prepared.descriptor["fingerprint"]
+    assert descriptor["pngSha256"] == hashlib.sha256(png).hexdigest()
+    page = run(source)
+    with (
+        Image.open(io.BytesIO(page.png_images[0])) as full,
+        Image.open(io.BytesIO(png)) as composed,
+    ):
+        assert composed.size == (176, 108)
+        assert composed.crop((48, 50, 168, 100)).tobytes() == full.crop((0, 30, 120, 80)).tobytes()
+        assert composed.crop((48, 8, 108, 38)).tobytes() == full.crop((0, 0, 60, 30)).tobytes()
+        assert composed.crop((8, 8, 48, 38)).getextrema() != ((255, 255), (255, 255), (255, 255))
+        assert composed.crop((48, 38, 168, 50)).getextrema() == ((255, 255), (255, 255), (255, 255))
+    again, _ = review.compose_line_sheet(sheet, prepared, deadline=time.monotonic() + 30)
+    assert again == png
+    wrong = {**sheet, "strips": [{**sheet["strips"][0], "pageBounds": [0, 0, 61, 30]}]}
+    with pytest.raises(review.PdfReviewImageError, match="crop_invalid"):
+        review.compose_line_sheet(wrong, prepared, deadline=time.monotonic() + 30)

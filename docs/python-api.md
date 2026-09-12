@@ -634,8 +634,9 @@ When review cannot inventory missing slots, or the model leaves page content unr
 attempt is several bounded requests within the same budget: measured grid cells are
 read over the prepared page and lossless detail, and text lines are read over lossless
 page strips of exactly one line each (`document-files.pdf-review-images.v2`, purpose
-`line_strip`) in requests of up to twelve strips in entry order, each entry naming its
-strip and its rectangle inside it; every part must fit the remaining model-call budget
+`line_strip`) pasted in entry order with entry-number labels onto one line sheet per
+request of up to twelve strips (`document-files.pdf-line-sheet.v1`), each entry naming
+its label and its rectangle inside the sheet; every part must fit the remaining model-call budget
 before any is spent, and the merged answer is validated as one reading. It lists measured rectangular cells, including grids not
 linked to a recognized table, and existing non-table recognition text grouped into
 visual lines: fragments that share at least half of the shorter box height vertically

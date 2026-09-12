@@ -5,8 +5,10 @@
 - Image read v5 reads a page's measured grid cells and its text lines in separate
   bounded requests: cells over the prepared page and lossless detail, lines over
   lossless page strips of exactly one line each (review images v2 adds the
-  `line_strip` purpose and several crops per preparation) in requests of up to twelve
-  strips in entry order, each entry naming its strip and its rectangle inside it.
+  `line_strip` purpose and several crops per preparation) shown on one line sheet per
+  request: up to twelve strips pasted in entry order with an entry-number label
+  column, because the managed vision policy admits two images per request; each
+  entry names its label and its rectangle inside the sheet.
   Every part must fit the remaining model-call budget before any is spent, the merged
   answer is validated as one reading, and the checkpoint records the parts and strip
   identities. Bounded probes had read every cell (12/12) and every line on strips

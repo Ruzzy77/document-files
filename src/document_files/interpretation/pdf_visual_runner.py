@@ -22,6 +22,8 @@ from .pdf_image_read import (
 from .pdf_review_images import VERSION as IMAGE_VERSION
 from .pdf_review_images import (
     PdfReviewImageError,
+    PdfReviewImages,
+    compose_line_sheet,
     prepare_pdf_line_strips,
     prepare_pdf_review_images,
 )
@@ -139,9 +141,23 @@ def _validated_read(doc, page, record):
     detail = descriptors[1]["sourcePixelBounds"] if len(descriptors) == 2 else None
     _validated_images(doc, plan, record["images"], detail)
     requests = read_requests(plan, detail_bounds=detail)
+    stored = record.get("requests")
     require(
-        record.get("requests")
-        == [{"kind": r["kind"], "entryIds": r["entryIds"]} for r in requests],
+        isinstance(stored, list)
+        and [
+            {k: r.get(k) for k in ("kind", "entryIds")} if isinstance(r, dict) else None
+            for r in stored
+        ]
+        == [{"kind": r["kind"], "entryIds": r["entryIds"]} for r in requests]
+        and all(
+            r["kind"] != "lines"
+            or (
+                isinstance(saved.get("sheet"), dict)
+                and saved["sheet"].get("strips") == r["sheet"]["strips"]
+                and saved["sheet"].get("pixelSize") == r["sheet"]["pixelSize"]
+            )
+            for r, saved in zip(requests, stored, strict=True)
+        ),
         "image_read_checkpoint_changed",
     )
     if any(r["kind"] == "lines" for r in requests):
@@ -392,24 +408,40 @@ def review_pdf_pages(
                 if all_strips
                 else None
             )
-            strip_index = {s["id"]: i for i, s in enumerate(all_strips)}
+            sheets = []
+            for request in requests:
+                if request["kind"] != "lines":
+                    sheets.append(None)
+                    continue
+                sheets.append(
+                    compose_line_sheet(
+                        request["sheet"], strips, deadline=deadline, cancelled=cancelled
+                    )
+                )
             attempt = {
                 "status": "running",
                 "plan": plan,
                 "images": images.descriptor,
-                "requests": [{"kind": r["kind"], "entryIds": r["entryIds"]} for r in requests],
+                "requests": [
+                    {
+                        "kind": r["kind"],
+                        "entryIds": r["entryIds"],
+                        **({"sheet": sheets[i][1]} if sheets[i] is not None else {}),
+                    }
+                    for i, r in enumerate(requests)
+                ],
                 **({"lineImages": strips.descriptor} if strips is not None else {}),
             }
             record.update(status="reading", imageRead=attempt)
             record.pop("reason", None)
             state.pop("haltReason", None)
             parts = []
-            for request, payload in zip(requests, payloads, strict=True):
+            for index, (request, payload) in enumerate(zip(requests, payloads, strict=True)):
                 usage["modelCalls"] += 1
                 usage["unreportedUsageCalls"] += 1
                 checkpoint(state)
                 shown = (
-                    strips.content_parts([strip_index[s["id"]] for s in request["strips"]])
+                    PdfReviewImages((sheets[index][0],), sheets[index][1]).content_parts()
                     if request["kind"] == "lines"
                     else images.content_parts()
                 )

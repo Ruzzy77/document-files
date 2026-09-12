@@ -9,7 +9,14 @@ from types import SimpleNamespace
 
 import pytest
 from PIL import Image, ImageDraw
-from test_pdf_image_read import answer, fixture, make_plan, requested_ids, strip_images
+from test_pdf_image_read import (
+    answer,
+    fixture,
+    make_plan,
+    requested_ids,
+    strip_images,
+    synthetic_sheet,
+)
 from test_pdf_visual_plan import wire_response
 
 from document_files.document_model.recognition_cell_observations import fingerprint
@@ -293,6 +300,7 @@ def setup(monkeypatch, choice="accepted", empty=False):
     monkeypatch.setattr(runner, "prepare_pdf_review_images", lambda *a, **kw: images)
     strips = strip_images(reading["plan"])
     monkeypatch.setattr(runner, "prepare_pdf_line_strips", lambda *a, **kw: strips)
+    monkeypatch.setattr(runner, "compose_line_sheet", synthetic_sheet)
     monkeypatch.setattr(runner, "extract_visual_pixels", lambda *a, **kw: pixels)
     original = runner.build_page_plan
 

@@ -225,7 +225,7 @@ def test_runner_transmits_the_real_panels_and_resumes_without_render_or_model(mo
     import json
     from types import SimpleNamespace
 
-    from test_pdf_image_read import requested_ids, strip_images
+    from test_pdf_image_read import requested_ids, strip_images, synthetic_sheet
     from test_pdf_visual_plan import wire_response
 
     from document_files.interpretation import pdf_visual_runner as runner
@@ -238,6 +238,7 @@ def test_runner_transmits_the_real_panels_and_resumes_without_render_or_model(mo
     monkeypatch.setattr(runner, "prepare_pdf_review_images", lambda *a, **kw: images)
     strips = strip_images(reading["plan"])
     monkeypatch.setattr(runner, "prepare_pdf_line_strips", lambda *a, **kw: strips)
+    monkeypatch.setattr(runner, "compose_line_sheet", synthetic_sheet)
     original_build = runner.build_page_plan
 
     def build(doc, *args, **kwargs):
