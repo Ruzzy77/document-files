@@ -153,8 +153,8 @@ def region_payload(observation, region):
     nodes = {
         ref: model_node(observation.nodes[ref]) for ref in node_ids if ref in observation.nodes
     }
-    if region.get("tableRef"):
-        table = observation.tables[region["tableRef"]]
+    if region.get("tableRef") or region.get("tableContextRef"):
+        table = observation.tables[region.get("tableRef") or region["tableContextRef"]]
         for cell in [
             *table.get("cells", []),
             *table.get("headerCells", []),
@@ -193,7 +193,15 @@ def region_payload(observation, region):
         for item in region.get("boundaryContext", [])
     ]
     table_ref = region.get("tableRef") or region.get("tableContextRef")
-    tables = {table_ref: _table_payload(observation.tables[table_ref])} if table_ref else {}
+    table = observation.tables[table_ref] if table_ref else None
+    if table is not None and not region.get("tableRef"):
+        # A scalar region over a table's non-record cells sees the cells it owns and
+        # its header context; the compiled record's cells are not repeated here.
+        table = {
+            **table,
+            "cells": [cell for cell in table.get("cells", []) if cell["sourceRef"] in node_set],
+        }
+    tables = {table_ref: _table_payload(table)} if table_ref else {}
     for table in tables.values():
         for candidate in table.get("columnCandidates", []):
             # Header levels are joined with " > " so bilingual "A / B" labels stay intact.

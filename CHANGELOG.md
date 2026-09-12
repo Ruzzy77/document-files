@@ -9,7 +9,8 @@
   value candidate is accounted for as a heading without a model disposition. Region
   plan v15 gives the non-record value region of a table (subtotal and note cells) the
   column headers and the surrounding text as context, not the data cells already
-  compiled into the record. In the fourth delivery-form run the title's definition
+  compiled into the record, and its table view and cell nodes carry only what that
+  region owns or sees. In the fourth delivery-form run the title's definition
   stayed unresolved after an applicability call, the first attempt at the title region
   needed a repair for the unaccounted heading, and the subtotal row's request exceeded
   the context budget with every data cell as context.

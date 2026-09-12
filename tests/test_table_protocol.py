@@ -774,6 +774,17 @@ class NonrecordModel(TableModel):
             self.requests.append(request)
             assert "RepeatLink" not in request.output_schema.get("$defs", {})
             assert payload["valueRegion"]["parentRegionId"] != payload["regionId"]
+            # The scalar region's table view holds only the cells it owns or sees.
+            cells = next(iter(payload["tables"].values()))["cells"]
+            if isinstance(cells, dict):
+                cells = [dict(zip(cells["columns"], row, strict=True)) for row in cells["rows"]]
+            visible = set(payload["nodeIds"]) | set(payload["contextNodeIds"])
+            assert cells and {c["sourceRef"] for c in cells} <= visible
+            assert all(
+                "semanticInput" not in n or "basis" not in n["semanticInput"]
+                for n in payload["nodes"].values()
+                if "sourceStructure" not in n
+            )
             value = {
                 "regionId": payload["regionId"],
                 "fields": [
