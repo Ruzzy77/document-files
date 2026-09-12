@@ -170,7 +170,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v6 and native-structure v7 identify the three-stage execution;
+own configured reasoning behavior. Protocol v6 and native-structure v8 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 The unchanged native development comparison did not improve with reasoning enabled;
@@ -369,44 +369,69 @@ All closed-contract, presence and source constraints remain unchanged. This feed
 correction has local coverage, not an actual-model quality result.
 
 The current boundary is deliberately strict: an incorrect **valid** structure cannot
-be silently rewritten during value repair. An explicit source-grounded structure
-revision protocol remains unimplemented. Logical continuation between separate native
+be silently rewritten during value repair. Native-structure v8 adds an explicit, source-grounded
+revision after exhausted value reading, as described below. Logical continuation between separate native
 regions also remains unimplemented; equal keys cannot authorize an unconditional merge.
 Long-fragment hierarchy, actual-model bounded value execution, and varied
 HWP/HWPX/XLSX whole-result quality still need investigation. Repeated use of a development document is regression
 work, never a new independent holdout.
 
-#### Structure revision boundary (not implemented)
+#### Source-grounded structure revision
 
-A value failure can expose a wrong but contract-valid structure. A revision must be
-an explicit replacement proposal, not permission for the value reader to rename a
-field or reinterpret blank/absent states. The next controller change needs:
+`native_structure_revision.py` implements one revision cycle for a native region after
+its single-value or batch-local two-attempt allowance is exhausted without complete
+reading. Unknown/in-flight value exchanges are not reasons to launch another model
+request. Successful value stages are unchanged: this is not a universal semantic review
+or independent approval of otherwise `complete` outputs.
 
-1. A revision request bound to the previous structure hash, exact owned source view,
-   accepted roles and current failure codes. The model reviews attribute definitions,
-   repeated occurrence organization and missingness, not expected answers.
-2. Complete old-to-new accounting for fields, groups, records, columns, rows and
-   meaning anchors: retained, replaced, merged/split or withdrawn, with source evidence
-   and a reason. Omitting an old entity is not implicit deletion. New items must also
-   cite owned sources. A meaning's applicability is still decided separately.
-3. Validation and full compilation of the replacement before committing it. Validate
-   exact anchor ownership/order, source coverage, column/state counts and target-schema
-   compatibility; none of these checks certifies the new semantics. A malformed,
-   truncated or interrupted proposal leaves the previous partial result intact.
-4. Invalidate old value/batch/accounting/scope state on accepted structural change.
-   An ordinal ID or equal key is not a reuse identity. Any retained read must match
-   the complete definition, source range, type/state, group/record location and actual
-   occurrence, then pass compilation again. Changed/moved values need new choices.
-5. Persist proposal/acceptance identity and every attempt's cost before dispatch.
-   Revision and subsequent rereading share the original document limit. Resume must
-   not replay an unknown revision exchange or restore old batches under the new shape.
+The review request includes accepted roles, the previous complete structural response,
+program-issued entity references, the prior content-state hash and failure codes.
+A shared dictionary template and per-block patches preserve every original source
+property, including text, formatting and XML references. This is lossless factoring,
+not a summary or permission to drop source context. The actual request and any repair
+still pass the original character/time/call limits; indivisible context stays unfinished.
 
-Test structural correction of repeated prose items, blank-versus-absent evidence,
-changed types, legitimate separate attributes and cross-region references, including
-rejected revisions and interrupted checkpoints. Do not add a business-template rule,
-label/value relevance filter or unconditional equal-key merge. Cross-region logical
-continuation needs a separately source-bound earlier-record context and relation;
-ordinary nearby text cannot authorize a merge or become owned value evidence.
+The model either retains the old structure or proposes a full replacement. `retain`
+does not approve unread values. A replacement includes an exhaustive change ledger:
+every old and new field, group, record, column, row and meaning appears exactly once
+in a keep/replace/remove/add change, with exact source anchors and a reason. Positional
+entity IDs refer to the candidate structure, not data paths. Missing entries cannot
+silently delete fields or rows. A keep must be identical; a replacement can split or
+merge entities. Each affected owned source is covered by its change evidence. A change
+can cite a genuinely empty owned block, without fabricating a nonempty quotation;
+logical-row/meaning anchor rules are not relaxed. Missing coverage is reported using
+only program-owned entity references, not source or model labels.
+
+Full wire validation, exact source grounding and compilation against the caller's
+target schema precede commitment. A malformed, truncated or interrupted proposal
+leaves the previous partial data, roles, structure and reads intact. Contract/source
+validity does not prove a semantically correct replacement. No fixed business template,
+relevance filter or label-based deletion rule decides the new organization.
+
+An accepted replacement atomically invalidates the current value response, value-batch
+plan, source accounting and saved applicability decisions. **No prior value is reused
+by equal key, ordinal ID or even identical binding.** The complete earlier structure,
+reads and usage remain in the revision base for audit and replay validation; current
+values become explicitly unread until reread under the new structure. New batches
+compile against the replacement and all applicability is rebuilt against current
+targets. Other regions' observations and values remain intact.
+
+The controller processes the revised region before moving on. Review has at most two
+local attempts, within the same document allowance as the original reads and subsequent
+rereading; it never raises that allowance automatically. Checkpoints revalidate the
+old wire, reads/batches, request hash, exhaustive change ledger, accepted transition
+and current value response. Separate revision/current/retired-read usage prevents lost
+cost on reset. An unknown review exchange needs an explicit additional allowance to
+resume. A failed review cannot be replayed indefinitely; a completed revision cycle
+is not reopened for another replacement.
+
+Regressions cover atomic success and rejection, retained structure, full field/row/
+meaning accounting, source evidence, exact decimal rereading, lost/tampered history,
+input/budget stops, transport/truncation and in-flight state. A 32-field batch case
+remains partial at its original 12-call limit and needs an explicit two-call grant for
+final source accounting; this is a controller check, not a short-document quality pass.
+Cross-region logical continuation still needs separately source-bound earlier-record
+context and a relation decision; nearby text or equal keys cannot authorize merging.
 
 ### Bounded native value requests
 
@@ -746,8 +771,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v39 / v20 / v32 |
-| Document outline / native role-content protocol / native structure | v1 / v6 / v7 |
-| Native structural response wire / native value batches | v1 / v1 |
+| Document outline / native role-content protocol / native structure | v1 / v6 / v8 |
+| Native structural response wire / native value batches / structure revision | v1 / v1 / v1 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |

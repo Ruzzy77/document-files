@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,913 tests,
+The full local check including the native outline path passed **2,934 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -253,7 +253,7 @@ observations and shutdown checks passed, and task-only transfer copies were remo
 
 ### Structure-first native implementation
 
-Native protocol v6 / native-structure v7, compiler v32 and prompt v39 now discover
+Native protocol v6 / native-structure v8, compiler v32 and prompt v39 now discover
 fields/types/repeated occurrences from original blocks before showing parser value
 candidates. Value choices cannot rename, remove or change those commitments. Exact
 meaning quotes remain separate from their applicability decisions. Failed values
@@ -371,6 +371,25 @@ the wrong committed structure. No field is removed to manufacture success.
 
 
 
+### Explicit native structure revision
+
+Native-structure v8 / structure-revision v1 now reviews a region after its value or
+batch-local attempts are exhausted. The model retains the old structure or proposes
+an entire replacement with source-backed old/new entity accounting. The compiler
+validates that replacement before changing current state. Rejected, interrupted or
+truncated reviews keep the earlier partial data intact. Accepted changes invalidate
+current values, batches/accounting and applicability; values are reread rather than
+reused by the same key or position. Retired reads and their costs stay in the checked
+history. This is not automatic independent review of already `complete` outputs.
+
+Twenty-one focused regressions cover source/ledger validation, retained or rejected
+changes, precise rereading, old/new state identity, budgets, unknown responses and
+batch replanning. The 32-field replan case remains partial at 12 calls and requires an
+explicit two-call grant for final accounting; no budget increase is automatic. The
+previous actual failure's full review request measures 14,894 characters without
+source trimming (sizing only, not an inference result). Actual-model verification of
+v8 remains pending. Cross-region logical continuation is still unimplemented.
+
 ## Earlier HTML/PDF development evidence
 
 These earlier HTML/PDF runs exercise shared interpretation code, not independent
@@ -419,7 +438,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The v7 comparison blocks nonempty-as-blank choices, but still creates whole-paragraph scalar attributes instead of item records and separate meaning relations. | Source-valid choices ran on Spark; exact invalid-member repair has regression and captured-response coverage. Batching still has no actual-model execution evidence. Add explicit source-grounded structure revision and cross-region context; do not weaken source/type/state checks or delete fields to pass. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v7 comparison blocks nonempty-as-blank choices, but still creates whole-paragraph scalar attributes instead of item records and separate meaning relations. | Source-valid choices ran on Spark; exact invalid-member repair has regression and captured-response coverage. Batching still has no actual-model execution evidence. Explicit failure-triggered structure revision is implemented in v8, with actual-model verification pending. Verify it on Spark, then add cross-region context; do not weaken source/type/state checks or delete fields to pass. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

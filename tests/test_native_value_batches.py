@@ -56,6 +56,12 @@ class ManyValues:
                     for i in range(32)
                 ],
             }
+        elif stage == "structureRevision":
+            value = {
+                "baseStructureHash": payload["baseStructureHash"],
+                "decision": "retain",
+                "reason": "Keep the scripted definitions; failed reads stay partial.",
+            }
         elif stage == "values":
             if payload.get("batchId") == self.fail_batch:
                 raise ModelError("ai_test_transport_failure")

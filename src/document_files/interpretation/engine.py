@@ -18,7 +18,7 @@ from ..document_model.capture import capture
 from ..document_model.model import OBSERVATION_VERSION, ObservationDocument
 from ..document_model.observe import observe_document
 from ..structured_extraction import project_structured_extraction
-from . import document_protocol, native_structure, native_value_batches
+from . import document_protocol, native_structure, native_structure_revision, native_value_batches
 from .backends import (
     ChatCompletionsClient,
     InferenceRequest,
@@ -681,6 +681,12 @@ def extract_schema_from_stream(
                     _restored_usage(state["structure"]["usage"])[key]
                     for state in document_states.values()
                 )
+                total += sum(
+                    _restored_usage(state["revision"]["usage"])[key]
+                    + native_structure_revision.prior_content_usage(state["revision"]).get(key, 0)
+                    for state in document_states.values()
+                    if "revision" in state
+                )
                 tolerance = 1e-6 if key == "elapsedSeconds" else 0
                 if total > usage[key] + tolerance:
                     raise ValueError
@@ -1072,13 +1078,36 @@ def extract_schema_from_stream(
                         raise ValueError
             elif "response" in semantic or rid in accepted:
                 raise ValueError
+            if "revision" in state:
+                native_structure_revision.rebuild(
+                    state["revision"],
+                    state,
+                    state["response"],
+                    observation,
+                    region,
+                    {
+                        "intent": selected.intent,
+                        "targetHandles": target_catalog(selected.targetSchema),
+                    },
+                    min(
+                        selected.contextChars,
+                        getattr(client, "input_budget_chars", selected.contextChars),
+                    ),
+                    _restored_usage,
+                    target_schema=selected.targetSchema,
+                )
+            elif "revisionHash" in semantic:
+                raise ValueError
     except (ValueError, TypeError, KeyError):
         raise ValueError("checkpoint is incompatible with document role stages") from None
     if additional_budget is not None and grant["maxModelCalls"] > 0:
         for record in document_states.values():
             if record.get("status") != "complete":
                 record.update(attempts=0, reviewAttempts=0, halted=False, status="pending")
-            if record["content"]["status"] != "complete":
+            revision_pending = "revision" in record and record["revision"]["status"] != "complete"
+            if revision_pending:
+                record["revision"].update(attempts=0, halted=False, status="pending")
+            if record["content"]["status"] != "complete" and not revision_pending:
                 record["content"].update(attempts=0, halted=False, status="pending")
                 if "batches" in record["content"]:
                     batches = record["content"]["batches"]
@@ -1233,6 +1262,8 @@ def extract_schema_from_stream(
                 for c in compiled.values()
                 if c.grounded_bindings or c.logical_coverage
             }
+        else:
+            result["coverage"].pop("nativeContentGrounding", None)
         result["coverage"]["programCorrections"] = corrections
         result["coverage"]["semanticSourceReviews"] = [
             copy.deepcopy(c.meaning_review)
@@ -1277,6 +1308,11 @@ def extract_schema_from_stream(
                     "structureStatus": state["structure"]["status"],
                     "structureUsage": copy.deepcopy(state["structure"]["usage"]),
                     "structure": copy.deepcopy(state["structure"].get("response")),
+                    **(
+                        {"structureRevision": native_structure_revision.coverage(state["revision"])}
+                        if "revision" in state
+                        else {}
+                    ),
                     **(
                         {"valueBatches": native_value_batches.coverage(state["content"]["batches"])}
                         if "batches" in state["content"]
@@ -1947,6 +1983,125 @@ def extract_schema_from_stream(
                 save("interpreting")
         return None
 
+    def interpret_native_revision(region):
+        rid = region["id"]
+        current = document_states[rid]
+        if "revision" not in current:
+            if not native_structure_revision.eligible(current["content"]):
+                return False
+            trigger = [
+                *repair_diagnostics.get(rid, []),
+                *[i["code"] for i in compiled[rid].issues],
+            ]
+            current["revision"] = native_structure_revision.initial(
+                current, accepted.get(rid), trigger, _stage_usage()
+            )
+        state = current["revision"]
+        if state["status"] == "complete":
+            return False  # One revision cycle per native region, not an open-ended loop.
+        if state.get("halted"):
+            raise ModelError("native_revision_response_unavailable")
+        metadata = {"intent": selected.intent, "targetHandles": catalog}
+        payload, contract = native_structure_revision.request(
+            state, current["response"], observation, region, metadata
+        )
+        fingerprint = document_protocol.digest(
+            [native_structure_revision.SYSTEM, payload, contract]
+        )
+        if state.get("requestHash", fingerprint) != fingerprint:
+            raise ModelError("native_revision_context_changed")
+        state["requestHash"] = fingerprint
+        while state["attempts"] < document_protocol.MAX_CALLS:
+            before = state["attempts"]
+            try:
+                value = invoke(
+                    native_structure_revision.SYSTEM,
+                    payload,
+                    contract,
+                    state.get("feedback"),
+                    document_stage=state,
+                    reasoning_budget_tokens=document_protocol.REASONING_BUDGET
+                    if isinstance(client, ManagedPackClient)
+                    else None,
+                )
+                replacement, fragment = native_structure_revision.accept(
+                    value,
+                    state,
+                    current["response"],
+                    observation,
+                    region,
+                    metadata,
+                    target_schema=selected.targetSchema,
+                )
+                response_hash = document_protocol.digest(value)
+                state.update(
+                    status="complete",
+                    decision=value["decision"],
+                    response=copy.deepcopy(value),
+                    responseHash=response_hash,
+                )
+                state.pop("feedback", None)
+                issues[:] = [
+                    i
+                    for i in issues
+                    if not (i.get("regionId") == rid and i.get("code") == "native_revision_invalid")
+                ]
+                if replacement is not None:
+                    response = replacement.model_dump(exclude_unset=True)
+                    current["structure"].update(
+                        response=response,
+                        structureHash=document_protocol.digest(response),
+                        wireResponse=copy.deepcopy(value["replacement"]),
+                        wireHash=document_protocol.digest(value["replacement"]),
+                        revisionHash=response_hash,
+                    )
+                    # No ordinal ID/key-based value reuse. Old reads and their cost
+                    # remain in the checked revision base; every new read is fresh.
+                    current["content"] = {
+                        "status": "pending",
+                        "attempts": 0,
+                        "usage": _stage_usage(),
+                    }
+                    accepted.pop(rid, None)
+                    native_structures[rid], compiled[rid] = replacement, fragment
+                    failures.pop(rid, None)
+                    repair_diagnostics.pop(rid, None)
+                    state["invalidatedScopes"] = list(scope_decisions)
+                    scope_decisions.clear()  # Structural targets can affect cross-region scopes.
+                    issues[:] = [
+                        i
+                        for i in issues
+                        if not (
+                            i.get("regionId") == rid
+                            and i.get("code")
+                            in {
+                                "region_interpretation_invalid",
+                                "region_repair_no_progress",
+                                "native_value_batch_invalid",
+                                "native_revision_invalid",
+                            }
+                        )
+                    ]
+                save("interpreting")
+                return replacement is not None
+            except ModelError:
+                if state["attempts"] > before:
+                    state.update(status="failed", halted=True)
+                raise
+            except (ValueError, TypeError, KeyError) as exc:
+                feedback = (
+                    str(exc)
+                    if isinstance(
+                        exc,
+                        (native_structure_revision.RevisionError, CompileError, SourceReviewError),
+                    )
+                    else "native_revision_contract_invalid"
+                )
+                state.update(status="failed", feedback=[feedback])
+                issue("native_revision_invalid", regionId=rid, errors=[feedback])
+                save("interpreting")
+        return False
+
     def interpret_native_batches(region, structure, roles, payload, schema, limit):
         rid = region["id"]
         content_state = document_states[rid]["content"]
@@ -2103,7 +2258,12 @@ def extract_schema_from_stream(
             content_state["status"] = "complete"
         save("interpreting")
 
-    for region in regions:
+    region_iterator = iter(regions)  # Table compilation may append owned child regions.
+    revised_regions = []
+    while True:
+        region = revised_regions.pop() if revised_regions else next(region_iterator, None)
+        if region is None:
+            break
         rid = region["id"]
         if rid in role_fragments:
             current_request = document_protocol.role_request(
@@ -2202,6 +2362,14 @@ def extract_schema_from_stream(
                 structure = interpret_native_structure(region, frozen_roles)
                 if structure is None:
                     continue
+                if (
+                    "revision" in document_states[rid]
+                    and document_states[rid]["revision"]["status"] != "complete"
+                ):
+                    if not interpret_native_revision(region):
+                        continue
+                    structure = native_structures[rid]
+                    content_state = document_states[rid]["content"]
                 payload, candidate_schema = native_structure.value_request(
                     structure, frozen_roles, observation, region
                 )
@@ -2216,6 +2384,8 @@ def extract_schema_from_stream(
                     interpret_native_batches(
                         region, structure, frozen_roles, payload, candidate_schema, input_limit
                     )
+                    if interpret_native_revision(region):
+                        revised_regions.append(region)
                     continue
             except native_value_batches.BatchError as exc:
                 issue(str(exc), regionId=rid)
@@ -2386,6 +2556,14 @@ def extract_schema_from_stream(
             save("interpreting")
         if content_state is not None and content_state["status"] == "running":
             content_state["status"] = "failed"
+        if content_state is not None:
+            try:
+                if interpret_native_revision(region):
+                    revised_regions.append(region)
+            except ModelError as exc:
+                issue(exc.code, regionId=rid)
+                save("paused")
+                return result
     pending = [
         c
         for c in candidates

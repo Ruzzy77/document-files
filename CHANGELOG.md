@@ -4,6 +4,14 @@
 
 ### Document extraction
 
+- Add one explicit source-grounded native structure revision cycle after exhausted
+  value reading (native-structure v8 / structure-revision v1). Validate a complete
+  old/new entity ledger and the replacement before changing current state. Preserve
+  prior partial results on failed/unknown reviews; invalidate and reread values,
+  batches/accounting and applicability after accepted changes. Revalidate both the
+  retired base and current transition on resume, preserving all call/time costs.
+  Review requests losslessly factor source metadata and keep the same document budget.
+
 - Remove impossible native binding choices using the original scalar reader and
   shared occurrence-ownership check (native-structure v7). Keep source observations,
   required accounting, exact quote alternatives and unresolved frozen fields intact.
