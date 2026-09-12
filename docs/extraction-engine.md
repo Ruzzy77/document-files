@@ -323,10 +323,11 @@ it rejects changed identities or inconsistent selections. Native meaning ranges 
 program-derived and tied to the source inventory. Value compilation does not prune
 frozen fields merely because a parser label or a record value shares their source.
 
-Native-structure v5 retains source-quotation error codes in bounded structural repair;
-malformed model contracts still receive sanitized generic diagnostics. A meaning quote
-and a row quote must not report the same invalid occurrence differently. No raw source
-or model-authored labels enter these diagnostic codes. This changes checkpoint identity.
+Native-structure v7 retains source-quotation error codes and reports schema-owned
+member paths/types in bounded structural repair. A meaning quote and a row quote
+must not report the same invalid occurrence differently. Raw source values, model
+labels and unknown property names never enter these diagnostics. Earlier native
+checkpoints are incompatible with this source-choice and repair policy.
 
 The v1 Spark run exposed output size as a separate limit even when input fits.
 `native_structure_wire.py` now carries the same decisions with less repeated JSON:
@@ -371,9 +372,41 @@ The current boundary is deliberately strict: an incorrect **valid** structure ca
 be silently rewritten during value repair. An explicit source-grounded structure
 revision protocol remains unimplemented. Logical continuation between separate native
 regions also remains unimplemented; equal keys cannot authorize an unconditional merge.
-Long-fragment hierarchy, bounded value execution, and varied HWP/HWPX/XLSX whole-result
-quality still need investigation. Repeated use of a development document is regression
+Long-fragment hierarchy, actual-model bounded value execution, and varied
+HWP/HWPX/XLSX whole-result quality still need investigation. Repeated use of a development document is regression
 work, never a new independent holdout.
+
+#### Structure revision boundary (not implemented)
+
+A value failure can expose a wrong but contract-valid structure. A revision must be
+an explicit replacement proposal, not permission for the value reader to rename a
+field or reinterpret blank/absent states. The next controller change needs:
+
+1. A revision request bound to the previous structure hash, exact owned source view,
+   accepted roles and current failure codes. The model reviews attribute definitions,
+   repeated occurrence organization and missingness, not expected answers.
+2. Complete old-to-new accounting for fields, groups, records, columns, rows and
+   meaning anchors: retained, replaced, merged/split or withdrawn, with source evidence
+   and a reason. Omitting an old entity is not implicit deletion. New items must also
+   cite owned sources. A meaning's applicability is still decided separately.
+3. Validation and full compilation of the replacement before committing it. Validate
+   exact anchor ownership/order, source coverage, column/state counts and target-schema
+   compatibility; none of these checks certifies the new semantics. A malformed,
+   truncated or interrupted proposal leaves the previous partial result intact.
+4. Invalidate old value/batch/accounting/scope state on accepted structural change.
+   An ordinal ID or equal key is not a reuse identity. Any retained read must match
+   the complete definition, source range, type/state, group/record location and actual
+   occurrence, then pass compilation again. Changed/moved values need new choices.
+5. Persist proposal/acceptance identity and every attempt's cost before dispatch.
+   Revision and subsequent rereading share the original document limit. Resume must
+   not replay an unknown revision exchange or restore old batches under the new shape.
+
+Test structural correction of repeated prose items, blank-versus-absent evidence,
+changed types, legitimate separate attributes and cross-region references, including
+rejected revisions and interrupted checkpoints. Do not add a business-template rule,
+label/value relevance filter or unconditional equal-key merge. Cross-region logical
+continuation needs a separately source-bound earlier-record context and relation;
+ordinary nearby text cannot authorize a merge or become owned value evidence.
 
 ### Bounded native value requests
 

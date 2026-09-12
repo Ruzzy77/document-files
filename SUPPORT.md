@@ -345,10 +345,29 @@ including type/presence conflicts and values outside their logical occurrence an
 Original candidates remain available for context and accounting; exact inner quotes
 remain an alternative. Structural contract repair now identifies the invalid member
 and expected type without exposing raw text. Nineteen focused regressions cover these
-constraints, including equal-valued occurrences and null-label repair. Actual-model
-verification of v7 remains pending. These changes do not establish accurate structural
-discovery: explicit structure revision, cross-region logical context/continuation and
-varied independent quality remain open. No field is removed to manufacture success.
+constraints, including equal-valued occurrences and null-label repair.
+
+The `b22dcae` v7 Spark check passed **317 ARM tests**, with the same eight optional
+writer fixtures excluded. The unchanged original then used eight calls / 336.8 seconds
+(351.1 seconds including regressions) on the existing 314B service. The impossible blank
+was offered only as unresolved, and both value responses left it unresolved rather than
+binding nonempty text as blank. All 40 displayed binding reads matched the original.
+This necessary correction **does not pass whole-result quality**: the model creates
+whole-paragraph string attributes instead of two item records. The first region's
+value replies also use an unsupported accounting role and are rejected. The final
+region retains date/check-result absence and two overlapping note strings, but no
+item records or separate unit/condition relations are produced. All requests fit the
+single-value path; this is still not actual-model verification of value batching.
+Both structure responses were contract-valid, so precise null-label repair was checked
+by replaying the previous raw failures locally, not exercised in this model run.
+
+Evidence and full comparison are in `native-choices-19/` in the same private
+qualification directory. Input, canonical nodes/bindings and source hashes matched;
+the shared service stayed unchanged and idle afterward. The temporary source export
+and transfer archive were removed after review. This is not a memory, pack or independent
+holdout qualification. Explicit structure review/revision, cross-region logical context
+and varied independent quality remain open; an accounting-only repair will not correct
+the wrong committed structure. No field is removed to manufacture success.
 
 
 
@@ -400,7 +419,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The v6 model comparison fails before the new batch path: value-like/null attribute labels, item scalars instead of records, and nonempty sources selected as blanks. | Source-valid choice filtering and precise invalid-member repair are implemented in v7, with actual-model verification pending. Add explicit source-grounded structure revision and cross-region context; do not weaken source/type/state checks or delete fields to pass. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v7 comparison blocks nonempty-as-blank choices, but still creates whole-paragraph scalar attributes instead of item records and separate meaning relations. | Source-valid choices ran on Spark; exact invalid-member repair has regression and captured-response coverage. Batching still has no actual-model execution evidence. Add explicit source-grounded structure revision and cross-region context; do not weaken source/type/state checks or delete fields to pass. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
