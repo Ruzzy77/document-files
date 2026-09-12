@@ -226,11 +226,20 @@ Direct regressions exercise the actual HWPX reader, native role/content wire, ex
 values, ordering, blank/absence, column and row-specific scopes, target-schema handles,
 source immutability and checkpoint rebuilding. They do **not** approve AI quality.
 
+**Observed wire/model defects.** The first actual quote/record product comparison
+failed on both layouts. The grammar currently admits simultaneous binding/quote
+choices and quotes on non-present values, which the compiler rejects. Tighten the
+wire to exclusive choices before another comparison; do not normalize contradictory
+sources into an accepted answer. The existing same-binding scalar collapse also
+kept an incorrectly defined first field and dropped a correctly named later field.
+Source identity alone does not prove field identity. This needs a provenance-aware
+repair, not a semantic relevance gate. See `SUPPORT.md` for the bounded outcomes.
+
 **Remaining boundaries.** The original seed receipt is split into four text regions
 at the managed 16,000-character request budget. This extension does not yet join
 logical records across regions; same-key arrays conflict visibly rather than merge
 without a decision. Native packing still reserves a coarse fixed contract allowance.
-Complete comparisons of this receipt and a differently arranged equivalent must
+Further comparisons of this receipt and a differently arranged equivalent must
 check all records, identifiers, missingness and scopes within the unchanged document
 budget. Further packing/continuation changes need their own tests; larger budgets
 or a single compact fixture cannot stand in for long-document correctness. Independent

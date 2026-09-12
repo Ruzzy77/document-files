@@ -173,9 +173,9 @@ and logical records without native table geometry. The compiler reads the origin
 values, preserves ordered occurrences, blank/missing states and source links, and
 connects columns/individual rows to applicability. Source observations remain
 immutable; public grounding coverage and rebuild-on-resume checks are included.
-The actual HWPX product interface passes scripted regressions. No real-model quality
-approval is implied. The original receipt still spans four managed-budget regions:
-logical-record continuation and complete model extraction remain unverified.
+The actual HWPX product interface passes scripted regressions, but both Spark model
+comparisons below failed. The original receipt still spans four managed-budget
+regions; logical-record continuation remains unimplemented.
 
 `content-positive-diagnostic-06/` retains the requests, local prior expectations,
 explicit pre-review truth correction, rejected prototype and native representation
@@ -183,6 +183,37 @@ audit. `shared-model-diagnostic-07/` retains the alternative-model comparison an
 service/slot checks. These are under the same private parent. Task-only exports were
 removed; raw evidence remains. The shared model's shards were not fully hashed and
 its memory was not isolated, so no model-pack or resource qualification is claimed.
+
+### Native quote/record product comparison
+
+Source **0ebdc1c3ee26edd06bd978b97d9c6fa3e25a4a16** used the existing managed 9B CUDA
+pack, unchanged reasoning/sampling and **12 calls / 900 seconds per document**.
+Spark ARM Python 3.12 passed 160 related tests; eight optional fixture-writer tests
+were deselected, not counted as passes. Prior facts stayed outside the extractor.
+
+| Native development input | Calls / seconds | Whole-result judgment |
+|---|---:|---|
+| Original seed receipt, eight paragraphs | 12 / 478.4 | `partial`; only `title = SEED-604` survived. The literal read is exact but the field is wrong. No item records or required relationships were extracted. |
+| Same facts, both items in one paragraph | 3 / 185.7 | `partial`; no data committed. Two proposed item rows had conflicting sources and wrong missingness; repair reached the 3,072-token output limit. Proposals are not extracted records. |
+
+The current native wire permits combinations the compiler rejects: `bindingId` plus
+`sourceQuote`, or a non-present value with a quote. Feedback did not reliably resolve
+them. The next wire must offer mutually exclusive source choices; never silently pick
+one of contradictory sources or increase the document budget to hide invalid calls.
+An occurrence index is the exact quoted string's match index, not a row/instruction
+number. A correct reference alone also cannot certify a field's identity.
+
+The original additionally exposes the existing `duplicate_binding_field_dropped`
+rule: a wrongly named title field came first, so the correctly named donation-code
+field reading the same binding was deleted. Audit this first-field-wins behavior and
+its definition provenance before more broad model runs. Do not replace it with a
+relevance filter or unconditionally discard repeated attributes.
+
+Evidence: private `structural-kpi-20260913/native-records-08/`. Both runs are failures,
+not holdouts. Input/source hashes were unchanged; cgroup swap/OOM stayed zero and
+host OOM count did not increase. The owned server/container and source/transfer/activation
+copies were removed after collecting responses and review. Shared services and installed
+packs were retained. GPU memory is not covered by the cgroup-only memory figure.
 
 ## Earlier HTML/PDF development evidence
 
@@ -232,7 +263,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native quote/record compilation is implemented but actual complete extraction is not verified.** Managed text packing separates the seed receipt's item occurrences; logical records are not joined across regions. | Run fixed-budget product comparisons, then address actual packing/continuation and model-selection failures. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
+| 1 | **Native product comparisons failed.** The wire allows conflicting value sources; first-field-wins duplicate removal deleted a correctly named field. Managed packing separates item occurrences and logical records are not joined across regions. | First constrain mutually exclusive binding/quote/missingness choices and audit duplicate removal against field provenance. Then recheck fixed-budget product comparisons and address packing/continuation and model-selection failures. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
