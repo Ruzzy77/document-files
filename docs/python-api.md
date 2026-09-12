@@ -58,6 +58,41 @@ The supported Python import is `document_files.api`. The engine, CLI, local MCP 
 HTTP service call the same document interpretation implementation. A host chat
 subscription is not an API credential. Nothing falls back to an unconfigured model.
 
+## Native reading and HWPX operations
+
+`inspect`, `extract` and `extract-structure` use the same byte-stream analysis path
+and present a summary, text/Markdown or structured data respectively. Choose the
+needed view rather than calling all three in sequence. Native reading needs no AI
+model; basic HWP/HWPX reading also does not require the optional editing/rendering
+backend. Runtime-dependent operations report their availability through `capabilities`.
+
+`extract-structure` returns source-declared locations and values in `sourceStructure`
+and format-common `semanticRole` / `semantic`. XLSX preserves typed values, formulas
+and saved calculation caches without executing formulas. `unitPage.nextOffset` pages
+large structured results. Output truncation and remaining pages are separate from
+incomplete source extraction. `inspect` / `extract` expose dimensional coverage as
+`coverageProfile`; structured extraction uses `coverage` for that object. Markdown
+does not reproduce the source's page layout.
+
+For HWPX cell editing, use the `tableMap.tables` returned by `inspect` with verified `sectionPath`,
+`tableIndex`, `row` and `col`. The `selectorBasis` value
+`verified-section-xml-table-order` records alignment with the section XML and editor's
+table order. Do not substitute a list position or sourceRef when no selector exists.
+Pass the complete, untruncated cell text from the same input bytes as `expectedOldText`.
+The editor refuses repeated physical-cell selectors, additional lines that exceed the
+existing paragraph capacity, and edits of an outer cell containing a nested table.
+Ordinary cells within that nested table remain editable. `verify.ok` and
+`comparison.tableGeometryPreserved` answer different questions; check the latter for
+source-relative table preservation. Conversion/editing publishes a separate output.
+
+The analysis contract consists of `AnalysisJob v1` plus a separate byte stream and
+returns `AnalysisResult v1`, with format, size and SHA256 identifying the bytes rather
+than their local path. Temporary input copies allow safe repeated parser access and
+are removed after analysis. The local `process` JSONL boundary used by Sync carries
+an inherited read-only descriptor; Windows uses a separately verified read-only
+snapshot. This transport does not change the shared analysis contract. Original-file
+ownership, capture/revision/projection management and access policy belong to callers.
+
 ## In-process extraction
 
 ```python

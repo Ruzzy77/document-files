@@ -13,9 +13,11 @@ other work. Do not create another worktree or a long-lived branch unless the tas
 needs one and the user chooses it. Use focused commits and normal pushes; no force
 push or history rewrite is needed for this workflow.
 
-Keep documentation by responsibility: architecture for boundaries, extraction-engine
-for detailed algorithms, API for callers, operations for execution, SUPPORT for
-current limitations. Update the relevant section rather than appending another dated
+Keep README focused on the public plugin introduction, available features, usage
+conditions and getting started. Keep internal priorities, work logs, branch/CI policy
+and rollout plans in their owning documents, not README. Architecture describes
+boundaries, extraction-engine details algorithms, API serves callers, operations
+covers execution, and SUPPORT records current limitations. Update the relevant section rather than appending another dated
 run report. Raw run evidence belongs in private evaluation storage; old history stays
 in Git. Do not create an additional handoff or duplicate implementation plan.
 
