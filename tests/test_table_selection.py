@@ -81,7 +81,7 @@ class SelectionModel:
                     s["sourceRef"]: {
                         "decision": "has_meaning"
                         if s["text"] == "Size uses mm."
-                        or (self.wrong_choice and s["text"] == "1.2300")
+                        or (self.wrong_choice and s["text"] == "Size")
                         else "no_additional_meaning",
                         "explanation": "Scripted source choice; not a heuristic in the product",
                     }
@@ -631,3 +631,24 @@ def test_deterministic_negative_compile_failure_does_not_spin_or_reselect(monkey
     assert len(model.requests) == 3 and model.requests[-1]["meaningPhase"] == "details"
     run(model, content=HTML, restore=states[-1])
     assert len(model.requests) == 3
+
+
+def test_bare_number_sources_are_offered_only_review_choices():
+    # Continued-table development runs selected plain data values as carrying meaning.
+    sources = [
+        {"sourceRef": "h", "text": "수량 Qty"},
+        {"sourceRef": "n", "text": "12"},
+        {"sourceRef": "d", "text": "1,234.50"},
+        {"sourceRef": "u", "text": "12 pcs"},
+        {"sourceRef": "e", "text": ""},
+    ]
+    schema = selection_schema(sources)
+    choices = schema["properties"]["sourceDecisions"]["properties"]
+    assert choices["h"] == {"$ref": "#/$defs/SelectionChoice"}
+    assert choices["n"] == choices["d"] == {"$ref": "#/$defs/ValueOnlySelectionChoice"}
+    assert choices["u"] == {"$ref": "#/$defs/SelectionChoice"}
+    assert choices["e"] == {"$ref": "#/$defs/EmptySelectionChoice"}
+    assert (
+        "has_meaning"
+        not in schema["$defs"]["ValueOnlySelectionChoice"]["properties"]["decision"]["enum"]
+    )

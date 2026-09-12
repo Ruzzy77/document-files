@@ -41,10 +41,16 @@ def _digest(value):
 
 
 def selection_schema(sources):
+    from .table_source_decisions import bare_number
+
+    # A bare number states no unit, condition, note or definition by itself; the
+    # continued-table development runs selected plain data values as carrying meaning
+    # and then quoted them for header definitions or generated a definition per value.
     definitions = {}
     for name, roles in (
         ("SelectionChoice", ROLES),
         ("EmptySelectionChoice", ROLES - {"has_meaning"}),
+        ("ValueOnlySelectionChoice", ROLES - {"has_meaning"}),
     ):
         definitions[name] = {
             "type": "object",
@@ -57,7 +63,11 @@ def selection_schema(sources):
         }
     properties = {
         s["sourceRef"]: {
-            "$ref": "#/$defs/SelectionChoice" if s["text"] else "#/$defs/EmptySelectionChoice"
+            "$ref": "#/$defs/EmptySelectionChoice"
+            if not s["text"]
+            else "#/$defs/ValueOnlySelectionChoice"
+            if bare_number(s["text"])
+            else "#/$defs/SelectionChoice"
         }
         for s in sources
     }

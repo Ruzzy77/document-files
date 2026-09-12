@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Applicability batches are sized to the input budget minus a 4,500-character reserve
+  for the applicability output allowance, because the managed context check counts
+  that allowance and Korean-heavy JSON runs near 2.3 characters per token: a batch
+  sized to the full budget exceeded the model context in the fourteenth continued-table
+  run.
 - Table protocol v18 offers a source whose text is a bare number only the review
   choices, never a meaning branch: a bare number states no unit, condition, note or
   definition, and the continued-table development runs had selected plain data values

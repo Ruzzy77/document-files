@@ -361,6 +361,7 @@ def _initial_result(job, observation, analyzer, selected, client, content):
 # against each other; without reasoning the pinned model called any page with new
 # rows a separate table (ninth and eleventh continued-table runs).
 INTEGRATION_MAX_OUTPUT_TOKENS = 2048
+SCOPE_BATCH_RESERVE_CHARS = 4500
 INTEGRATION_REASONING_BUDGET = 1024
 
 
@@ -1784,11 +1785,16 @@ def extract_schema_from_stream(
             and grant["maxModelCalls"] > 0
         )
     ]
+    # The managed context check reserves the applicability output allowance, and
+    # Korean-heavy JSON runs near 2.3 characters per token: a batch sized to the full
+    # input budget exceeded the model context in the fourteenth continued-table run.
     for batch in scope_axis_batches(
         pending_tasks,
         context_chars=min(
-            selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
-        ),
+            selected.contextChars,
+            getattr(client, "input_budget_chars", selected.contextChars),
+        )
+        - SCOPE_BATCH_RESERVE_CHARS,
     ):
         try:
             wire = prepare_scope_selection_wire(batch)
