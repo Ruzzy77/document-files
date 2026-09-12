@@ -18,7 +18,7 @@ from .document_outline import (
     structural_value_allowed,
 )
 
-VERSION = "document-files.document-protocol.v5"
+VERSION = "document-files.document-protocol.v6"
 MAX_CALLS = 2
 REASONING_BUDGET = 1024
 

@@ -331,11 +331,55 @@ def test_scope_wire_selects_source_ordered_logical_record_without_table_geometry
     assert all(r["tableRef"] is None and r["recordRef"] == "r:items" for r in boundaries)
 
 
+def structure_fixture(value):
+    """Scripted semantic decisions, independent of parser candidates (test only)."""
+    return {
+        "regionId": value["regionId"],
+        "fields": [
+            {
+                **{k: v for k, v in f.items() if k not in {"bindingId", "sourceQuote"}},
+                "sourceRefs": [f["sourceQuote"]["sourceRef"]],
+            }
+            for f in value["fields"]
+        ],
+        "records": [
+            {
+                **{k: v for k, v in r.items() if k != "rows"},
+                "rows": [
+                    {
+                        "id": row["id"],
+                        "sourceQuotes": row["sourceQuotes"],
+                        "cells": [
+                            {
+                                k: v
+                                for k, v in c.items()
+                                if k in {"columnId", "sourceRefs", "status"}
+                            }
+                            for c in row["values"]
+                        ],
+                    }
+                    for row in r["rows"]
+                ],
+            }
+            for r in value["logicalRecords"]
+        ],
+        "meanings": [
+            {
+                "id": m["id"],
+                "kind": m["kind"],
+                "status": "interpreted",
+                "sourceQuotes": [quote(m["sourceRefs"][0], m["description"])],
+            }
+            for m in value["meanings"]
+        ],
+    }
+
+
 def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     import io
     import json
 
-    from test_document_outline import OutlineModel, make_file, native_wire
+    from test_document_outline import OutlineModel, make_file
 
     from document_files.api import (
         AnalysisInput,
@@ -353,53 +397,107 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     class Model(OutlineModel):
         def infer(self, request):
             payload = json.loads(request.messages[-1]["content"])
-            if "documentContent" not in payload:
+            stage = payload.get("documentStage")
+            if stage == "roles":
                 return super().infer(request)
             self.calls += 1
-            assert len(payload["nodeIds"]) == 5
-            mapping = {
-                r: next(
-                    n for n in payload["nodeIds"] if payload["nodes"][n]["text"] == node["text"]
-                )
-                for r, node in doc.nodes.items()
-            }
-
-            def remap(obj):
-                if isinstance(obj, list):
-                    return [remap(v) for v in obj]
-                if isinstance(obj, dict):
-                    return {
-                        k: (
-                            [mapping[r] for r in v]
-                            if k in {"sourceRefs", "definitionRefs"}
-                            else mapping[v]
-                            if k == "sourceRef"
-                            else remap(v)
-                        )
-                        for k, v in obj.items()
-                    }
-                return obj
-
-            response = remap(value)
-            response.pop("documentElements")
-            for meaning in response["meanings"]:
-                for key in ["fieldIds", "groupIds", "repeatIds"]:
-                    meaning.setdefault(key, [])
-                meaning.setdefault("status", "interpreted")
-            response["regionId"] = payload["regionId"]
-            blank = next(b for b, v in payload["bindings"].items() if v.get("blank"))
-            response["logicalRecords"][0]["rows"][0]["values"][2]["bindingId"] = blank
-            response["excludedBindings"] = [
-                {
-                    "bindingId": b,
-                    "role": "narrative",
-                    "explanation": "Coarse prose, exact inner values quoted separately.",
+            if stage == "structure":
+                mapping = {
+                    r: next(
+                        n for n, block in payload["blocks"].items() if block["text"] == node["text"]
+                    )
+                    for r, node in doc.nodes.items()
                 }
-                for b in payload["requiredBindingIds"]
-                if b != blank
-            ]
-            response = native_wire(response)
-            Draft202012Validator(payload["outputContract"]).validate(response)
+
+                def remap(obj):
+                    if isinstance(obj, list):
+                        return [remap(v) for v in obj]
+                    if isinstance(obj, dict):
+                        return {
+                            k: (
+                                [mapping[r] for r in v]
+                                if k in {"sourceRefs", "definitionRefs"}
+                                else mapping[v]
+                                if k == "sourceRef"
+                                else remap(v)
+                            )
+                            for k, v in obj.items()
+                        }
+                    return obj
+
+                self.grounded = remap(value)
+                self.grounded["regionId"] = payload["regionId"]
+                response = structure_fixture(self.grounded)
+            elif stage == "values":
+                blank = next(b for b, v in payload["bindings"].items() if v.get("blank"))
+                selections = {}
+                for h, e in payload["handles"].items():
+                    if "fieldId" in e:
+                        v = next(f for f in self.grounded["fields"] if f["id"] == e["fieldId"])
+                    else:
+                        r = next(
+                            r for r in self.grounded["logicalRecords"] if r["id"] == e["recordId"]
+                        )
+                        row = next(row for row in r["rows"] if row["id"] == e["rowId"])
+                        v = next(v for v in row["values"] if v["columnId"] == e["columnId"])
+                    selections[h] = (
+                        {"kind": "quote", "quote": v["sourceQuote"]}
+                        if v.get("sourceQuote")
+                        else {"kind": "binding", "bindingId": blank, "status": "blank"}
+                    )
+                response = {
+                    "regionId": payload["regionId"],
+                    "selections": selections,
+                    "excludedBindings": [
+                        {
+                            "bindingId": b,
+                            "role": "structural",
+                            "explanation": "Compound prose refined by exact inner source quotes.",
+                        }
+                        for b in payload["requiredBindingIds"]
+                        if b != blank
+                    ],
+                }
+            else:
+                decisions = []
+                for task in payload.get("tasks", [payload]):
+                    if task["statement"]["kind"] == "unit":
+                        h = next(
+                            c["targetHandle"] for c in task["candidates"] if c["label"] == "length"
+                        )
+                        selections = [{"kind": "standalone", "targetHandle": h}]
+                    else:
+                        last = max(task["rowBoundaryCandidates"], key=lambda r: r["row"])
+                        selections = [
+                            {
+                                "kind": "record",
+                                "recordHandle": next(
+                                    c["targetHandle"]
+                                    for c in task["candidates"]
+                                    if c["candidateKind"] == "container"
+                                ),
+                                "parts": [
+                                    {
+                                        "rowCoverage": {
+                                            "kind": "rowRange",
+                                            "rowStartRef": last["rowRef"],
+                                            "rowEndRef": last["rowRef"],
+                                        },
+                                        "columnCoverage": {"kind": "allMappedColumns"},
+                                    }
+                                ],
+                            }
+                        ]
+                    decisions.append(
+                        {
+                            "taskId": task["taskId"],
+                            "decision": "apply",
+                            "selections": selections,
+                            "explanation": "Scripted source applicability.",
+                        }
+                    )
+                response = {"decisions": decisions} if "tasks" in payload else decisions[0]
+            Draft202012Validator(request.output_schema).validate(response)
             return InferenceResponse(json.dumps(response), {})
 
     model, states = Model(), []
@@ -420,7 +518,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["validation"]["valid"]
     assert result["data"] == compile_value(doc, fixture()[1], value).data
-    assert model.calls == 2
+    assert model.calls == 4
     ledger = result["coverage"]["nativeContentGrounding"]
     assert sum(len(v["logicalOccurrences"]["items"]["rows"]) for v in ledger.values()) == 2
     frozen = copy.deepcopy(states[-1])
@@ -428,7 +526,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     assert accepted["fields"][0]["bindingId"] is None
     assert accepted["fields"][0]["sourceQuote"]["text"] == "0007"
     restored = run(copy.deepcopy(frozen))
-    assert model.calls == 2
+    assert model.calls == 4
     for key in ["data", "dataSchema", "valueEvidence", "schemaEvidence"]:
         assert restored[key] == result[key]
     for key in ["logicalRecords", "fields"]:
@@ -440,7 +538,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
             item[key][0]["rows"][0]["sourceQuotes"][0]["sourceRef"] = "foreign"
         with pytest.raises(ValueError, match="incompatible"):
             run(broken)
-    assert model.calls == 2
+    assert model.calls == 4
 
 
 def test_logical_records_honor_target_schema_handles_without_new_geometry():

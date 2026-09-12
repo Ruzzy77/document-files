@@ -112,49 +112,53 @@ class OutlineModel(PlainRegisterModel):
             if self.bad == "missing":
                 value.pop("documentElements")
             return InferenceResponse(json.dumps(value), {})
-        if "documentContent" not in payload:
-            return super().infer(request)
-        self.calls += 1
-        self.content_requests.append(payload)
-        fields = []
-        for bid, binding in payload["bindings"].items():
-            ref = binding["sourceRef"]
-            if (
-                payload["nodes"][ref]["text"].startswith("Count:")
-                and binding.get("candidateRole") == "value"
-            ):
-                fields.append(
-                    {
-                        "id": "count",
-                        "key": "count",
-                        "label": "Count",
-                        "valueType": "string",
-                        "definitionRefs": [ref],
-                        "bindingId": bid,
-                        "status": "present",
-                    }
+        if payload.get("documentStage") == "structure":
+            self.calls += 1
+            self.structure_requests = getattr(self, "structure_requests", [])
+            self.structure_requests.append(payload)
+            fields = []
+            for ref, node in payload["blocks"].items():
+                if node["text"].startswith("Count:"):
+                    fields.append(
+                        {
+                            "id": "count",
+                            "key": "count",
+                            "label": "Count",
+                            "valueType": "string",
+                            "definitionRefs": [ref],
+                            "sourceRefs": [ref],
+                            "status": "present"
+                            if node["text"].partition(":")[2].strip()
+                            else "blank",
+                        }
+                    )
+            return InferenceResponse(
+                json.dumps({"regionId": payload["regionId"], "fields": fields}), {}
+            )
+        if payload.get("documentStage") == "values":
+            self.calls += 1
+            self.content_requests.append(payload)
+            selections = {}
+            for handle, field in payload["handles"].items():
+                bid = next(
+                    b
+                    for b, v in payload["bindings"].items()
+                    if v["sourceRef"] in field["sourceRefs"] and v.get("candidateRole") == "value"
                 )
-        if self.bad == "conflict" and len(self.content_requests) == 1:
-            title = payload["documentContent"]["roles"][0]["sourceRef"]
-            bid = next(
-                b
-                for b, v in payload["bindings"].items()
-                if v["sourceRef"] == title and v.get("candidateRole") == "content"
-            )
-            fields.append(
-                {
-                    "id": "wrong",
-                    "key": "wrong",
-                    "label": "Title",
-                    "valueType": "string",
-                    "definitionRefs": [title],
+                selections[handle] = {
+                    "kind": "binding",
                     "bindingId": bid,
-                    "status": "present",
+                    "status": field["status"],
                 }
-            )
-        return InferenceResponse(
-            json.dumps(native_wire({"regionId": payload["regionId"], "fields": fields})), {}
-        )
+            value = {
+                "regionId": payload["regionId"],
+                "selections": selections,
+                "excludedBindings": [],
+            }
+            if self.bad == "conflict" and len(self.content_requests) == 1:
+                value["fields"] = [{"key": "wrong", "valueType": "string"}]
+            return InferenceResponse(json.dumps(value), {})
+        return super().infer(request)
 
 
 def run(raw, model, *, states=None, restore=None, **options):
@@ -245,13 +249,16 @@ def test_document_with_no_business_values_can_complete_without_inventing_fields(
     assert [e["role"] for e in result["document"]["outline"]["elements"]] == ["title", "paragraph"]
 
 
-def test_conflicting_title_value_is_rejected_then_repaired_without_silent_field_deletion(tmp_path):
+def test_native_value_stage_cannot_add_a_field_to_frozen_structure(tmp_path):
     model = OutlineModel(bad="conflict")
-    result = run(make_file(tmp_path), model)
+    result = run(
+        make_file(tmp_path, table=False, blocks=[{"type": "paragraph", "text": "Count: 0007"}]),
+        model,
+    )
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert "wrong" not in result["data"]
-    assert "document_role_value_conflict" in json.dumps(model.content_requests[1])
-    assert model.calls == 5
+    assert "invalid_model_json" in json.dumps(model.content_requests[1])
+    assert model.calls == 4
 
 
 def test_omitted_roles_remain_partial_even_when_values_are_extracted(tmp_path):

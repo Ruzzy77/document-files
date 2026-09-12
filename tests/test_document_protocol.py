@@ -48,7 +48,7 @@ class StagedModel(OutlineModel):
         response = super().infer(request)
         value = json.loads(response.text)
         if self.mode == "reclassify" and stage == "content":
-            value["documentElements"] = payload["documentContent"]["roles"]
+            value["documentElements"] = payload.get("acceptedRoles", [])
         if self.mode == "uncertain" and stage == "roles":
             value["documentElements"][0]["status"] = "uncertain"
         if self.mode == "missing" and stage == "roles":
@@ -78,11 +78,11 @@ def test_role_only_request_and_immutable_content_have_separate_contracts_and_cos
     _, content, content_schema = model.requests[1]
     assert "bindings" not in role and "fields" not in role_schema["properties"]
     assert "documentElements" not in content_schema["properties"]
-    assert "documentContext" not in content and content["documentContent"]["roles"]
+    assert content["acceptedRoles"] and "bindings" not in content
     assert result["data"] == {} and result["valueEvidence"] == []
     record = next(iter(result["coverage"]["documentInterpretation"].values()))
     assert record["roleStatus"] == record["contentStatus"] == "complete"
-    for name in ["roleUsage", "contentUsage"]:
+    for name in ["roleUsage", "structureUsage"]:
         assert record[name]["modelCalls"] == 1
         assert record[name]["promptTokens"] == 9 and record[name]["completionTokens"] == 3
     assert result["extraction"]["usage"]["modelCalls"] == 2
@@ -98,7 +98,7 @@ def test_content_reclassification_rejected_without_losing_already_accepted_roles
     assert result["coverage"]["unprocessedRegions"]
     assert result["coverage"]["regions"][0]["status"] == "structure_compiled"
     assert result["coverage"]["semanticAccounting"] == []  # Roles do not certify content.
-    assert "region_interpretation_invalid" in str(result["issues"])
+    assert "native_structure_invalid" in str(result["issues"])
 
 
 def test_budget_pause_keeps_roles_and_resume_does_not_replay_role_call():
@@ -111,7 +111,7 @@ def test_budget_pause_keeps_roles_and_resume_does_not_replay_role_call():
     result = execute(model, budget=1, restore=states[-1], grant={"maxModelCalls": 1})
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert model.calls == result["extraction"]["usage"]["modelCalls"] == 2
-    assert len(model.outline_requests) == len(model.content_requests) == 1
+    assert len(model.outline_requests) == len(model.structure_requests) == 1
     assert result["extraction"]["budget"]["maxModelCalls"] == 2
 
 
@@ -179,7 +179,7 @@ def test_staged_checkpoint_checks_context_decisions_and_cumulative_usage(damage)
     elif damage == "role_calls":
         stage["usage"]["modelCalls"] = 0
     elif damage == "content_calls":
-        stage["content"]["usage"]["modelCalls"] = 0
+        stage["structure"]["usage"]["modelCalls"] = 0
     elif damage == "total_calls":
         state["usage"]["modelCalls"] = 1
     elif damage == "content_flag":

@@ -110,15 +110,16 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v31, prompt v37, region plan v19 and document-outline v1 / document-protocol v5 identify this
+Compiler v32, prompt v38, region plan v20 and document-outline v1 / document-protocol v6 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
 
 #### Separate roles from content
 
-`interpretation/document_protocol.py` owns two native text-region decisions. The
-engine persists them separately in `documentStages`. Existing record-table and
+`interpretation/document_protocol.py` owns document roles;
+`interpretation/native_structure.py` owns semantic structure and value selection.
+The engine persists all three separately in `documentStages`. Existing record-table and
 other-format paths retain their contracts.
 
 The **role request** sends owned text, source-declared formatting/outline hints,
@@ -131,20 +132,31 @@ Code validates exact source ownership, target choices and role/level pairs, then
 retains the accepted roles and exact original text bindings. It does not certify
 business values or semantic applicability from a role decision.
 
-The **content request** carries those roles as immutable context. Its response may
-supply fields, groups, source-grounded logical records, meanings and explicit accounting,
-not roles or physical record-table structure. Whole structural-text bindings cannot become generic scalar copies.
-A source-derived inner `value` candidate whose exact range is strictly inside its
-text view remains eligible, including an explicit empty value. This does not discard
-any source or waive required candidate accounting. Units/conditions/notes remain
-necessary even inside structural text; unresolved applicability remains visible.
-Clients without decoder constraints receive the same compiler checks.
+The **structure request** carries accepted roles and owned original blocks, with no
+parser binding inventory or suggested label/value pairs. It discovers fields, groups,
+record columns, every occurrence, types and missing states. Exact row anchors and
+separate unit/condition/note quotes must resolve within owned sources. The compiler
+creates a partial structure before any values are read.
+
+The **value request** offers program-owned handles for present/blank fields and cells.
+The response selects a binding, exact quotation or unresolved value for each handle;
+it cannot alter field names, types, presence decisions or occurrence structure. Missing
+states remain source-grounded structural decisions, not value-stage downgrades.
+Definition sources are separate from value sources. Already compiled roles, fields
+and rows survive a failed value call. A value-free region with no required candidates
+finishes deterministically without an empty model call. Physical tables retain their
+existing protocol; prose records do not invent table geometry.
+
+Whole structural-text bindings cannot become generic scalar copies. Exact inner values,
+including observed blanks, remain eligible without waiving candidate accounting.
+Quoted meanings pass through the existing separate applicability stage. Source text,
+actual value links and meaning scopes remain distinct checks.
 
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
-tokens; content retains the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v2 records this execution change and
-rejects v1 checkpoints; it does not certify model accuracy.
+tokens; semantic structure and values retain the managed client output cap. Other clients retain their
+own configured reasoning behavior. Protocol v6 and native-structure v1 identify the three-stage execution;
+previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 The unchanged native development comparison did not improve with reasoning enabled;
 see `SUPPORT.md`. Transport completion, valid role grammar and preserved source
@@ -174,21 +186,18 @@ HWP and long source views still need characterization and independent comparison
 
 #### Exact text values and logical records
 
-Native content protocol v5 sends one `valueSource` per scalar field or logical-record
-value. `native_value_wire.py` offers three closed alternatives:
+Native protocol v6 freezes field/column types, missingness and source anchors before
+value reading. `native_structure.value_request` issues stable `@value` handles and a
+closed source-choice schema. Present values choose an offered binding or an exact
+quote; explicit blanks require an actually empty offered binding. Either can return
+`unresolved`, preserving the structure while leaving the extraction partial. Absent,
+unreadable and uncertain structural entries require no value choice.
 
-- `kind: binding`, an offered `bindingId`, and `status: present | blank`;
-- `kind: quote`, a nonempty exact `quote` with `sourceRef`, `text` and optional
-  zero-based `occurrence`; this branch denotes a present value;
-- `kind: missing` and `status: absent | unreadable | uncertain`.
-
-These alternatives are shared by fields and record values in both the prompt and
-transported decoder schema. There are no independent nullable binding/quote fields
-to combine, and no quote can accompany a missingness choice. The independent decoder
-also rejects mixed/old links for unconstrained backends; it never selects one of
-contradictory sources. It translates a valid choice to the existing private
-`FieldLink`/`LogicalValue` binding, quote and status fields before compilation. Old
-native-protocol checkpoints cannot resume under this changed wire.
+The value response has only `regionId`, `selections` and `excludedBindings`. It must
+cover exactly the offered handles, with no mixed source branches, extra fields or
+foreign sources. The independent validator enforces the same contract when a backend
+ignores decoder constraints. `native_value_wire.py` decodes source choices into the
+existing private binding/quote/status representation; public v1 contracts are unchanged.
 
 **Value grounding.** The shared source-inventory resolver verifies owned views,
 exact Unicode spelling and repeated/overlapping literal occurrences. An occurrence
@@ -278,47 +287,34 @@ or a single compact fixture cannot stand in for long-document correctness. Indep
 new HWP/HWPX and XLSX cases are still required after development fixes.
 
 
-### Next native content protocol: structure before source selection (not implemented)
+### Native stage planning, preservation and remaining boundaries
 
-The v5 product comparison still attaches compound delimiter candidates to unrelated
-fields, despite exact candidate display. A larger model on the preceding source made
-the same class of mistake. The current implementation can consequently finish its
-mechanical work while `semanticAccuracy` remains `unverified`. Independent review,
-not that completion flag or candidate consumption, determines the structural KPI.
+The default native product path now separates semantic structure from value selection.
+This replaces the candidate-driven decision that the v5 comparison failed; implementation
+and regression success do not yet establish actual-model quality.
 
-The next change separates native content decisions, as physical record tables already
-do, without forcing prose/forms into fake table geometry:
+`regions.prepare_regions` measures actual role and structure systems, payloads and
+contracts instead of reserving a fixed 12,000 characters for native prose. Unknown
+roles are sized conservatively, not adopted as decisions. Source-order packing keeps
+one owner per value and uses exact disjoint windows for oversized text. Fixed protocol
+cost no longer makes an otherwise splittable paragraph atomic. Every dispatched stage,
+including values and repair feedback, still checks its actual full request against the
+same hard limit. No source is truncated and no document budget is raised automatically.
 
-1. **Discover semantic structure from source text.** Supply owned original blocks,
-   accepted document roles and relevant source formatting/context, not delimiter-
-   derived value IDs or label/value suggestions. The model identifies standalone
-   attributes, nested/repeated items, field definitions/types, occurrence anchors and
-   separately sourced units/conditions/notes. It must retain document identifiers
-   and explicit missing states, not only business records. Exact quoted anchors are
-   verified against owned views; unresolved structure stays explicit.
-2. **Read values against accepted structure.** Compile stable field/record/occurrence
-   handles, then request only their source choices. Show exact candidate text where
-   useful, retain exact quotation and observed-empty evidence, and prohibit silent
-   removal/reordering of rows, field reassignment or a numeric-to-string downgrade
-   merely to avoid a read error. A genuinely changed interpretation requires an
-   explicit, source-grounded structure revision, not an implicit value-stage edit.
-3. **Apply meanings to compiled items.** Use the existing applicability boundary;
-   one combined note is not proof of separate unit and condition scopes. Preserve
-   each item and field's actual source range, including equal-valued occurrences.
-4. **Plan real stage sizes.** Replace the coarse 12,000-character native reserve with
-   measured role/structure/value contracts. Factor repeated source metadata without
-   dropping context or changing observations. Keep original order and explicit
-   ownership. A document that still spans regions needs explicit logical continuation,
-   not unconditional merging of equal keys. Do not hide this work by raising limits.
+`documentStages.structure` retains the accepted response, request/structure hashes,
+attempt count and cumulative cost. Value selections are recorded separately. Resume
+revalidates contracts, exact quotes, owned sources and the resulting compiled structure;
+it rejects changed identities or inconsistent selections. Native meaning ranges are
+program-derived and tied to the source inventory. Value compilation does not prune
+frozen fields merely because a parser label or a record value shares their source.
 
-Implementation acceptance must cover scalar forms as well as prose records, different
-presentations of the same facts and genuinely different structures. Test frozen
-field/type/row preservation, blank versus absence, failed/resumed stages, incompatible
-checkpoints, exact request/output limits and source immutability. Use no fixed receipt
-schema or answer-driven model prompt. First reproduce the compact and original
-failures within their declared budgets; then prepare fresh varied/long HWP/HWPX and
-XLSX documents for independent whole-result judgment. This section is an implementation
-boundary, not a claim that the new stages or primary-format quality are complete.
+The current boundary is deliberately strict: an incorrect **valid** structure cannot
+be silently rewritten during value repair. An explicit source-grounded structure
+revision protocol remains unimplemented. Logical continuation between separate native
+regions also remains unimplemented; equal keys cannot authorize an unconditional merge.
+Long-fragment hierarchy, more compact value requests, and varied HWP/HWPX/XLSX whole-result
+quality still need investigation. Repeated use of a development document is regression
+work, never a new independent holdout.
 
 ## 2. PDF recognition and optional visual reading
 
@@ -579,8 +575,8 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v37 / v19 / v31 |
-| Document outline / native role-content protocol | v1 / v5 |
+| Semantic prompt / region plan / result compiler | v38 / v20 / v32 |
+| Document outline / native role-content protocol / native structure | v1 / v6 / v1 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |

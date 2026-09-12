@@ -11,7 +11,7 @@ from ..result_types import Contract
 from .document_outline import DocumentElement, constrain_schema
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v31"
+COMPILER_VERSION = "document-files.result-compiler.v32"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -36,6 +36,7 @@ class FieldLink(FieldDefinition):
     sourceQuote: SourceQuote | None = None
     status: Presence = "present"
     groupId: str | None = None
+    valueSourceRefs: list[str] = Field(default_factory=list, max_length=50)
 
 
 class Group(Contract):
@@ -174,6 +175,7 @@ class RegionInterpretation(Contract):
     excludedBindings: list[BindingDisposition] = Field(default_factory=list, max_length=2000)
     unresolved: list[str] = Field(default_factory=list, max_length=100)
     tableMeaningState: TableMeaningState | None = None
+    nativeMeaningInventorySHA256: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     documentElements: list[DocumentElement] = Field(default_factory=list, max_length=5000)
 
 
@@ -187,9 +189,11 @@ def region_output_schema(observation, region, target_handles=None, *, compact=Tr
     schema = RegionInterpretation.model_json_schema()
     # These are compiler/checkpoint metadata, not the scalar interpretation wire.
     schema["properties"].pop("tableMeaningState")
+    schema["properties"].pop("nativeMeaningInventorySHA256")
     # Offered only by the native text-content protocol, not physical table stages.
     schema["properties"]["logicalRecords"]["maxItems"] = 0
     schema["$defs"]["FieldLink"]["properties"].pop("sourceQuote")
+    schema["$defs"]["FieldLink"]["properties"].pop("valueSourceRefs")
     schema["$defs"]["Meaning"]["properties"].pop("sourceRanges")
     # The typed IR can read historical compact decisions with defaults, while
     # new model responses must explicitly select a binding and presence state.

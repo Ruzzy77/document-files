@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from typing import BinaryIO
 
+from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from ..analysis import AnalysisInput, AnalysisJob, AnalyzerBackend, analyze_document
@@ -17,7 +18,7 @@ from ..document_model.capture import capture
 from ..document_model.model import OBSERVATION_VERSION, ObservationDocument
 from ..document_model.observe import observe_document
 from ..structured_extraction import project_structured_extraction
-from . import document_protocol
+from . import document_protocol, native_structure
 from .backends import (
     ChatCompletionsClient,
     InferenceRequest,
@@ -494,6 +495,7 @@ def extract_schema_from_stream(
         "regionPlanVersion": REGION_PLAN_VERSION,
         "documentOutlineVersion": DOCUMENT_OUTLINE_VERSION,
         "documentProtocolVersion": document_protocol.VERSION,
+        "nativeStructureVersion": native_structure.VERSION,
         "model": model_identity,
     }
     visual_policy = review_identity(client) if job.input.format_id == "pdf" else None
@@ -512,11 +514,13 @@ def extract_schema_from_stream(
             "failures": {},
             "repairDiagnostics": {},
         }
+
     accepted, decisions, failures = {}, {}, {}
     repair_diagnostics = {}
     scope_decisions = {}
     table_states = {}
     document_states = {}
+    native_structures = {}
     usage = {
         "modelCalls": 0,
         "elapsedSeconds": 0.0,
@@ -671,6 +675,10 @@ def extract_schema_from_stream(
                 )
                 total += sum(
                     _restored_usage(state["content"]["usage"])[key]
+                    for state in document_states.values()
+                )
+                total += sum(
+                    _restored_usage(state["structure"]["usage"])[key]
                     for state in document_states.values()
                 )
                 tolerance = 1e-6 if key == "elapsedSeconds" else 0
@@ -983,6 +991,56 @@ def extract_schema_from_stream(
                     raise ValueError
             elif "response" in state or rid in accepted:
                 raise ValueError
+            semantic = state["structure"]
+            if (
+                type(semantic["attempts"]) is not int
+                or not 0 <= semantic["attempts"] <= document_protocol.MAX_CALLS
+                or semantic["attempts"] > semantic["usage"]["modelCalls"]
+                or semantic["status"] not in {"pending", "running", "complete", "failed"}
+                or type(semantic.get("halted", False)) is not bool
+                or (semantic["usage"]["modelCalls"] and state["status"] != "complete")
+                or (content_state["usage"]["modelCalls"] and semantic["status"] != "complete")
+            ):
+                raise ValueError
+            if semantic["status"] == "running":
+                semantic["halted"] = True
+            if "requestHash" in semantic:
+                structure_request = native_structure.request(
+                    observation,
+                    region,
+                    state["response"],
+                    {
+                        "intent": selected.intent,
+                        "targetHandles": target_catalog(selected.targetSchema),
+                    },
+                )
+                if semantic["requestHash"] != document_protocol.digest(
+                    [native_structure.SYSTEM, *structure_request]
+                ):
+                    raise ValueError
+            if semantic["status"] == "complete":
+                if not semantic["usage"]["modelCalls"] or "requestHash" not in semantic:
+                    raise ValueError
+                if not Draft202012Validator(structure_request[1]).is_valid(semantic["response"]):
+                    raise ValueError
+                frozen = native_structure.NativeStructure.model_validate(semantic["response"])
+                if semantic["structureHash"] != document_protocol.digest(semantic["response"]):
+                    raise ValueError
+                stub = native_structure.interpretation(
+                    frozen, state["response"], observation, region
+                )
+                native_structures[rid] = frozen
+                compiled[rid] = compile_region(
+                    stub, observation, region, target_schema=selected.targetSchema
+                )
+                if rid in accepted:
+                    replay = native_structure.accept_values(
+                        content_state["response"], frozen, state["response"], observation, region
+                    )
+                    if replay.model_dump() != accepted[rid].model_dump():
+                        raise ValueError
+            elif "response" in semantic or rid in accepted:
+                raise ValueError
     except (ValueError, TypeError, KeyError):
         raise ValueError("checkpoint is incompatible with document role stages") from None
     if additional_budget is not None and grant["maxModelCalls"] > 0:
@@ -991,6 +1049,8 @@ def extract_schema_from_stream(
                 record.update(attempts=0, reviewAttempts=0, halted=False, status="pending")
             if record["content"]["status"] != "complete":
                 record["content"].update(attempts=0, halted=False, status="pending")
+            if record["structure"]["status"] != "complete":
+                record["structure"].update(attempts=0, halted=False, status="pending")
     for region in regions:
         if region["id"] in accepted:
             try:
@@ -1148,7 +1208,13 @@ def extract_schema_from_stream(
                         table_states.get(r["id"], {}).get("kind") == "record_table"
                         and table_states[r["id"]].get("meaning", {}).get("status") != "complete"
                     )
-                    or (r["id"] in role_fragments and r["id"] not in compiled)
+                    or (
+                        r["id"] in role_fragments
+                        and (
+                            r["id"] not in compiled
+                            or document_states[r["id"]]["content"]["status"] != "complete"
+                        )
+                    )
                     else "interpreted"
                     if r["id"] in compiled
                     else "pending"
@@ -1168,12 +1234,21 @@ def extract_schema_from_stream(
                     "roleUsage": copy.deepcopy(state["usage"]),
                     "contentStatus": state["content"]["status"],
                     "contentUsage": copy.deepcopy(state["content"]["usage"]),
+                    "structureStatus": state["structure"]["status"],
+                    "structureUsage": copy.deepcopy(state["structure"]["usage"]),
+                    "structure": copy.deepcopy(state["structure"].get("response")),
                 }
                 for rid, state in document_states.items()
             }
         result["coverage"].update(_node_read_coverage(regions, compiled))
         result["coverage"]["unprocessedRegions"] = [
-            r["id"] for r in regions if r["id"] not in compiled
+            r["id"]
+            for r in regions
+            if r["id"] not in compiled
+            or (
+                r["id"] in document_states
+                and document_states[r["id"]]["content"]["status"] != "complete"
+            )
         ]
         result["coverage"]["scopeIntegration"] = [
             {
@@ -1203,12 +1278,16 @@ def extract_schema_from_stream(
         result["provenance"]["tableProtocolVersion"] = TABLE_PROTOCOL_VERSION
         result["provenance"]["tableReferenceWireVersion"] = TABLE_REFERENCE_WIRE_VERSION
         result["provenance"]["documentProtocolVersion"] = document_protocol.VERSION
+        result["provenance"]["nativeStructureVersion"] = native_structure.VERSION
         complete = (
             any(c.has_data or c.document_elements for c in compiled.values())
             and bool(compiled)
             and len(compiled) == len(regions)
             and all(
-                state["status"] == state["content"]["status"] == "complete"
+                state["status"]
+                == state["structure"]["status"]
+                == state["content"]["status"]
+                == "complete"
                 for state in document_states.values()
             )
             and all(
@@ -1696,6 +1775,7 @@ def extract_schema_from_stream(
                 "attempts": 0,
                 "usage": _stage_usage(),
                 "content": {"status": "pending", "attempts": 0, "usage": _stage_usage()},
+                "structure": {"status": "pending", "attempts": 0, "usage": _stage_usage()},
             },
         )
         if state["requestHash"] != fingerprint:
@@ -1744,6 +1824,72 @@ def extract_schema_from_stream(
         issue("document_role_invalid", regionId=rid)
         return False
 
+    def interpret_native_structure(region, roles):
+        rid = region["id"]
+        state = document_states[rid]["structure"]
+        payload, contract = native_structure.request(
+            observation, region, roles, {"intent": selected.intent, "targetHandles": catalog}
+        )
+        fingerprint = document_protocol.digest([native_structure.SYSTEM, payload, contract])
+        if state.get("requestHash", fingerprint) != fingerprint:
+            raise ModelError("native_structure_context_changed")
+        state["requestHash"] = fingerprint
+        if state["status"] == "complete":
+            return native_structures[rid]
+        if state.get("halted"):
+            raise ModelError("native_structure_response_unavailable")
+        while state["attempts"] < document_protocol.MAX_CALLS:
+            before = state["attempts"]
+            try:
+                value = invoke(
+                    native_structure.SYSTEM,
+                    payload,
+                    contract,
+                    state.get("feedback"),
+                    document_stage=state,
+                    reasoning_budget_tokens=document_protocol.REASONING_BUDGET
+                    if isinstance(client, ManagedPackClient)
+                    else None,
+                )
+                if not Draft202012Validator(contract).is_valid(value):
+                    raise ValueError("invalid_native_structure_contract")
+                structure = native_structure.NativeStructure.model_validate(value)
+                stub = native_structure.interpretation(structure, roles, observation, region)
+                fragment = compile_region(
+                    stub, observation, region, target_schema=selected.targetSchema
+                )
+                response = structure.model_dump(exclude_unset=True)
+                state.update(
+                    status="complete",
+                    response=response,
+                    structureHash=document_protocol.digest(response),
+                )
+                state.pop("feedback", None)
+                native_structures[rid], compiled[rid] = structure, fragment
+                issues[:] = [
+                    i
+                    for i in issues
+                    if not (
+                        i.get("code") == "native_structure_invalid" and i.get("regionId") == rid
+                    )
+                ]
+                save("interpreting")
+                return structure
+            except ModelError:
+                if state["attempts"] > before:
+                    state.update(status="failed", halted=True)
+                raise
+            except (ValueError, TypeError, KeyError) as exc:
+                feedback = (
+                    str(exc)
+                    if isinstance(exc, CompileError)
+                    else "invalid_native_structure_contract"
+                )
+                state.update(status="failed", feedback=[feedback])
+                issue("native_structure_invalid", regionId=rid, errors=[feedback])
+                save("interpreting")
+        return None
+
     for region in regions:
         rid = region["id"]
         if rid in role_fragments:
@@ -1757,6 +1903,10 @@ def extract_schema_from_stream(
                 continue
         if (
             rid in compiled
+            and (
+                rid not in document_states
+                or document_states[rid]["content"]["status"] == "complete"
+            )
             and not local_issues(compiled[rid])
             and (
                 not region.get("tableRef")
@@ -1836,14 +1986,13 @@ def extract_schema_from_stream(
                 if content_state.get("halted"):
                     issue("document_content_response_unavailable", regionId=rid)
                     continue
-                payload, candidate_schema = document_protocol.content_request(
-                    payload,
-                    region_output_schema(observation, region, catalog, compact=False),
-                    frozen_roles,
-                    observation,
-                    region,
+                structure = interpret_native_structure(region, frozen_roles)
+                if structure is None:
+                    continue
+                payload, candidate_schema = native_structure.value_request(
+                    structure, frozen_roles, observation, region
                 )
-                content_system = document_protocol.CONTENT_SYSTEM
+                content_system = native_structure.VALUE_SYSTEM
             except ModelError as exc:
                 issue(exc.code, regionId=rid)
                 save("paused")
@@ -1875,30 +2024,40 @@ def extract_schema_from_stream(
         for attempt in range(attempts_remaining):
             calls_before = usage["modelCalls"]
             try:
-                value = invoke(
-                    content_system,
-                    payload,
-                    candidate_schema,
-                    feedback,
-                    document_stage=content_state,
-                    reasoning_budget_tokens=(
-                        document_protocol.REASONING_BUDGET
-                        if content_state is not None and isinstance(client, ManagedPackClient)
-                        else None
-                    ),
-                )
+                if (
+                    content_state is not None
+                    and not payload["handles"]
+                    and not payload["requiredBindingIds"]
+                ):
+                    value = {"regionId": rid, "selections": {}, "excludedBindings": []}
+                else:
+                    value = invoke(
+                        content_system,
+                        payload,
+                        candidate_schema,
+                        feedback,
+                        document_stage=content_state,
+                        reasoning_budget_tokens=(
+                            document_protocol.REASONING_BUDGET
+                            if content_state is not None and isinstance(client, ManagedPackClient)
+                            else None
+                        ),
+                    )
                 response_hash = hashlib.sha256(encode(value).encode()).hexdigest()
                 if response_hash == last_response or response_hash == failures.get(rid):
                     issue("region_repair_no_progress", regionId=rid)
                     break
                 last_response = response_hash
                 if frozen_roles is not None:
-                    value = document_protocol.attach_content(value, frozen_roles)
+                    raw_native_value = copy.deepcopy(value)
+                    value = native_structure.accept_values(
+                        value, native_structures[rid], frozen_roles, observation, region
+                    ).model_dump()
                 candidate = RegionInterpretation.model_validate(value)
                 if frozen_roles is not None and candidate.repeats:
                     raise CompileError("document_content_cannot_generate_records")
-                if candidate.tableMeaningState is not None or any(
-                    m.sourceRanges for m in candidate.meanings
+                if candidate.tableMeaningState is not None or (
+                    frozen_roles is None and any(m.sourceRanges for m in candidate.meanings)
                 ):
                     raise CompileError("scalar_response_cannot_set_table_review_metadata")
                 if (
@@ -1915,11 +2074,15 @@ def extract_schema_from_stream(
                 previous = compiled.get(rid)
                 # Values read from declared header cells are flagged misuse; a
                 # repair that stops reading them does not lose committed content.
-                regresses = previous is not None and (
-                    not previous.consumed_bindings - previous.header_value_bindings
-                    <= fragment.consumed_bindings
-                    or loses_logical_content(previous, fragment)
-                    or len(local_issues(fragment)) >= len(local_issues(previous))
+                regresses = (
+                    previous is not None
+                    and rid in accepted
+                    and (
+                        not previous.consumed_bindings - previous.header_value_bindings
+                        <= fragment.consumed_bindings
+                        or loses_logical_content(previous, fragment)
+                        or len(local_issues(fragment)) >= len(local_issues(previous))
+                    )
                 )
                 if regresses:
                     issue("region_repair_no_progress", regionId=rid)
@@ -1929,6 +2092,7 @@ def extract_schema_from_stream(
                     content_state.update(
                         status="complete" if not local_issues(fragment) else "pending",
                         hasAcceptedResponse=True,
+                        response=raw_native_value,
                     )
                 failures.pop(rid, None)
                 repair_diagnostics.pop(rid, None)

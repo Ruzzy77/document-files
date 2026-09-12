@@ -12,7 +12,7 @@ from .document_outline import role_context
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v19"
+REGION_PLAN_VERSION = "document-files.region-plan.v20"
 
 
 def _encoded(value):
@@ -546,6 +546,21 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
         # Final generated region IDs can differ from source IDs.
         return table_request_chars(region) + 64 <= context_chars
 
+    from .native_structure import planned_request_sizes
+
+    def native_sizes(region):
+        if outline_enabled(observation) and not (
+            region.get("tableRef") or region.get("tableContextRef")
+        ):
+            return planned_request_sizes(observation, region, metadata)
+        return None
+
+    def text_fits(region):
+        sizes = native_sizes(region)
+        if sizes is not None:
+            return max(sizes["roles"], sizes["structure"]) + 64 <= context_chars
+        return len(_encoded(payload(observation, region))) <= limit
+
     current = None
     for source_region in source_regions:
         region = enrich(source_region)
@@ -683,7 +698,7 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
                     "bindingIds": [],
                 }
             )
-            if len(_encoded(payload(observation, merged))) <= limit:
+            if text_fits(merged):
                 current = merged
             else:
                 result.append(current)
@@ -692,10 +707,33 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
         result.append(current)
     bounded = []
     for region in result:
-        if not region.get("tableRef") and len(_encoded(payload(observation, region))) > limit:
-            bounded.extend(
-                split_text_region(observation, region, binding_by_node, limit - 64, payload)
-            )
+        if not region.get("tableRef") and not text_fits(region):
+            sizes = native_sizes(region)
+            if sizes is None:
+                bounded.extend(
+                    split_text_region(observation, region, binding_by_node, limit - 64, payload)
+                )
+            else:
+
+                def measure(observation, view, overhead=sizes["fixedOverhead"]):
+                    estimate = native_sizes(view)
+                    return (
+                        max(estimate["roles"], estimate["structure"])
+                        if estimate
+                        else overhead + len(_encoded(payload(observation, view)))
+                    )
+
+                bounded.extend(
+                    split_text_region(
+                        observation,
+                        region,
+                        binding_by_node,
+                        context_chars - 64,
+                        payload,
+                        measure=measure,
+                        fixed_overhead=sizes["fixedOverhead"],
+                    )
+                )
         else:
             bounded.append(region)
     result = bounded
@@ -707,6 +745,10 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
             region["withinContextBudget"] = region["requestChars"] <= context_chars
             if not region["withinContextBudget"]:
                 region["budgetReason"] = "table_row_or_required_context_exceeds_budget"
+        elif (sizes := native_sizes(region)) is not None:
+            region["nativeRequestChars"] = {k: sizes[k] for k in ("roles", "structure")}
+            region["requestChars"] = max(region["nativeRequestChars"].values())
+            region["withinContextBudget"] = region["requestChars"] <= context_chars
         else:
             region["withinContextBudget"] = region["inputChars"] <= limit
         if not region["withinContextBudget"] and not region.get("tableRef"):

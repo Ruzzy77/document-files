@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,819 tests,
+The full local check including the native outline path passed **2,847 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -251,6 +251,25 @@ code and receipt-date absence alone do not make the document correct. Evidence i
 observations and shutdown checks passed, and task-only transfer copies were removed.
 
 
+### Structure-first native implementation
+
+Native protocol v6 / native-structure v1, compiler v32 and prompt v38 now discover
+fields/types/repeated occurrences from original blocks before showing parser value
+candidates. Value choices cannot rename, remove or change those commitments. Exact
+meaning quotes remain separate from their applicability decisions. Failed values
+preserve the partial structure, and resume rebuilds it from the recorded decisions.
+Region plan v20 sizes actual role/structure requests instead of the fixed native
+reserve; value requests still receive the same hard dispatch check. In the existing
+seed examples, planning now keeps the compact file in one region and the original
+file in two rather than the earlier four. This is not a quality approval.
+
+Scripted regressions cover field/row/type preservation, separate definition/value
+sources, exact precision and repeated values, blank/absence, meaning ranges,
+unknown-response resume, checkpoint tampering and disjoint long-source views.
+Actual Spark comparison of this new source is pending. An explicit structure-revision
+protocol and cross-region logical continuation are still unimplemented.
+
+
 ## Earlier HTML/PDF development evidence
 
 These earlier HTML/PDF runs exercise shared interpretation code, not independent
@@ -299,7 +318,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The v4/compiler v31 comparison closes mixed value sources and destructive field collapse, but still fails field association, exact occurrence selection, missingness and complete scopes. Managed packing separates item occurrences and logical records are not joined across regions. | Both models fail candidate-driven interpretation; v5 avoids numeric errors by emitting semantically wrong strings. Separate native field/record/type discovery from source selection, with actual stage-size planning and committed-structure preservation. This redesign is not implemented yet. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v4/compiler v31 comparison closes mixed value sources and destructive field collapse, but still fails field association, exact occurrence selection, missingness and complete scopes. Managed packing separates item occurrences and logical records are not joined across regions. | Both models fail candidate-driven interpretation; v5 avoids numeric errors by emitting semantically wrong strings. Separate native field/record/type discovery from source selection, with actual stage-size planning and committed-structure preservation. Native protocol v6 / compiler v32 now implement the separate structure/value stages, frozen field/row/type preservation, exact meaning quotes and actual role/structure request-size planning. Explicit structure revisions and logical continuation remain open; actual model comparison is still required. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

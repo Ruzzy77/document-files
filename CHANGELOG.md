@@ -4,6 +4,17 @@
 
 ### Document extraction
 
+- Separate native HWP/HWPX semantic structure from value reading in protocol v6
+  / native-structure v1. Freeze source-grounded fields, types, repeated occurrences
+  and missing states before issuing exact value handles; preserve them on value
+  failure and validate both stages on resume. Compiler v32 / prompt v38 invalidate
+  previous checkpoints. Meaning quotes retain separate applicability decisions.
+- Plan native source regions with actual role/structure request sizes (region plan
+  v20), retaining source windows and hard dispatch limits. The value request cannot
+  discard committed fields/rows or change numeric types to avoid a read error.
+  Explicit semantic-structure revisions and cross-region logical continuation remain
+  open; regression success is not actual-model quality approval.
+
 - Show program-resolved `exactText` beside native text candidates in protocol v5;
   preserve whitespace, precision, blanks, source windows and original observations.
   Native type-error feedback identifies the failed offered binding/type without raw

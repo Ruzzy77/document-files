@@ -235,6 +235,27 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             ("unresolved", "table_meaning_source_unresolved"),
         ):
             out.issues.extend({"code": code, "sourceRef": ref} for ref in out.meaning_review[key])
+    elif ir.nativeMeaningInventorySHA256 is not None:
+        from .native_records import enabled as native_enabled
+
+        if not native_enabled(observation, region):
+            raise CompileError("native_meaning_requires_native_region")
+        inventory = source_inventory(observation, region)
+        if ir.nativeMeaningInventorySHA256 != inventory["sha256"]:
+            raise CompileError("native_meaning_source_inventory_changed")
+        try:
+            for meaning in ir.meanings:
+                if (
+                    not meaning.sourceRanges
+                    or meaning.sourceRefs
+                    != list(dict.fromkeys(s.sourceRef for s in meaning.sourceRanges))
+                    or meaning.description != "\n".join(s.text for s in meaning.sourceRanges)
+                ):
+                    raise CompileError("native_meaning_source_mismatch")
+            # Recheck ranges against the immutable owned inventory, not a stored hash alone.
+            review_ranges([m.model_dump() for m in ir.meanings], [], inventory)
+        except SourceReviewError as exc:
+            raise CompileError(str(exc)) from None
     elif any(meaning.sourceRanges for meaning in ir.meanings):
         raise CompileError("table_meaning_review_required_for_source_ranges")
     prefix = ir.regionId + ":"
@@ -486,7 +507,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
     # emitted three fields per repeated condition line, which left a whole-line
     # field and a label field beside the value the earlier page had folded.
     value_lines = {}
-    for item in ir.fields:
+    for item in [] if ir.nativeMeaningInventorySHA256 is not None else ir.fields:
         binding = bindings.get(item.bindingId) if item.bindingId in candidates else None
         if (
             binding is None
@@ -553,7 +574,8 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             )
             field_link = field_link.model_copy(update={"status": "uncertain"})
         if (
-            field_link.bindingId in candidates
+            ir.nativeMeaningInventorySHA256 is None
+            and field_link.bindingId in candidates
             and field_link.status in {"present", "blank"}
             and field_link.valueType in record_bindings.get(field_link.bindingId, set())
         ):
@@ -609,6 +631,12 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 continue
             bound_fields[identity] = (field_link.id, field_link.bindingId)
         resolved_fields.append(field_link)
+        if (
+            field_link.valueSourceRefs
+            and field_link.bindingId in candidates
+            and bindings[field_link.bindingId]["sourceRef"] not in field_link.valueSourceRefs
+        ):
+            raise CompileError("native_value_source_mismatch")
         path = "/" + "/".join(map(escape, tokens)) if tokens else ""
         target = Target(space="data", path=path)
         sid = definition(field_link.id, field_link.label, field_link.definitionRefs, sp, [target])
@@ -616,7 +644,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             field_link.bindingId,
             field_link.valueType,
             field_link.status,
-            field_link.definitionRefs,
+            field_link.valueSourceRefs or field_link.definitionRefs,
             target,
             sid,
             transformation,
@@ -1276,7 +1304,9 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                             {"sourceRef": ref, "text": _view_text(nodes, region, ref)}
                             for ref in source_refs
                         ],
-                        "sourceInventorySHA256": ir.tableMeaningState.inventorySHA256,
+                        "sourceInventorySHA256": (
+                            ir.nativeMeaningInventorySHA256 or ir.tableMeaningState.inventorySHA256
+                        ),
                     }
                     if meaning.sourceRanges
                     else {

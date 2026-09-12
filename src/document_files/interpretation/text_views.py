@@ -127,16 +127,25 @@ def _node_units(observation, ref, binding_ids, budget):
     return units
 
 
-def split_text_region(observation, region, binding_by_node, limit, payload):
+def split_text_region(
+    observation, region, binding_by_node, limit, payload, *, measure=None, fixed_overhead=0
+):
     """Return bounded views, retaining oversized atomic/context views explicitly.
 
     Work is O(bindings log bindings + source length); trial serialization is
     bounded by the request budget except for a single indivisible atom/context.
     """
+
+    def size(view):
+        return (
+            measure(observation, view) if measure is not None else _size(payload(observation, view))
+        )
+
+    source_budget = max(64, limit - fixed_overhead)
     explicit_context = region.get("contextNodeIds", [])
     if explicit_context:
         context_only = {**region, "nodeIds": [], "bindingIds": [], "requiredBindingIds": []}
-        if _size(payload(observation, context_only)) > limit:
+        if size(context_only) > limit:
             return [{**region, "budgetReason": "explicit_context_exceeds_budget"}]
     units = []
     for ref in region["nodeIds"]:
@@ -147,7 +156,7 @@ def split_text_region(observation, region, binding_by_node, limit, payload):
             "nodeViews": {ref: {"start": 0, "end": 0}},
             "bindingIds": [],
         }
-        if _size(payload(observation, fixed)) > limit // 2:
+        if size(fixed) - fixed_overhead > source_budget // 2:
             units.append(
                 {
                     "ref": ref,
@@ -158,7 +167,7 @@ def split_text_region(observation, region, binding_by_node, limit, payload):
             )
             continue
         units.extend(
-            _node_units(observation, ref, binding_by_node.get(ref, []), max(64, limit // 4))
+            _node_units(observation, ref, binding_by_node.get(ref, []), max(64, source_budget // 4))
         )
     required = set(region.get("requiredBindingIds", []))
 
@@ -233,9 +242,7 @@ def split_text_region(observation, region, binding_by_node, limit, payload):
     result, start = [], 0
     for stop in range(1, len(units) + 1):
         candidate = view(start, stop)
-        if stop - start > 1 and (
-            candidate["unshownDefinition"] or _size(payload(observation, candidate)) > limit
-        ):
+        if stop - start > 1 and (candidate["unshownDefinition"] or size(candidate) > limit):
             result.append(view(start, stop - 1))
             start = stop - 1
     if units:

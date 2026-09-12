@@ -8,6 +8,7 @@ from test_document_outline import decision, unit
 from test_document_protocol import StagedModel, execute, raw_document
 
 from document_files.interpretation import document_protocol as protocol
+from document_files.interpretation import native_structure
 from document_files.interpretation.backends import InferenceResponse
 from document_files.interpretation.bindings import resolve
 from document_files.interpretation.regions import region_payload
@@ -88,13 +89,18 @@ class WrongCandidate(StagedModel):
         payload = json.loads(request.messages[-1]["content"])
         if payload.get("documentStage") == "roles":
             return super().infer(request)
+        if payload.get("documentStage") == "structure":
+            response = super().infer(request)
+            value = json.loads(response.text)
+            value["fields"][0]["valueType"] = "integer"
+            return InferenceResponse(json.dumps(value), {})
         self.calls += 1
         self.content_requests.append(payload)
         bid = next(b for b, c in payload["bindings"].items() if c.get("candidateRole") == "value")
         self.bad_id = bid
         choice = {"kind": "binding", "bindingId": bid, "status": "present"}
         excluded = []
-        if payload.get("repairFeedback"):
+        if "binding_cannot_represent_requested_type" in payload.get("repairFeedback", []):
             choice = {"kind": "quote", "quote": {"sourceRef": "n1", "text": "5"}}
             excluded = [
                 {
@@ -105,16 +111,7 @@ class WrongCandidate(StagedModel):
             ]
         value = {
             "regionId": payload["regionId"],
-            "fields": [
-                {
-                    "id": "count",
-                    "key": "count",
-                    "label": "Count",
-                    "definitionRefs": ["n1"],
-                    "valueType": "integer",
-                    "valueSource": choice,
-                }
-            ],
+            "selections": {next(iter(payload["handles"])): choice},
             "excludedBindings": excluded,
         }
         return InferenceResponse(json.dumps(value), {})
@@ -124,7 +121,7 @@ def test_type_repair_identifies_the_offered_choice_without_raw_source_in_diagnos
     model = WrongCandidate()
     result = execute(model, raw=raw_document(("Count: requested 5",)))
     assert result["data"] == {"count": 5} and result["extraction"]["status"] == "complete"
-    assert model.calls == 3
+    assert model.calls == 4
     feedback = model.content_requests[1]["repairFeedback"]
     assert feedback[0] == "binding_cannot_represent_requested_type"
     assert json.loads(feedback[1].removeprefix("invalid_value_selection:")) == {
@@ -137,18 +134,25 @@ def test_type_repair_identifies_the_offered_choice_without_raw_source_in_diagnos
 
 def test_exact_text_display_is_counted_in_the_existing_request_limit():
     first = StagedModel()
-    raw = raw_document(("Ordinary source text.",))
+    raw = raw_document(("Count: 0007",))
     execute(first, raw=raw)
     payload = first.content_requests[0]
-    chars = len(protocol.CONTENT_SYSTEM) + len(
+    chars = len(native_structure.VALUE_SYSTEM) + len(
         json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )
-    limited = StagedModel()
-    limited.input_budget_chars = chars - 1
+
+    class Limited(StagedModel):
+        def infer(self, request):
+            response = super().infer(request)
+            if json.loads(request.messages[-1]["content"]).get("documentStage") == "structure":
+                self.input_budget_chars = chars - 1
+            return response
+
+    limited = Limited()
     result = execute(limited, raw=raw, contextChars=16000)
-    assert limited.calls == 1 and result["extraction"]["status"] == "partial"
+    assert limited.calls == 2 and result["extraction"]["status"] == "partial"
     assert any(i["code"] == "region_context_budget_exceeded" for i in result["issues"])
-    assert result["document"]["nodes"]["n1"]["text"] == "Ordinary source text."
+    assert result["document"]["nodes"]["n1"]["text"] == "Count: 0007"
 
 
 def test_invalid_candidate_view_keeps_roles_and_stops_before_content_call(monkeypatch):
@@ -158,7 +162,7 @@ def test_invalid_candidate_view_keeps_roles_and_stops_before_content_call(monkey
     monkeypatch.setattr(protocol, "content_request", invalid)
     model = StagedModel()
     result = execute(model)
-    assert model.calls == 1 and result["extraction"]["status"] == "partial"
+    assert model.calls == 2 and result["extraction"]["status"] == "partial"
     assert result["document"]["outline"]["elements"]
     assert "native_candidate_view_invalid" in json.dumps(result["issues"])
     assert "private source" not in json.dumps(result["issues"])
