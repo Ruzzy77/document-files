@@ -2049,7 +2049,7 @@ class TripleFieldModel(ReferenceModel):
 def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     from document_files.interpretation.semantic_types import COMPILER_VERSION
 
-    assert COMPILER_VERSION == "document-files.result-compiler.v25"
+    assert COMPILER_VERSION == "document-files.result-compiler.v26"
     model = TripleFieldModel()
     result = run(b"cond: do not ship\n", model)
     assert result["data"] == {"cond": "do not ship"}
@@ -2200,3 +2200,50 @@ def test_recognized_heading_with_a_required_value_stays_unaccounted():
     ir = ir.model_copy(update={"meanings": []})
     compiled = compile_region(ir, doc, region)
     assert any(i["code"] == "node_semantics_unaccounted" for i in compiled.issues)
+
+
+def test_meaning_over_context_nodes_only_is_dropped_and_owned_meanings_stay():
+    # Delivery-form run 8: the subtotal scalar region restated its context statements
+    # as meanings and applied them to every subtotal scalar.
+    doc = ObservationDocument()
+    owned = doc.node("s", "소계 Subtotal 34", role="table_cell")
+    statement = doc.node("u", "금액 단위: 천원", role="text")
+    binding = doc.bind(owned, start=0, end=14, candidateRole="content")
+    region = {"id": "r", "nodeIds": [owned], "bindingIds": [binding], "contextNodeIds": [statement]}
+    ir = RegionInterpretation.model_validate(
+        {
+            "regionId": "r",
+            "fields": [
+                {
+                    "id": "subtotal",
+                    "key": "subtotal",
+                    "label": "Subtotal",
+                    "definitionRefs": [owned],
+                    "bindingId": binding,
+                    "valueType": "string",
+                }
+            ],
+            "meanings": [
+                {
+                    "id": "unit",
+                    "kind": "unit",
+                    "description": "Restated context unit",
+                    "sourceRefs": [statement],
+                    "fieldIds": ["subtotal"],
+                },
+                {
+                    "id": "own",
+                    "kind": "note",
+                    "description": "Subtotal row",
+                    "sourceRefs": [owned, statement],
+                    "fieldIds": ["subtotal"],
+                },
+            ],
+            "dispositions": [],
+        }
+    )
+    compiled = compile_region(ir, doc, region)
+    assert [c["code"] for c in compiled.corrections] == ["context_only_meaning_dropped"]
+    assert compiled.corrections[0]["semanticId"] == "r:unit"
+    assert [d["id"] for d in compiled.semantic_details] == ["r:own"]
+    assert not any(i["code"] == "semantic_scope_unresolved" for i in compiled.issues)

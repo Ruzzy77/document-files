@@ -587,7 +587,8 @@ definition citation of a cell in a data, subtotal or note row is dropped as
 only when none of its cells is a bare number. A definition meaning without any scope whose
 sources are all headings is dropped as `heading_definition_dropped`; a recognized section
 header or title that no field reads and that carries no required value candidate is
-accounted for as a heading.
+accounted for as a heading. A meaning that cites only context nodes is dropped as
+`context_only_meaning_dropped`: the region that owns a statement interprets it.
 
 ### OCR ruling evidence
 

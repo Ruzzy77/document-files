@@ -853,6 +853,33 @@ def test_subtotal_and_note_values_use_scalar_region_and_retain_exact_records_and
     assert resumed["data"] == result["data"] and len(model.requests) == 3
 
 
+NONRECORD_BLANK_HTML = NONRECORD_HTML.replace(
+    b"<td>Total</td><td>1.2300</td>", b"<td>Total</td><td></td>"
+)
+
+
+def test_proven_blank_cell_is_not_required_of_the_scalar_region():
+    model, states = NonrecordModel(), []
+    result = extract_schema_from_stream(
+        AnalysisJob(
+            job_id="nonrecord-blank",
+            input=AnalysisInput.from_bytes(NONRECORD_BLANK_HTML, format_id="html"),
+        ),
+        io.BytesIO(NONRECORD_BLANK_HTML),
+        model_client=model,
+        options=ExtractionOptions(reconstructionContext=False),
+        checkpoint=states.append,
+    )
+    parent, child = states[-1]["regions"]
+    blank = [
+        bid
+        for bid in child["bindingIds"]
+        if not result["document"]["nodes"][result["document"]["bindings"][bid]["sourceRef"]]["text"]
+    ]
+    assert blank and not set(blank) & set(child["requiredBindingIds"])
+    assert set(child["requiredBindingIds"]) <= set(child["bindingIds"])
+
+
 def test_nonrecord_pending_budget_and_resume_do_not_repeat_or_erase_table_structure():
     model, states = NonrecordModel(), []
     partial = execute_nonrecord(model, states, maxModelCalls=2)

@@ -338,7 +338,13 @@ def route_table_values(observation, region, frozen, compiled, *, context_chars, 
             )
         ),
         "bindingIds": bids,
-        "requiredBindingIds": [bid for bid in region.get("requiredBindingIds", []) if bid in bids],
+        # A proven blank cell has no value to lose; it is not required of the scalars.
+        "requiredBindingIds": [
+            bid
+            for bid in region.get("requiredBindingIds", [])
+            if bid in bids
+            and observation.nodes.get(observation.bindings[bid]["sourceRef"], {}).get("text")
+        ],
     }
     request = {
         **region_payload(observation, child),

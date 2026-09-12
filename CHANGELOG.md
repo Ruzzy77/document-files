@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Compiler v26 drops a meaning that cites only context nodes (`context_only_meaning_dropped`):
+  the region that owns a statement interprets it, and the eighth delivery-form run's
+  scalar region restated its context statements (unit, date, note, condition) as meanings
+  and applied them to every subtotal scalar, including the unit to the subtotal quantity.
+  The non-record value region no longer requires a binding on a proven blank cell.
 - The table details request's `referenceContext` carries each context node's text, role
   and a differing native value only; geometry, recognition basis and per-node status stay
   in the stored observation. The seventh delivery-form regression selected a header as

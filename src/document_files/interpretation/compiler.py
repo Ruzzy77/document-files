@@ -958,6 +958,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         return owned
 
     repeats_by_id = {r.id: r for r in ir.repeats}
+    owned_nodes = set(region["nodeIds"])
     disposition_roles = {d.sourceRef: d.role for d in ir.dispositions}
     consumed_refs = {bindings[b]["sourceRef"] for b in out.consumed_bindings}
 
@@ -972,6 +973,21 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             raise CompileError("duplicate_meaning_id")
         meaning_ids.add(meaning.id)
         source_refs = refs(meaning.sourceRefs)
+        if not set(source_refs) & owned_nodes:
+            # Context clarifies the owned nodes; the region that owns a statement
+            # interprets it. The delivery-form scalar region restated its context
+            # statements as meanings and applied them to every subtotal scalar.
+            out.corrections.append(
+                {
+                    "code": "context_only_meaning_dropped",
+                    "regionId": out.id,
+                    "semanticId": prefix + meaning.id,
+                    "kind": meaning.kind,
+                    "sourceRefs": source_refs,
+                    "basis": "statement_owned_by_another_region",
+                }
+            )
+            continue
         if (
             meaning.kind == "definition"
             and meaning.rowStart is None
