@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,877 tests,
+The full local check including the native outline path passed **2,894 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -253,7 +253,7 @@ observations and shutdown checks passed, and task-only transfer copies were remo
 
 ### Structure-first native implementation
 
-Native protocol v6 / native-structure v5, compiler v32 and prompt v39 now discover
+Native protocol v6 / native-structure v6, compiler v32 and prompt v39 now discover
 fields/types/repeated occurrences from original blocks before showing parser value
 candidates. Value choices cannot rename, remove or change those commitments. Exact
 meaning quotes remain separate from their applicability decisions. Failed values
@@ -320,7 +320,12 @@ The v5 follow-up reports the invalid program-issued value handle and required st
 instead of disguising a valid JSON response's selection error as `invalid_model_json`.
 It never echoes raw source/model text, weakens the contract or alters the committed
 structure. Specific feedback and checkpoint reuse pass locally; **v5 has not been
-rerun on an actual model**. Explicit structure revision, bounded value batches,
+rerun on an actual model**. Native-structure v6 now partitions oversized value
+requests without trimming original text/formatting or changing the frozen structure.
+It saves accepted reads per batch, then accounts for remaining source candidates;
+unread work stays partial and completed batches are not replayed. Scripted HWPX
+extraction preserves 32 measurements and all evidence in eight calls at 16,000
+characters. The actual v6 model comparison is pending. Explicit structure revision,
 cross-region logical continuation and varied independent quality remain open.
 
 
@@ -373,7 +378,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The 9B proposal duplicates fields; 314B preserves two item rows and unit targets but fails exact values and full applicability. | V5 makes invalid value-handle/state feedback specific. Check bounded repair without dropping fields or changing types; implement explicit structure correction and actual-size value batching with preserved checkpoints. More compact JSON or a larger model alone is not quality approval. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The 9B proposal duplicates fields; 314B preserves two item rows and unit targets but fails exact values and full applicability. | V6 implements actual-size value batches and specific invalid-selection feedback. Verify model reading and accounting without dropping fields or changing types; implement explicit structure correction. More compact JSON or a larger model alone is not quality approval. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

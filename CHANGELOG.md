@@ -4,6 +4,14 @@
 
 ### Document extraction
 
+- Partition oversized native value requests without trimming original source or
+  formatting (native-structure v6 / native-value-batches v1). Preserve the complete
+  frozen structure, compile accumulated reads, then account for remaining candidates
+  without excluding consumed bindings. Keep per-batch usage and source-bound checkpoint
+  replay; completed batches are not rerun and unknown exchanges require explicit resume.
+  Scripted HWPX reading covers 32 fields in eight calls at the existing input limit;
+  this is not an actual-model quality claim or a new document budget.
+
 - Identify invalid native value handles and required present/blank states in bounded
   repair (native-structure v5), rather than reporting a valid JSON selection error
   as invalid JSON. Preserve closed contracts, source privacy and frozen structure;

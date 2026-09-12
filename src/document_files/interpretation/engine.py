@@ -18,7 +18,7 @@ from ..document_model.capture import capture
 from ..document_model.model import OBSERVATION_VERSION, ObservationDocument
 from ..document_model.observe import observe_document
 from ..structured_extraction import project_structured_extraction
-from . import document_protocol, native_structure
+from . import document_protocol, native_structure, native_value_batches
 from .backends import (
     ChatCompletionsClient,
     InferenceRequest,
@@ -964,7 +964,11 @@ def extract_schema_from_stream(
             if (
                 not isinstance(content_state, dict)
                 or type(content_state["attempts"]) is not int
-                or not 0 <= content_state["attempts"] <= document_protocol.MAX_CALLS
+                or content_state["attempts"] < 0
+                or (
+                    "batches" not in content_state
+                    and content_state["attempts"] > document_protocol.MAX_CALLS
+                )
                 or content_state["attempts"] > content_state["usage"]["modelCalls"]
                 or content_state["status"] not in {"pending", "running", "complete", "failed"}
                 or type(content_state.get("halted", False)) is not bool
@@ -1041,6 +1045,25 @@ def extract_schema_from_stream(
                 compiled[rid] = compile_region(
                     stub, observation, region, target_schema=selected.targetSchema
                 )
+                if "batches" in content_state:
+                    batch_payload, batch_schema = native_structure.value_request(
+                        frozen, state["response"], observation, region
+                    )
+                    native_value_batches.rebuild(
+                        content_state,
+                        batch_payload,
+                        batch_schema,
+                        frozen,
+                        state["response"],
+                        observation,
+                        region,
+                        min(
+                            selected.contextChars,
+                            getattr(client, "input_budget_chars", selected.contextChars),
+                        ),
+                        selected.targetSchema,
+                        _restored_usage,
+                    )
                 if rid in accepted:
                     replay = native_structure.accept_values(
                         content_state["response"], frozen, state["response"], observation, region
@@ -1057,6 +1080,12 @@ def extract_schema_from_stream(
                 record.update(attempts=0, reviewAttempts=0, halted=False, status="pending")
             if record["content"]["status"] != "complete":
                 record["content"].update(attempts=0, halted=False, status="pending")
+                if "batches" in record["content"]:
+                    batches = record["content"]["batches"]
+                    for progress in [*batches["values"], *batches["accounting"]]:
+                        if progress["status"] != "complete":
+                            progress.update(attempts=0, halted=False, status="pending")
+                    native_value_batches.sync_usage(record["content"])
             if record["structure"]["status"] != "complete":
                 record["structure"].update(attempts=0, halted=False, status="pending")
     for region in regions:
@@ -1169,6 +1198,9 @@ def extract_schema_from_stream(
         return linked, join_issues, links, scope_tasks, validated
 
     def refresh(stage):
+        for state in document_states.values():
+            if "batches" in state["content"]:
+                native_value_batches.sync_usage(state["content"])
         linked, join_issues, links, scope_tasks, validated = linked_regions()
         projection = combine_regions(linked, target_schema=selected.targetSchema)
         errors = projection.pop("errors")
@@ -1245,6 +1277,11 @@ def extract_schema_from_stream(
                     "structureStatus": state["structure"]["status"],
                     "structureUsage": copy.deepcopy(state["structure"]["usage"]),
                     "structure": copy.deepcopy(state["structure"].get("response")),
+                    **(
+                        {"valueBatches": native_value_batches.coverage(state["content"]["batches"])}
+                        if "batches" in state["content"]
+                        else {}
+                    ),
                 }
                 for rid, state in document_states.items()
             }
@@ -1906,6 +1943,162 @@ def extract_schema_from_stream(
                 save("interpreting")
         return None
 
+    def interpret_native_batches(region, structure, roles, payload, schema, limit):
+        rid = region["id"]
+        content_state = document_states[rid]["content"]
+        if "batches" not in content_state:
+            if content_state["attempts"] or rid in accepted:
+                raise native_value_batches.BatchError("native_value_batch_transition_invalid")
+            content_state["batches"] = native_value_batches.initial(
+                payload, schema, document_states[rid]["structure"]["structureHash"], limit
+            )
+        state = content_state["batches"]
+
+        def publish(response, ir, fragment):
+            content_state.update(response=response, hasAcceptedResponse=True, status="pending")
+            accepted[rid], compiled[rid] = ir, fragment
+
+        def run_phase(kind, groups):
+            records = state[kind]
+            for index, keys in enumerate(groups):
+                request = native_value_batches.request_for(payload, schema, kind, keys, state)
+                if index == len(records):
+                    records.append(
+                        {
+                            "keys": keys,
+                            "requestHash": document_protocol.digest(list(request)),
+                            "status": "pending",
+                            "attempts": 0,
+                            "usage": _stage_usage(),
+                        }
+                    )
+                progress = records[index]
+                if progress["status"] == "complete":
+                    continue
+                if progress.get("halted"):
+                    raise ModelError("document_content_response_unavailable")
+                while progress["attempts"] < document_protocol.MAX_CALLS:
+                    before = progress["attempts"]
+                    try:
+                        value = invoke(
+                            *request,
+                            progress.get("feedback"),
+                            document_stage=progress,
+                            reasoning_budget_tokens=document_protocol.REASONING_BUDGET
+                            if isinstance(client, ManagedPackClient)
+                            else None,
+                        )
+                        response_hash = document_protocol.digest(value)
+                        if response_hash == progress.get("lastResponseHash"):
+                            progress.update(
+                                status="failed", feedback=["native_value_batch_no_progress"]
+                            )
+                            break
+                        progress["lastResponseHash"] = response_hash
+                        proposed = copy.deepcopy(state)
+                        proposed[kind][index]["response"] = value
+                        response, ir, fragment = native_value_batches.compile_aggregate(
+                            payload,
+                            proposed,
+                            structure,
+                            roles,
+                            observation,
+                            region,
+                            selected.targetSchema,
+                        )
+                        native_value_batches.accept(value, request, kind, keys)
+                        new_resolved = native_value_batches.resolved(value, kind)
+                        if "response" in progress:
+                            old = progress["response"]
+                            old_resolved = native_value_batches.resolved(old, kind)
+                            if not old_resolved < new_resolved:
+                                raise native_value_batches.BatchError(
+                                    "native_value_batch_no_progress"
+                                )
+                            if kind == "values" and any(
+                                old["selections"][h] != value["selections"][h] for h in old_resolved
+                            ):
+                                raise native_value_batches.BatchError(
+                                    "native_value_batch_read_changed"
+                                )
+                        if kind == "accounting" and "response" in progress:
+                            old_items = {
+                                v["bindingId"]: v for v in progress["response"]["excludedBindings"]
+                            }
+                            new_items = {v["bindingId"]: v for v in value["excludedBindings"]}
+                            if any(old_items[b] != new_items[b] for b in old_resolved):
+                                raise native_value_batches.BatchError(
+                                    "native_value_batch_accounting_changed"
+                                )
+                        progress.update(
+                            response=copy.deepcopy(value),
+                            responseHash=response_hash,
+                            status="complete" if len(new_resolved) == len(keys) else "pending",
+                        )
+                        progress.pop("feedback", None)
+                        publish(response, ir, fragment)
+                        issues[:] = [
+                            i
+                            for i in issues
+                            if not (
+                                i.get("code") == "native_value_batch_invalid"
+                                and i.get("batchId") == request[1]["batchId"]
+                                and i.get("regionId") == rid
+                            )
+                        ]
+                        save("interpreting")
+                        if progress["status"] == "complete":
+                            break
+                        progress["feedback"] = ["native_value_batch_unresolved"]
+                    except ModelError:
+                        if progress["attempts"] > before:
+                            progress.update(status="failed", halted=True)
+                            content_state["halted"] = True
+                        raise
+                    except (ValueError, TypeError, KeyError) as exc:
+                        feedback = (
+                            exc.diagnostics
+                            if isinstance(exc, native_structure.NativeValueError)
+                            else [str(exc)]
+                            if isinstance(exc, (CompileError, native_value_batches.BatchError))
+                            else ["native_value_batch_contract_invalid"]
+                        )
+                        progress.update(status="failed", feedback=feedback)
+                        issue(
+                            "native_value_batch_invalid",
+                            regionId=rid,
+                            batchId=request[1]["batchId"],
+                            errors=feedback,
+                        )
+                        save("interpreting")
+                save("interpreting")
+
+        run_phase("values", state["valueKeys"])
+        if not native_value_batches.values_complete(state):
+            return
+        if "accountingKeys" not in state:
+            response, _, fragment = native_value_batches.compile_aggregate(
+                payload, state, structure, roles, observation, region, selected.targetSchema
+            )
+            state["accountingKeys"] = native_value_batches.partition(
+                payload,
+                schema,
+                "accounting",
+                native_value_batches.accounting_keys(fragment, payload),
+                limit,
+                response["selections"],
+            )
+        run_phase("accounting", state["accountingKeys"])
+        response, ir, fragment = native_value_batches.compile_aggregate(
+            payload, state, structure, roles, observation, region, selected.targetSchema
+        )
+        publish(response, ir, fragment)
+        if all(r["status"] == "complete" for r in state["accounting"]) and not local_issues(
+            fragment
+        ):
+            content_state["status"] = "complete"
+        save("interpreting")
+
     for region in regions:
         rid = region["id"]
         if rid in role_fragments:
@@ -2009,6 +2202,21 @@ def extract_schema_from_stream(
                     structure, frozen_roles, observation, region
                 )
                 content_system = native_structure.VALUE_SYSTEM
+                input_limit = min(
+                    selected.contextChars,
+                    getattr(client, "input_budget_chars", selected.contextChars),
+                )
+                if "batches" in content_state or native_value_batches.is_needed(
+                    payload, candidate_schema, input_limit
+                ):
+                    interpret_native_batches(
+                        region, structure, frozen_roles, payload, candidate_schema, input_limit
+                    )
+                    continue
+            except native_value_batches.BatchError as exc:
+                issue(str(exc), regionId=rid)
+                save("paused")
+                return result
             except ModelError as exc:
                 issue(exc.code, regionId=rid)
                 save("paused")

@@ -151,7 +151,7 @@ def test_exact_text_display_is_counted_in_the_existing_request_limit():
     limited = Limited()
     result = execute(limited, raw=raw, contextChars=16000)
     assert limited.calls == 2 and result["extraction"]["status"] == "partial"
-    assert any(i["code"] == "region_context_budget_exceeded" for i in result["issues"])
+    assert any(i["code"] == "native_value_context_indivisible" for i in result["issues"])
     assert result["document"]["nodes"]["n1"]["text"] == "Count: 0007"
 
 

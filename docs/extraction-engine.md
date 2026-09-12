@@ -155,7 +155,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v6 and native-structure v5 identify the three-stage execution;
+own configured reasoning behavior. Protocol v6 and native-structure v6 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 The unchanged native development comparison did not improve with reasoning enabled;
@@ -360,42 +360,70 @@ Long-fragment hierarchy, bounded value execution, and varied HWP/HWPX/XLSX whole
 quality still need investigation. Repeated use of a development document is regression
 work, never a new independent holdout.
 
-### Next boundary: structure correction and bounded value reads
+### Bounded native value requests
 
-These changes are **not implemented**. The latest failure is not just excess JSON:
-a model can propose syntactically valid item-numbered fields and duplicate them as
-one-row records. Compressing that proposal cannot establish correct item structure.
-The existing larger-backend comparison improved item structure but still failed values
-and complete applicability. Use that distinction when choosing further protocol changes. Do not add a document-specific field template or a
-rule that silently deletes every scalar sharing a record's source.
+Native-structure v6 / native-value-batches v1 keeps the existing single request when
+it fits. An oversized request instead uses deterministic batches of at most 16 value
+handles, sized from the actual system, payload and closed output contract. Every batch
+retains **all original nodes, formatting and binding text**; relevant occurrence
+anchors and per-handle source/type/presence constraints remain explicit. No field,
+column or row is removed to make it fit. If even one handle with this context cannot
+fit, `native_value_context_indivisible` exposes the unfinished read. The actual dispatch
+check still applies to repairs; planning does not exempt later messages from the limit.
+
+Value batches cannot supply exclusions or mutate other batches. Code compiles the
+accumulated selections against the entire frozen structure before accepting each
+response. Unread handles remain unresolved placeholders, not absent values. A local
+repair can resolve additional handles but cannot replace an already read value.
+Each batch has at most two attempts within the same cumulative document call/time
+budget; adding batches creates no additional document allowance.
+
+Source accounting starts only after every value batch is resolved. It partitions the
+remaining required candidates, excluding none of the already consumed bindings.
+Each candidate receives exactly one disposition. Verified read context uses a shared
+nested template plus `[handle, patch]` rows; recursively merging them reconstructs
+all original definition and selection details without normalizing source text.
+Unresolved or unfinished accounting remains partial even when every data value is
+present. Scope/applicability work still follows; completed reading is not completion
+of the whole document or independent approval of semantic accuracy.
+
+Checkpoints retain the structure/source/request identities, deterministic plans,
+accepted responses, hashes and cumulative usage for each batch. Resume regenerates
+requests and compiles accepted reads again before trusting the aggregate; inconsistent
+plans, quotes, accounting, costs or completion flags are rejected. Completed batches
+are not replayed. Unknown exchanges halt until an explicit allowance reopens unfinished
+work, retaining all prior costs and accepted reads. Coverage exposes batch status,
+keys and preflight sizes, while raw responses remain in the checkpoint.
+
+Scripted HWPX coverage reads 32 distinct measurements through the actual parser and
+controller in eight calls at 16,000 characters: roles, structure, four value batches
+and two accounting batches. It checks exact evidence, stopped-boundary persistence,
+explicit resume, invalid completion flags and no rereading after all values are read.
+A separate record comparison matches unbatched precision, explicit blank/absence and
+all schema/value evidence. This is code-path verification, not actual-model quality.
+Long structural responses and indivisible large contexts remain separate limits.
+
+### Next boundary: explicit structure correction
+
+This is **not implemented**. A model can propose syntactically valid item-numbered
+fields and duplicate them as one-row records. Batching or compressing that proposal
+cannot establish correct item structure. The larger-backend comparison improved item
+structure but still failed values and complete applicability. Do not add a fixed
+business template or silently delete every scalar sharing a record's source.
 
 A structural correction must be an explicit transition from the accepted structure
 hash. It must describe each changed/removed field, column, occurrence and meaning,
 retain source coverage, and pass the same quote, ownership, state and overlap checks.
 Validate the replacement before committing it. Recompute affected value handles,
-accounting and applicability; never reuse a value or scope decision merely because
-an ordinal ID or key stayed the same. Invalid or interrupted replacements preserve
-the preceding partial structure. No additional document budget is created. This is
-a traceable correction mechanism, not a semantic-accuracy certificate.
+batch plans, accounting and applicability; never reuse a value or scope decision
+merely because an ordinal ID or key stayed the same. Invalid or interrupted replacements
+preserve the preceding partial structure. No additional document budget is created.
 
-Separately, a correct large structure needs value requests sized from the **actual**
-contract, not a promise that one compact example fits. Plan deterministic handle
-batches tied to the structure/source hashes; keep complete occurrence context and
-per-handle source/type/state constraints. If one indivisible source context cannot
-fit, report it as unfinished rather than trimming it. Source accounting must use
-the accumulated reads: a later batch cannot exclude a previously consumed candidate,
-and unresolved batches must not look fully reviewed. Save accepted batches and their
-cumulative cost before dispatching another; do not replay unknown exchanges on resume.
-Do not expose completion until all required handles, accounting and applicability
-are resolved. Per-document call/time ceilings still apply across all stages.
-
-Before accepting either implementation, test corrected titles versus genuine metadata,
-valid repeated scalars versus duplicate item attributes, equal values in distinct
-occurrences, explicit blanks/absence, failed replacement preservation and tampered
-checkpoints. Batch tests must match unbatched data, schema and exact evidence, preserve
-unread work at a stopped boundary, and reject stale batches after a structure change.
-Then use bounded actual-model comparisons and new varied HWP/HWPX/XLSX documents;
-scripted transitions alone cannot approve the KPI.
+Test corrected titles versus genuine metadata, valid repeated scalars versus duplicate
+item attributes, equal values in distinct occurrences, explicit blanks/absence,
+failed replacement preservation and invalidated batches. Cross-region logical
+continuation also remains open. New varied HWP/HWPX/XLSX documents must independently
+pass the actual complete path; scripted transitions alone cannot approve the KPI.
 
 ## 2. PDF recognition and optional visual reading
 
@@ -657,8 +685,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v39 / v20 / v32 |
-| Document outline / native role-content protocol / native structure | v1 / v6 / v3 |
-| Native structural response wire | v1 |
+| Document outline / native role-content protocol / native structure | v1 / v6 / v6 |
+| Native structural response wire / native value batches | v1 / v1 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
