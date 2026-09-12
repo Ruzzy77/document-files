@@ -40,6 +40,23 @@ pending, not truncated. Table slices keep declared leading headers as context;
 headers do not become a fabricated standalone data region. OCR header predictions
 are not native declarations.
 
+### Native projections and unresolved document roles
+
+The XLSX parser's readable node text includes a generated coordinate prefix, such
+as `A2=Alice`; its actual typed cell value is separately stored in `semantic.value`.
+Currently `native.py::bind_spans` also treats that display prefix as a source
+label/value pair. Region planning can require both candidates, so a correctly read
+record still returns `value_candidate_unaccounted`. This is a candidate-boundary
+bug, not permission to ignore missing values. A correction must distinguish display
+metadata from genuine label/value content within a cell and retain formula/cache
+and lexical-value distinctions.
+
+The simple HWPX development case also retains a title and caption as two generic
+scalar fields. Native observations, interpreted document roles and business data
+need separate handling; identical text alone cannot identify redundant occurrences.
+These are current implementation gaps, not the intended structure contract. See
+[current native checks and priorities](../SUPPORT.md).
+
 ## 2. PDF recognition and optional visual reading
 
 ### CPU observation

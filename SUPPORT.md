@@ -2,9 +2,10 @@
 
 This file records current capability, checked outcomes and unresolved defects.
 Implementation details belong in [the extraction engine](docs/extraction-engine.md),
-not in an accumulating experiment log. Last source audit: **2026-09-12**. The Spark
-model runs below used **8744a5c1c89b87370c8b6dd3c8d49cd464400277**; subsequent package
-and compiler corrections have local regression evidence, not fresh model approval.
+not in an accumulating experiment log. Last source audit: **2026-09-12**. Current
+native-format and relation development checks used **b97fe61df3c3195f592e50f7099724e3ea14d9ed**.
+Earlier HTML/PDF runs used **8744a5c1c89b87370c8b6dd3c8d49cd464400277**. Neither set
+is independent approval of the structural KPI.
 Version **1.8.0 is not formally released**.
 
 ## Current scope
@@ -61,7 +62,26 @@ files and application-specific linkage. Host-source bundles now include their de
 launchers, and each generated Skill points to its own runtime. These checks do not
 qualify a platform installer, a live agent session or a formal release.
 
-## Latest Spark development evidence
+## Native-format and relation checks on Spark
+
+The corrected source ran on Spark-A with the installed CUDA/model packs and Python
+3.12 recognition-pack runtime. ARM regressions passed **213 tests** before inference.
+Expected answers stayed outside the extractor input.
+
+| Check | Actual calls / seconds | Result |
+|---|---|---|
+| Relation stage, four equal-cell-text contexts | 4 / 91.8 | New occurrences → continue; same-page copy → duplicate; different register → separate; ambiguous identity → unresolved. This checks only the relation stage, not whole-document quality. |
+| HWPX record table | 3 / 38.9 | Two ordered records, exact values and column/value sources are correct. The title and caption became two generic scalar fields instead of distinct document roles. Engine `complete` does not close this structural defect. |
+| XLSX record table | 2 / 25.6 | The same records and source bindings are correct, but four generated display-text candidates remain unaccounted. Result stays `partial`. |
+
+Both native cases remain development-only and below the full KPI. Raw requests,
+results, frozen expectations and independent-of-inference comparison are retained in
+`private/qualification/structural-kpi-20260912/first-native-01/`. Source/input hashes
+matched; owned servers and the container stopped; shared services and installed packs
+were unchanged. The run used a 16 GiB cgroup limit with no cgroup swap or OOM, but GPU
+memory was not captured by that counter; it is not a CPU-only 16 GiB qualification.
+
+## Earlier HTML/PDF development evidence
 
 These earlier HTML/PDF runs exercise shared interpretation code, not independent
 HWP/HWPX or XLSX quality. The following runs used the model-run source above. Their 182 source files were
@@ -102,16 +122,19 @@ Prompt v31 also removes the forced choice between continuation and duplicate
 presentation when cell text matches. Equal-valued new records may continue; identical
 presentations may fold only after the contextual decision and compiled-row check.
 Regressions cover all four decisions, original per-page bindings and prior-checkpoint
-rejection. A fresh bounded Spark comparison is still pending for this change.
+rejection. The bounded real-model relation comparison above matched all four contexts;
+general duplicate/continuation quality still requires varied document tests.
 
 ## Unresolved defects and next implementation order
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
-| 2 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
-| 3 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
-| 4 | New HWP/HWPX and XLSX documents have not passed independent end-to-end structural and semantic review. | Freeze unseen native inputs with prior expected structure, values, relationships and provenance; run the actual product path on Spark. Review the full result independently of execution. A failed holdout used for a fix becomes a development case. |
+| 1 | **XLSX display coordinates become false label/value candidates.** `document_model/native.py::bind_spans` reads program-rendered `A2=Alice` as another value, while `regions.py` also requires the actual native cell binding. | Separate generated address/display text from source cell content. Keep native values, formulas/caches and genuine label/value text inside cells; prove candidate coverage without ignoring all unaccounted bindings or hiding distinct values. Regress on the frozen XLSX case and typed/multiline cells, then rerun only affected native cases. |
+| 2 | **HWPX title and caption are ordinary scalar fields.** The native table case preserves two text occurrences but does not distinguish their document roles. | Trace native role/containment observations through regional interpretation and output. Preserve title/caption occurrences as structure and context, not invented business fields. Do not solve this by deleting equal strings: identical text can have different roles. Check ordinary prose and genuine label/value fields as counterexamples. |
+| 3 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
+| 4 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
+| 5 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
+| 6 | New HWP/HWPX and XLSX documents have not passed independent end-to-end structural and semantic review. | Freeze unseen native inputs with prior expected structure, values, relationships and provenance; run the actual product path on Spark. Review the full result independently of execution. A failed holdout used for a fix becomes a development case. |
 
 Fix reproduced preservation defects before another broad inference run. Run only
 affected examples within a predeclared budget; retain raw failures and do not
