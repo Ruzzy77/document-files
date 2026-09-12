@@ -277,6 +277,49 @@ budget. Further packing/continuation changes need their own tests; larger budget
 or a single compact fixture cannot stand in for long-document correctness. Independent
 new HWP/HWPX and XLSX cases are still required after development fixes.
 
+
+### Next native content protocol: structure before source selection (not implemented)
+
+The v5 product comparison still attaches compound delimiter candidates to unrelated
+fields, despite exact candidate display. A larger model on the preceding source made
+the same class of mistake. The current implementation can consequently finish its
+mechanical work while `semanticAccuracy` remains `unverified`. Independent review,
+not that completion flag or candidate consumption, determines the structural KPI.
+
+The next change separates native content decisions, as physical record tables already
+do, without forcing prose/forms into fake table geometry:
+
+1. **Discover semantic structure from source text.** Supply owned original blocks,
+   accepted document roles and relevant source formatting/context, not delimiter-
+   derived value IDs or label/value suggestions. The model identifies standalone
+   attributes, nested/repeated items, field definitions/types, occurrence anchors and
+   separately sourced units/conditions/notes. It must retain document identifiers
+   and explicit missing states, not only business records. Exact quoted anchors are
+   verified against owned views; unresolved structure stays explicit.
+2. **Read values against accepted structure.** Compile stable field/record/occurrence
+   handles, then request only their source choices. Show exact candidate text where
+   useful, retain exact quotation and observed-empty evidence, and prohibit silent
+   removal/reordering of rows, field reassignment or a numeric-to-string downgrade
+   merely to avoid a read error. A genuinely changed interpretation requires an
+   explicit, source-grounded structure revision, not an implicit value-stage edit.
+3. **Apply meanings to compiled items.** Use the existing applicability boundary;
+   one combined note is not proof of separate unit and condition scopes. Preserve
+   each item and field's actual source range, including equal-valued occurrences.
+4. **Plan real stage sizes.** Replace the coarse 12,000-character native reserve with
+   measured role/structure/value contracts. Factor repeated source metadata without
+   dropping context or changing observations. Keep original order and explicit
+   ownership. A document that still spans regions needs explicit logical continuation,
+   not unconditional merging of equal keys. Do not hide this work by raising limits.
+
+Implementation acceptance must cover scalar forms as well as prose records, different
+presentations of the same facts and genuinely different structures. Test frozen
+field/type/row preservation, blank versus absence, failed/resumed stages, incompatible
+checkpoints, exact request/output limits and source immutability. Use no fixed receipt
+schema or answer-driven model prompt. First reproduce the compact and original
+failures within their declared budgets; then prepare fresh varied/long HWP/HWPX and
+XLSX documents for independent whole-result judgment. This section is an implementation
+boundary, not a claim that the new stages or primary-format quality are complete.
+
 ## 2. PDF recognition and optional visual reading
 
 ### CPU observation

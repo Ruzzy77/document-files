@@ -239,8 +239,16 @@ The next source correction is implemented as native protocol v5 / prompt v37:
 program-resolved `exactText` beside offered text bindings, plus the failed binding ID
 and type in native repair feedback. Positions are no longer the only way to determine
 what a candidate actually reads. Candidates remain mechanical proposals, not semantic
-labels; no field is automatically renamed or dropped. Deterministic checks pass;
-the bounded actual-model recheck remains pending.
+labels; no field is automatically renamed or dropped. The `cbc94f6` recheck passed 223 ARM regressions (eight writer tests deselected),
+then ran **4 calls / 157.0 seconds** within the unchanged document allowance. Both
+content requests displayed every selected text exactly and stayed below 16,000
+characters. The engine returned `complete`, but independent comparison **failed**:
+it saved compound unit text, attached Marigold's requested quantity to Basil, and
+created no item records or complete scopes. It chose strings rather than the earlier
+failing numeric types, so binding-specific type repair was not exercised. Donation
+code and receipt-date absence alone do not make the document correct. Evidence is in
+`structural-kpi-20260913/native-candidates-12/`; source/input hashes, original
+observations and shutdown checks passed, and task-only transfer copies were removed.
 
 
 ## Earlier HTML/PDF development evidence
@@ -291,7 +299,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The v4/compiler v31 comparison closes mixed value sources and destructive field collapse, but still fails field association, exact occurrence selection, missingness and complete scopes. Managed packing separates item occurrences and logical records are not joined across regions. | The stronger-model comparison also fails compound candidate selection. Recheck v5 exact candidate display and binding-specific feedback; then address demonstrated source-selection, packing/continuation and repair defects without suppressing facts. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v4/compiler v31 comparison closes mixed value sources and destructive field collapse, but still fails field association, exact occurrence selection, missingness and complete scopes. Managed packing separates item occurrences and logical records are not joined across regions. | Both models fail candidate-driven interpretation; v5 avoids numeric errors by emitting semantically wrong strings. Separate native field/record/type discovery from source selection, with actual stage-size planning and committed-structure preservation. This redesign is not implemented yet. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
