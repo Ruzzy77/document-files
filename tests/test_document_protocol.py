@@ -336,3 +336,26 @@ def test_too_large_role_request_preserves_source_and_does_not_dispatch():
     assert result["extraction"]["status"] == "partial" and model.calls == 0
     assert any("budget_exceeded" in i["code"] for i in result["issues"])
     assert result["document"]["nodes"]["n1"]["text"] == "Staff Register"
+
+
+def test_managed_native_stages_use_bounded_reasoning_without_changing_external_clients(monkeypatch):
+    import document_files.interpretation.engine as engine
+
+    class Recorded(StagedModel):
+        last_diagnostics = {}
+
+        def __init__(self):
+            super().__init__()
+            self.budgets = []
+
+        def infer(self, request):
+            self.budgets.append(request.reasoning_budget_tokens)
+            return super().infer(request)
+
+    external = Recorded()
+    assert execute(external)["extraction"]["status"] == "complete"
+    assert external.budgets == [None, None]
+    monkeypatch.setattr(engine, "ManagedPackClient", Recorded)
+    managed = Recorded()
+    assert execute(managed)["extraction"]["status"] == "complete"
+    assert managed.budgets == [protocol.REASONING_BUDGET, protocol.REASONING_BUDGET]

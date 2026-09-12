@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,710 tests,
+The full local check including the native outline path passed **2,731 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -126,10 +126,22 @@ The GPU-memory qualification limitation above still applies.
 Failures and comparisons remain in
 `private/qualification/structural-kpi-20260913/outline-native-01/` and
 `outline-formatting-02/`. These are development cases, not new independent holdouts.
-The native role/content stage separation is now implemented, with source-linked
-table previews, exact inner-value preservation and independent stage state/costs.
-Its affected Spark comparison is pending; scripted stage tests are not role-quality
-approval.
+The staged implementation (`b560f16cb506a018e6f4ef2d667cb5278c432789`) passed
+136 ARM regressions, then ran the same inputs in **5 calls / 60.5 seconds** and
+**9 calls / 118.4 seconds**. English still labeled its caption as a second title;
+Korean retained title/section hierarchy but called its caption a paragraph. Content
+created unnecessary fields, including binding the body paragraph as a document-title
+value. All table records and exact cell/header sources remain correct; the whole
+results do not pass. Accepted roles survived content failure as designed.
+The source/usage/checkpoint checks and original-format comparisons are retained in
+`roles-staged-03/` under the same private parent; owned execution resources are cleaned.
+
+Recorded transport diagnostics show that both new native stages used non-thinking
+mode, unlike the existing bounded-thinking relation path. Native protocol v2 now
+uses that existing managed transport with a 1,024-token reasoning-block allowance,
+without adding calls or extending the document deadline. Non-managed clients keep
+their configuration. The affected comparison is pending; this is not yet a quality
+correction.
 
 ## Earlier HTML/PDF development evidence
 

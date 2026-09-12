@@ -1707,6 +1707,11 @@ def extract_schema_from_stream(
                     state.get("feedback"),
                     document_stage=state,
                     max_output_tokens=2048,
+                    reasoning_budget_tokens=(
+                        document_protocol.REASONING_BUDGET
+                        if isinstance(client, ManagedPackClient)
+                        else None
+                    ),
                 )
                 response, fragment = document_protocol.accept_roles(value, observation, region)
                 state.update(status="complete", response=response)
@@ -1859,6 +1864,11 @@ def extract_schema_from_stream(
                     candidate_schema,
                     feedback,
                     document_stage=content_state,
+                    reasoning_budget_tokens=(
+                        document_protocol.REASONING_BUDGET
+                        if content_state is not None and isinstance(client, ManagedPackClient)
+                        else None
+                    ),
                 )
                 response_hash = hashlib.sha256(encode(value).encode()).hexdigest()
                 if response_hash == last_response or response_hash == failures.get(rid):

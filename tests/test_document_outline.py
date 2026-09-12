@@ -355,6 +355,7 @@ def test_checkpoint_rebuilds_outline_and_rejects_old_policies_or_invalid_role_re
         ("compilerVersion", "document-files.result-compiler.v28"),
         ("promptVersion", "document-files.semantic-prompts.v33"),
         ("regionPlanVersion", "document-files.region-plan.v18"),
+        ("documentProtocolVersion", "document-files.document-protocol.v1"),
     ]:
         checkpoint = copy.deepcopy(states[-1])
         checkpoint["identity"][key] = old

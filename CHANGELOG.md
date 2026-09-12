@@ -37,7 +37,9 @@
   Preserve roles through content failure, verify bounded source-linked table context,
   and retain exact inner values in structural text. Track stage usage and resume
   identities without replaying unknown calls or increasing the original budget.
-  Prompt v34 / region plan v19 / compiler v29 identify the new protocol.
+  Prompt v34 / region plan v19 / compiler v29 identify the new stages. Native
+  protocol v2 uses bounded thinking for managed role/content requests; other clients
+  retain their configured behavior, with no extra document allowance.
 - Add isolated CPU recognition and source-bound PDF visual review, literal image
   reading, alternative table projections, exact pixel membership displays and
   conservative blank-cell application. Original OCR and document bytes remain.

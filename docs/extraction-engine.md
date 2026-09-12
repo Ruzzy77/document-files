@@ -110,7 +110,7 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v29, prompt v34, region plan v19 and document-outline/protocol v1 identify this
+Compiler v29, prompt v34, region plan v19 and document-outline v1 / document-protocol v2 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
@@ -139,6 +139,12 @@ text view remains eligible, including an explicit empty value. This does not dis
 any source or waive required candidate accounting. Units/conditions/notes remain
 necessary even inside structural text; unresolved applicability remains visible.
 Clients without decoder constraints receive the same compiler checks.
+
+Managed native stages use the existing bounded-thinking transport with a 1,024-token
+per-think-block allowance. The complete role response is capped at 2,048 output
+tokens; content retains the managed client output cap. Other clients retain their
+own configured reasoning behavior. Protocol v2 records this execution change and
+rejects v1 checkpoints; it does not certify model accuracy.
 
 Each stage gets at most two local attempts and separate cumulative usage counters;
 all calls/time remain inside the original document budget. The role request hash
@@ -422,7 +428,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v34 / v19 / v29 |
-| Document outline / native role-content protocol | v1 / v1 |
+| Document outline / native role-content protocol | v1 / v2 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v13 / v6 |
 | Scope selection wire / source binding / regional checkpoint | v2 / v2 / v3 |
