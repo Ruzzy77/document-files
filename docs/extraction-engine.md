@@ -402,6 +402,10 @@ explicit resume, invalid completion flags and no rereading after all values are 
 A separate record comparison matches unbatched precision, explicit blank/absence and
 all schema/value evidence. This is code-path verification, not actual-model quality.
 Long structural responses and indivisible large contexts remain separate limits.
+The v6 Spark model comparison did not exercise batches: the managed server failed to
+start, and the explicit existing-backend continuation failed at structural discovery
+and blank-value reading. Its absence of an oversized dispatch is not evidence that
+actual-model batch extraction succeeds.
 
 ### Next boundary: explicit structure correction
 
@@ -410,6 +414,15 @@ fields and duplicate them as one-row records. Batching or compressing that propo
 cannot establish correct item structure. The larger-backend comparison improved item
 structure but still failed values and complete applicability. Do not add a fixed
 business template or silently delete every scalar sharing a record's source.
+
+The next source-choice correction must also distinguish a claimed state from readable
+source evidence. The v6 comparison offered nonempty bindings to a field frozen as
+blank, allowing a choice that compilation necessarily rejects. Filter such impossible
+binding choices using the same original-source/type/presence rules, without changing
+canonical observations or removing valid quote alternatives. A reported blank in a
+note is not itself an empty observed value. Structural diagnostics must identify the
+invalid contract member without echoing arbitrary source/model strings; null attribute
+labels must not be silently accepted or derived from the field's value.
 
 A structural correction must be an explicit transition from the accepted structure
 hash. It must describe each changed/removed field, column, occurrence and meaning,

@@ -325,8 +325,26 @@ requests without trimming original text/formatting or changing the frozen struct
 It saves accepted reads per batch, then accounts for remaining source candidates;
 unread work stays partial and completed batches are not replayed. Scripted HWPX
 extraction preserves 32 measurements and all evidence in eight calls at 16,000
-characters. The actual v6 model comparison is pending. Explicit structure revision,
-cross-region logical continuation and varied independent quality remain open.
+characters. The `ab8fe39` v6 Spark check passed **298 ARM tests**, with the same eight optional
+writer fixtures excluded. The managed runtime failed during startup before any model
+response (one adapter attempt / 4.5 seconds). An explicit continuation on the existing
+314B service used seven calls / 297.8 seconds: combined eight attempts / 302.3 seconds,
+inside the original 12-call / 900-second allowance. It still failed whole-result quality.
+Both business-region proposals put values in attribute labels, use item-numbered scalars
+instead of records, and repeat a null label rejected by the contract. The final region
+then selects nonempty text as blank values. No present business value or item record
+is accepted. The value-batch path is **not reached by this model run**; its operation is
+verified by scripted controller/ARM tests, not by a successful real-model extraction.
+Source/observation hashes matched, the shared service stayed unchanged and idle afterward,
+and source/transfer/activation copies were removed after collection. Evidence is
+`native-batches-17/` and `shared-batches-18/` in the same private qualification directory.
+The managed startup cause remains undetermined; no CPU/GPU memory qualification is claimed.
+
+The next correction must improve structural discovery/review and offer only bindings
+that can actually represent the committed type and presence state. Do not accept null
+attribute labels, reinterpret nonempty text as an observed blank, or drop fields to
+manufacture success. Explicit structure revision, cross-region logical context/continuation
+and varied independent quality remain open.
 
 
 
@@ -378,7 +396,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The 9B proposal duplicates fields; 314B preserves two item rows and unit targets but fails exact values and full applicability. | V6 implements actual-size value batches and specific invalid-selection feedback. Verify model reading and accounting without dropping fields or changing types; implement explicit structure correction. More compact JSON or a larger model alone is not quality approval. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v6 model comparison fails before the new batch path: value-like/null attribute labels, item scalars instead of records, and nonempty sources selected as blanks. | Preserve batching/checkpoint guarantees while correcting structural discovery and source-valid value choices. Add explicit source-grounded structure revision and identify invalid members precisely; do not weaken source/type/state checks or delete fields to pass. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
