@@ -2,11 +2,15 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
-- PDF page review v13 keys every wire decision by its inventory id (`{id, decision}`
-  for units, missing slots, source checks and grid checks, each position bound to one
-  id by the contract) instead of positional strings: the sixth continued-table run
+- PDF page review v14 (v13 was an intermediate development identity) keys every
+  wire decision by its inventory id (`{id, decision}` for units, missing slots, source
+  checks and grid checks, each position bound to one id by the contract) instead of
+  positional strings, and offers each unit only the labels its own facts allow (text
+  labels need a referenced string, `table_border` boundary-only pixels of a table,
+  `rule_edge` a rule-edge candidate; `unknown` always): the sixth continued-table run
   read every cell and line exactly, then its reading review answered `unknown` for
-  the two source strings at the positions of the border units. Prior review
+  the two source strings at the positions of the border units, and the seventh
+  labeled a string-referencing unit and a content unit as table borders. Prior review
   checkpoints are incompatible.
 - Image read v5 reads a page's measured grid cells and its text lines in separate
   bounded requests: cells over the prepared page and lossless detail, lines over

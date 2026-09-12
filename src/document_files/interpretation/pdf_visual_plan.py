@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v13"
+VERSION = "document-files.pdf-visual-review.v14"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -604,13 +604,31 @@ exactly once, in input order, as {id, decision} (units, missingSlots, sourceIds,
 respectively). readingOrder alone is the ordered array of block IDs."""
 
 
+def unit_choices(plan, unit):
+    """Labels a unit's own facts allow; unknown is always offered."""
+    choices = []
+    if unit["sourceIds"]:
+        choices.append("source_text")
+        if unit.get("tableRefs") or unit.get("ruleEdgeTableRefs"):
+            choices.append("text_and_border")
+    if unit["onlyBoundaryPixels"] and not unit["sourceIds"] and unit.get("tableRefs"):
+        choices.append("table_border")
+    if unit.get("ruleEdgeTableRefs") and "imageReadProposal" in plan:
+        choices.append("rule_edge")
+    choices.append("unknown")
+    return choices
+
+
 def output_schema(plan):
     def decisions(ids, values):
-        # Each decision names its inventory id: a positional string array let the
-        # model shift decisions between neighbours (two exact cell readings were
-        # answered unknown at the positions of the border units).
+        # Each decision names its inventory id and offers only the labels the plan's
+        # own facts allow: a positional string array let the model shift decisions
+        # between neighbours, and an unrestricted label set let it call a unit that
+        # references a string or carries content pixels a table border, which the
+        # receiver then had to reject after the call.
         if not ids:
             return {"type": "array", "items": {"type": "null"}, "maxItems": 0}
+        allowed = values if isinstance(values, dict) else dict.fromkeys(ids, values)
         return {
             "type": "array",
             "minItems": len(ids),
@@ -621,7 +639,7 @@ def output_schema(plan):
                         "type": "object",
                         "properties": {
                             "id": {"type": "string", "enum": [identifier]},
-                            "decision": {"type": "string", "enum": values},
+                            "decision": {"type": "string", "enum": list(allowed[identifier])},
                         },
                         "required": ["id", "decision"],
                         "additionalProperties": False,
@@ -636,7 +654,7 @@ def output_schema(plan):
         "properties": {
             "units": decisions(
                 [u["id"] for u in plan["units"]],
-                ["source_text", "text_and_border", "table_border", "rule_edge", "unknown"],
+                {u["id"]: unit_choices(plan, u) for u in plan["units"]},
             ),
             "slots": decisions([s["id"] for s in plan["slots"]], ["empty", "unknown"]),
             "readingOrder": {

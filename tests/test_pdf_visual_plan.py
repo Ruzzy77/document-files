@@ -453,6 +453,30 @@ def test_wire_decisions_name_their_inventory_ids_and_keep_checkpoint_decisions()
     assert all(b["additionalProperties"] is False for b in branches)
 
 
+def test_contract_offers_each_unit_only_the_labels_its_facts_allow():
+    # The seventh continued-table run labeled a unit that referenced a string and a
+    # unit with content pixels as table borders; the receiver rejected the page.
+    value = grid_plan(extra=True)
+    schema = plan.output_schema(value)
+    offered = {
+        b["properties"]["id"]["enum"][0]: b["properties"]["decision"]["enum"]
+        for b in schema["properties"]["units"]["items"]["anyOf"]
+    }
+    for unit in value["units"]:
+        choices = offered[unit["id"]]
+        assert choices[-1] == "unknown"
+        assert ("source_text" in choices) == bool(unit["sourceIds"])
+        assert ("table_border" in choices) == (
+            unit["onlyBoundaryPixels"] and not unit["sourceIds"] and bool(unit["tableRefs"])
+        )
+        assert ("text_and_border" in choices) == (
+            bool(unit["sourceIds"]) and bool(unit["tableRefs"] or unit.get("ruleEdgeTableRefs"))
+        )
+        assert "rule_edge" not in choices
+    assert any("table_border" in c for c in offered.values())
+    assert any("source_text" in c for c in offered.values())
+
+
 @pytest.mark.parametrize(
     "change", ["legacy", "omitted", "extra", "object", "null", "nonstring", "bad_choice"]
 )

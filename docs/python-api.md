@@ -599,7 +599,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v13` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v14` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -617,8 +617,10 @@ unknown units and geometry-conflicting order. A text label on a unit that refere
 observed string accepts nothing: the receiver records it under `reinterpretations` as
 `unknown` and leaves the page unresolved for the literal-reading attempt. Every decision
 on the wire names its inventory id (`{id, decision}` for units, missing slots, source
-checks and grid checks) and the contract binds each position to one id, so a decision
-cannot shift to a neighbouring entry. All pages must pass before atomic
+checks and grid checks), the contract binds each position to one id, so a decision
+cannot shift to a neighbouring entry, and each unit is offered only the labels its own
+facts allow (text labels need a referenced string, `table_border` needs boundary-only
+pixels of a table, `rule_edge` a rule-edge candidate); `unknown` is always offered. All pages must pass before atomic
 application; original nodes, bindings and raw OCR remain unchanged. Added blank nodes
 use `observationBasis="visual_pdf_page_review"`, never native-proof metadata.
 `provenance.observation.pdfVisualReviewApplication` records the accepted page/decision
