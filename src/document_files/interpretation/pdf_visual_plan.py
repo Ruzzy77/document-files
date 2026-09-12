@@ -582,6 +582,39 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
     return plan
 
 
+MAX_REVIEW_OUTPUT_TOKENS = 2048
+
+
+def review_output_tokens(plan):
+    """Output allowance sized to the decision inventory, never the whole model output cap.
+
+    The managed context check reserves the allowance beside two page images; a fixed
+    2,048 pushed the delivery-form page (30 units, 28 sources, a detail sheet) past the
+    model context although its answer needs a few hundred tokens.
+    """
+    proposal = plan.get("imageReadProposal") or {}
+    ids = (
+        len(plan["units"])
+        + len(plan["slots"])
+        + len(proposal.get("sourceIds", []))
+        + len(proposal.get("grids", []))
+    )
+    return min(MAX_REVIEW_OUTPUT_TOKENS, 128 + 12 * ids + 8 * len(plan["blocks"]))
+
+
+def _transitive_reduction(pairs):
+    """Drop precedences implied by others; the reading order they constrain is unchanged."""
+    after = {}
+    for a, b in pairs:
+        after.setdefault(a, set()).add(b)
+    kept = []
+    for a, b in pairs:
+        if any(b in after.get(c, ()) for c in after[a] if c != b):
+            continue
+        kept.append([a, b])
+    return kept
+
+
 def review_payload(plan):
     columns = [
         "id",
@@ -621,7 +654,7 @@ def review_payload(plan):
             {"id": b["id"], "bounds": b["bounds"], "table": b["tableRef"] is not None}
             for b in plan["blocks"]
         ],
-        "requiredBefore": plan["precedences"],
+        "requiredBefore": _transitive_reduction(plan["precedences"]),
         **(
             {
                 "imageReadProposal": {

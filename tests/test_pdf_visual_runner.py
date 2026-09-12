@@ -79,7 +79,7 @@ def setup(monkeypatch, *, failure=None):
             calls["model"] += 1
             assert checkpoints[-1]["pages"]["1"]["status"] == "running"
             assert usage["modelCalls"] == usage["unreportedUsageCalls"] == 1
-            assert request.max_output_tokens == 2000
+            assert request.max_output_tokens == min(runner.review_output_tokens(plan), 2000)
             # Compare with the actual absolute deadline supplied below. On some
             # clocks (start + 30) - start rounds slightly above the literal 30.
             assert 0 < request.timeout <= timing["deadline"] - timing["started"]

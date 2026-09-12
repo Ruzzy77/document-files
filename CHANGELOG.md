@@ -10,6 +10,11 @@
   `visual_rule_context_not_displayed`. The delivery-form development page framed a note
   row below its recognized table: the frame shared a component with the table grid,
   was displayed, had no admissible label, and the first pass had prepared no detail.
+  The page review's output allowance now follows its decision inventory (128 tokens
+  plus 12 per unit, slot, source check and grid and 8 per block, at most 2,048) and
+  `requiredBefore` lists only the precedences the others do not imply: with the fixed
+  2,048-token allowance beside two page images, the same page's review request exceeded
+  the model context.
 - Scope-axis protocol v6 adds one system sentence: a condition selects the values it
   tests, not the subject of its outcome, so a rule that tests one field and states a
   record-level outcome selects only that field. The fifteenth continued-table run had

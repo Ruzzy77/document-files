@@ -619,3 +619,21 @@ def test_rules_without_a_complete_native_inventory_stay_unknown(inventory, compl
         if item["id"] == rule["id"]:
             item["decision"] = "unknown"
     assert plan.validate_decision(value, decision, detail_bounds=None)["status"] == "unresolved"
+
+
+def test_review_output_allowance_follows_the_decision_inventory():
+    value = build()
+    ids = len(value["units"]) + len(value["slots"])
+    assert plan.review_output_tokens(value) == 128 + 12 * ids + 8 * len(value["blocks"])
+    assert plan.review_output_tokens(value) < plan.MAX_REVIEW_OUTPUT_TOKENS
+    wide = deepcopy(value)
+    wide["units"] = [dict(u, id=f"u{i}") for i, u in enumerate(value["units"] * 100)]
+    assert plan.review_output_tokens(wide) == plan.MAX_REVIEW_OUTPUT_TOKENS
+
+
+def test_required_before_keeps_only_precedences_the_others_do_not_imply():
+    pairs = [["a", "b"], ["b", "c"], ["a", "c"], ["c", "d"], ["a", "d"], ["b", "d"], ["x", "y"]]
+    reduced = plan._transitive_reduction(pairs)
+    assert reduced == [["a", "b"], ["b", "c"], ["c", "d"], ["x", "y"]]
+    value = build()
+    assert plan.review_payload(value)["requiredBefore"] == value["precedences"] == [["o0", "o1"]]

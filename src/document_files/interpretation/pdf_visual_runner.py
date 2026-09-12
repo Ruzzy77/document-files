@@ -52,6 +52,7 @@ from .pdf_visual_plan import (
     require,
     require_proposal_measurements,
     review_crop,
+    review_output_tokens,
     review_payload,
     validate_decision,
 )
@@ -579,7 +580,7 @@ def review_pdf_pages(
                     ],
                     output_schema=contract,
                     max_output_tokens=min(
-                        MAX_OUTPUT_TOKENS,
+                        review_output_tokens(plan),
                         getattr(client, "max_output_tokens", None) or MAX_OUTPUT_TOKENS,
                     ),
                     timeout=deadline - time.monotonic(),
@@ -738,7 +739,7 @@ def review_pdf_pages(
                     ],
                     output_schema=contract,
                     max_output_tokens=min(
-                        MAX_OUTPUT_TOKENS,
+                        review_output_tokens(plan),
                         getattr(client, "max_output_tokens", None) or MAX_OUTPUT_TOKENS,
                     ),
                     timeout=deadline - time.monotonic(),
