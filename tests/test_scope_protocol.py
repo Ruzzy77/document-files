@@ -76,7 +76,7 @@ def test_policy_does_not_guess_managed_capabilities_or_change_client_defaults():
     managed.max_output_tokens = 3072
     managed.reasoning_budget_tokens = None
     policy = scope_policy(managed)
-    assert policy["version"] == "document-files.scope-axis-protocol.v5"
+    assert policy["version"] == "document-files.scope-axis-protocol.v6"
     # Bounded thinking for applicability: 512 truncated the model's reasoning on the
     # merged-header unit case and 1,024 left the raster-page unit unresolved on the
     # mixed PDF (development probes); 2,048 must stay below the managed output cap.

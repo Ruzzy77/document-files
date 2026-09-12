@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Scope-axis protocol v6 adds one system sentence: a condition selects the values it
+  tests, not the subject of its outcome, so a rule that tests one field and states a
+  record-level outcome selects only that field. The fifteenth continued-table run had
+  applied the Korean condition to every mapped column and the English wording of the
+  same rule to the quantity column; replaying the saved requests (scope-prompt-probe-03)
+  reproduced the record-wide answer exactly and, with the sentence, chose the quantity
+  column for the Korean condition while the English condition and the unit kept their
+  answers. Stored scope decisions under v5 are incompatible.
 - Compiler v23 reads a delimiter label/value line as one scalar within a region: when a
   field binds the line's value span, a further field that binds only the label span or
   the whole line is dropped and recorded as `label_value_line_field_dropped`, and a
