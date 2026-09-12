@@ -110,7 +110,7 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v31, prompt v36, region plan v19 and document-outline v1 / document-protocol v4 identify this
+Compiler v31, prompt v37, region plan v19 and document-outline v1 / document-protocol v5 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
@@ -174,7 +174,7 @@ HWP and long source views still need characterization and independent comparison
 
 #### Exact text values and logical records
 
-Native content protocol v4 sends one `valueSource` per scalar field or logical-record
+Native content protocol v5 sends one `valueSource` per scalar field or logical-record
 value. `native_value_wire.py` offers three closed alternatives:
 
 - `kind: binding`, an offered `bindingId`, and `status: present | blank`;
@@ -237,6 +237,23 @@ are recompiled on resume, and old compiler/prompt/native-protocol identities fai
 Direct regressions exercise the actual HWPX reader, native role/content wire, exact
 values, ordering, blank/absence, column and row-specific scopes, target-schema handles,
 source immutability and checkpoint rebuilding. They do **not** approve AI quality.
+
+**Exact candidate display.** Native protocol v5 adds `exactText` beside each
+text binding in the private content request. It is resolved by the same source reader
+as compilation, with exact whitespace, decimal spelling and empty strings retained.
+An owned source window bounds the read. This display does not add, relabel or change
+observed candidates, and it does not certify delimiter-derived label/value semantics.
+If a candidate contains several attributes, the model must choose a narrower exact
+quote rather than treat the whole string as a number. The original observation and
+public result do not acquire display-only fields.
+
+For a type-read failure, native repair also identifies the offered binding ID and
+requested type. The stable error code is retained; no raw document text or model
+field name is added to the diagnostic. Quotes, numeric conversion and missingness
+still pass the original compiler checks. Display text counts toward the existing
+request budget; excess input is not truncated or exempted. Prompt v37/protocol v5
+invalidate older native checkpoints. These changes have deterministic tests; actual
+model selection is checked separately.
 
 **Scalar identity.** Compiler v31 no longer folds fields merely because their
 source binding matches. `field_identity.py` compares the exact source address,
@@ -519,8 +536,8 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v36 / v19 / v31 |
-| Document outline / native role-content protocol | v1 / v4 |
+| Semantic prompt / region plan / result compiler | v37 / v19 / v31 |
+| Document outline / native role-content protocol | v1 / v5 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |

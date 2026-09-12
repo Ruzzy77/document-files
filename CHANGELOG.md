@@ -4,6 +4,12 @@
 
 ### Document extraction
 
+- Show program-resolved `exactText` beside native text candidates in protocol v5;
+  preserve whitespace, precision, blanks, source windows and original observations.
+  Native type-error feedback identifies the failed offered binding/type without raw
+  source in diagnostics. Prompt v37 rejects previous checkpoints. Actual model
+  field/record selection remains a separate, unapproved quality check.
+
 - Constrain native value sources to one binding, exact quote or missingness branch
   in protocol v4, including independent decoding when a backend ignores grammar.
   Compiler v31 folds only identical source/definition/destination aliases and keeps

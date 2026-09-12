@@ -379,6 +379,7 @@ def test_checkpoint_rebuilds_outline_and_rejects_old_policies_or_invalid_role_re
         ("documentProtocolVersion", "document-files.document-protocol.v1"),
         ("documentProtocolVersion", "document-files.document-protocol.v2"),
         ("documentProtocolVersion", "document-files.document-protocol.v3"),
+        ("documentProtocolVersion", "document-files.document-protocol.v4"),
     ]:
         checkpoint = copy.deepcopy(states[-1])
         checkpoint["identity"][key] = old

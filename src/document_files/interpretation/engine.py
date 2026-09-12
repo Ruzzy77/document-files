@@ -1848,6 +1848,14 @@ def extract_schema_from_stream(
                 issue(exc.code, regionId=rid)
                 save("paused")
                 return result
+            except (ValueError, KeyError, TypeError):
+                issue(
+                    "region_interpretation_invalid",
+                    regionId=rid,
+                    errors=["native_candidate_view_invalid"],
+                )
+                save("paused")
+                return result
         feedback = (
             [i["code"] for i in compiled[rid].issues[:20]]
             if rid in compiled
@@ -1957,6 +1965,14 @@ def extract_schema_from_stream(
                 ]
             except CompileError as exc:
                 feedback = [str(exc)]
+                # Native candidate text is already in the request. Identify the
+                # failed offered choice without logging raw source/model text.
+                if (
+                    content_state is not None
+                    and exc.selection is not None
+                    and exc.selection["bindingId"] in payload["bindings"]
+                ):
+                    feedback.append("invalid_value_selection:" + encode(exc.selection))
             except (ValueError, TypeError, KeyError):
                 feedback = ["invalid_model_json"]
             # Record safe diagnostics before another call can exhaust a budget

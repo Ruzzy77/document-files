@@ -28,6 +28,10 @@ from .validation import check_schema, escape, leaves, pointer, schema_definition
 class CompileError(ValueError):
     """Only product-written diagnostics; never raw model values or document text."""
 
+    def __init__(self, code, *, selection=None):
+        super().__init__(code)
+        self.selection = selection
+
 
 def target_catalog(schema: dict | None) -> dict[str, dict]:
     """Assign handles to schema positions; models never calculate destination pointers."""
@@ -366,9 +370,14 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             # Blank is an observed empty source, not a failed numeric conversion.
             # Use the same text representation as blank repeat cells; nonempty
             # candidates must still fail the status/observation comparison below.
-            value, raw, binding = _read(
-                candidate, "string" if status == "blank" else value_type, nodes
-            )
+            try:
+                value, raw, binding = _read(
+                    candidate, "string" if status == "blank" else value_type, nodes
+                )
+            except CompileError as exc:
+                raise CompileError(
+                    str(exc), selection={"bindingId": binding_id, "requestedType": value_type}
+                ) from None
             if (status == "blank") != (raw == ""):
                 raise CompileError("blank_status_disagrees_with_observation")
             if status == "present" and value_type == "decimal" and not _decimal_literal(raw):

@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,807 tests,
+The full local check including the native outline path passed **2,819 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -168,13 +168,13 @@ in the previous source:
 - The model cannot select missing binding IDs or emit a forbidden record structure.
   More role repair or a different model cannot remove this representation limit.
 
-Native content protocol v3 / compiler v30 now implement exact owned-source quotes
+Native content protocol v4 / compiler v31 implement exact owned-source quotes
 and logical records without native table geometry. The compiler reads the original
 values, preserves ordered occurrences, blank/missing states and source links, and
 connects columns/individual rows to applicability. Source observations remain
 immutable; public grounding coverage and rebuild-on-resume checks are included.
-The actual HWPX product interface passes scripted regressions, but both Spark model
-comparisons below failed. The original receipt still spans four managed-budget
+The actual HWPX product interface passes scripted regressions, but both managed-pack
+Spark model comparisons below failed. The original receipt still spans four managed-budget
 regions; logical-record continuation remains unimplemented.
 
 `content-positive-diagnostic-06/` retains the requests, local prior expectations,
@@ -186,42 +186,62 @@ its memory was not isolated, so no model-pack or resource qualification is claim
 
 ### Native quote/record product comparison
 
-Source **0ebdc1c3ee26edd06bd978b97d9c6fa3e25a4a16** used the existing managed 9B CUDA
-pack, unchanged reasoning/sampling and **12 calls / 900 seconds per document**.
-Spark ARM Python 3.12 passed 160 related tests; eight optional fixture-writer tests
-were deselected, not counted as passes. Prior facts stayed outside the extractor.
+Source **acff5803eae149d80514ced82049e0a73b6b1511** uses native protocol v4,
+prompt v36 and compiler v31. The existing managed 9B CUDA pack ran the same two
+HWPX documents within **12 calls / 900 seconds each**, with unchanged sampling and
+output limits. Spark ARM Python 3.12 passed **211 related tests**; eight optional
+fixture-writer tests were deselected, not counted as passes. Prior facts stayed
+outside the extractor.
 
 | Native development input | Calls / seconds | Whole-result judgment |
 |---|---:|---|
-| Original seed receipt, eight paragraphs | 12 / 478.4 | `partial`; only `title = SEED-604` survived. The literal read is exact but the field is wrong. No item records or required relationships were extracted. |
-| Same facts, both items in one paragraph | 3 / 185.7 | `partial`; no data committed. Two proposed item rows had conflicting sources and wrong missingness; repair reached the 3,072-token output limit. Proposals are not extracted records. |
+| Original seed receipt, eight paragraphs | 12 / 479.8 | `partial`; donation code is retained, but an extra title reads that code too. One Basil row is compiled, with both counts citing the first `8`. Marigold is not a record, its empty received value is marked absent, and required scopes/metadata are missing. |
+| Same facts, both items in one paragraph | 5 / 230.7 | `partial`; compound text bindings cannot be read as integer values in either content attempt. Final data contains only the handling paragraph; no item rows. |
 
-The current native wire permits combinations the compiler rejects: `bindingId` plus
-`sourceQuote`, or a non-present value with a quote. Feedback did not reliably resolve
-them. The next wire must offer mutually exclusive source choices; never silently pick
-one of contradictory sources or increase the document budget to hide invalid calls.
-An occurrence index is the exact quoted string's match index, not a row/instruction
-number. A correct reference alone also cannot certify a field's identity.
+All ten native content responses used one valid `valueSource` choice. The earlier
+binding/quote/missingness conflicts are gone in this run. Exact field identity also
+prevents the wrong first field from deleting the donation code. These improvements
+do **not** validate the retained field names, values or applicability.
 
-The original additionally exposes the existing `duplicate_binding_field_dropped`
-rule: a wrongly named title field came first, so the correctly named donation-code
-field reading the same binding was deleted. Audit this first-field-wins behavior and
-its definition provenance before more broad model runs. Do not replace it with a
-relevance filter or unconditionally discard repeated attributes.
+The same-valued counts demonstrate why comparing values alone is insufficient: both
+are `8`, but the received-count binding points to the requested occurrence. Blank
+and absent must also remain distinct. The Basil repair drops the accepted record;
+keeping the previous row is correct, not a reason to weaken loss protection. The
+original exhausts its call budget, whereas the compact input fails without a timeout
+or output truncation. Neither is fixed by automatically increasing limits.
 
-Evidence: private `structural-kpi-20260913/native-records-08/`. Both runs are failures,
-not holdouts. Input/source hashes were unchanged; cgroup swap/OOM stayed zero and
-host OOM count did not increase. The owned server/container and source/transfer/activation
-copies were removed after collecting responses and review. Shared services and installed
-packs were retained. GPU memory is not covered by the cgroup-only memory figure.
+Evidence: private `structural-kpi-20260913/native-records-09/`; the earlier failures
+remain in `native-records-08/`. These are development inputs, not holdouts. Original
+observations, source files and input hashes stayed unchanged. Cgroup swap/OOM were
+zero, host OOM count did not increase, and the owned server/container stopped.
+Shared services and installed packs are retained. GPU memory is not covered by the
+cgroup-only memory figure.
 
-The current correction uses native protocol v4's single `valueSource` choice and
-compiler v31's exact field identity. Mixed binding/quote/missingness combinations are
-rejected by both the closed wire alternatives and the independent decoder. Different
-labels, definition sources or destinations are not silently folded, even over one
-binding; exact aliases retain their scopes and source accounting. Local regressions
-cover these failures. The updated actual-model comparison is pending; retained wrong
-fields or extra aliases do not count as semantic correctness.
+
+### Existing stronger-model product check
+
+The same compact input and `acff580` source also ran through the actual product
+interface using the already-running Motif-3-314B-Q4_K_M service. Its schema-constrained
+request was rejected by the server's grammar parser after one successful role call.
+An explicit `json_object` configuration retained the full contract in the prompt and
+all compiler checks, with only the remaining **10 calls / 870 seconds** allowed.
+Together the attempts used **7 requests / 273.9 seconds**; six completed inference.
+
+The product run itself returned `partial` after **5 calls / 244.8 seconds**. It again
+selected compound text as integer values and compiled only the handling paragraph.
+No item records or complete applicability were retained. Model size alone did not
+resolve the failure. This is not an independent, isolated-memory or model-pack check;
+the shared model shards are not fully hashed. The service, slot, source and input
+were checked before/after, and no service settings changed. Private evidence is in
+`structural-kpi-20260913/shared-product-10/` and `shared-product-11/`.
+
+The next source correction is implemented as native protocol v5 / prompt v37:
+program-resolved `exactText` beside offered text bindings, plus the failed binding ID
+and type in native repair feedback. Positions are no longer the only way to determine
+what a candidate actually reads. Candidates remain mechanical proposals, not semantic
+labels; no field is automatically renamed or dropped. Deterministic checks pass;
+the bounded actual-model recheck remains pending.
+
 
 ## Earlier HTML/PDF development evidence
 
@@ -271,7 +291,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The v3 comparison failed on mixed value sources and first-field-wins deletion. Those rules are corrected in v4/compiler v31; actual-model revalidation is pending. Managed packing separates item occurrences and logical records are not joined across regions. | Recheck the corrected source in fixed-budget product comparisons, including the actual decoder contract. Then address remaining field/value associations, source occurrence choices, packing/continuation and bounded repairs without suppressing facts. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v4/compiler v31 comparison closes mixed value sources and destructive field collapse, but still fails field association, exact occurrence selection, missingness and complete scopes. Managed packing separates item occurrences and logical records are not joined across regions. | The stronger-model comparison also fails compound candidate selection. Recheck v5 exact candidate display and binding-specific feedback; then address demonstrated source-selection, packing/continuation and repair defects without suppressing facts. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

@@ -18,7 +18,7 @@ from .document_outline import (
     structural_value_allowed,
 )
 
-VERSION = "document-files.document-protocol.v4"
+VERSION = "document-files.document-protocol.v5"
 MAX_CALLS = 2
 REASONING_BUDGET = 1024
 
@@ -52,9 +52,15 @@ Document identifiers, reference numbers, dates and explicit missing states are a
 attributes too, even in metadata, narrative or notes: not just business-only values. Ordinary
 prose also need not be copied into fields just to retain its text. Extract actual business
 attributes, not descriptions of the document's formatting, structure or mere existence.
-Choose supplied valueBindingIds for fields: code reads their exact values. Real inner
-values in structural text remain available. Preserve identifiers, decimal spelling,
-explicit blanks and native types; distinguish absent, unreadable and uncertain. Fields
+Read the source content before choosing its fields and records. Text bindings include
+exactText: the entire text the program will read, not a summary or a suggested value.
+Delimiter-derived labels and values are mechanical candidates, not semantic decisions;
+one candidate can contain several attributes or belong to a different item. Never select
+compound text as an integer just because a number occurs inside it. Choose a binding
+only when its exactText is the intended complete value; otherwise quote the exact inner
+source text. Real inner values in structural text remain available. Preserve identifiers,
+decimal spelling, explicit blanks and native types; distinguish absent, unreadable and
+uncertain. Fields
 require definitionRefs, key, label, valueType and exactly one valueSource choice:
 - kind binding: select an offered bindingId and status present or blank.
 - kind quote: supply quote with sourceRef and EXACT nonempty source text; this is present.
@@ -176,9 +182,32 @@ def accept_roles(value, observation, region):
 
 
 def content_request(payload, schema, decision, observation, region):
+    from ..result_types import SourceBinding
+    from .bindings import resolve
     from .semantic_types import _compact_contract
 
     payload, schema = deepcopy(payload), deepcopy(schema)
+    # These are private display fields, never new observations or value bindings.
+    # Preserve exact spelling/whitespace and check ownership before exposing text.
+    for binding in payload["bindings"].values():
+        ref = binding["sourceRef"]
+        if binding.get("path", "/text") != "/text":
+            continue
+        text = observation.nodes[ref]["text"]
+        start = binding.get("start")
+        end = binding.get("end")
+        window = region.get("nodeViews", {}).get(ref, {"start": 0, "end": len(text)})
+        if (start is None) != (end is None) or not (
+            window["start"]
+            <= (start if start is not None else 0)
+            <= (end if end is not None else len(text))
+            <= window["end"]
+        ):
+            raise ValueError("native_binding_outside_owned_view")
+        _, exact_text = resolve(
+            SourceBinding(sourceRef=ref, path="/text", start=start, end=end), observation.nodes
+        )
+        binding["exactText"] = exact_text
     roles = {e["sourceRef"]: e for e in decision["documentElements"]}
     allowed = []
     for bid, binding in payload["bindings"].items():
