@@ -1481,6 +1481,44 @@ def _merge_repeated_statements(compiled, counterparts, candidate_id, aliases):
             and mapped <= set(other.get("sourceRefs") or [])
             and _unresolved(left, other["id"]) == _unresolved(right, detail["id"])
         ]
+        if not matches:
+            # One later statement may restate several earlier statements of the same
+            # kind at once (a raster page's two condition lines read as one meaning
+            # while the native page interpreted them separately). When earlier
+            # meanings cover every mapped source, the later meaning repeats them.
+            covering = [
+                (left, other)
+                for left, other in details
+                if other is not detail
+                and other["id"] not in aliases
+                and other["kind"] == detail["kind"]
+                and set(other.get("sourceRefs") or [])
+                and set(other.get("sourceRefs") or []) <= mapped
+            ]
+            covered = {ref for _, other in covering for ref in other["sourceRefs"]}
+            if covering and covered == mapped:
+                item = next(i for i in right.semantics if i["id"] == detail["id"])
+                if not _unresolved(right, detail["id"]):
+                    for left, other in covering:
+                        earlier = next(i for i in left.semantics if i["id"] == other["id"])
+                        earlier["targets"] = _union(earlier["targets"], item["targets"])
+                        earlier["scope"] = _union(earlier["scope"], item["scope"])
+                        other["scope"] = _union(other["scope"], detail["scope"])
+                aliases[detail["id"]] = covering[0][1]["id"]
+                right.corrections.append(
+                    {
+                        "code": "repeated_meaning_merged",
+                        "regionId": right.id,
+                        "candidateId": candidate_id,
+                        "semanticId": detail["id"],
+                        "into": covering[0][1]["id"],
+                        "alsoInto": [other["id"] for _, other in covering[1:]],
+                        "sourceRefs": list(item["sourceRefs"]),
+                        "basis": "same_statement_texts_on_joined_page",
+                    }
+                )
+                _drop_semantic(right, detail["id"])
+            continue
         if len(matches) != 1:
             continue
         left, other = matches[0]

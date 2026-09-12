@@ -18,6 +18,9 @@ Field names and literal values are already captured. A unit-bearing header still
 needs its unit extracted separately: transcribing the header does not extract that
 unit. Consider units, conditions, qualifications, annotations, references and
 relationships stated by the source. Do not restate an ordinary label or value.
+A data cell that only holds its own value (an item name, code or label already read
+into the record) adds no meaning; has_meaning marks text that also states a unit,
+condition, note or reference beyond that value.
 For each meaningSources item, choose has_meaning only if its text directly supports
 such additional information, no_additional_meaning if it is just an ordinary label
 or value, unresolved if unclear, or unreviewed if deferred. Include a short reason

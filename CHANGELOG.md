@@ -2,6 +2,15 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Table protocol v20 says in the meaning selection that a data cell holding only its
+  own value (an item name, code or label already read into the record) adds no meaning:
+  the seventeenth continued-table regression selected the raster table's item names as
+  carrying meaning and then quoted them for a unit and a condition, which the details
+  phase rejected as a quote mismatch. After a decided page relation, a later statement
+  meaning that restates several earlier statements of the same kind at once folds into
+  them (`repeated_meaning_merged` with `alsoInto`): the nineteenth mixed PDF regression
+  read the raster page's two condition lines as one meaning, which lost its fields to
+  the fold and stayed unresolved.
 - Compiler v25 drops a definition meaning that names no field, column or group and
   whose sources are headings (`heading_definition_dropped`), because a title defines
   no offered value and its applicability request can only return unresolved; a

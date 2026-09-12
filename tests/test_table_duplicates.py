@@ -437,3 +437,80 @@ def test_continuation_fragment_keys_follow_the_earlier_fragment_by_column_positi
     candidates = continuation_candidates(doc, regions)
     _, issues, _ = join_continuations(compiled, candidates, {"continuation:1": "continue"})
     assert [i["code"] for i in issues] == ["table_continuation_column_conflict"]
+
+
+def test_one_later_statement_over_several_earlier_statements_folds_into_them():
+    # The nineteenth mixed PDF regression read the raster page's two condition lines
+    # as one meaning while the native page had interpreted them separately; the later
+    # meaning lost its fields to the fold and stayed as an unresolved statement.
+    from document_files.interpretation.compiler import _merge_repeated_statements
+
+    doc = ObservationDocument()
+    parts = []
+    for prefix, page in (("p1", 1), ("p2", 2)):
+        refs, bindings = [], []
+        for name, text in (("ko", "조건: 수량 0"), ("en", "Condition: zero")):
+            ref = doc.node(f"{prefix}{name}", text, role="text", locator={"page": page})
+            refs.append(ref)
+            bindings.append(doc.bind(ref, start=0, end=len(text), candidateRole="content"))
+        region = {"id": f"{prefix}text", "nodeIds": refs, "bindingIds": bindings}
+        fields = [
+            {
+                "id": name,
+                "key": f"{name}_{page}",
+                "label": name,
+                "definitionRefs": [ref],
+                "bindingId": binding,
+                "valueType": "string",
+            }
+            for name, ref, binding in zip(("ko", "en"), refs, bindings, strict=True)
+        ]
+        meanings = (
+            [
+                {
+                    "id": f"m_{name}",
+                    "kind": "condition",
+                    "description": name,
+                    "sourceRefs": [ref],
+                    "fieldIds": [name],
+                }
+                for name, ref in zip(("ko", "en"), refs, strict=True)
+            ]
+            if page == 1
+            else [
+                {
+                    "id": "both",
+                    "kind": "condition",
+                    "description": "Do not ship a zero count.",
+                    "sourceRefs": refs,
+                    "fieldIds": ["ko", "en"],
+                }
+            ]
+        )
+        ir = RegionInterpretation.model_validate(
+            {
+                "regionId": region["id"],
+                "fields": fields,
+                "meanings": meanings,
+                "dispositions": [
+                    {"sourceRef": ref, "role": "data", "explanation": "Statement"} for ref in refs
+                ],
+            }
+        )
+        parts.append((region, ir))
+    compiled = [compile_region(ir, doc, region) for region, ir in parts]
+    aliases = {}
+    _merge_repeated_statements(
+        compiled, {"p2ko": "p1ko", "p2en": "p1en"}, "continuation:1", aliases
+    )
+    assert aliases["p2text:both"] == "p1text:m_ko"
+    assert [d["id"] for d in compiled[1].semantic_details] == []
+    merged = [c for c in compiled[1].corrections if c["code"] == "repeated_meaning_merged"]
+    assert merged[0]["into"] == "p1text:m_ko" and merged[0]["alsoInto"] == ["p1text:m_en"]
+    assert not [i for i in compiled[1].issues if i["code"] == "semantic_scope_unresolved"]
+    result = combine_regions(compiled)
+    assert set(result["data"]) == {"ko_1", "en_1"}
+    assert [s["id"] for s in result["semantics"] if s["kind"].endswith("condition")] == [
+        "p1text:m_ko",
+        "p1text:m_en",
+    ]
