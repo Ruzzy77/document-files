@@ -1352,6 +1352,42 @@ def _merge_repeated_statements(compiled, counterparts, candidate_id, aliases):
         _drop_semantic(right, detail["id"])
 
 
+def _extend_continuation_definitions(left, right, candidate_id):
+    """Let the earlier fragment's table definitions also govern the appended rows.
+
+    Column i of the right table is column i of the left under the decided relation,
+    so a column handle of the earlier fragment means every data row including the
+    appended ones. The later fragment keeps its own definitions and row geometry for
+    fragment-bounded selections.
+    """
+    by_targets = {
+        frozenset((t["space"], t["path"]) for t in item["targets"]): item
+        for item in left.semantics
+        if item["kind"] == "field_definition"
+    }
+    for item in right.semantics:
+        if item["kind"] != "field_definition":
+            continue
+        earlier = by_targets.get(frozenset((t["space"], t["path"]) for t in item["targets"]))
+        if earlier is None:
+            continue
+        added = [t for t in item["scope"] if t not in earlier["scope"]]
+        if not added:
+            continue
+        earlier["scope"] = _union(earlier["scope"], item["scope"])
+        right.corrections.append(
+            {
+                "code": "continuation_definition_extended",
+                "regionId": right.id,
+                "candidateId": candidate_id,
+                "semanticId": earlier["id"],
+                "addedFrom": item["id"],
+                "addedTargets": [t["path"] for t in added],
+                "basis": "same_column_position_under_the_decided_relation",
+            }
+        )
+
+
 def _merge_duplicate_table(left, right, a, candidate_id, aliases):
     """A duplicate presentation adds provenance to the earlier rows, never rows."""
     by_path = {(e["target"]["space"], e["target"]["path"]): e for e in left.value_evidence}
@@ -1554,6 +1590,8 @@ def join_continuations(compiled, candidates, decisions):
             right.row_scopes.pop(repeat_id, None)
             right.repeat_paths.pop(repeat_id, None)
             _merge_duplicate_table(left, right, a, candidate["id"], aliases)
+        else:
+            _extend_continuation_definitions(left, right, candidate["id"])
         _merge_repeated_statements(
             result, candidate.get("nodeCounterparts") or {}, candidate["id"], aliases
         )

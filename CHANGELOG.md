@@ -6,7 +6,11 @@
   keys follow the earlier fragment's keys by column position (recorded as
   `continuation_columns_renamed`), because regions are interpreted independently and
   the twelfth continued-table run's later page named the same columns differently, so
-  the join was refused as a column conflict; value types must still agree.
+  the join was refused as a column conflict; value types must still agree. The earlier
+  fragment's column definitions then also govern the appended rows (recorded as
+  `continuation_definition_extended`), so a column handle of the earlier fragment means
+  every data row: the thirteenth run had joined four rows but applied the unit and
+  conditions to the first two only.
 - Compiler v22 accounts for a selected node whose entire text is the consumed binding
   of a field: its whole content is the field's value, so no disposition is needed. The
   ninth continued-table run had bound the raster page's title that way, given no

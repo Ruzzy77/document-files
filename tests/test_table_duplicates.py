@@ -422,6 +422,16 @@ def test_continuation_fragment_keys_follow_the_earlier_fragment_by_column_positi
     assert {t["path"] for t in later_amount["scope"]} == {f"/rows/{i}/amount" for i in (3, 4, 5)}
     renamed = next(c for c in result["corrections"] if c["code"] == "continuation_columns_renamed")
     assert renamed["renamed"] == {"item": "name", "amt": "amount"}
+    # The earlier column definition now governs the appended rows as well, so its
+    # column handle means every data row; the fragment keeps its own definition.
+    earlier_amount = next(
+        s
+        for s in result["semantics"]
+        if s["kind"] == "field_definition" and s["sourceRefs"] == ["p1c0:1"]
+    )
+    assert {t["path"] for t in earlier_amount["scope"]} == {f"/rows/{i}/amount" for i in range(6)}
+    extended = [c for c in result["corrections"] if c["code"] == "continuation_definition_extended"]
+    assert {c["semanticId"] for c in extended} == {"p1table:name", "p1table:amount"}
     # A value type that differs at the same column still conflicts.
     doc, regions, compiled = two_pages(rows2=later, amount_type="integer")
     candidates = continuation_candidates(doc, regions)
