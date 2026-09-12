@@ -603,7 +603,7 @@ remain incompatible; public v1 contracts are unchanged.
 
 ### Internal PDF page review
 
-An explicit managed vision pack enables `document-files.pdf-visual-review.v15` before
+An explicit managed vision pack enables `document-files.pdf-visual-review.v16` before
 regional interpretation. Internal page state uses `reviewing_pdf`; source observation,
 image preparation, exact pixel/grid and application policy versions participate in
 checkpoint identity. This adds no public caller-supplied interpretation endpoint.
@@ -613,6 +613,11 @@ Version 3 also offers a unique overlapping native line's bounds when its text ex
 matches an observed source. Both original bounds and the additional source reference
 are retained; no margin is invented and this candidate does not approve text. Empty
 decision inventories allow only empty arrays; other arrays have exact cardinality.
+Version 16 records, per pixel unit, whether every pixel run lies on the page's own vector
+line objects (`onlyNativeRulePixels`, from a complete PDF object inventory) and offers such
+a unit the label `native_rule` when it is not already a recognized table border; the label
+proves no cell empty and no text correct. A page whose displayed units lie outside every
+missing-slot crop receives a lossless detail covering them instead of halting.
 Previous plans/checkpoints are incompatible and are not automatically migrated.
 
 The model classifies source-linked pixel units and missing slots and orders observed

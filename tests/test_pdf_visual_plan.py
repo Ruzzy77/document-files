@@ -535,3 +535,87 @@ def test_rule_edge_cannot_be_selected_without_candidate_or_replace_missing_slot_
     }
     with pytest.raises(plan.PdfVisualReviewError, match="visual_rule_context_not_displayed"):
         plan.validate_decision(value, decision, detail_bounds=detail)
+
+
+def native_line_example(inventory=True, complete=True):
+    """Two text marks plus one drawn rule that the page's own line object explains."""
+    doc, capture, _ = example()
+    image = Image.new("RGB", (120, 120), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((12, 12, 20, 18), fill="black")
+    draw.rectangle((12, 60, 20, 66), fill="black")
+    draw.rectangle((10, 100, 109, 102), fill="black")
+    out = io.BytesIO()
+    image.save(out, format="PNG")
+    capture["pixelSha256"] = hashlib.sha256(image.tobytes()).hexdigest()
+    image.close()
+    if inventory:
+        doc.provenance["pdfNativeObjects"] = {
+            "pages": [
+                {
+                    "page": 1,
+                    "coordinateOrigin": "TOPLEFT",
+                    "completeness": {"pdfiumObjectsComplete": True, "paintCountsMatch": complete},
+                    "objects": [
+                        {
+                            "id": "pdf-native:page:1:object:0",
+                            "kind": "primitive_line",
+                            "bounds": [3.0, 33.0, 37.0, 34.4],
+                        },
+                        {
+                            "id": "pdf-native:page:1:object:1",
+                            "kind": "text",
+                            "bounds": [4, 4, 8, 7],
+                        },
+                    ],
+                }
+            ]
+        }
+    pixels = extract_visual_pixels(
+        out.getvalue(),
+        expected_rgb_sha256=capture["pixelSha256"],
+        expected_size=[120, 120],
+        deadline=time.monotonic() + 10,
+    )
+    return plan.build_page_plan(doc, capture, pixels, deadline=time.monotonic() + 10)
+
+
+def test_native_line_objects_make_residual_rules_native_rules():
+    assert plan.VERSION == "document-files.pdf-visual-review.v16"
+    value = native_line_example()
+    rule = [u for u in value["units"] if not u["sourceIds"]]
+    assert len(rule) == 1 and rule[0]["pixelCount"] == 300
+    assert rule[0]["onlyNativeRulePixels"] is True
+    assert rule[0]["nativeRuleRefs"] == ["pdf-native:page:1:object:0"]
+    assert all(
+        u["onlyNativeRulePixels"] is False and u["nativeRuleRefs"] == []
+        for u in value["units"]
+        if u["sourceIds"]
+    )
+    assert plan.unit_choices(value, rule[0]) == ["native_rule", "unknown"]
+    columns = plan.review_payload(value)["unitColumns"]
+    assert columns.index("onlyNativeRulePixels") == columns.index("ruleEdgeCandidate") - 1
+    decision = answer(value)
+    for item in decision["units"]:
+        if item["id"] == rule[0]["id"]:
+            item["decision"] = "native_rule"
+    approved = plan.validate_decision(value, decision, detail_bounds=None)
+    assert approved["status"] == "reviewed"
+    # A text unit is never a native rule, whatever the model answers.
+    wrong = deepcopy(decision)
+    wrong["units"][0]["decision"] = "native_rule"
+    with pytest.raises(plan.PdfVisualReviewError, match="visual_unproven_structural_pixels"):
+        plan.validate_decision(value, wrong, detail_bounds=None)
+
+
+@pytest.mark.parametrize("inventory,complete", [(False, True), (True, False)])
+def test_rules_without_a_complete_native_inventory_stay_unknown(inventory, complete):
+    value = native_line_example(inventory=inventory, complete=complete)
+    rule = next(u for u in value["units"] if not u["sourceIds"])
+    assert rule["onlyNativeRulePixels"] is False and rule["nativeRuleRefs"] == []
+    assert plan.unit_choices(value, rule) == ["unknown"]
+    decision = answer(value)
+    for item in decision["units"]:
+        if item["id"] == rule["id"]:
+            item["decision"] = "unknown"
+    assert plan.validate_decision(value, decision, detail_bounds=None)["status"] == "unresolved"

@@ -2,6 +2,14 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- PDF page review v16 records whether a pixel unit lies entirely on the page's own vector
+  line objects (`onlyNativeRulePixels`, from a complete PDF object inventory) and offers
+  such a unit `native_rule` when it is not a recognized table border; a native rule proves
+  no cell empty and no text correct. The review also prepares a lossless detail covering
+  every displayed unit when the missing-slot crop does not, instead of halting with
+  `visual_rule_context_not_displayed`. The delivery-form development page framed a note
+  row below its recognized table: the frame shared a component with the table grid,
+  was displayed, had no admissible label, and the first pass had prepared no detail.
 - Scope-axis protocol v6 adds one system sentence: a condition selects the values it
   tests, not the subject of its outcome, so a rule that tests one field and states a
   record-level outcome selects only that field. The fifteenth continued-table run had

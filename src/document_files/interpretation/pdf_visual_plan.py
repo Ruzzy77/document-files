@@ -8,11 +8,15 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v15"
+VERSION = "document-files.pdf-visual-review.v16"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
 MAX_COMPARISONS = 1048576
+# Native vector line objects of the page, as recorded by the PDF object inventory.
+MAX_NATIVE_RULES = 512
+NATIVE_RULE_COMPARISONS = 262144
+NATIVE_RULE_MARGIN = 1
 
 
 class PdfVisualReviewError(ValueError):
@@ -71,6 +75,72 @@ def _bounds(runs):
         max(r[2] for r in runs),
         max(r[0] for r in runs) + 1,
     ]
+
+
+def native_rule_boxes(doc, page, pixel_size):
+    """Pixel boxes of the page's own vector line objects; none unless the inventory is complete."""
+    inventory = doc.provenance.get("pdfNativeObjects")
+    if not isinstance(inventory, dict):
+        return []
+    record = next(
+        (p for p in inventory.get("pages", []) if isinstance(p, dict) and p.get("page") == page),
+        None,
+    )
+    if record is None or record.get("coordinateOrigin") != "TOPLEFT":
+        return []
+    completeness = record.get("completeness", {})
+    if not (completeness.get("pdfiumObjectsComplete") and completeness.get("paintCountsMatch")):
+        return []
+    width, height = pixel_size
+    boxes = []
+    for item in record.get("objects", []):
+        if not isinstance(item, dict) or item.get("kind") != "primitive_line":
+            continue
+        bounds = item.get("bounds")
+        if not (
+            isinstance(bounds, list)
+            and len(bounds) == 4
+            and all(type(v) in (int, float) and math.isfinite(v) for v in bounds)
+            and bounds[0] < bounds[2]
+            and bounds[1] < bounds[3]
+        ):
+            continue
+        x, y, r, b = _pixel_box(bounds)
+        box = [
+            max(0, x - NATIVE_RULE_MARGIN),
+            max(0, y - NATIVE_RULE_MARGIN),
+            min(width, r + NATIVE_RULE_MARGIN),
+            min(height, b + NATIVE_RULE_MARGIN),
+        ]
+        if box[0] < box[2] and box[1] < box[3]:
+            boxes.append((item.get("id"), box))
+        if len(boxes) > MAX_NATIVE_RULES:
+            return []
+    return boxes
+
+
+def _native_rule_facts(units, rules):
+    """Mark units whose every pixel run lies on native line objects; a bounded check."""
+    comparisons = 0
+    for unit in units:
+        refs, covered = set(), bool(rules)
+        for part in unit["parts"]:
+            for run in part["runs"]:
+                if not covered:
+                    break
+                comparisons += len(rules)
+                if comparisons > NATIVE_RULE_COMPARISONS:
+                    covered = False
+                    break
+                hits = [ref for ref, box in rules if _inside_run(run, box)]
+                if hits:
+                    refs.update(hits)
+                else:
+                    covered = False
+            if not covered:
+                break
+        unit["onlyNativeRulePixels"] = covered
+        unit["nativeRuleRefs"] = sorted(refs) if covered else []
 
 
 def observation_page_fingerprint(doc, page):
@@ -448,6 +518,11 @@ def build_page_plan(doc, capture, pixels, *, deadline, cancelled=None):
         sum(u["pixelCount"] for u in units) == pixels["foregroundPixelCount"],
         "visual_pixel_membership_incomplete",
     )
+    # A native page draws its rules as vector line objects. Pixels that lie only on
+    # such objects are drawn rules, a program fact the review may confirm as
+    # native_rule; the delivery-form development page framed a note row below its
+    # recognized table and its residual rules had no admissible label.
+    _native_rule_facts(units, native_rule_boxes(doc, page, capture["pixelSize"]))
     for slot in slots:
         slot["unitIds"] = [u["id"] for u in units if slot["id"] in u["slotIds"]]
     blocks = []
@@ -515,6 +590,7 @@ def review_payload(plan):
         "sourceIds",
         "onlyBoundaryPixels",
         "slotIds",
+        "onlyNativeRulePixels",
         "ruleEdgeCandidate",
     ]
     return {
@@ -533,7 +609,12 @@ def review_payload(plan):
         ],
         "unitColumns": columns,
         "units": [
-            [*(u[k] for k in columns[:-1]), bool(u.get("ruleEdgeTableRefs"))] for u in plan["units"]
+            [
+                *(u[k] for k in columns[:-2]),
+                bool(u.get("onlyNativeRulePixels")),
+                bool(u.get("ruleEdgeTableRefs")),
+            ]
+            for u in plan["units"]
         ],
         "missingSlots": [{k: s[k] for k in ("id", "bounds", "unitIds")} for s in plan["slots"]],
         "blocks": [
@@ -570,8 +651,11 @@ or string; do not require the entire string to appear in every fragment. Choose 
 only when ALL its parts belong to the referenced text without extra marks. text_and_border
 allows a mixture with the displayed rule or its edge only when rule context is offered.
 Choose table_border only when the unit contains solely the observed table borders, including
-their faint edges, and onlyBoundaryPixels is true. A unit without sourceIds references no
-text: it is table_border only under that rule, otherwise unknown, never source_text.
+their faint edges, and onlyBoundaryPixels is true. native_rule is offered only for a unit whose
+every pixel part lies on the PDF's own vector line objects (onlyNativeRulePixels true); choose it
+when the unit shows only drawn rules or frames, with no glyph or added mark. A native rule proves
+no cell empty and no text correct. A unit without sourceIds references no text: it is
+table_border or native_rule only under those rules, otherwise unknown, never source_text.
 An isolated dot, extra or unclear text,
 or a mixed shape that is not fully accounted for must remain unknown. Do not correct or
 invent strings. Mark a missing slot empty only when its full interior and all borders appear
@@ -613,6 +697,8 @@ def unit_choices(plan, unit):
             choices.append("text_and_border")
     if unit["onlyBoundaryPixels"] and not unit["sourceIds"] and unit.get("tableRefs"):
         choices.append("table_border")
+    elif unit.get("onlyNativeRulePixels"):
+        choices.append("native_rule")
     if unit.get("ruleEdgeTableRefs") and "imageReadProposal" in plan:
         choices.append("rule_edge")
     choices.append("unknown")
@@ -811,7 +897,15 @@ def validate_decision(plan, decision, *, detail_bounds, display=None):
     for unit in plan["units"]:
         choice = units[unit["id"]]
         require(
-            choice in {"source_text", "text_and_border", "table_border", "rule_edge", "unknown"},
+            choice
+            in {
+                "source_text",
+                "text_and_border",
+                "table_border",
+                "native_rule",
+                "rule_edge",
+                "unknown",
+            },
             "visual_decision_invalid",
         )
         if choice in {"source_text", "text_and_border"} and not unit["sourceIds"]:
@@ -834,6 +928,8 @@ def validate_decision(plan, decision, *, detail_bounds, display=None):
                 bool(unit.get("ruleEdgeTableRefs")) and "imageReadProposal" in plan,
                 "visual_rule_edge_without_candidate",
             )
+        elif choice == "native_rule":
+            require("native_rule" in unit_choices(plan, unit), "visual_unproven_structural_pixels")
         elif choice == "table_border":
             require(
                 unit["onlyBoundaryPixels"] and not unit["sourceIds"] and bool(unit["tableRefs"]),

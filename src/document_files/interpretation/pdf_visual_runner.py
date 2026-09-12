@@ -29,7 +29,13 @@ from .pdf_review_images import (
 )
 from .pdf_visual_apply import VERSION as APPLY_VERSION
 from .pdf_visual_display import VERSION as DISPLAY_VERSION
-from .pdf_visual_display import display_argument, display_payload, prepare_display, validate_display
+from .pdf_visual_display import (
+    display_argument,
+    display_crop,
+    display_payload,
+    prepare_display,
+    validate_display,
+)
 from .pdf_visual_grid import VERSION as GRID_VERSION
 from .pdf_visual_grid import VisualGridError
 from .pdf_visual_pixels import VERSION as PIXEL_VERSION
@@ -692,6 +698,14 @@ def review_pdf_pages(
             )
             plan = build_page_plan(doc, capture, pixels, deadline=deadline, cancelled=cancelled)
             require_proposal_measurements(plan)
+            # Displayed units need the lossless detail that shows them; a page whose
+            # residual rules lie outside every missing-slot crop gets one here.
+            wider = display_crop(plan, crop)
+            if wider != crop:
+                crop = wider
+                images = prepare_pdf_review_images(
+                    content, capture, crop=crop, deadline=deadline, cancelled=cancelled
+                )
             images = prepare_display(plan, images, deadline=deadline, cancelled=cancelled)
             contract = output_schema(plan)
             payload = encode(

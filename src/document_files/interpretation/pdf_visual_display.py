@@ -158,6 +158,35 @@ def _units(plan):
     return result
 
 
+DETAIL_MARGIN = 12
+
+
+def display_crop(plan, crop):
+    """Detail bounds covering every displayed unit; a missing-slot crop is kept inside."""
+    units = _units(plan)
+    if not units:
+        return crop
+    boxes = [u["bounds"] for u in units]
+    width, height = plan["pixelSize"]
+    bounds = [
+        max(0, min(b[0] for b in boxes) - DETAIL_MARGIN),
+        max(0, min(b[1] for b in boxes) - DETAIL_MARGIN),
+        min(width, max(b[2] for b in boxes) + DETAIL_MARGIN),
+        min(height, max(b[3] for b in boxes) + DETAIL_MARGIN),
+    ]
+    if crop is not None:
+        given = crop["pixelBounds"]
+        bounds = [
+            min(bounds[0], given[0]),
+            min(bounds[1], given[1]),
+            max(bounds[2], given[2]),
+            max(bounds[3], given[3]),
+        ]
+    if crop is not None and crop["pixelBounds"] == bounds:
+        return crop
+    return {"pixelBounds": bounds, "kind": "detail", "slotKey": None}
+
+
 def _layout(plan, originals):
     units = _units(plan)
     detail = originals[1]["sourcePixelBounds"]

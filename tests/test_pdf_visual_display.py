@@ -400,3 +400,21 @@ def test_non_candidate_membership_cannot_be_hidden_or_approved_as_an_edge():
     old["fingerprint"] = digest({k: v for k, v in old.items() if k != "fingerprint"})
     with pytest.raises(PdfVisualReviewError, match="visual_rule_context_not_displayed"):
         display.validate_display(plan, old, detail_bounds=[0, 0, 90, 90])
+
+
+def test_display_crop_covers_every_displayed_unit_and_keeps_slot_crops():
+    _, _, _, _, _, plan, _ = fixture()
+    shown = display._units(plan)
+    assert shown
+    crop = display.display_crop(plan, None)
+    assert crop["kind"] == "detail" and crop["slotKey"] is None
+    for unit in shown:
+        assert display._inside(unit["bounds"], crop["pixelBounds"])
+    assert display._inside(crop["pixelBounds"], [0, 0, *plan["pixelSize"]])
+    narrow = {"pixelBounds": [0, 0, 1, 1], "kind": "detail", "slotKey": None}
+    widened = display.display_crop(plan, narrow)
+    assert widened["pixelBounds"][0] == 0 and widened["pixelBounds"][1] == 0
+    assert display._inside(narrow["pixelBounds"], widened["pixelBounds"])
+    assert display.display_crop(plan, widened) is widened
+    bare = {k: v for k, v in plan.items() if k != "units"} | {"units": []}
+    assert display.display_crop(bare, narrow) is narrow
