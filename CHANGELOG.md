@@ -14,9 +14,11 @@
   conflict. Only native-declared header rows can be corrected automatically;
   content-only definitions request bounded repair. Compiler v27 rejects old
   checkpoints from the citation-driven rule. Source bindings and precision remain.
-- Add cross-page continuation and duplicate-presentation handling with source
-  provenance. Equal-valued continuation and other quality gaps remain in
-  [SUPPORT.md](SUPPORT.md); these rules are not independently quality-approved.
+- Keep continuation available for equal-valued records in prompt v31. Matching cell
+  text enables a duplicate proposal but is not record identity; contextual ambiguity
+  remains unresolved. Preserve the compiled-row check and per-page value bindings.
+  Other quality gaps remain in [SUPPORT.md](SUPPORT.md); these rules are not
+  independently quality-approved.
 - Add isolated CPU recognition and source-bound PDF visual review, literal image
   reading, alternative table projections, exact pixel membership displays and
   conservative blank-cell application. Original OCR and document bytes remain.

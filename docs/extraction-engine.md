@@ -237,10 +237,13 @@ relations remain visible. Exact repeated fields/meanings can fold into prior one
 with their additional sources retained, including a later meaning covering several
 earlier meanings. The latest continued-table case still has a duplicate condition.
 
-**Known candidate defect:** `rightRepeatsLeft` currently removes `continue` from the
-response choices when observed cell texts/positions match. Identical values can be
-new records, so this signal is not sufficient evidence of duplicate presentation.
-The repair must preserve both legitimate new rows and real duplicate pages.
+`rightRepeatsLeft` reports equal cell text at equal row/column positions, not
+record identity. Prompt v31 keeps `continue` available for equal-valued records and
+also permits a `duplicate` proposal for exact text matches. The model must distinguish
+additional occurrences from another presentation using source context; ambiguous
+identity stays unresolved. `duplicate` still requires equal compiled rows before
+folding, and continuation retains each appended row's own value binding. Earlier
+prompt checkpoints cannot silently resume under this policy.
 
 After pointer remapping, `integration.py` prepares unresolved applicability tasks.
 Targets are existing standalone fields, records, row/column intersections and
@@ -296,7 +299,7 @@ relevant row when changing its owning behavior. Do not patch stored IDs to resum
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v30 / v15 / v27 |
+| Semantic prompt / region plan / result compiler | v31 / v15 / v27 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v13 / v6 |
 | Scope selection wire / source binding / regional checkpoint | v2 / v2 / v3 |

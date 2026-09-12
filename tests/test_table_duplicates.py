@@ -1,6 +1,7 @@
 """Repeated tables and statements across pages: continue, duplicate, separate."""
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from document_files.document_model.model import ObservationDocument
 from document_files.interpretation.compiler import (
@@ -173,10 +174,10 @@ def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False, **page2):
 
 
 def test_versions_and_contract_name_the_duplicate_decision():
-    assert PROMPT_VERSION == "document-files.semantic-prompts.v30"
+    assert PROMPT_VERSION == "document-files.semantic-prompts.v31"
     assert COMPILER_VERSION == "document-files.result-compiler.v27"
     assert SCOPE_VERSION == "document-files.scope-integration.v13"
-    assert "duplicate" in INTEGRATE and "continue is not offered there" in INTEGRATE
+    assert "duplicate" in INTEGRATE and "text equality is not record identity" in INTEGRATE
     assert "Cite sourceRefs from the sourceNodes keys only" in INTEGRATE
     schema = DocumentIntegration.model_json_schema()
     assert schema["$defs"]["ContinuationDecision"]["properties"]["decision"]["enum"] == [
@@ -191,7 +192,7 @@ def test_versions_and_contract_name_the_duplicate_decision():
     assert item.decision == "duplicate"
 
 
-def test_candidates_carry_row_identity_whole_edge_rows_and_text_counterparts():
+def test_candidates_carry_text_matches_whole_edge_rows_and_text_counterparts():
     doc, regions, _ = two_pages()
     (candidate,) = continuation_candidates(doc, regions)
     assert candidate["basis"] == "adjacent_page_column_candidate"
@@ -218,10 +219,11 @@ def test_candidates_carry_row_identity_whole_edge_rows_and_text_counterparts():
     decision = branch["properties"]
     assert branch["additionalProperties"] is False
     assert decision["candidateId"]["enum"] == ["continuation:1"]
-    assert decision["decision"]["enum"] == ["duplicate", "separate", "unresolved"]
+    assert decision["decision"]["enum"] == ["continue", "duplicate", "separate", "unresolved"]
     assert decision["sourceRefs"]["items"]["enum"] == refs
     assert list(decision) == ["candidateId", "decision", "sourceRefs", "explanation"]
     assert candidate["nodeCounterparts"] == {"p2stmt": "p1stmt"}
+
     assert "nodeCounterparts" not in integration_candidate(candidate)
     assert integration_candidate(candidate)["rightRepeatsLeft"] is True
 
@@ -247,6 +249,51 @@ def test_candidates_carry_row_identity_whole_edge_rows_and_text_counterparts():
     doc.node("p2superseded", "Unit: pcs", role="section_header", locator={"page": 2})
     (candidate,) = continuation_candidates(doc, regions)
     assert candidate["nodeCounterparts"] == {"p2stmt": "p1stmt"}
+
+
+@pytest.mark.parametrize("decision", ["continue", "duplicate", "separate", "unresolved"])
+def test_equal_cell_text_keeps_record_identity_a_contextual_decision(decision):
+    doc, regions, compiled = two_pages()
+    first = doc.node("p1title", "Shipment log: records 1–3", role="heading", locator={"page": 1})
+    later = doc.node(
+        "p2title", "Shipment log (continued): records 4–6", role="heading", locator={"page": 2}
+    )
+    regions[0]["nodeIds"].append(first)
+    regions[2]["nodeIds"].append(later)
+    (candidate,) = continuation_candidates(doc, regions)
+    assert candidate["rightRepeatsLeft"] is True
+    request = integration_request(doc, [candidate])
+    assert {first, later} <= request["sourceNodes"].keys()
+    assert request["sourceNodes"][later]["text"] == doc.nodes[later]["text"]
+    response = {
+        "continuations": [
+            {
+                "candidateId": candidate["id"],
+                "decision": decision,
+                "sourceRefs": [later],
+                "explanation": "Scripted decision; not a model quality check",
+            }
+        ]
+    }
+    Draft202012Validator(integration_contract([candidate])).validate(response)
+    joined, issues, links = join_continuations(compiled, [candidate], {candidate["id"]: decision})
+    if decision in {"separate", "unresolved"}:
+        tables = [r for r in joined if r.repeat_paths]
+        assert [len(r.data["rows"]) for r in tables] == [3, 3]
+        assert not links
+        assert bool(issues) == (decision == "unresolved")
+        return
+    assert not issues
+    result = combine_regions(joined)
+    expected = [{"name": name, "amount": amount} for name, amount in ROWS[1:]]
+    assert result["data"]["rows"] == expected * (2 if decision == "continue" else 1)
+    evidence = {e["target"]["path"]: e for e in result["valueEvidence"]}
+    if decision == "continue":
+        assert evidence["/rows/0/name"]["binding"]["sourceRef"] == "p1c1:0"
+        assert evidence["/rows/3/name"]["binding"]["sourceRef"] == "p2c1:0"
+        assert "p2c1:0" not in evidence["/rows/0/name"]["sourceRefs"]
+    else:
+        assert "p2c1:0" in evidence["/rows/0/name"]["sourceRefs"]
 
 
 def test_duplicate_binds_the_copy_to_the_same_rows_and_adds_only_provenance():

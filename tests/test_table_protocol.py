@@ -228,12 +228,19 @@ def test_unrepaired_content_only_definitions_do_not_report_complete():
     assert "column_definition_conflicts_with_content" in json.dumps(result["issues"])
 
 
-def test_checkpoint_from_citation_driven_header_compiler_cannot_resume():
+@pytest.mark.parametrize(
+    "key, version",
+    [
+        ("compilerVersion", "document-files.result-compiler.v26"),
+        ("promptVersion", "document-files.semantic-prompts.v30"),
+    ],
+)
+def test_checkpoint_from_earlier_row_preservation_policy_cannot_resume(key, version):
     states = []
     model = TableModel()
     execute(model, states=states)
     checkpoint = copy.deepcopy(states[-1])
-    checkpoint["identity"]["compilerVersion"] = "document-files.result-compiler.v26"
+    checkpoint["identity"][key] = version
     with pytest.raises(ValueError, match="incompatible"):
         execute(model, restore=checkpoint)
     assert len(model.requests) == 2

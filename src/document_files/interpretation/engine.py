@@ -374,9 +374,10 @@ def integration_contract(candidates):
     """The relation contract bound to this batch: one decision per offered candidate.
 
     Each branch names its candidate, the nodes it may cite and the decisions its
-    evidence allows: rows that repeat every left cell at the same position add
-    nothing, so `continue` is not offered for them, and `duplicate` is offered
-    only for them. The compiler still verifies the compiled rows.
+    evidence allows. Equal-valued records may be additional occurrences, so
+    `continue` remains available even when all cell text matches. Text equality
+    only enables a `duplicate` proposal; context must establish record identity,
+    and the compiler still verifies the compiled rows before any fold.
     """
     contract = DocumentIntegration.model_json_schema()
     base = contract["$defs"].pop("ContinuationDecision")
@@ -389,7 +390,7 @@ def integration_contract(candidates):
         properties["candidateId"] = {"type": "string", "enum": [candidate["id"]]}
         properties["decision"] = {
             "type": "string",
-            "enum": ["duplicate", "separate", "unresolved"]
+            "enum": ["continue", "duplicate", "separate", "unresolved"]
             if repeats
             else ["continue", "separate", "unresolved"],
         }

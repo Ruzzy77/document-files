@@ -34,13 +34,13 @@ Installed consumers and packs are unchanged.
 | Native formats | TXT, Markdown, HTML, DOCX, HWP/HWPX, XLSX and PPTX parsing and common structure extraction are implemented. Broad independent AI quality is not established. |
 | Optional native capture | HWPX/XLSX package parts can be retained in `reconstructionContext`; binary HWP capture and a result-to-file writer are unavailable. Capture is not evidence of logical structure or understanding, and a writer is not a current KPI gate. |
 | PDF and scans | CPU recognition, source-bound pixel review, additional literal reading and reviewed alternative tables are implemented. Development examples ran through this path; arbitrary scans are not qualified. |
-| Tables | Structure/content/applicability are separated. The compiler reads all mapped rows and preserves precision and source bindings. Citation-driven text-row loss is fixed in compiler v27; equal-valued continuation remains unresolved below. |
+| Tables | Structure/content/applicability are separated. The compiler reads all mapped rows and preserves precision and source bindings. Citation-driven text-row loss is fixed in compiler v27; prompt v31 keeps continuation available for equal-valued records. Independent model quality remains unapproved. |
 | Jobs and APIs | Python/CLI/MCP and authenticated HTTP use the same engine. Cancellation, saved results and explicit-budget resume have regression coverage. An installed Spark HTTP service has not been qualified. |
 | Spark | Actual bounded GPU extraction runs exist with the installed ARM64 recognition, CUDA runtime and vision packs. These are development runs, not independent quality approval or CPU memory qualification. |
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check after the row-preservation correction passed **2,652 tests,
+The full local check after the row-preservation corrections passed **2,657 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -98,15 +98,20 @@ These deterministic checks close the reproduced compiler defect. They do not app
 AI row classification or primary-format quality; affected real-model examples still
 need bounded reruns on the corrected source.
 
+Prompt v31 also removes the forced choice between continuation and duplicate
+presentation when cell text matches. Equal-valued new records may continue; identical
+presentations may fold only after the contextual decision and compiled-row check.
+Regressions cover all four decisions, original per-page bindings and prior-checkpoint
+rejection. A fresh bounded Spark comparison is still pending for this change.
+
 ## Unresolved defects and next implementation order
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Equal values remove the `continue` choice.** `interpretation/regions.py` sets `rightRepeatsLeft` from matching cell text/positions; `engine.py` then offers only duplicate/separate/unresolved. Separate transactions with identical values can genuinely continue. | Keep the distinction between an additional record and a second presentation of the same record. Equal text is a candidate signal, not identity proof. Test equal-valued new rows, exact repeated presentations, explicit continuation context and retained per-page provenance. |
-| 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
-| 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
-| 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
-| 5 | New HWP/HWPX and XLSX documents have not passed independent end-to-end structural and semantic review. | Freeze unseen native inputs with prior expected structure, values, relationships and provenance; run the actual product path on Spark. Review the full result independently of execution. A failed holdout used for a fix becomes a development case. |
+| 1 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
+| 2 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
+| 3 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
+| 4 | New HWP/HWPX and XLSX documents have not passed independent end-to-end structural and semantic review. | Freeze unseen native inputs with prior expected structure, values, relationships and provenance; run the actual product path on Spark. Review the full result independently of execution. A failed holdout used for a fix becomes a development case. |
 
 Fix reproduced preservation defects before another broad inference run. Run only
 affected examples within a predeclared budget; retain raw failures and do not

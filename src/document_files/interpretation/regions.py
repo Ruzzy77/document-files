@@ -854,6 +854,7 @@ def continuation_candidates(observation, regions):
                 "confirmed": same_source,
                 "leftRows": len(rows_a),
                 "rightRows": len(rows_b),
+                # Equal text at equal cell positions does not identify record occurrences.
                 "rightRepeatsLeft": bool(texts_a) and texts_a == texts_b,
                 "rightHeaderRepeatsLeft": bool(rows_a)
                 and bool(rows_b)
