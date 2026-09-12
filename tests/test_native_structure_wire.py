@@ -229,3 +229,40 @@ def test_nested_groups_and_distinct_target_handles_keep_their_compiled_destinati
     assert wire.decode(compact, doc, region).fields[0].targetHandle == "@target"
     compact["fields"][0]["targetHandle"] = "unknown"
     assert not Draft202012Validator(schema).is_valid(compact)
+
+
+def test_identical_value_choice_contracts_are_shared_without_losing_candidate_constraints():
+    doc, region, _, compact, roles = setup()
+    parsed = wire.decode(compact, doc, region)
+    payload, schema = native.value_request(parsed, roles, doc, region)
+    choices = schema["properties"]["selections"]["properties"]
+    assert any(v.get("$ref", "").startswith("#/$defs/NativeSelection") for v in choices.values())
+    assert "NativeUnresolved" in schema["$defs"]
+    assert all("handle" not in item for item in payload["handles"].values())
+    value = {
+        "regionId": region["id"],
+        "excludedBindings": [],
+        "selections": {h: {"kind": "unresolved"} for h in payload["handles"]},
+    }
+    validator = Draft202012Validator(schema)
+    validator.validate(value)
+    # A reference shared by two columns still belongs to their exact source.
+    h = next(h for h, v in payload["handles"].items() if v["sourceRefs"] == ["a"])
+    value["selections"][h] = {"kind": "quote", "quote": {"sourceRef": "b", "text": "5"}}
+    assert not validator.is_valid(value)
+    value["selections"][h] = {
+        "kind": "quote",
+        "quote": {"sourceRef": "a", "text": "8", "occurrence": 0},
+    }
+    validator.validate(value)
+
+
+def test_first_value_request_does_not_spend_budget_on_unread_skeleton_feedback():
+    from test_document_protocol import StagedModel, execute, raw_document
+
+    model = StagedModel()
+    result = execute(model, raw=raw_document(("Count: 0007",)))
+    assert result["extraction"]["status"] == "complete"
+    assert "repairFeedback" not in model.content_requests[0]
+    state = next(iter(result["coverage"]["documentInterpretation"].values()))
+    assert state["contentStatus"] == "complete"

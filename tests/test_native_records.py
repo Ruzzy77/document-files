@@ -396,6 +396,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
 
     class Model(OutlineModel):
         def infer(self, request):
+            assert sum(len(m["content"]) for m in request.messages) <= 16000
             payload = json.loads(request.messages[-1]["content"])
             stage = payload.get("documentStage")
             if stage == "roles":
@@ -508,7 +509,9 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
             ),
             io.BytesIO(raw),
             model_client=model,
-            options=ExtractionOptions(reconstructionContext=False, maxModelCalls=6),
+            options=ExtractionOptions(
+                reconstructionContext=False, maxModelCalls=6, contextChars=16000
+            ),
             checkpoint=states.append,
             restore=restore,
         )
@@ -517,7 +520,9 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["validation"]["valid"]
     assert result["data"] == compile_value(doc, fixture()[1], value).data
-    assert model.calls == 4
+    # At 16,000 characters the two applicability tasks are dispatched separately;
+    # roles, structure and values still each use exactly one call.
+    assert model.calls == 5
     ledger = result["coverage"]["nativeContentGrounding"]
     assert (
         sum(len(next(iter(v["logicalOccurrences"].values()))["rows"]) for v in ledger.values()) == 2
@@ -527,7 +532,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     assert accepted["fields"][0]["bindingId"] is None
     assert accepted["fields"][0]["sourceQuote"]["text"] == "0007"
     restored = run(copy.deepcopy(frozen))
-    assert model.calls == 4
+    assert model.calls == 5
     for key in ["data", "dataSchema", "valueEvidence", "schemaEvidence"]:
         assert restored[key] == result[key]
     for key in ["logicalRecords", "fields"]:
@@ -539,7 +544,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
             item[key][0]["rows"][0]["sourceQuotes"][0]["sourceRef"] = "foreign"
         with pytest.raises(ValueError, match="incompatible"):
             run(broken)
-    assert model.calls == 4
+    assert model.calls == 5
 
 
 def test_logical_records_honor_target_schema_handles_without_new_geometry():

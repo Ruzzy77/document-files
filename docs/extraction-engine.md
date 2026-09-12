@@ -155,7 +155,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v6 and native-structure v3 identify the three-stage execution;
+own configured reasoning behavior. Protocol v6 and native-structure v4 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 The unchanged native development comparison did not improve with reasoning enabled;
@@ -308,7 +308,7 @@ it rejects changed identities or inconsistent selections. Native meaning ranges 
 program-derived and tied to the source inventory. Value compilation does not prune
 frozen fields merely because a parser label or a record value shares their source.
 
-Native-structure v3 retains source-quotation error codes in bounded structural repair;
+Native-structure v4 retains source-quotation error codes in bounded structural repair;
 malformed model contracts still receive sanitized generic diagnostics. A meaning quote
 and a row quote must not report the same invalid occurrence differently. No raw source
 or model-authored labels enter these diagnostic codes. This changes checkpoint identity.
@@ -332,17 +332,24 @@ The v1 Spark run exposed output size as a separate limit even when input fits.
   Expansion is bounded before per-cell objects are created.
 
 Value requests carry each occurrence's source quotes once and refer to that context
-from field handles. Exact source choices and compiler ownership checks are unchanged.
+from field handles. Native-structure v4 also shares identical closed selection schemas
+and their unresolved branch; a keyed handle does not repeat its own ID in the payload.
+Original nodes, inline formatting and bindings are not removed to make a request fit.
+An unread skeleton's expected unresolved values remain visible in the partial result,
+but are not repair feedback for the first value call. Subsequent value failures still
+supply their actual diagnostics. Exact source choices and compiler ownership checks
+are unchanged.
 The compact wire does not increase output limits, accept truncated JSON, omit missing
 states or certify model completeness. Duplicate scalar/record proposals and wrong
-field types remain semantic failures, not aliases to drop automatically. Actual
-whole-result model comparison of this representation is still required.
+field types remain semantic failures, not aliases to drop automatically. In the v3 Spark comparison, the original preserved two rows but the value request
+exceeded the input limit; the compact form duplicated item attributes and truncated.
+V4's lossless value-request reduction has local coverage, not model-quality approval.
 
 The current boundary is deliberately strict: an incorrect **valid** structure cannot
 be silently rewritten during value repair. An explicit source-grounded structure
 revision protocol remains unimplemented. Logical continuation between separate native
 regions also remains unimplemented; equal keys cannot authorize an unconditional merge.
-Long-fragment hierarchy, more compact value requests, and varied HWP/HWPX/XLSX whole-result
+Long-fragment hierarchy, bounded value execution, and varied HWP/HWPX/XLSX whole-result
 quality still need investigation. Repeated use of a development document is regression
 work, never a new independent holdout.
 

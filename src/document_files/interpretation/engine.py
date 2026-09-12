@@ -2021,11 +2021,17 @@ def extract_schema_from_stream(
                 )
                 save("paused")
                 return result
-        feedback = (
-            [i["code"] for i in compiled[rid].issues[:20]]
-            if rid in compiled
-            else repair_diagnostics.get(rid, [])
-        )
+        if content_state is not None and rid not in accepted:
+            # An unread skeleton is expected at the first value call, not an
+            # erroneous response to repair. Keep its issues in the public partial
+            # result, but send feedback only from an actual preceding value attempt.
+            feedback = repair_diagnostics.get(rid)
+        else:
+            feedback = (
+                [i["code"] for i in compiled[rid].issues[:20]]
+                if rid in compiled
+                else repair_diagnostics.get(rid, [])
+            )
         last_response = (
             hashlib.sha256(encode(accepted[rid].model_dump()).encode()).hexdigest()
             if rid in accepted

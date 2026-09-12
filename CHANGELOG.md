@@ -4,6 +4,13 @@
 
 ### Document extraction
 
+- Share identical native value-choice schemas without loosening their source/status
+  constraints, remove redundant inner handle IDs, and keep unread-skeleton placeholders
+  out of the initial value request (native-structure v4). Preserve original text and
+  formatting. Scripted HWPX extraction now runs at the same 16,000-character limit.
+  The v3 Spark comparison preserved two rows but failed whole-result quality; measured
+  v4 request compaction is not actual-model approval.
+
 - Compact native structural responses without removing semantic decisions: program
   IDs, exact whole-block/partial-quote anchors, ordered column states and explicit
   source overrides (native-structure v3 / wire v1, prompt v39). Preserve raw and
@@ -14,7 +21,7 @@
 - Preserve specific source-quotation errors in native structural repair rather than
   hiding meaning-quote failures behind generic contract feedback. Native-structure
   v2 invalidates old stage checkpoints; the correction has local regression coverage
-  but has not yet been verified with an actual model.
+  but does not establish whole-result model quality.
 
 - Separate native HWP/HWPX semantic structure from value reading in protocol v6
   / native-structure v1. Freeze source-grounded fields, types, repeated occurrences

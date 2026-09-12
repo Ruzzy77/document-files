@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,869 tests,
+The full local check including the native outline path passed **2,871 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -253,7 +253,7 @@ observations and shutdown checks passed, and task-only transfer copies were remo
 
 ### Structure-first native implementation
 
-Native protocol v6 / native-structure v3, compiler v32 and prompt v39 now discover
+Native protocol v6 / native-structure v4, compiler v32 and prompt v39 now discover
 fields/types/repeated occurrences from original blocks before showing parser value
 candidates. Value choices cannot rename, remove or change those commitments. Exact
 meaning quotes remain separate from their applicability decisions. Failed values
@@ -266,34 +266,36 @@ file in two rather than the earlier four. This is not a quality approval.
 Scripted regressions cover field/row/type preservation, separate definition/value
 sources, exact precision and repeated values, blank/absence, meaning ranges,
 unknown-response resume, checkpoint tampering and disjoint long-source views.
-The `9b200c2` Spark comparison (native-structure v1) passed 251 ARM tests; eight
-optional writer fixtures remained deselected. An old broad filter initially excluded
-six additional checkpoint tests, which were then explicitly run in the same isolated
-ARM container. Both documents failed whole-result quality:
+The `750da84` Spark comparison (native-structure v3 / wire v1) passed 273 ARM
+tests; eight optional writer fixtures remained deselected and passed locally.
+Both documents still failed whole-result quality under the unchanged 12-call / 900-second
+budget, 16,000-character input limit and 3,072-token response limit:
 
-- **Original: 6 calls / 278.9 seconds, partial.** Both structure proposals for the
-  business-data region had invalid quote occurrences; no records or values compiled.
-  The separate final-note region preserved three exact meanings but had no item
-  targets. Its single value-stage call accounted for an unused candidate only.
-- **Compact: 2 calls / 121.8 seconds, partial.** The first structure response hit
-  3,072 output tokens. It was halted as incomplete, not retried automatically or
-  accepted as partial JSON. No business values were read.
+- **Original: 2 calls / 90.3 seconds, partial.** A source-grounded two-row record
+  compiled, including integer count definitions and Marigold's declared blank.
+  No business values were read: the initial value request was 18,884 characters.
+  The preserved structure also contained an unnecessary title field and a scalar
+  unit without applicability; the final region was unprocessed.
+- **Compact: 2 calls / 123.2 seconds, partial.** The retained raw response creates
+  item-numbered scalar fields and duplicates them in a document-wide one-row record.
+  It truncates at 3,072 tokens. No structure or values were accepted, and no automatic
+  retry occurred. Reducing repeated JSON alone did not fix item organization.
 
-All actual input requests fit 16,000 characters. Original observations, hashes and
-retained meaning ranges matched; cgroup swap/OOM stayed zero and host OOM did not
-increase. The owned server/container stopped and task-only source/transfer/activation
-copies were removed. Evidence is `structural-kpi-20260913/native-structure-13/`.
+Original observations, exact row ranges and input/source hashes matched. Cgroup
+swap/OOM stayed zero, host OOM did not increase, and the owned server/container stopped.
+Task-only source/transfer/activation copies were removed; shared services and packs
+were unchanged. This GPU development run is not CPU or GPU memory qualification.
+Evidence is `structural-kpi-20260913/native-wire-14/`; the earlier quotation/output
+failures remain in `native-structure-13/`.
 
-The follow-up native-structure v2 preserves the specific quotation error in the
-first structure repair instead of returning a generic invalid-contract message.
-Its bounded repair and full local regressions pass; **v2 has not been rerun on an
-actual model**. Native-structure v3 / wire v1 now removes repeated response IDs, whole-block quotations
-and per-cell column/source lists. It retains explicit states, distinct source overrides,
-exact partial quotes and bounded expansion. The value request shares occurrence context
-instead of repeating it for each column. New wire/expanded-state checkpoint checks and
-all local regressions pass; its actual model comparison is pending.
-An explicit structure-revision protocol and cross-region logical continuation are
-still unimplemented.
+Native-structure v4 shares identical closed value-choice definitions, removes the
+handle duplicated inside its own keyed entry, and sends no placeholder-skeleton
+errors as initial value feedback. Source text, formatting, bindings and per-handle
+constraints stay intact. On the retained original structure, the complete initial
+request falls to 15,760 characters; this is a request-size check, **not an actual
+model result**. Scripted HWPX extraction and checkpoint reuse pass at 16,000 characters.
+The v4 actual-model check is pending. Explicit source-grounded structure revision,
+cross-region logical continuation and varied independent quality remain open.
 
 
 ## Earlier HTML/PDF development evidence
@@ -344,7 +346,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The default structure/value split is implemented, but the v1 Spark comparison failed before business-value reading: invalid quote occurrences in the original, output truncation in the compact form. | Native-structure v3 / wire v1 now compacts the structural response and value context, preserving specific quotation feedback and all declared states. Verify actual full value/scope extraction within the same budgets; wire validity and local regressions are not model quality. Explicit structure revisions and cross-region logical continuation remain open. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v3 Spark comparison preserves two rows in the original but cannot dispatch values; the compact form duplicates fields and truncates. | Native-structure v4 losslessly reduces value requests below the measured input limit. Verify actual full value/scope extraction within the same budgets; request size and local regressions are not model quality. Explicit structure revisions and cross-region logical continuation remain open. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
