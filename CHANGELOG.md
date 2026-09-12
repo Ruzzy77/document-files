@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Table protocol v18 offers a source whose text is a bare number only the review
+  choices, never a meaning branch: a bare number states no unit, condition, note or
+  definition, and the continued-table development runs had selected plain data values
+  as carrying meaning and then quoted them for header definitions, which the details
+  phase rejected as a quote mismatch. Prior table-stage checkpoints are incompatible.
 - After a decided `continue` or `duplicate`, the later fragment's repeat and column
   keys follow the earlier fragment's keys by column position (recorded as
   `continuation_columns_renamed`), because regions are interpreted independently and

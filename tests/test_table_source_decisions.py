@@ -146,7 +146,7 @@ def test_empty_source_cannot_offer_a_meaning_branch_or_fabricated_space(sample):
     schema = meaning_decision_schema(doc, region, frozen)
     props = schema["properties"]["sourceDecisions"]["properties"]
     assert props["empty"] == {"$ref": "#/$defs/EmptySourceDecision"}
-    assert all(props[ref] == {"$ref": "#/$defs/SourceDecision"} for ref in ["h", "v", "a", "b"])
+    assert all(props[ref] == {"$ref": "#/$defs/SourceDecision"} for ref in ["h", "a", "b"])
     wire = source_decisions_from_flat(flat, inventory)
     item = meaning("blank", "note", " ")
     item.pop("sourceQuotes")
@@ -466,3 +466,33 @@ def test_transcribed_header_can_still_supply_an_explicit_unit(sample):
     assert result.meanings[0].sourceRanges[0].text == "mm"
     assert result.meanings[0].fieldIds == ["length"]
     assert compile_region(result, doc, region).data == compile_region(frozen, doc, region).data
+
+
+def test_bare_number_source_cannot_offer_a_meaning_branch(sample):
+    # Continued-table development runs selected plain data values as carrying meaning
+    # and then quoted them for header definitions; a bare number states nothing.
+    doc, region, frozen, inventory, flat = sample
+    schema = meaning_decision_schema(doc, region, frozen)
+    props = schema["properties"]["sourceDecisions"]["properties"]
+    assert doc.nodes["v"]["text"] == "001.2300"
+    assert props["v"] == {"$ref": "#/$defs/ValueOnlySourceDecision"}
+    decision = schema["$defs"]["ValueOnlySourceDecision"]["properties"]["decision"]
+    if "$ref" in decision:
+        decision = schema["$defs"][decision["$ref"].rsplit("/", 1)[-1]]
+    assert decision["enum"] == ["no_additional_meaning", "unresolved", "unreviewed"]
+    wire = source_decisions_from_flat(flat, inventory)
+    wire["sourceDecisions"]["v"] = {"decision": "has_meaning"}
+    assert list(Draft202012Validator(schema).iter_errors(wire))
+    for text, value_only in (
+        ("12", True),
+        ("1,234.50", True),
+        ("-3", True),
+        ("12 pcs", False),
+        ("0.30%", False),
+        ("A1", False),
+    ):
+        doc.nodes["v"]["text"] = text
+        branch = meaning_decision_schema(doc, region, frozen)["properties"]["sourceDecisions"][
+            "properties"
+        ]["v"]
+        assert (branch == {"$ref": "#/$defs/ValueOnlySourceDecision"}) is value_only, text

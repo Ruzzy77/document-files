@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 
 from .compiler import CompileError
 from .semantic_types import _compact_contract
@@ -15,6 +16,14 @@ from .table_sources import SourceReviewError, resolve_quotes
 
 VERSION = "document-files.table-source-decisions.v3"
 _REVIEW_ROLES = {"no_additional_meaning", "unresolved", "unreviewed"}
+# A bare number states no unit, condition, note or definition by itself; offering it a
+# meaning branch let the pinned model select plain data values and then quote them for
+# header definitions (continued-table development runs 9 to 13).
+_BARE_NUMBER = re.compile(r"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$")
+
+
+def bare_number(text):
+    return isinstance(text, str) and bool(_BARE_NUMBER.match(text.strip())) and text != ""
 
 
 def _require(condition, code):
@@ -33,6 +42,7 @@ def source_decisions_schema(flat_schema, inventory):
     for name, roles in (
         ("SourceDecision", _REVIEW_ROLES | {"has_meaning"}),
         ("EmptySourceDecision", _REVIEW_ROLES),
+        ("ValueOnlySourceDecision", _REVIEW_ROLES),
     ):
         definitions[name] = {
             "type": "object",
@@ -50,6 +60,8 @@ def source_decisions_schema(flat_schema, inventory):
                 source["sourceRef"]: {
                     "$ref": "#/$defs/EmptySourceDecision"
                     if source["text"] == ""
+                    else "#/$defs/ValueOnlySourceDecision"
+                    if bare_number(source["text"])
                     else "#/$defs/SourceDecision"
                 }
                 for source in inventory["sources"]
