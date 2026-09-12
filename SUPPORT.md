@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,732 tests,
+The full local check including the native outline path passed **2,756 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -157,7 +157,8 @@ relevance guard prototype was therefore **not adopted**; no relevance-based fiel
 suppression was added to the product. Calling the target only “business fields” is
 also too narrow for document identifiers, metadata and explicit missing states.
 
-A fresh native-parser/planner audit of the seed receipt establishes a harder limit:
+A native-parser/planner audit of the seed receipt established a representation limit
+in the previous source:
 
 - The source has two item records in prose and **no native table**. Every generated
   region contract sets `repeats.maxItems = 0`; `RepeatLink` requires a table reference.
@@ -167,11 +168,14 @@ A fresh native-parser/planner audit of the seed receipt establishes a harder lim
 - The model cannot select missing binding IDs or emit a forbidden record structure.
   More role repair or a different model cannot remove this representation limit.
 
-The next implementation must add bounded exact-source value grounding and logical
-records that do not require physical table geometry. Preserve native table handling,
-all source occurrences, exact values, explicit blanks and absent/unreadable/uncertain
-states. Do not turn prose into a fake observed table, globally expose arbitrary word
-fragments, or infer that a negative relevance flag authorizes omission.
+Native content protocol v3 / compiler v30 now implement exact owned-source quotes
+and logical records without native table geometry. The compiler reads the original
+values, preserves ordered occurrences, blank/missing states and source links, and
+connects columns/individual rows to applicability. Source observations remain
+immutable; public grounding coverage and rebuild-on-resume checks are included.
+The actual HWPX product interface passes scripted regressions. No real-model quality
+approval is implied. The original receipt still spans four managed-budget regions:
+logical-record continuation and complete model extraction remain unverified.
 
 `content-positive-diagnostic-06/` retains the requests, local prior expectations,
 explicit pre-review truth correction, rejected prototype and native representation
@@ -228,7 +232,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native text cannot express exact multi-attribute values or prose records.** `regions.py` hides token choices and `RepeatLink` requires physical table geometry. Negative relevance decisions also risk suppressing identifiers and missingness. | Add bounded original-text quote grounding and a separate logical-record contract/compiler. Reuse exact range/occurrence validation; preserve source identity, all record occurrences, blanks/missingness, scopes and checkpoint safety. Do not substitute a relevance filter or invent native table geometry. See the native-content design boundary in `docs/extraction-engine.md`. |
+| 1 | **Native quote/record compilation is implemented but actual complete extraction is not verified.** Managed text packing separates the seed receipt's item occurrences; logical records are not joined across regions. | Run fixed-budget product comparisons, then address actual packing/continuation and model-selection failures. Preserve all exact values, blanks/missingness and scope links; same-key conflicts must not silently overwrite records. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

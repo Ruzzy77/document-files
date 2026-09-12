@@ -261,6 +261,11 @@ private AI decision schema. `result_types` holds the public evidence/assertion t
   native text, `documentInterpretation` separates role/content statuses and usage.
   A role-only region stays `structure_compiled` and unprocessed for content;
   preserving its outline does not certify values or make extraction complete.
+  `nativeContentGrounding`, when present, records compiler-resolved quote bindings and
+  source-anchored logical occurrences by region. These are interpreted links, not new
+  entries in the original `document.bindings` or invented native tables. Values retain
+  normal v1 evidence and exact source addresses. Logical records may originate in prose;
+  their row indices are source-ordered occurrences, not physical table coordinates.
 - `resultRevision`: monotonically increasing committed snapshot version for retained results.
 
 Values come from bindings; the internal model cannot return a final `data` object

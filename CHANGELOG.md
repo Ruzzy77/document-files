@@ -4,6 +4,14 @@
 
 ### Document extraction
 
+- Add exact-source quotation grounding and logical records for HWP/HWPX native text.
+  Compile ordered values, explicit blanks/missing states and field/row scopes without
+  inventing native table geometry. Preserve source observations, public evidence and
+  grounding coverage; rebuild accepted quotes on resume and reject incompatible
+  compiler v30 / prompt v35 / native protocol v3 checkpoints. Scripted product-path
+  regressions pass; actual complete extraction and cross-region logical continuation
+  are not yet approved.
+
 - Separate original observations, structural interpretation, exact source-bound
   value compilation and semantic relationships behind unchanged public v1 APIs.
 - Add region ownership, bounded long-text views, declared header/column candidates,

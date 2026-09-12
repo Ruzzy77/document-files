@@ -150,6 +150,8 @@ class CompiledRegion:
     consumed_bindings: set[str] = field(default_factory=set)
     dispositions: list[dict] = field(default_factory=list)
     document_elements: list[dict] = field(default_factory=list)
+    grounded_bindings: dict[str, dict] = field(default_factory=dict)
+    logical_coverage: dict[str, dict] = field(default_factory=dict)
     repeat_paths: dict[str, dict] = field(default_factory=dict)
     row_scopes: dict[str, dict] = field(default_factory=dict)
     meaning_statuses: dict[str, str] = field(default_factory=dict)
@@ -164,6 +166,11 @@ class CompiledRegion:
 def compile_region(ir: RegionInterpretation, observation, region: dict, *, target_schema=None):
     if ir.regionId != region["id"]:
         raise CompileError("region_id_mismatch")
+    from .native_records import prepare as prepare_native_records
+
+    ir, observation, region, grounded, logical_anchors = prepare_native_records(
+        ir, observation, region
+    )
     nodes, bindings, tables = observation.nodes, observation.bindings, observation.tables
     allowed = set(region["nodeIds"]) | set(region.get("contextNodeIds", []))
     candidates = set(region["bindingIds"])
@@ -173,9 +180,13 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         by_source.setdefault(candidate["sourceRef"], {})[bid] = candidate
     catalog = target_catalog(target_schema)
     out = CompiledRegion(ir.regionId)
+    out.grounded_bindings = copy.deepcopy(grounded)
     try:
         out.document_elements = compile_elements(
-            ir.documentElements, observation, region, ir.fields
+            ir.documentElements,
+            observation,
+            region,
+            [*ir.fields, *(v for r in ir.logicalRecords for row in r.rows for v in row.values)],
         )
     except ValueError as exc:
         raise CompileError(str(exc)) from None
@@ -227,6 +238,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         raise CompileError("duplicate_group_id")
     ids = [f.id for f in ir.fields] + [r.id for r in ir.repeats] + list(groups)
     ids += [f.id for r in ir.repeats for f in r.columns]
+    ids += [r.id for r in ir.logicalRecords] + [c.id for r in ir.logicalRecords for c in r.columns]
     if len(ids) != len(set(ids)):
         raise CompileError("duplicate_component_id")
     entity_targets: dict[str, list[Target]] = {}
@@ -339,6 +351,8 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         transformation="source_binding",
     ):
         source_refs = refs(source_refs)
+        if binding_id in grounded:
+            transformation = "exact_source_quote"
         binding = None
         raw = ""
         if status in {"present", "blank"}:
@@ -923,6 +937,126 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 ).model_dump()
             )
 
+    # Logical record rows are interpreted occurrences, never synthetic native cells.
+    for record in ir.logicalRecords:
+        tokens, sp = location(record.key, record.groupId, record.targetHandle)
+        path = "/" + "/".join(map(escape, tokens)) if tokens else ""
+        rows, row_shape, columns = [], _object(), {}
+        if len({c.id for c in record.columns}) != len(record.columns):
+            raise CompileError("duplicate_logical_column_id")
+        for col in record.columns:
+            key = col.key
+            if target_schema is not None:
+                target = catalog.get(col.targetHandle)
+                if not target or target["tokens"][:-1] != [*tokens, "*"]:
+                    raise CompileError("repeat_column_target_handle_invalid")
+                key = target["tokens"][-1]
+            if key in columns:
+                raise CompileError("duplicate_repeat_column_property")
+            columns[key] = col
+            row_shape["properties"][key] = _schema(col.valueType, "present")
+            row_shape["required"].append(key)
+        record_target = Target(space="data", path=path)
+        definition(record.id, record.label, record.definitionRefs, sp, [record_target])
+        field_targets = {col.id: [] for col in record.columns}
+        row_targets[record.id] = {}
+        row_scope = {
+            "tableRef": None,
+            "recordRef": prefix + record.id,
+            "basis": "source_grounded_logical_occurrences",
+            "rowStart": 0,
+            "rowEnd": len(record.rows) - 1,
+            "dataOwnerRegionId": out.id,
+            "columns": {
+                col.id: {"column": index, "definitionId": prefix + col.id}
+                for index, col in enumerate(record.columns)
+            },
+            "rows": {},
+        }
+        for index, row in enumerate(record.rows):
+            selected_values = {v.columnId: v for v in row.values}
+            if len(selected_values) != len(row.values) or set(selected_values) != set(
+                field_targets
+            ):
+                raise CompileError("logical_record_values_do_not_match_columns")
+            row_targets[record.id][index] = []
+            row_scope["rows"][str(index)] = {
+                "role": "data",
+                "occurrenceId": row.id,
+                "sourceRefs": list(
+                    dict.fromkeys(s["sourceRef"] for s in logical_anchors[(record.id, row.id)])
+                ),
+                "sourceRanges": logical_anchors[(record.id, row.id)],
+                "targets": {},
+            }
+            item = {}
+            for key, col in columns.items():
+                value = selected_values[col.id]
+                target = Target(space="data", path=f"{path}/{index}/{escape(key)}")
+                field_targets[col.id].append(target)
+                row_targets[record.id][index].append(target)
+                row_scope["rows"][str(index)]["targets"][col.id] = target.model_dump()
+                item[key], shape = scalar(
+                    value.bindingId,
+                    col.valueType,
+                    value.status,
+                    value.sourceRefs,
+                    target,
+                    prefix + col.id,
+                )
+                old = row_shape["properties"][key]["type"]
+                new = shape["type"]
+                types = set(old if isinstance(old, list) else [old]) | set(
+                    new if isinstance(new, list) else [new]
+                )
+                row_shape["properties"][key]["type"] = (
+                    sorted(types) if len(types) > 1 else next(iter(types))
+                )
+            rows.append(item)
+        for key, col in columns.items():
+            definition(
+                col.id,
+                col.label,
+                col.definitionRefs,
+                f"{sp}/items/properties/{escape(key)}",
+                field_targets[col.id],
+            )
+        assign(tokens, rows, {"type": "array", "items": row_shape})
+        out.repeat_paths[record.id] = {
+            "path": path,
+            "schemaPath": sp,
+            "tableRef": None,
+            "recordRef": prefix + record.id,
+            "basis": "source_grounded_logical_occurrences",
+            "rowStart": 0,
+            "rowEnd": len(rows) - 1,
+            "columns": list(range(len(record.columns))),
+            "columnDefinitions": {str(i): prefix + c.id for i, c in enumerate(record.columns)},
+            "columnKeys": {str(i): c.key for i, c in enumerate(record.columns)},
+            "headerSourceRefs": [],
+        }
+        out.logical_coverage[record.id] = {
+            "recordRef": prefix + record.id,
+            "basis": "source_grounded_logical_occurrences",
+            "columnIds": list(field_targets),
+            "rows": copy.deepcopy(list(row_scope["rows"].values())),
+            "emptySourceRanges": copy.deepcopy(logical_anchors.get((record.id, None), [])),
+        }
+        if rows:
+            out.row_scopes[record.id] = row_scope
+        else:
+            spans = logical_anchors[(record.id, None)]
+            out.value_evidence.append(
+                Evidence(
+                    target=record_target,
+                    sourceRefs=list(dict.fromkeys(s["sourceRef"] for s in spans)),
+                    semanticIds=[prefix + record.id],
+                    raw="",
+                    status="blank",
+                    transformation="source_grounded_empty_logical_record",
+                ).model_dump()
+            )
+
     if ir.repeats and region.get("tableRef") in tables:
         region_cells = tables[region["tableRef"]]["cells"]
         data_rows = {
@@ -949,9 +1083,9 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
     meaning_ids = set()
     scope_ids = {
         "fieldIds": {f.id for f in ir.fields if f.id not in out.dropped_fields}
-        | {c.id for r in ir.repeats for c in r.columns},
+        | {c.id for r in [*ir.repeats, *ir.logicalRecords] for c in r.columns},
         "groupIds": set(groups),
-        "repeatIds": {r.id for r in ir.repeats},
+        "repeatIds": {r.id for r in [*ir.repeats, *ir.logicalRecords]},
     }
 
     def statement_fields(source_refs):
@@ -969,7 +1103,6 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 owned.add(item.id)
         return owned
 
-    repeats_by_id = {r.id: r for r in ir.repeats}
     owned_nodes = set(region["nodeIds"])
     disposition_roles = {d.sourceRef: d.role for d in ir.dispositions}
     consumed_refs = {bindings[b]["sourceRef"] for b in out.consumed_bindings}
@@ -1057,9 +1190,9 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             if meaning.rowStart > meaning.rowEnd or not meaning.repeatIds:
                 scope_errors.append("meaning_row_scope_invalid")
             for rid in meaning.repeatIds:
-                repeat = repeats_by_id.get(rid)
-                if repeat and (
-                    meaning.rowStart < repeat.rowStart or meaning.rowEnd > repeat.rowEnd
+                bounds = out.repeat_paths.get(rid)
+                if bounds and (
+                    meaning.rowStart < bounds["rowStart"] or meaning.rowEnd > bounds["rowEnd"]
                 ):
                     scope_errors.append("meaning_row_scope_outside_repeat")
         if scope_errors:

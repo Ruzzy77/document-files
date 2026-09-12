@@ -22,6 +22,7 @@ from .semantic_types import (
     MeaningSourceReview,
     RegionInterpretation,
     RepeatLink,
+    SourceQuote,
     TableMeaningState,
     _compact_contract,
     region_output_schema,
@@ -143,12 +144,6 @@ class TableMeaning(Contract):
     sourceReviews: list[MeaningSourceReview] = Field(max_length=1000)
     baseRevision: str | None = Field(pattern="^[0-9a-f]{64}$")
     changes: list[MeaningChange] = Field(max_length=100)
-
-
-class SourceQuote(Contract):
-    sourceRef: str
-    text: str = Field(min_length=1, max_length=16000)
-    occurrence: int = Field(default=0, ge=0)
 
 
 def _schema(model, observation, region, catalog):

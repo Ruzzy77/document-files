@@ -1124,6 +1124,15 @@ def extract_schema_from_stream(
         result["coverage"]["semanticAccounting"] = [
             d for c in compiled.values() for d in c.dispositions
         ]
+        if any(c.grounded_bindings or c.logical_coverage for c in compiled.values()):
+            result["coverage"]["nativeContentGrounding"] = {
+                c.id: {
+                    "valueBindings": copy.deepcopy(c.grounded_bindings),
+                    "logicalOccurrences": copy.deepcopy(c.logical_coverage),
+                }
+                for c in compiled.values()
+                if c.grounded_bindings or c.logical_coverage
+            }
         result["coverage"]["programCorrections"] = corrections
         result["coverage"]["semanticSourceReviews"] = [
             copy.deepcopy(c.meaning_review)
@@ -1893,12 +1902,15 @@ def extract_schema_from_stream(
                     candidate, observation, region, target_schema=selected.targetSchema
                 )
                 # Never discard committed content in exchange for a smaller-looking partial answer.
+                from .native_records import loses_logical_content
+
                 previous = compiled.get(rid)
                 # Values read from declared header cells are flagged misuse; a
                 # repair that stops reading them does not lose committed content.
                 regresses = previous is not None and (
                     not previous.consumed_bindings - previous.header_value_bindings
                     <= fragment.consumed_bindings
+                    or loses_logical_content(previous, fragment)
                     or len(local_issues(fragment)) >= len(local_issues(previous))
                 )
                 if regresses:

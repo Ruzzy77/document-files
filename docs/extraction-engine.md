@@ -110,7 +110,7 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v29, prompt v34, region plan v19 and document-outline v1 / document-protocol v2 identify this
+Compiler v30, prompt v35, region plan v19 and document-outline v1 / document-protocol v3 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
@@ -132,8 +132,8 @@ retains the accepted roles and exact original text bindings. It does not certify
 business values or semantic applicability from a role decision.
 
 The **content request** carries those roles as immutable context. Its response may
-supply fields, groups, meanings and explicit accounting, not roles or record-table
-structure. Whole structural-text bindings cannot become generic scalar copies.
+supply fields, groups, source-grounded logical records, meanings and explicit accounting,
+not roles or physical record-table structure. Whole structural-text bindings cannot become generic scalar copies.
 A source-derived inner `value` candidate whose exact range is strictly inside its
 text view remains eligible, including an explicit empty value. This does not discard
 any source or waive required candidate accounting. Units/conditions/notes remain
@@ -172,60 +172,69 @@ These are not model-quality approval. The unchanged failed native files retain
 their prior expectations and 12-call/900-second budgets. Additional layouts, binary
 HWP and long source views still need characterization and independent comparisons.
 
-#### Next native-content boundary: exact facts and logical records
+#### Exact text values and logical records
 
-This extension is **not implemented yet**. Positive/negative request controls did
-not justify using a field-relevance flag as a loss gate, and that prototype was not
-adopted. A field/meaning routing label is not the same as preservation of the fact.
-Document identifiers, metadata and explicit missing values are in scope, not only
-business/entity values. Pure structural text remains in the outline without needing
-a duplicate scalar, but its inner values and conditions cannot be discarded.
+Native content protocol v3 adds `FieldLink.sourceQuote` and `logicalRecords` to the
+private HWP/HWPX non-table response. Physical-table and other-format requests do not
+offer them, and the compiler rejects them outside native text regions. A relevance
+flag is not a loss gate: document identifiers, metadata and explicit missing states
+remain in scope. Pure titles and headings do not require duplicate scalar fields.
 
-The native seed-receipt audit confirms the present limitation: multi-attribute prose
-has no exact offered bindings for separate item names/counts, and every non-table
-contract prohibits repeats. This is an input/representation constraint, not solely a
-model-selection defect. Address both sides before another broad quality run:
+**Value grounding.** A present value selects either an offered `bindingId` or a
+nonempty `sourceQuote` (`sourceRef`, exact `text`, optional zero-based `occurrence`).
+The shared source-inventory resolver verifies owned views, exact Unicode spelling
+and ambiguous/overlapping literal occurrences. Repeated matches require an explicit
+occurrence. Models cannot supply offsets, normalized values or output pointers.
+Blank values still require an actual empty native binding; absence, unreadability
+and uncertainty are separate presence states, not empty quotations.
 
-1. **Exact value grounding.** Keep existing binding IDs and add a bounded exact-source
-   quotation alternative for native text values. Reuse `table_sources.source_inventory`
-   and `resolve_quotes`: only owned source views, exact Unicode text, no normalization,
-   no model-written offsets, and explicit zero-based occurrence for repeated/overlapping
-   matches. Code resolves original ranges and reads the source value; a quote proposal
-   is not permission to copy an invented value. Empty quotes do not establish blanks.
-   Explicit blanks retain existing source bindings, and missing/unreadable/uncertain
-   fields require their own evidence/status rather than a fabricated literal.
-2. **Logical records independent of tables.** Introduce a private record form with
-   exact source-owned occurrences and field/value links, then compile arrays, schema,
-   row order and evidence. Do not invent observed cells, geometry or a table reference
-   for prose. Equal-valued occurrences remain distinct. The physical-table protocol,
-   programmatic row traversal and native cell/formula/cache bindings stay unchanged.
-3. **Meaning and missingness.** Units, conditions, footnotes and stated absence can
-   occur with values in the same sentence. Preserve their typed state and applicability
-   independently of which internal response section proposed them. Shared units and
-   item-specific conditions must work on logical records as on native table records.
-   A source's general purpose text is not automatically an operating note on its data.
-4. **State and accounting.** Resolved quote bindings are interpreted, source-verified
-   links, not new native observations. Keep original nodes, observation identity and
-   bounded source views immutable. Derived bindings need deterministic identities,
-   coverage/evidence visibility and rebuild-on-resume verification. Check all required
-   candidates, source occurrences and committed fields/records; never mark a whole
-   multi-attribute paragraph covered merely because one substring was read. A private
-   protocol/compiler version change must reject incompatible checkpoints.
+`native_records.prepare` builds a compilation-local binding overlay. Quote IDs hash
+the verified source range/text identity; original nodes, native bindings and source
+views are not changed. Values are read by the existing scalar compiler and carry
+`exact_source_quote` evidence. A whole heading/title/caption cannot evade the
+structural-value check by being quoted or placed in a logical record.
 
-Owning changes span `semantic_types.py` (private links/records), native
-`document_protocol.py` (request boundary), `compiler.py` (source-grounded scalar and
-record compilation), source-range helpers, region accounting and integration scope
-handles. Do not ship an unused grounding helper or an isolated new output shape as
-if the product path supports it. Public v1 result/CLI/MCP contracts remain compatible.
+**Logical occurrences.** A `logicalRecords` entry defines columns once, then rows
+with exact source quotes and one value link/status per column. Every value's source
+must be inside its own occurrence anchors; overlapping anchors, repeated row IDs,
+missing/duplicate columns and foreign sources are rejected. Rows are sorted by original
+source position, not model response order or equal values. An empty array requires
+explicit nonempty `emptySourceQuotes`; code verifies the citation, while whether the
+source truly states emptiness remains a semantic quality question.
 
-Before adoption, check multiple values on one line, repeated literal occurrences,
-non-ASCII text, quotes outside a bounded view, ambiguous/absent quotes, explicit blank
-versus stated absence, cross-node definitions and mixed value/condition paragraphs.
-Then compare the complete native seed receipt and a differently laid-out equivalent
-form against frozen whole-result expectations within the original budget. Independent
-new HWP/HWPX and XLSX cases remain necessary after development corrections. Source-
-declared captions/headings, contextual readings and genuine ambiguity have distinct
-review criteria; author intent alone is not an observed role marker.
+The compiler creates arrays, schema, field/value evidence and scope targets without
+inventing observed tables or cells. Scope catalogs distinguish logical occurrences
+with `tableRef: null`, `recordRef` and `basis: source_grounded_logical_occurrences`.
+Their row indices are source-ordered occurrence indices, not physical geometry.
+`fieldIds` alone selects complete columns; bounded `repeatIds` plus row bounds and
+optional `fieldIds` selects only existing values in those occurrences. Unbounded
+record-plus-column IDs remain a union and cannot silently broaden an applicability
+intersection. Physical tables keep their existing row/cell/formula/cache traversal.
+
+**Limits, accounting and resume.** A region admits at most 1,000 logical rows and
+10,000 logical values, 10,000 distinct quotes and 5,000,000 source characters scanned
+for quotation matching. Anchors are checked in sorted order rather than pairwise
+across all rows. A limit violation is explicit; no tail is silently truncated.
+All required native candidates still need consumption or an explicit disposition;
+reading one substring never waives the rest of a multi-attribute paragraph. Public
+`coverage.nativeContentGrounding` exposes derived value links and logical occurrence
+anchors separately from original observations. Repairs cannot drop an accepted
+occurrence or column to hide an unbound missing value. Accepted quotes and records
+are recompiled on resume, and old compiler/prompt/native-protocol identities fail.
+
+Direct regressions exercise the actual HWPX reader, native role/content wire, exact
+values, ordering, blank/absence, column and row-specific scopes, target-schema handles,
+source immutability and checkpoint rebuilding. They do **not** approve AI quality.
+
+**Remaining boundaries.** The original seed receipt is split into four text regions
+at the managed 16,000-character request budget. This extension does not yet join
+logical records across regions; same-key arrays conflict visibly rather than merge
+without a decision. Native packing still reserves a coarse fixed contract allowance.
+Complete comparisons of this receipt and a differently arranged equivalent must
+check all records, identifiers, missingness and scopes within the unchanged document
+budget. Further packing/continuation changes need their own tests; larger budgets
+or a single compact fixture cannot stand in for long-document correctness. Independent
+new HWP/HWPX and XLSX cases are still required after development fixes.
 
 ## 2. PDF recognition and optional visual reading
 
@@ -486,10 +495,11 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v34 / v19 / v29 |
-| Document outline / native role-content protocol | v1 / v2 |
+| Semantic prompt / region plan / result compiler | v35 / v19 / v30 |
+| Document outline / native role-content protocol | v1 / v3 |
 | Table protocol / table reference wire | v20 / v2 |
-| Scope integration / scope-axis protocol | v13 / v6 |
+| Scope integration / scope-axis protocol | v14 / v6 |
+| Scope row-axis wire | v2 |
 | Scope selection wire / source binding / regional checkpoint | v2 / v2 / v3 |
 | Recognition adapter | 29 |
 | PDF review / unit display / visual application | v16 / v2 / v4 |

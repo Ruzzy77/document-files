@@ -11,7 +11,7 @@ from ..result_types import Contract
 from .document_outline import DocumentElement, constrain_schema
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v29"
+COMPILER_VERSION = "document-files.result-compiler.v30"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -25,8 +25,15 @@ class FieldDefinition(Contract):
     targetHandle: str | None = None
 
 
+class SourceQuote(Contract):
+    sourceRef: str
+    text: str = Field(min_length=1, max_length=16000)
+    occurrence: int = Field(default=0, ge=0)
+
+
 class FieldLink(FieldDefinition):
     bindingId: str | None = None
+    sourceQuote: SourceQuote | None = None
     status: Presence = "present"
     groupId: str | None = None
 
@@ -61,6 +68,32 @@ class RepeatLink(Contract):
     columns: list[ColumnLink] = Field(min_length=1, max_length=200)
     rowRoles: list[RowRole] = Field(default_factory=list, max_length=1000)
     definitionRefs: list[str] = Field(min_length=1)
+    groupId: str | None = None
+    targetHandle: str | None = None
+
+
+class LogicalValue(Contract):
+    columnId: str = Field(min_length=1, max_length=120)
+    bindingId: str | None = None
+    sourceQuote: SourceQuote | None = None
+    status: Presence
+    sourceRefs: list[str] = Field(min_length=1, max_length=50)
+
+
+class LogicalRow(Contract):
+    id: str = Field(min_length=1, max_length=120)
+    sourceQuotes: list[SourceQuote] = Field(min_length=1, max_length=50)
+    values: list[LogicalValue] = Field(min_length=1, max_length=200)
+
+
+class LogicalRecord(Contract):
+    id: str = Field(min_length=1, max_length=120)
+    key: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=500)
+    definitionRefs: list[str] = Field(min_length=1, max_length=50)
+    columns: list[FieldDefinition] = Field(min_length=1, max_length=200)
+    rows: list[LogicalRow] = Field(max_length=500)
+    emptySourceQuotes: list[SourceQuote] = Field(default_factory=list, max_length=10)
     groupId: str | None = None
     targetHandle: str | None = None
 
@@ -135,6 +168,7 @@ class RegionInterpretation(Contract):
     fields: list[FieldLink] = Field(default_factory=list, max_length=500)
     groups: list[Group] = Field(default_factory=list, max_length=200)
     repeats: list[RepeatLink] = Field(default_factory=list, max_length=100)
+    logicalRecords: list[LogicalRecord] = Field(default_factory=list, max_length=100)
     meanings: list[Meaning] = Field(default_factory=list, max_length=500)
     dispositions: list[Disposition] = Field(default_factory=list, max_length=5000)
     excludedBindings: list[BindingDisposition] = Field(default_factory=list, max_length=2000)
@@ -153,6 +187,9 @@ def region_output_schema(observation, region, target_handles=None, *, compact=Tr
     schema = RegionInterpretation.model_json_schema()
     # These are compiler/checkpoint metadata, not the scalar interpretation wire.
     schema["properties"].pop("tableMeaningState")
+    # Offered only by the native text-content protocol, not physical table stages.
+    schema["properties"]["logicalRecords"]["maxItems"] = 0
+    schema["$defs"]["FieldLink"]["properties"].pop("sourceQuote")
     schema["$defs"]["Meaning"]["properties"].pop("sourceRanges")
     # The typed IR can read historical compact decisions with defaults, while
     # new model responses must explicitly select a binding and presence state.

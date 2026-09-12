@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from .scope_reference_wire import prepare_scope_wire
 
-VERSION = "document-files.scope-axis-wire.v1"
+VERSION = "document-files.scope-axis-wire.v2"
 MAX_SELECTIONS = 100
 
 
@@ -300,6 +300,8 @@ def prepare_scope_axis_wire(tasks):
             mapping, options = scope["mapping"], public["rowOptions"]
             if (
                 options["tableRef"] != mapping["tableRef"]
+                or options.get("recordRef") != mapping.get("recordRef")
+                or options.get("basis") != mapping.get("basis")
                 or options["rowStart"] != mapping["rowStart"]
                 or options["rowEnd"] != mapping["rowEnd"]
                 or {c["columnId"] for c in options["columns"]} != set(mapping["columns"])
@@ -368,6 +370,7 @@ def prepare_scope_axis_wire(tasks):
                         "rowRef": ref,
                         "targetHandle": handle,
                         "tableRef": options["tableRef"],
+                        **{key: options[key] for key in ("recordRef", "basis") if key in options},
                         **copy.deepcopy(row),
                         **extra,
                     }
@@ -388,7 +391,11 @@ def prepare_scope_axis_wire(tasks):
         if boundaries or records:
             display["rowBoundaryCandidates"] = boundaries
             display["rowNumbering"] = {
-                "row": "Zero-based source table coordinate, including non-data rows.",
+                "row": (
+                    "Zero-based source table coordinate (including non-data rows), or, when "
+                    "basis is source_grounded_logical_occurrences, source-ordered logical "
+                    "occurrence index. Logical indices are not observed table geometry."
+                ),
                 "dataRowNumberInFragment": (
                     "One-based order of compiler-classified data rows in this source fragment "
                     "only; not a global document record number."

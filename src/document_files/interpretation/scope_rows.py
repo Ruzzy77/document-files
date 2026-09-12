@@ -1,4 +1,4 @@
-"""Validate row ranges over compiler-owned geometry without inventing cells/values."""
+"""Select compiler-owned physical rows or source-grounded logical occurrences."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ def row_options(region, repeat_id):
     return copy.deepcopy(
         {
             "tableRef": catalog["tableRef"],
+            **{key: catalog[key] for key in ("recordRef", "basis") if key in catalog},
             "rowStart": catalog["rowStart"],
             "rowEnd": catalog["rowEnd"],
             "columns": [
