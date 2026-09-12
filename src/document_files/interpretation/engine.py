@@ -357,7 +357,11 @@ def _initial_result(job, observation, analyzer, selected, client, content):
     return result
 
 
-INTEGRATION_MAX_OUTPUT_TOKENS = 1536
+# The relation decision weighs a repeated header, a continuation marker and new rows
+# against each other; without reasoning the pinned model called any page with new
+# rows a separate table (ninth and eleventh continued-table runs).
+INTEGRATION_MAX_OUTPUT_TOKENS = 2048
+INTEGRATION_REASONING_BUDGET = 1024
 
 
 def integration_candidate(candidate):
@@ -1135,6 +1139,7 @@ def extract_schema_from_stream(
         table_phase=None,
         scope_phase=False,
         max_output_tokens=None,
+        reasoning_budget_tokens=None,
     ):
         if cancelled and cancelled():
             raise ModelError("ai_cancelled")
@@ -1190,7 +1195,9 @@ def extract_schema_from_stream(
                             messages=messages,
                             output_schema=contract,
                             reasoning_budget_tokens=(
-                                scope_execution["reasoningBudgetTokens"] if scope_phase else None
+                                scope_execution["reasoningBudgetTokens"]
+                                if scope_phase
+                                else reasoning_budget_tokens
                             ),
                             max_output_tokens=(
                                 scope_execution["maxOutputTokens"]
@@ -1743,6 +1750,11 @@ def extract_schema_from_stream(
                     payload,
                     integration_contract(batch),
                     max_output_tokens=INTEGRATION_MAX_OUTPUT_TOKENS,
+                    reasoning_budget_tokens=(
+                        INTEGRATION_REASONING_BUDGET
+                        if isinstance(client, ManagedPackClient)
+                        else None
+                    ),
                 )
             )
             ids = [c.candidateId for c in integrated.continuations]

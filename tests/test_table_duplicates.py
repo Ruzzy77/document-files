@@ -160,7 +160,7 @@ def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False):
 
 
 def test_versions_and_contract_name_the_duplicate_decision():
-    assert PROMPT_VERSION == "document-files.semantic-prompts.v28"
+    assert PROMPT_VERSION == "document-files.semantic-prompts.v29"
     assert COMPILER_VERSION == "document-files.result-compiler.v22"
     assert SCOPE_VERSION == "document-files.scope-integration.v13"
     assert "duplicate" in INTEGRATE and "continue is not offered there" in INTEGRATE
@@ -184,6 +184,7 @@ def test_candidates_carry_row_identity_whole_edge_rows_and_text_counterparts():
     assert candidate["basis"] == "adjacent_page_column_candidate"
     assert (candidate["leftRows"], candidate["rightRows"]) == (4, 4)
     assert candidate["rightRepeatsLeft"] is True
+    assert candidate["rightHeaderRepeatsLeft"] is True
     refs = candidate["sourceRefs"]
     # The same positions of both tables: first two rows and the last row, whole rows.
     for prefix in ("p1", "p2"):
@@ -214,6 +215,9 @@ def test_candidates_carry_row_identity_whole_edge_rows_and_text_counterparts():
     doc, regions, _ = two_pages(rows2=(("Name", "Amount"), ("D", "4"), ("E", "5"), ("F", "6")))
     (candidate,) = continuation_candidates(doc, regions)
     assert candidate["rightRepeatsLeft"] is False
+    assert candidate["rightHeaderRepeatsLeft"] is True
+    doc, regions, _ = two_pages(rows2=(("Part", "Count"), ("D", "4"), ("E", "5"), ("F", "6")))
+    assert continuation_candidates(doc, regions)[0]["rightHeaderRepeatsLeft"] is False
     (branch,) = integration_contract([candidate])["properties"]["continuations"]["items"]["anyOf"]
     assert branch["properties"]["decision"]["enum"] == ["continue", "separate", "unresolved"]
 

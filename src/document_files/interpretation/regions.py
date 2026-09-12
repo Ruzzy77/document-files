@@ -685,6 +685,10 @@ def _cell_texts(observation, table):
     }
 
 
+def _row_texts(texts, row):
+    return [text for (r, _), text in sorted(texts.items()) if r == row]
+
+
 def _row_refs(table, rows, *, limit=8):
     """Cell references of whole rows, bounded to the first columns of wide tables."""
     refs = []
@@ -821,6 +825,9 @@ def continuation_candidates(observation, regions):
                 "leftRows": len(rows_a),
                 "rightRows": len(rows_b),
                 "rightRepeatsLeft": bool(texts_a) and texts_a == texts_b,
+                "rightHeaderRepeatsLeft": bool(rows_a)
+                and bool(rows_b)
+                and _row_texts(texts_a, rows_a[0]) == _row_texts(texts_b, rows_b[0]),
                 # Both pages' interpreted text lines (titles, continuation markers,
                 # statements) are the relation's context: the ninth continued-table
                 # run never saw the page 2 title or its "(continued)" marker because

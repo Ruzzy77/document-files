@@ -58,8 +58,12 @@
   with new rows a separate table without ever seeing that page's title or its
   "(continued)" marker. Cell views carry only text, table, row and column, line boxes
   are integers, at most eight lines per page are offered, and the relation call
-  reserves 1,536 output tokens instead of the managed maximum, because the tenth run's
-  two-page evidence then exceeded the model context.
+  reserves 2,048 output tokens with a 1,024-token reasoning budget on the managed
+  client instead of the managed maximum without reasoning, because the tenth run's
+  two-page evidence exceeded the model context and the ninth and eleventh runs called
+  any page with new rows a separate table. Each candidate also states whether the
+  right table's first row repeats the left header (`rightHeaderRepeatsLeft`), and the
+  prompt names that as the usual continuation (prompt v29).
   Repeated-text counterparts consider interpreted region members only, because the
   observation keeps every channel's copy of a line (native lines, recognizer source
   cells, superseded text) and those copies had made every wording ambiguous. The relation
