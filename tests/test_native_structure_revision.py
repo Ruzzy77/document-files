@@ -11,6 +11,7 @@ from test_native_structure import prepared
 from document_files.interpretation import native_structure_revision as revision
 from document_files.interpretation.backends import InferenceResponse, ModelError
 from document_files.interpretation.document_protocol import digest
+from document_files.interpretation.native_structure_history import expand as expand_history
 
 RAW = raw_document(("Measure: 12.5000",))
 
@@ -39,7 +40,7 @@ class RevisionModel(StagedModel):
             if self.review == "retain":
                 value["decision"] = "retain"
             else:
-                field = copy.deepcopy(payload["previousStructure"]["fields"][0])
+                field = copy.deepcopy(expand_history(payload["previousStructure"])["fields"][0])
                 field["valueType"] = "decimal"
                 value.update(
                     decision="replace",
@@ -342,7 +343,7 @@ def test_accepted_revision_replans_batches_and_preserves_retired_read_cost():
             if payload["documentStage"] == "structureRevision":
                 self.calls.append(payload)
                 self.revised = True
-                wire = copy.deepcopy(payload["previousStructure"])
+                wire = expand_history(payload["previousStructure"])
                 wire["fields"][0]["label"] = "Reviewed reading 00"
                 return InferenceResponse(
                     json.dumps(
@@ -354,7 +355,11 @@ def test_accepted_revision_replans_batches_and_preserves_retired_read_cost():
                             "changes": [
                                 {
                                     "action": "replace",
-                                    "before": payload["previousEntityIds"],
+                                    "before": list(
+                                        revision.inventory(
+                                            expand_history(payload["previousStructure"])
+                                        )
+                                    ),
                                     "after": list(revision.inventory(wire)),
                                     "anchors": ["n1"],
                                     "reason": "The source supports all thirty-two definitions.",

@@ -4,6 +4,13 @@
 
 ### Document extraction
 
+- Fit explicit native structure review by sharing property names in prior object
+  arrays (native-structure v10 / revision v3). Preserve all previous decisions and
+  source context, keep the canonical checkpoint unmodified, and retain complete
+  entity/source checks. Clarify that value quotes select the exact inner value,
+  not a surrounding citation sentence; this does not establish correct occurrence
+  selection or approve model quality.
+
 - Share repeated native source metadata across role, structure, value, accounting
   and revision requests without trimming original text, formatting or XML references
   (document protocol v7 / native-structure v9). Keep per-source text/role/range explicit,

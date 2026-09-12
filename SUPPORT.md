@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,943 tests,
+The full local check including the native outline path passed **2,953 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -253,7 +253,7 @@ observations and shutdown checks passed, and task-only transfer copies were remo
 
 ### Structure-first native implementation
 
-Native protocol v7 / native-structure v9, compiler v32 and prompt v39 now discover
+Native protocol v7 / native-structure v10, compiler v32 and prompt v39 now discover
 fields/types/repeated occurrences from original blocks before showing parser value
 candidates. Value choices cannot rename, remove or change those commitments. Exact
 meaning quotes remain separate from their applicability decisions. Failed values
@@ -449,6 +449,28 @@ persistent service. Shared RPC identity/settings and host OOM were unchanged. Th
 server had a 16 GiB cgroup limit and no cgroup swap allowance; the host still had swap
 configured, and GPU allocations are not fully represented by that cgroup counter. This
 is not CPU-only memory, managed-pack, independent holdout or formal runtime qualification.
+
+### Focused native review and value-selector correction
+
+Two four-call Spark-B diagnostics compared shorter instructions, record-first property
+ordering, explicit inner-value selection and typed decoding on the same source requests.
+No expected answers were supplied. Neither whole prompt replacement nor property
+reordering passed structural quality, so they were not adopted. Typed decoding removed
+syntax/type violations but did not fix missing row states or wrong structure. Explicit
+substring wording selected numeric literals, yet the two equal counts still pointed to
+the first occurrence. Adding accepted roles alone did not prevent a whole-title value.
+These are diagnostic comparisons, not full-product or independent accuracy passes.
+
+Native-structure v10 / revision v3 now shares repeated property names in the previous
+structure and accepted-role arrays. Their complete values, order and optional-key states
+round-trip unchanged; the saved canonical history is not rewritten. The same blocked
+review request measures **15,878 characters**, down from 18,819, within the unchanged
+16,000-character input limit. This is sizing and regression evidence, not a model review
+success. Value instructions now explicitly permit exact inner value substrings instead
+of surrounding citation sentences. Correct repeated-value positions, primary-format
+structure and whole-result quality remain unapproved. Evidence is retained in private
+`native-prompt-study-22/`, `native-schema-study-23/` and `native-review-24/` under
+`structural-kpi-20260913/`.
 
 ## Earlier HTML/PDF development evidence
 
