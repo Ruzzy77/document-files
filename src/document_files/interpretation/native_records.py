@@ -16,6 +16,21 @@ def enabled(observation, region):
     )
 
 
+def binding_within_occurrence(binding, spans):
+    """The same ownership check governs offered choices and compiled row values."""
+    return binding is not None and any(
+        span["sourceRef"] == binding["sourceRef"]
+        and (
+            binding["path"] != "/text"
+            or (
+                type(binding.get("start")) is int
+                and span["start"] <= binding["start"] <= binding["end"] <= span["end"]
+            )
+        )
+        for span in spans
+    )
+
+
 def prepare(ir, observation, region):
     """Create a compilation-local binding overlay; never mutate original observations."""
     from .compiler import CompileError
@@ -113,20 +128,7 @@ def prepare(ir, observation, region):
                         if value.bindingId in candidate_ids
                         else None
                     )
-                    if binding is None or not any(
-                        span["sourceRef"] == binding["sourceRef"]
-                        and (
-                            binding["path"] != "/text"
-                            or (
-                                type(binding.get("start")) is int
-                                and span["start"]
-                                <= binding["start"]
-                                <= binding["end"]
-                                <= span["end"]
-                            )
-                        )
-                        for span in row_ranges
-                    ):
+                    if not binding_within_occurrence(binding, row_ranges):
                         raise CompileError("logical_value_binding_outside_occurrence")
                 elif value.bindingId is not None:
                     raise CompileError("logical_missing_value_cannot_bind_source")

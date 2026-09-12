@@ -1870,6 +1870,8 @@ def extract_schema_from_stream(
         return False
 
     def interpret_native_structure(region, roles):
+        from .native_structure_wire import StructureContractError, validate
+
         rid = region["id"]
         state = document_states[rid]["structure"]
         payload, contract = native_structure.request(
@@ -1896,8 +1898,7 @@ def extract_schema_from_stream(
                     if isinstance(client, ManagedPackClient)
                     else None,
                 )
-                if not Draft202012Validator(contract).is_valid(value):
-                    raise ValueError("invalid_native_structure_contract")
+                validate(value, contract)
                 structure = native_structure.decode_structure(value, observation, region)
                 stub = native_structure.interpretation(structure, roles, observation, region)
                 fragment = compile_region(
@@ -1938,8 +1939,11 @@ def extract_schema_from_stream(
                     }
                     else "invalid_native_structure_contract"
                 )
-                state.update(status="failed", feedback=[feedback])
-                issue("native_structure_invalid", regionId=rid, errors=[feedback])
+                diagnostics = (
+                    exc.diagnostics if isinstance(exc, StructureContractError) else [feedback]
+                )
+                state.update(status="failed", feedback=diagnostics)
+                issue("native_structure_invalid", regionId=rid, errors=diagnostics)
                 save("interpreting")
         return None
 

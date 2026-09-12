@@ -4,6 +4,12 @@
 
 ### Document extraction
 
+- Remove impossible native binding choices using the original scalar reader and
+  shared occurrence-ownership check (native-structure v7). Keep source observations,
+  required accounting, exact quote alternatives and unresolved frozen fields intact.
+  Structural repair now identifies schema-owned paths/types without echoing raw values
+  or unknown property names; neither mechanism certifies semantic correctness.
+
 - Partition oversized native value requests without trimming original source or
   formatting (native-structure v6 / native-value-batches v1). Preserve the complete
   frozen structure, compile accumulated reads, then account for remaining candidates

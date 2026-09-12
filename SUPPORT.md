@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,894 tests,
+The full local check including the native outline path passed **2,913 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -253,7 +253,7 @@ observations and shutdown checks passed, and task-only transfer copies were remo
 
 ### Structure-first native implementation
 
-Native protocol v6 / native-structure v6, compiler v32 and prompt v39 now discover
+Native protocol v6 / native-structure v7, compiler v32 and prompt v39 now discover
 fields/types/repeated occurrences from original blocks before showing parser value
 candidates. Value choices cannot rename, remove or change those commitments. Exact
 meaning quotes remain separate from their applicability decisions. Failed values
@@ -340,11 +340,15 @@ and source/transfer/activation copies were removed after collection. Evidence is
 `native-batches-17/` and `shared-batches-18/` in the same private qualification directory.
 The managed startup cause remains undetermined; no CPU/GPU memory qualification is claimed.
 
-The next correction must improve structural discovery/review and offer only bindings
-that can actually represent the committed type and presence state. Do not accept null
-attribute labels, reinterpret nonempty text as an observed blank, or drop fields to
-manufacture success. Explicit structure revision, cross-region logical context/continuation
-and varied independent quality remain open.
+The v7 follow-up filters impossible binding choices with the unchanged source reader,
+including type/presence conflicts and values outside their logical occurrence anchors.
+Original candidates remain available for context and accounting; exact inner quotes
+remain an alternative. Structural contract repair now identifies the invalid member
+and expected type without exposing raw text. Nineteen focused regressions cover these
+constraints, including equal-valued occurrences and null-label repair. Actual-model
+verification of v7 remains pending. These changes do not establish accurate structural
+discovery: explicit structure revision, cross-region logical context/continuation and
+varied independent quality remain open. No field is removed to manufacture success.
 
 
 
@@ -396,7 +400,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The v6 model comparison fails before the new batch path: value-like/null attribute labels, item scalars instead of records, and nonempty sources selected as blanks. | Preserve batching/checkpoint guarantees while correcting structural discovery and source-valid value choices. Add explicit source-grounded structure revision and identify invalid members precisely; do not weaken source/type/state checks or delete fields to pass. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v6 model comparison fails before the new batch path: value-like/null attribute labels, item scalars instead of records, and nonempty sources selected as blanks. | Source-valid choice filtering and precise invalid-member repair are implemented in v7, with actual-model verification pending. Add explicit source-grounded structure revision and cross-region context; do not weaken source/type/state checks or delete fields to pass. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

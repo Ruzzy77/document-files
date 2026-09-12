@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from jsonschema import Draft202012Validator
 from pydantic import Field
 
 from ..result_types import Contract
@@ -16,6 +17,45 @@ from .semantic_types import Disposition, Group, Presence, SourceQuote, ValueType
 from .table_sources import source_inventory
 
 VERSION = "document-files.native-structure-wire.v1"
+
+
+class StructureContractError(ValueError):
+    """Schema-owned paths and rules only; no source/model strings in feedback."""
+
+    def __init__(self, diagnostics):
+        super().__init__("invalid_native_structure_contract")
+        self.diagnostics = [str(self), *diagnostics]
+
+
+def validate(value, schema):
+    members = set(schema.get("properties", {}))
+    for definition in schema.get("$defs", {}).values():
+        members.update(definition.get("properties", {}))
+    diagnostics = []
+    for error in Draft202012Validator(schema).iter_errors(value):
+        path = "/" + "/".join(
+            str(p) if type(p) is int else p if p in members else "unknown_member"
+            for p in error.absolute_path
+        )
+        rule = error.validator
+        if rule == "type":
+            # validator_value is from the product's contract, never the reply.
+            expected = error.validator_value
+            rule = "expected=" + (expected if isinstance(expected, str) else "|".join(expected))
+        elif rule == "required":
+            missing = [k for k in error.schema["required"] if k not in error.instance]
+            rule = "missing=" + ",".join(k for k in missing if k in members)
+        elif rule == "additionalProperties":
+            rule = "unexpected_member"
+        elif rule in {"enum", "const"}:
+            rule = "value_not_offered"
+        code = "native_structure_contract:" + path + ":" + rule
+        if code not in diagnostics:
+            diagnostics.append(code)
+        if len(diagnostics) >= 11:
+            break
+    if diagnostics:
+        raise StructureContractError(diagnostics)
 
 
 class Definition(Contract):

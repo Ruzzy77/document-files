@@ -117,18 +117,20 @@ class WrongCandidate(StagedModel):
         return InferenceResponse(json.dumps(value), {})
 
 
-def test_type_repair_identifies_the_offered_choice_without_raw_source_in_diagnostic():
+def test_type_repair_identifies_the_rejected_choice_without_raw_source_in_diagnostic():
     model = WrongCandidate()
     result = execute(model, raw=raw_document(("Count: requested 5",)))
     assert result["data"] == {"count": 5} and result["extraction"]["status"] == "complete"
     assert model.calls == 4
     feedback = model.content_requests[1]["repairFeedback"]
-    assert feedback[0] == "binding_cannot_represent_requested_type"
-    assert json.loads(feedback[1].removeprefix("invalid_value_selection:")) == {
+    assert "binding_cannot_represent_requested_type" in feedback
+    detail = next(x for x in feedback if x.startswith("invalid_value_selection:"))
+    assert json.loads(detail.removeprefix("invalid_value_selection:")) == {
         "bindingId": model.bad_id,
         "requestedType": "integer",
     }
     assert "requested 5" not in json.dumps(feedback)
+    assert any(x.startswith("native_value_selection_invalid:@value1") for x in feedback)
     assert all("exactText" not in b for b in result["document"]["bindings"].values())
 
 

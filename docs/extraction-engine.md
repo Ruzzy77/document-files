@@ -138,10 +138,25 @@ record columns, every occurrence, types and missing states. Exact row anchors an
 separate unit/condition/note quotes must resolve within owned sources. The compiler
 creates a partial structure before any values are read.
 
+Structural contract repair identifies the exact schema-owned member path and expected
+type, for example a null field label where a string is required. Unknown property names
+and source/model values are never echoed. The decoder does not fill missing labels,
+accept nulls or treat a contract-valid label as semantically correct.
+
 The **value request** offers program-owned handles for present/blank fields and cells.
 The response selects a binding, exact quotation or unresolved value for each handle;
 it cannot alter field names, types, presence decisions or occurrence structure. Missing
 states remain source-grounded structural decisions, not value-stage downgrades.
+Native-structure v7 uses `native_value_choices.py` to remove only impossible binding
+choices: source/type read failures, nonempty-as-blank or empty-as-present selections,
+unresolved observation conflicts, invalid decimal spelling, and sources outside the
+handle or logical occurrence. It uses the unchanged scalar reader and the compiler's
+row-anchor test; display hints cannot override original observations. A compound
+numeric candidate can still be represented by a narrower verified quote. Binding
+text and required-candidate accounting remain complete. No viable blank binding leaves
+only `unresolved`; the structure is not silently reclassified. An offered choice is
+source-readable, not proof of the correct attribute or occurrence within a row.
+
 Definition sources are separate from value sources. Already compiled roles, fields
 and rows survive a failed value call. A value-free region with no required candidates
 finishes deterministically without an empty model call. Physical tables retain their
@@ -155,7 +170,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v6 and native-structure v6 identify the three-stage execution;
+own configured reasoning behavior. Protocol v6 and native-structure v7 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 The unchanged native development comparison did not improve with reasoning enabled;
@@ -698,7 +713,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v39 / v20 / v32 |
-| Document outline / native role-content protocol / native structure | v1 / v6 / v6 |
+| Document outline / native role-content protocol / native structure | v1 / v6 / v7 |
 | Native structural response wire / native value batches | v1 / v1 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
