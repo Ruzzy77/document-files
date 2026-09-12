@@ -357,6 +357,9 @@ def _initial_result(job, observation, analyzer, selected, client, content):
     return result
 
 
+INTEGRATION_MAX_OUTPUT_TOKENS = 1536
+
+
 def integration_candidate(candidate):
     """The relation evidence the model sees; text counterparts stay compiler evidence."""
     return {k: v for k, v in candidate.items() if k != "nodeCounterparts"}
@@ -1131,6 +1134,7 @@ def extract_schema_from_stream(
         meaning_wire=None,
         table_phase=None,
         scope_phase=False,
+        max_output_tokens=None,
     ):
         if cancelled and cancelled():
             raise ModelError("ai_cancelled")
@@ -1196,7 +1200,10 @@ def extract_schema_from_stream(
                                     1536 if table_phase == "selection" else STAGE_MAX_OUTPUT_TOKENS,
                                 )
                                 if table_stage is not None
-                                else getattr(client, "max_output_tokens", None) or 8192
+                                else min(
+                                    getattr(client, "max_output_tokens", None) or 8192,
+                                    max_output_tokens or 8192,
+                                )
                             ),
                             timeout=timeout,
                             cancelled=cancelled,
@@ -1727,8 +1734,16 @@ def extract_schema_from_stream(
         refs = {r for c in batch for r in c["sourceRefs"]}
         payload = integration_payload(batch)
         try:
+            # A relation answer is a decision, cited nodes and a bounded explanation;
+            # the managed context check reserves the output allowance, so a smaller
+            # allowance leaves room for both pages' evidence.
             integrated = DocumentIntegration.model_validate(
-                invoke(INTEGRATE, payload, integration_contract(batch))
+                invoke(
+                    INTEGRATE,
+                    payload,
+                    integration_contract(batch),
+                    max_output_tokens=INTEGRATION_MAX_OUTPUT_TOKENS,
+                )
             )
             ids = [c.candidateId for c in integrated.continuations]
             if set(ids) != {c["id"] for c in batch} or len(ids) != len(set(ids)):

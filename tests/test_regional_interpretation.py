@@ -165,6 +165,45 @@ def test_bound_text_does_not_silently_account_for_an_uncovered_condition():
     assert any(issue["code"] == "node_semantics_unaccounted" for issue in result["issues"])
 
 
+def test_field_bound_to_a_nodes_entire_text_accounts_for_it_without_a_disposition():
+    # The ninth continued-table run bound a page title's whole content binding to a
+    # field, gave no disposition, and was sent to a repair that dropped the title.
+    from document_files.interpretation.semantic_types import FieldLink
+
+    doc = ObservationDocument()
+    ref = doc.node("t", "Parts Record", role="section_header")
+    whole = doc.bind(ref, start=0, end=12, candidateRole="content")
+    partial = doc.bind(ref, start=0, end=5, candidateRole="lexeme")
+    region = {"id": "r", "nodeIds": [ref], "bindingIds": [whole, partial], "contextNodeIds": []}
+    field = FieldLink(
+        id="title",
+        key="title",
+        label="Title",
+        definitionRefs=[ref],
+        bindingId=whole,
+        valueType="string",
+    )
+    ir = RegionInterpretation.model_validate(
+        {"regionId": "r", "fields": [field.model_dump()], "dispositions": []}
+    )
+    compiled = compile_region(ir, doc, region)
+    assert compiled.data == {"title": "Parts Record"}
+    assert not any(i["code"] == "node_semantics_unaccounted" for i in compiled.issues)
+    accounted = next(d for d in compiled.dispositions if d["sourceRef"] == ref)
+    assert accounted["role"] == "data" and accounted["bindingIds"] == [whole]
+    # A partial binding does not account for the rest of the line.
+    ir = RegionInterpretation.model_validate(
+        {
+            "regionId": "r",
+            "fields": [{**field.model_dump(), "bindingId": partial}],
+            "dispositions": [],
+        }
+    )
+    assert any(
+        i["code"] == "node_semantics_unaccounted" for i in compile_region(ir, doc, region).issues
+    )
+
+
 def test_explicit_uncertainty_takes_precedence_over_mechanical_accounting():
     class UncertainModel(ReferenceModel):
         def complete(self, messages, *, timeout):

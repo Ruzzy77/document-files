@@ -47,10 +47,11 @@ continue: the right table adds later rows of the same table; rows that differ do
 themselves make a different table, and a repeated title, a continuation marker or the same
 header on the next page continue it. duplicate: the right table shows the same rows again (a
 copy, a second print, an image of the same page) and adds no rows. separate: a different
-table, shown by its own caption, a different scope or intervening content. sourceNodes carry each cited node's page, box and, for cells,
-table, row and column; compare cells of the same row and column. rightRepeatsLeft=true means
-program code found every right cell equal to the left cell at the same position; such rows add
-nothing, so continue is not offered there: decide duplicate unless intervening titles or scope
-show a different table with the same content. Cite sourceRefs from the sourceNodes keys only.
-Do not invent values, nodes, candidates or targets. Return the requested JSON contract only.
+table, shown by its own caption, a different scope or intervening content. sourceNodes carry
+each cited line's page and box and each cell's table, row and column; compare cells of the
+same row and column. rightRepeatsLeft=true means program code found every right cell equal to
+the left cell at the same position; such rows add nothing, so continue is not offered there:
+decide duplicate unless intervening titles or scope show a different table with the same
+content. Cite sourceRefs from the sourceNodes keys only. Do not invent values, nodes,
+candidates or targets. Return the requested JSON contract only.
 """

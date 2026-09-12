@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Compiler v22 accounts for a selected node whose entire text is the consumed binding
+  of a field: its whole content is the field's value, so no disposition is needed. The
+  ninth continued-table run had bound the raster page's title that way, given no
+  disposition, and been sent to a repair that dropped the title and reused its meaning
+  ids as field ids.
 - PDF page review v15 (v13 and v14 were intermediate development identities) makes
   every wire decision an object keyed by inventory id (units, missing slots, source
   checks and grid checks), so the grammar binds each id exactly once in input order,
@@ -34,7 +39,7 @@
   is never source text. The first continued-table development run (page 2 raster with
   two new rows) had halted there with `visual_text_without_source`. Prior review
   checkpoints are incompatible.
-- Semantic prompt v27 (v25 and v26 were intermediate development identities) lets
+- Semantic prompt v28 (v25 to v27 were intermediate development identities) lets
   the cross-region relation decision name a `duplicate`: the right table shows the
   same rows again (a copy, a second print, an image of the same page) and adds no
   rows, next to `continue`, `separate` and `unresolved`. Each adjacent-page candidate
@@ -47,6 +52,14 @@
   left cell add nothing, so `continue` is not offered for them and `duplicate` is
   offered only for them; the prompt says so. The fourteenth GPU run had called the
   identical raster copy a continuation because it "appears on a subsequent page".
+  Every candidate also offers both pages' interpreted text lines (titles, continuation
+  markers, statements) as context, and the prompt states that rows that differ do not
+  by themselves make a different table: the ninth continued-table run called the page
+  with new rows a separate table without ever seeing that page's title or its
+  "(continued)" marker. Cell views carry only text, table, row and column, line boxes
+  are integers, at most eight lines per page are offered, and the relation call
+  reserves 1,536 output tokens instead of the managed maximum, because the tenth run's
+  two-page evidence then exceeded the model context.
   Repeated-text counterparts consider interpreted region members only, because the
   observation keeps every channel's copy of a line (native lines, recognizer source
   cells, superseded text) and those copies had made every wording ambiguous. The relation

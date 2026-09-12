@@ -733,6 +733,15 @@ def relation_node(node, *, cell=None):
     """
     structure = node.get("sourceStructure")
     structure = structure if isinstance(structure, dict) else {}
+    if cell is not None:
+        # A cell is located by its table, row and column; its box and role add
+        # nothing the decision needs and pushed a two-page request past the context.
+        return {
+            "text": node.get("text"),
+            "tableRef": structure.get("tableRef"),
+            "row": cell["row"],
+            "col": cell["col"],
+        }
     result = {
         "text": node.get("text"),
         "semanticRole": node.get("semanticRole"),
@@ -741,18 +750,16 @@ def relation_node(node, *, cell=None):
     bbox = structure.get("bbox")
     if isinstance(bbox, dict):
         result["bbox"] = {
-            key: round(value, 1) if isinstance(value, float) else value
+            key: int(round(value)) if isinstance(value, float) else value
             for key, value in bbox.items()
             if key in {"left", "top", "right", "bottom"}
         }
     if structure.get("tableRef"):
         result["tableRef"] = structure["tableRef"]
-    if cell is not None:
-        result["row"], result["col"] = cell["row"], cell["col"]
     return result
 
 
-PAGE_LINE_LIMIT = 12
+PAGE_LINE_LIMIT = 8
 
 
 def _page_lines(observation, members, page):

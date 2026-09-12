@@ -47,6 +47,24 @@ def bound_node_dispositions(observation, region, fields, consumed, header_source
         ranges.setdefault(ref, []).extend(segments)
         used.setdefault(ref, []).append(bid)
 
+    # A field whose consumed binding covers a selected node's entire text accounts
+    # for that node: its whole content is the field's value. The ninth continued-table
+    # run bound a page title this way, gave no disposition, and was sent to repair,
+    # which then dropped the title.
+    for field in fields:
+        bid = field.bindingId
+        if bid not in consumed:
+            continue
+        candidate = bindings[bid]
+        ref = candidate["sourceRef"]
+        if ref not in selected or ref in ranges:
+            continue
+        if candidate.get("candidateStatus") == "unresolved_conflict":
+            continue
+        if span(candidate) == (0, len(nodes[ref].get("text", ""))):
+            roles[ref] = "data"
+            used.setdefault(ref, []).append(bid)
+
     for ref, segments in ranges.items():
         text = nodes[ref].get("text", "")
         # Only the source delimiters and whitespace can remain outside the

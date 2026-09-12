@@ -161,7 +161,7 @@ def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False):
 
 def test_versions_and_contract_name_the_duplicate_decision():
     assert PROMPT_VERSION == "document-files.semantic-prompts.v28"
-    assert COMPILER_VERSION == "document-files.result-compiler.v21"
+    assert COMPILER_VERSION == "document-files.result-compiler.v22"
     assert SCOPE_VERSION == "document-files.scope-integration.v13"
     assert "duplicate" in INTEGRATE and "continue is not offered there" in INTEGRATE
     assert "Cite sourceRefs from the sourceNodes keys only" in INTEGRATE
@@ -358,15 +358,15 @@ def test_integration_request_sends_bounded_position_views_of_whole_rows():
     assert "nodeCounterparts" not in request["candidates"][0]
     assert request["candidates"][0]["rightRepeatsLeft"] is True
     node = request["sourceNodes"]["p1c3:1"]
-    assert node == {
-        "text": "3",
-        "semanticRole": "table_cell",
-        "page": 1,
-        "bbox": {"left": 1.2, "top": 2.0, "right": 3.5, "bottom": 4.0},
-        "tableRef": "p1t",
-        "row": 3,
-        "col": 1,
+    assert node == {"text": "3", "tableRef": "p1t", "row": 3, "col": 1}
+    doc.nodes["p1stmt"]["sourceStructure"]["bbox"] = {
+        "left": 1.6,
+        "top": 2.2,
+        "right": 3.5,
+        "bottom": 4,
     }
+    line = integration_request(doc, candidates)["sourceNodes"]["p1stmt"]
+    assert line["bbox"] == {"left": 2, "top": 2, "right": 4, "bottom": 4}
     assert request["sourceNodes"]["p1stmt"] == {
         "text": "Unit: pcs",
         "semanticRole": "text",
