@@ -12,7 +12,7 @@ from .document_outline import role_context
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v17"
+REGION_PLAN_VERSION = "document-files.region-plan.v18"
 
 
 def _encoded(value):
@@ -211,6 +211,13 @@ def region_payload(observation, region):
                 observation.nodes.get(ref, {}).get("text", "") for ref in candidate["headerRefs"]
             )
     document_context = role_context(observation, region)
+    if document_context:
+        for ref in document_context["ownedSourceRefs"]:
+            # A native paragraph container can contain a logical title/caption.
+            # Keep its source observation intact; don't present a container label
+            # as an already-decided semantic role in this private model request.
+            if "semanticRole" in nodes[ref]:
+                nodes[ref]["nativeRole"] = nodes[ref].pop("semanticRole")
     return {
         "regionId": region["id"],
         "nodeIds": region["nodeIds"],

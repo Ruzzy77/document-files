@@ -129,12 +129,49 @@ def constrain_schema(schema, observation, region):
     refs = context["ownedSourceRefs"]
     schema["properties"]["documentElements"].update(minItems=len(refs), maxItems=len(refs))
     schema.setdefault("required", []).append("documentElements")
-    props = schema["$defs"]["DocumentElement"]["properties"]
+    definition = schema["$defs"]["DocumentElement"]
+    props = definition["properties"]
     props["sourceRef"] = {"type": "string", "enum": refs}
     choices = list(context["captionCandidates"])
-    props["captionOf"] = {
-        "anyOf": [*([{"type": "string", "enum": choices}] if choices else []), {"type": "null"}]
-    }
+    # Concrete alternatives work in the local decoder too. Independent role and
+    # level enums allowed invalid combinations that wasted bounded repair calls.
+    branches = []
+
+    def branch(role, level, target, status=None):
+        item = deepcopy(definition)
+        item["properties"].update(role=role, level=level, captionOf=target)
+        if status:
+            item["properties"]["status"] = {"type": "string", "const": status}
+        branches.append(item)
+
+    for role, level in [
+        ("title", {"const": 0, "type": "integer"}),
+        ("section_heading", {"type": "integer", "minimum": 1, "maximum": 12}),
+    ]:
+        branch({"type": "string", "const": role}, level, {"type": "null"})
+    branch(
+        {
+            "type": "string",
+            "enum": [
+                r for r in props["role"]["enum"] if r not in {"title", "section_heading", "caption"}
+            ],
+        },
+        {"type": "null"},
+        {"type": "null"},
+    )
+    if choices:
+        branch(
+            {"type": "string", "const": "caption"},
+            {"type": "null"},
+            {"type": "string", "enum": choices},
+        )
+    branch(
+        {"type": "string", "const": "caption"},
+        {"type": "null"},
+        {"type": "null"},
+        status="uncertain",
+    )
+    schema["$defs"]["DocumentElement"] = {"anyOf": branches}
 
 
 def preceding_headings(observation, region, compiled):

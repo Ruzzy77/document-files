@@ -28,6 +28,11 @@
   bindings, heading levels and explicit caption links; reject title/value conflicts
   without deleting values. Preserve uncertain/missing/fragmented structure as partial.
   Version compiler v28, prompt v32 and region plan v17 for checkpoint safety.
+- Preserve HWPX paragraph/run formatting as source-linked XML evidence without
+  inventing logical roles from typography. Keep conditional properties unresolved
+  and mixed runs distinct. Prompt v33 and region plan v18 separate native containers
+  from logical roles; constrained role/level/target alternatives reject invalid
+  combinations before they consume a repair call. Old checkpoints cannot resume.
 - Add isolated CPU recognition and source-bound PDF visual review, literal image
   reading, alternative table projections, exact pixel membership displays and
   conservative blank-cell application. Original OCR and document bytes remain.

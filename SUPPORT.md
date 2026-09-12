@@ -5,6 +5,8 @@ Implementation details belong in [the extraction engine](docs/extraction-engine.
 not in an accumulating experiment log. Last source audit: **2026-09-13**. Current
 XLSX candidate-boundary check used **d7334e9eb0d23cdbfd926f54aa677bf87faf90dc**.
 The HWPX and relation development checks used **b97fe61df3c3195f592e50f7099724e3ea14d9ed**.
+The first native-outline comparison used **6dacdff4c9ec5d2528138bcbf783c1458e43a522**;
+it did not pass document-role quality.
 Earlier HTML/PDF runs used **8744a5c1c89b87370c8b6dd3c8d49cd464400277**. None of these is independent approval of the structural KPI.
 Version **1.8.0 is not formally released**.
 
@@ -41,7 +43,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,694 tests,
+The full local check including the native outline path passed **2,710 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -86,6 +88,25 @@ exports, transfer archives and activation copies were removed. Shared services a
 installed packs were unchanged. The runs used a 16 GiB cgroup limit with no cgroup
 swap or OOM, but GPU memory was not captured by that counter; this is not a CPU-only
 16 GiB qualification.
+
+### Native logical outline comparison
+
+The first outline implementation passed its scripted contracts, then failed both
+frozen development comparisons on Spark. The English register used **4 calls / 54.1
+seconds**: both role responses assigned heading level 1 to paragraphs and were
+rejected. The Korean inspection document used **5 calls / 68.7 seconds** and returned
+engine `complete`, but classified its title and table caption as ordinary paragraphs.
+Its section headings were correct. Both documents retained all table records,
+exact values (including decimal spelling) and their own source bindings. Neither
+passed the expected hierarchy/caption comparison. ARM regressions passed 99 tests;
+seven fixture-authoring tests required an optional writer and ran only on Mac.
+
+Inspection of the original HWPX packages found title/caption typography that the
+parser had not exposed. Direct source formatting is now preserved, native paragraph
+containers are distinguished from logical-role decisions in model requests, and
+the role grammar disallows paragraph heading levels. This correction has not yet
+passed the affected Spark comparison. Original failures and unchanged expectations
+remain in `private/qualification/structural-kpi-20260913/outline-native-01/`.
 
 ## Earlier HTML/PDF development evidence
 
@@ -135,7 +156,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **HWP/HWPX logical outline is implemented; Spark comparison is pending.** The new `document.outline` keeps explicit role decisions, exact text bindings, interpreted section levels and caption/table links separately from business data and coverage. | Regressions retain same-text title/caption occurrences and complete table records; distinguish prose, nested sections and real fields; reject title/value conflicts and stale checkpoints. Run the unchanged HWPX case and a different hierarchy/layout within frozen budgets. Long paragraph fragments and broader native list/container hierarchy still need work; do not count this implementation as broad accuracy approval. |
+| 1 | **HWP/HWPX logical outline is implemented; two Spark role comparisons failed.** Title/caption typography was missing from model input, and the old grammar permitted invalid paragraph levels. The source-formatting and role-contract correction is implemented but not yet model-verified. | Rerun the unchanged documents against unchanged expected hierarchy, caption links, exact records and source bindings within frozen budgets. Do not accept engine `complete` instead of role accuracy. Long paragraph fragments and broader native list/container hierarchy still need work; do not count these development cases as independent approval. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

@@ -73,6 +73,24 @@ text counts against the actual request budget and cannot become newly owned data
 Native HWP/HWPX captions keep their own role/meaning region instead of being consumed
 a second time by table interpretation.
 
+For HWPX, `hwpx_structure.py` preserves directly declared paragraph alignment and
+character height, color and bold/italic flags under `sourceStructure.formatting`.
+Paragraph/run references and original header/text XML addresses identify each
+property; height is an unconverted source value, not a rendered measurement.
+Mixed runs remain distinct. The addresses cover source XML before text normalization,
+not offsets into normalized text or an individually split long view. Conditional
+format branches remain explicitly unresolved; they are never flattened together.
+Run metadata is bounded to 256 entries per emitted segment, with a visible issue
+when exceeded or a referenced character definition is absent. Text is not discarded.
+
+In the private role request, `nativeRole` identifies the source container rather
+than a completed semantic decision. A default-style paragraph can still contain a
+logical title or caption. Formatting, wording, order and table context are evidence
+for the model, not deterministic title heuristics. The decoder contract separates
+role/level/target alternatives: ordinary paragraphs cannot carry heading levels,
+and an interpreted caption must identify an offered table. The compiler repeats
+these checks for clients that do not enforce the decoder grammar.
+
 Code preserves exact `textBinding` ranges, original occurrences and native unit
 order, builds section parents from interpreted levels, and retains native table
 and nested-cell membership. `captionOf` relations connect a caption element to its
@@ -91,7 +109,7 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v28, prompt v32, region plan v17 and document-outline v1 identify this
+Compiler v28, prompt v33, region plan v18 and document-outline v1 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
@@ -355,7 +373,7 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v32 / v17 / v28 |
+| Semantic prompt / region plan / result compiler | v33 / v18 / v28 |
 | Document outline | v1 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v13 / v6 |

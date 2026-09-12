@@ -344,8 +344,8 @@ def test_checkpoint_rebuilds_outline_and_rejects_old_policies_or_invalid_role_re
     assert model.calls == 3
     for key, old in [
         ("compilerVersion", "document-files.result-compiler.v27"),
-        ("promptVersion", "document-files.semantic-prompts.v31"),
-        ("regionPlanVersion", "document-files.region-plan.v16"),
+        ("promptVersion", "document-files.semantic-prompts.v32"),
+        ("regionPlanVersion", "document-files.region-plan.v17"),
     ]:
         checkpoint = copy.deepcopy(states[-1])
         checkpoint["identity"][key] = old
@@ -417,3 +417,45 @@ def test_clear_subheading_does_not_resolve_an_uncertain_parent_heading():
     assert all(e["parentStatus"] == "unresolved" for e in outline["elements"][1:4])
     assert outline["elements"][4]["parentId"] == outline["elements"][0]["id"]
     assert outline["elements"][4]["parentStatus"] == "resolved"
+
+
+@pytest.mark.parametrize(
+    ("role", "level", "caption", "status", "valid"),
+    [
+        ("title", 0, None, "interpreted", True),
+        ("title", None, None, "interpreted", False),
+        ("section_heading", 1, None, "interpreted", True),
+        ("section_heading", 0, None, "interpreted", False),
+        ("paragraph", None, None, "interpreted", True),
+        ("paragraph", 1, None, "interpreted", False),
+        ("caption", None, None, "interpreted", False),
+        ("caption", None, None, "uncertain", True),
+        ("paragraph", None, "unknown", "interpreted", False),
+    ],
+)
+def test_local_wire_grammar_rejects_invalid_role_level_pairs(role, level, caption, status, valid):
+    doc, region = unit()
+    schema = region_output_schema(doc, region)
+    Draft202012Validator.check_schema(schema)
+    value = {
+        "regionId": region["id"],
+        "documentElements": [
+            {
+                "sourceRef": "n1",
+                "role": role,
+                "level": level,
+                "captionOf": caption,
+                "status": status,
+            }
+        ],
+    }
+    assert Draft202012Validator(schema).is_valid(value) is valid
+
+
+def test_model_role_context_distinguishes_native_container_from_logical_role():
+    doc, region = unit()
+    before = copy.deepcopy(doc.nodes)
+    payload = region_payload(doc, region)
+    assert "semanticRole" not in payload["nodes"]["n1"]
+    assert payload["nodes"]["n1"]["nativeRole"] == "paragraph"
+    assert doc.nodes == before

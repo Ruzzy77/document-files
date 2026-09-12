@@ -139,6 +139,56 @@ def _numbering_counters(levels: dict) -> ListCounters:
     return ListCounters(definitions, HWP_MARKER)
 
 
+def _format_attribute(node, key):
+    value = node.get(key)
+    if value is not None and len(value) > 256:
+        raise ExtractionError("HWPX formatting attribute exceeds its bound")
+    return value
+
+
+def _format_definitions(header):
+    """Read direct source properties, not rendered styles or conditional branches.
+
+    Raw HWPX height values are retained without unit conversion. XML addresses
+    refer to the original header member, not to normalized document text.
+    """
+    paragraphs, characters = {}, {}
+
+    def visit(node, address, depth=0):
+        if depth > 64:
+            raise ExtractionError("HWPX formatting exceeds its depth budget")
+        tag = _local_name(node.tag)
+        if tag in {"switch", "case", "default"}:
+            return  # The active application-specific branch has not been resolved.
+        if tag in {"paraPr", "charPr"}:
+            identifier = _format_attribute(node, "id")
+            target = paragraphs if tag == "paraPr" else characters
+            if identifier in target:
+                raise ExtractionError("HWPX contains duplicate formatting definitions")
+            item = {"part": "Contents/header.xml", "element": address}
+            direct = {_local_name(c.tag): c for c in node}
+            if tag == "paraPr" and "align" in direct:
+                horizontal = _format_attribute(direct["align"], "horizontal")
+                if horizontal is not None:
+                    item["horizontal_alignment"] = horizontal
+            elif tag == "charPr":
+                for key in ("height", "textColor"):
+                    value = _format_attribute(node, key)
+                    if value is not None:
+                        item[key] = value
+                item["direct_flags"] = [k for k in ("bold", "italic") if k in direct]
+            if any(_local_name(c.tag) == "switch" for c in node.iter()):
+                item["conditional_properties_unresolved"] = True
+            if identifier is not None:
+                target[identifier] = item
+            return
+        for index, child in enumerate(node):
+            visit(child, f"{address}.{index}", depth + 1)
+
+    visit(header, "0")
+    return paragraphs, characters
+
+
 class _Reader:
     def __init__(
         self,
@@ -146,11 +196,13 @@ class _Reader:
         styles: dict,
         images: dict | None = None,
         numberings: dict | None = None,
+        formats: tuple[dict, dict] | None = None,
     ):
         self.shapes = shapes
         self.styles = styles
         self.images = images or {}
         self.numberings = numberings or {}
+        self.paragraph_formats, self.character_formats = formats or ({}, {})
         self.counters: dict[str, ListCounters] = {}
         self.contaminated: set[str] = set()
         self.units: list[UnitDraft] = []
@@ -223,6 +275,7 @@ class _Reader:
         if tag == "p":
             context.pop("format_markers", None)
             context.pop("computed_list_marker", None)
+            context.pop("formatting", None)
             self.paragraph += 1
             context.update({"paragraph": self.paragraph, "paragraph_element": address})
             properties = self.shapes.get(node.get("paraPrIDRef"), {})
@@ -260,6 +313,11 @@ class _Reader:
                     context["computed_list_marker"] = marker
             chunks: list[str] = []
             markers: list[dict] = []
+            text_formats: list[dict] = []
+            para_ref = _format_attribute(node, "paraPrIDRef")
+            paragraph_format = {"para_pr_ref": para_ref} if para_ref is not None else {}
+            if para_ref in self.paragraph_formats:
+                paragraph_format["definition"] = self.paragraph_formats[para_ref]
             segment = 0
 
             def flush():
@@ -272,6 +330,18 @@ class _Reader:
                             **context,
                             "element": address,
                             "segment": segment,
+                            **(
+                                {
+                                    "formatting": {
+                                        "basis": "source_declared_hwpx",
+                                        "scope": "source_xml_text_elements_before_normalization",
+                                        "paragraph": paragraph_format,
+                                        "text_elements": list(text_formats),
+                                    }
+                                }
+                                if paragraph_format or text_formats
+                                else {}
+                            ),
                             **({"format_markers": list(markers)} if markers else {}),
                             **(
                                 {"field_path": list(self.active_fields)}
@@ -282,12 +352,27 @@ class _Reader:
                         "".join(chunks),
                     )
                 chunks.clear()
+                text_formats.clear()
 
-            def inline(element, element_address, inline_depth):
+            def inline(element, element_address, inline_depth, run_format=None):
                 if inline_depth > 64:
                     raise ExtractionError("HWPX inline structure exceeds its depth budget")
                 name = _local_name(element.tag)
+                if name == "run":
+                    run_format = {"run_element": element_address}
+                    reference = _format_attribute(element, "charPrIDRef")
+                    if reference is not None:
+                        run_format["char_pr_ref"] = reference
+                        if reference in self.character_formats:
+                            run_format["definition"] = self.character_formats[reference]
+                        else:
+                            self.issues["hwpx_formatting_partial"] += 1
                 if name == "t":
+                    if run_format:
+                        if len(text_formats) < 256:
+                            text_formats.append({**run_format, "text_element": element_address})
+                        else:
+                            self.issues["hwpx_formatting_partial"] += 1
                     chunks.append(element.text or "")
                     text_offset = len(element.text or "")
                     for index, child in enumerate(element):
@@ -472,7 +557,7 @@ class _Reader:
                         self.active_fields.remove(identifier)
                     return
                 for index, child in enumerate(element):
-                    inline(child, f"{element_address}.{index}", inline_depth + 1)
+                    inline(child, f"{element_address}.{index}", inline_depth + 1, run_format)
 
             for index, child in enumerate(node):
                 inline(child, f"{address}.{index}", depth + 1)
@@ -608,8 +693,10 @@ def extract_structured_hwpx(path) -> ExtractionResult:
     with zipfile.ZipFile(path) as archive:
         sections, issues = _sections(archive)
         shapes, styles, bullets, numberings = {}, {}, {}, {}
+        formats = ({}, {})
         if "Contents/header.xml" in archive.namelist():
             header = _safe_archive_xml_root(archive, "Contents/header.xml")
+            formats = _format_definitions(header)
             for node in header.iter():
                 tag = _local_name(node.tag)
                 if tag == "paraPr":
@@ -684,7 +771,7 @@ def extract_structured_hwpx(path) -> ExtractionResult:
                 shape.update(marker)
             elif shape.get("head_type") in {"number", "outline"}:
                 shape.update(numberings.get(ref, {}).get(shape["level"], {}))
-        reader = _Reader(shapes, styles, images, numberings)
+        reader = _Reader(shapes, styles, images, numberings, formats)
         if issues:
             reader.contaminated.update(numberings)
         for index, name in enumerate(sections, 1):
