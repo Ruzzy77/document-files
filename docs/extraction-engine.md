@@ -5,6 +5,12 @@ It is not an experiment diary or a quality certificate. Read [current defects](.
 before treating a compiler correction as safe. Public calls and result examples are
 in [the API reference](python-api.md); model setup and jobs are in [operations](operations.md).
 
+HWP/HWPX and XLSX are the primary completion targets. Existing PDF processing below
+remains documented, but broad PDF/scan qualification is no longer a prerequisite for
+finishing those formats. Result-only reconstruction is specified in
+[the architecture](product-architecture.md#reconstruction-from-extraction-results);
+the current capture helper is not a reconstruction engine.
+
 ## 1. Observation, source bindings and region ownership
 
 `document_model/observe.py` builds an `ObservationDocument` from caller-owned bytes.

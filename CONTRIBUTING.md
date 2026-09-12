@@ -68,8 +68,11 @@ Build from clean source for candidate attestation. The optional pack workflow
 checks one selected host; its explicit attestation step verifies candidate bytes
 without claiming it built or quality-qualified the upstream model.
 
-Spark extraction correctness comes first, followed by personal Mac use. Formal
-release and consumer migration are deferred, not silently approved.
+HWP/HWPX and XLSX extraction plus editable, result-only reconstruction come first.
+Use Spark for internal AI and then check personal Mac use. Word and PPTX follow;
+Google document integration is a later expansion. Keep existing secondary-format
+features, but do not expand them or a broad PDF qualification effort ahead of the
+primary formats. Formal release and consumer migration remain deferred.
 
 Do not automatically publish or mark a candidate stable merely because packaging
 or scripted tests passed. Maintain the feature support and qualification matrix.

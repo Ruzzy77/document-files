@@ -223,6 +223,21 @@ when using that facility, and use the same directory for get/resume/delete. Othe
 `DOCUMENT_FILES_STORAGE_DIR` or the product's platform cache directory is used. This
 choice is independent of the application's source document store.
 
+## Reconstruction context and output files
+
+`ExtractionOptions.reconstructionContext` defaults to `True`. For HWPX and XLSX,
+`document_model.capture` retains original package parts (XML/relationships and
+base64-encoded binary resources) within the result, subject to its byte/member limits.
+`nativeCaptureComplete=True` does not mean a reconstructed document was created or
+opened successfully. `recipientReconstructionVerified` is still false; HWP currently
+reports `structured_native_capture_unavailable` instead of complete native capture.
+
+There is no public result-to-HWPX/XLSX writer yet. HWPX creation takes an authoring
+plan; copy editing requires an existing input file. These are different contracts.
+Result-only reconstruction is the next product requirement for these primary formats,
+as described in [the architecture](product-architecture.md#reconstruction-from-extraction-results).
+Callers that only need schema and values may continue to set `reconstructionContext=False`.
+
 ## Results and explicit resume
 
 `extraction_result_schema()` returns the public JSON Schema, independently of the

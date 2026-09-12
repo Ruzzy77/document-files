@@ -1,5 +1,12 @@
 # Real-model qualification
 
+Current product completion focuses on HWP/HWPX and XLSX extraction plus result-only
+reconstruction. Use native fixtures and format-limited runs for that work. This runner
+evaluates extraction; it does not create reconstructed documents or approve their
+layout/editability. Those checks are specified in [SUPPORT.md](../SUPPORT.md).
+Retained broad-format release gates are separate and must not be marked passed from
+a primary-format result or weakened to make that result a formal release certificate.
+
 Run from the independently built release source with Document Files installed:
 
 ```sh

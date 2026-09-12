@@ -41,8 +41,10 @@
 - Add clean-source candidate builds, target-aware ARM64/x64 packaging, offline input
   inventories, SBOMs, source/license records and exact-byte release qualification.
   Packaging success is not model quality or redistribution approval.
-- Focus current work on reliable Spark extraction, then personal Mac use. Defer
-  other-platform qualification, formal publication and downstream application upgrades.
+- Prioritize HWP/HWPX and XLSX extraction and editable, result-only reconstruction.
+  The reconstruction writer is still planned, not shipped. Use Spark for internal AI
+  and then verify personal Mac use; expand to Word/PPTX afterward and Google documents
+  later. Defer other-platform qualification, formal publication and application upgrades.
 - Use `main` as the normal working branch. All GitHub workflows are manual-only;
   platform workflows operate on one explicitly selected target, defaulting to ARM64.
 - Replace chronological status accumulation with topic-based architecture, extraction,

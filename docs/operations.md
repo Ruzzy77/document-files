@@ -1,7 +1,9 @@
 # Operation on Spark and personal hosts
 
-The primary environment is DGX Spark with CPU recognition and CUDA interpretation.
-Mac use follows after extraction correctness. These instructions describe the runtime;
+The primary environment is DGX Spark with CUDA interpretation. HWP/HWPX and XLSX
+use native parsing first; CPU recognition remains available for inputs that need it.
+Current work targets accurate extraction and result-only HWPX/XLSX reconstruction;
+personal Mac use follows the verified path. These instructions describe the runtime;
 [SUPPORT.md](../SUPPORT.md) separates actual development checks from pending service
 and quality qualification. A prepared Compose file is not an installed HTTP service.
 

@@ -4,10 +4,13 @@ Document Files turns document bytes into source-linked structure, schema, values
 meaning. It owns observation, model requests, compilation, validation and bounded
 repair. A caller does not need another AI agent to construct the interpretation.
 
-**Current priority:** make this extraction reliable on DGX Spark (Linux ARM64, CUDA
-inference), then adapt the verified path for personal use on Mac. Other platforms,
-formal release publication and downstream application upgrades are deferred. Existing
-interfaces and platform code remain; deferred does not mean qualified or removed.
+**Primary formats:** HWP/HWPX and Excel XLSX. Complete accurate extraction and create
+an editable, copy-like HWPX/XLSX using only the extraction result, without reopening
+the original file. Word and PPTX follow; Google Docs/Sheets/Slides are a later expansion.
+The primary AI runtime remains DGX Spark (Linux ARM64, CUDA); personal Mac use follows.
+Other platforms, formal release publication and downstream application upgrades are
+deferred. Existing format adapters and interfaces remain; their presence does not
+establish accuracy or reconstruction support.
 See [current readiness and defects](../SUPPORT.md) before relying on a feature.
 
 ## Reading map
@@ -98,9 +101,9 @@ not changed to make a test pass. See [operations](operations.md).
 
 Existing reading, conversion, HWPX creation/editing and the single Document Files
 Skill remain. Ordinary DOCX/XLSX/PPTX/PDF creation uses the host's appropriate library;
-Google native documents use the requested connection. This work does not add a
-company-specific back office, database mapping, renderer or reconstruction engine.
-Personal reconstruction context is a separate option, not the current accuracy gate.
+Google native documents use the requested connection. Company-specific back-office
+and database mapping remain outside this product. Existing secondary-format features
+are retained, but expanding them must not delay HWP/HWPX and XLSX completion.
 
 The HWP checkbox guard compares original HWP and produced HWPX independently of
 rhwp's IR. Keep the pinned checkbox patch and loss reporting until an explicitly
@@ -114,6 +117,58 @@ it neither imports that application nor needs its database or configuration. Exa
 adapter/config identity records how an output was made; it does not automatically
 change `reanalysis_generation` for unchanged source files. Reprocessing and application
 upgrades remain explicit caller decisions.
+
+## Reconstruction from extraction results
+
+This is an accepted product requirement, **not an implemented end-to-end feature**.
+The generator receives the serialized extraction result and its self-contained,
+hash-addressed resources. It must create editable HWPX or XLSX without a source path,
+original file, access to the source store or another extraction pass. HWP inputs
+target HWPX output; legacy `.xls` and `.doc` are not currently supported adapters.
+An identical ZIP byte stream is not required; preserved content, document structure,
+formatting, layout and editability are the acceptance criteria.
+
+### Current building blocks and gaps
+
+`document_model/capture.py` already preserves the XML/relationship parts and binary
+resources of HWPX and XLSX under `reconstructionContext`. This retains useful native
+format details alongside normalized nodes, bindings and values. It does not provide
+a reconstruction writer or verify that a receiving application can open the output.
+`nativeCaptureComplete` reports capture only; `recipientReconstructionVerified` remains
+false. Binary HWP returns `structured_native_capture_unavailable` on this path.
+
+`engine.create_hwpx` writes from an authoring plan and `edit_hwpx` edits a supplied
+document copy. Neither consumes an extraction result. XLSX authoring currently uses
+host libraries through the Skill; a product-owned result-to-XLSX writer is missing.
+Native XML and resources can be reused for fidelity; their preservation must not be
+presented as proof that the logical schema, values or relationships were understood.
+
+### Implementation direction
+
+1. Fix shared row-loss/duplicate rules and characterize native HWP/HWPX/XLSX output
+   with independently prepared expectations. Inventory which required formatting,
+   resource and relationship information is structured, retained as native parts,
+   or absent. Keep those states distinct.
+2. Build result-only HWPX/XLSX writers in the product, initially reusing the captured
+   native parts where they preserve fidelity. Validate the manifest, member names,
+   sizes, digests, relationships and expanded-byte limits before writing. Preserve
+   format-required package ordering/content and publish only to a separate output.
+   Do not read the source archive as a fallback or fetch missing resources.
+3. Complete the HWP-to-HWPX capture path with conversion provenance and source links.
+   Compare the converted content with original HWP observations, including checkbox
+   states. Conversion loss remains visible; converted locations do not replace
+   original HWP evidence. Do not claim complete HWP reproduction while required
+   layout or object information is unavailable.
+4. Verify output in a source-free generation environment. A separate reviewer may
+   access the original for comparison. Reopen with the parser, compare structure and
+   values, then check layout in compatible document applications and edit sample
+   cells/text. A screenshot-only copy is not an editable reconstructed document.
+
+The result/resources format and any new writer API must be explicitly versioned
+when implemented. Preserve existing AnalysisJob/AnalysisResult and extraction calls;
+`reconstructionContext=False` remains valid for applications needing only schema and
+values. Such a result is not required to be reconstructible. Extraction accuracy,
+capture completeness and reconstruction fidelity need separate outcomes.
 
 ## Independent delivery and embedding
 
