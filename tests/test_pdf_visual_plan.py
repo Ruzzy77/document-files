@@ -81,7 +81,7 @@ def wire_response(value, decision):
     for key, ids in inventories.items():
         choices = {v["id"]: v["decision"] for v in decision[key]}
         assert len(choices) == len(decision[key]) and set(choices) == set(ids)
-        result[key] = [{"id": i, "decision": choices[i]} for i in ids]
+        result[key] = {i: choices[i] for i in ids}
     return result
 
 
@@ -208,14 +208,16 @@ def test_empty_slot_inventory_has_no_dummy_response_branch():
     value = build()
     schema = plan.output_schema(value)
     assert schema["properties"]["slots"] == {
-        "type": "array",
-        "items": {"type": "null"},
-        "maxItems": 0,
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
     }
     assert "unused" not in str(schema)
-    for key, inventory in (("units", "units"), ("readingOrder", "blocks")):
-        assert schema["properties"][key]["minItems"] == len(value[inventory])
-        assert schema["properties"][key]["maxItems"] == len(value[inventory])
+    units = schema["properties"]["units"]
+    assert list(units["properties"]) == units["required"] == [u["id"] for u in value["units"]]
+    assert schema["properties"]["readingOrder"]["minItems"] == len(value["blocks"])
+    assert schema["properties"]["readingOrder"]["maxItems"] == len(value["blocks"])
 
 
 @pytest.mark.parametrize("variant", ["exact", "text", "page", "ambiguous", "disjoint"])
@@ -424,10 +426,7 @@ def test_wire_decisions_name_their_inventory_ids_and_keep_checkpoint_decisions()
     wire = wire_response(value, decision)
     before = deepcopy(wire)
     ids = [u["id"] for u in value["units"]]
-    assert wire["units"] == [
-        {"id": ids[0], "decision": "source_text"},
-        {"id": ids[1], "decision": "unknown"},
-    ]
+    assert wire["units"] == {ids[0]: "source_text", ids[1]: "unknown"}
     assert plan.decode_review_response(value, wire) == decision and wire == before
     assert (
         plan.validate_decision(value, plan.decode_review_response(value, wire), detail_bounds=None)[
@@ -436,21 +435,21 @@ def test_wire_decisions_name_their_inventory_ids_and_keep_checkpoint_decisions()
         == "unresolved"
     )
     # A permuted but complete answer keeps each decision with its own id.
-    wire["units"].reverse()
+    wire["units"] = dict(reversed(list(wire["units"].items())))
     decoded = plan.decode_review_response(value, wire)
-    assert {v["id"]: v["decision"] for v in decoded["units"]} == {
-        ids[0]: "source_text",
-        ids[1]: "unknown",
-    }
+    assert decoded["units"] == decision["units"]
     payload = plan.review_payload(value)
     assert "parts" not in payload["unitColumns"]
     assert (
         dict(zip(payload["unitColumns"], payload["units"][0], strict=True))["sourceIds"]
         == value["units"][0]["sourceIds"]
     )
-    branches = plan.output_schema(value)["properties"]["units"]["items"]["anyOf"]
-    assert [b["properties"]["id"]["enum"] for b in branches] == [[i] for i in ids]
-    assert all(b["additionalProperties"] is False for b in branches)
+    schema = plan.output_schema(value)
+    units = schema["properties"]["units"]
+    assert list(units["properties"]) == ids and units["required"] == ids
+    assert units["additionalProperties"] is False
+    assert all(ref["$ref"].startswith("#/$defs/labels") for ref in units["properties"].values())
+    assert all(set(d) == {"type", "enum"} for d in schema["$defs"].values())
 
 
 def test_contract_offers_each_unit_only_the_labels_its_facts_allow():
@@ -459,8 +458,8 @@ def test_contract_offers_each_unit_only_the_labels_its_facts_allow():
     value = grid_plan(extra=True)
     schema = plan.output_schema(value)
     offered = {
-        b["properties"]["id"]["enum"][0]: b["properties"]["decision"]["enum"]
-        for b in schema["properties"]["units"]["items"]["anyOf"]
+        identifier: schema["$defs"][ref["$ref"].rsplit("/", 1)[-1]]["enum"]
+        for identifier, ref in schema["properties"]["units"]["properties"].items()
     }
     for unit in value["units"]:
         choices = offered[unit["id"]]
@@ -483,20 +482,21 @@ def test_contract_offers_each_unit_only_the_labels_its_facts_allow():
 def test_compact_wire_rejects_old_or_malformed_decisions(change):
     value = build()
     wire = wire_response(value, answer(value))
+    ids = list(wire["units"])
     if change == "legacy":
-        wire["units"] = [v["decision"] for v in wire["units"]]
+        wire["units"] = [wire["units"][i] for i in ids]
     elif change == "omitted":
-        wire["units"].pop()
+        wire["units"].pop(ids[-1])
     elif change == "extra":
         wire["complete"] = True
     elif change == "object":
-        wire["units"] = {"u0": "source_text", "u1": "source_text"}
+        wire["units"] = [{"id": i, "decision": wire["units"][i]} for i in ids]
     elif change == "null":
         wire["slots"] = None
     elif change == "nonstring":
-        wire["units"][0] = 1
+        wire["units"][ids[0]] = 1
     else:
-        wire["units"][0]["decision"] = "discard_noise"
+        wire["units"][ids[0]] = "discard_noise"
     with pytest.raises(plan.PdfVisualReviewError):
         plan.validate_decision(value, plan.decode_review_response(value, wire), detail_bounds=None)
 

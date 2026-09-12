@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v14"
+VERSION = "document-files.pdf-visual-review.v15"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -599,9 +599,9 @@ Never classify a unit from other content inside its rectangle. Labels and panel 
 are generated navigation, not document content; the JSON lists panel/source coordinates.
 The first image remains the unmodified full page. A membership mask cannot prove a
 string correct, an edge harmless or a cell empty. Preserve unknowns and extra marks.
-Return compact JSON without indentation. Each decision array lists every inventory id
-exactly once, in input order, as {id, decision} (units, missingSlots, sourceIds, grids
-respectively). readingOrder alone is the ordered array of block IDs."""
+Return compact JSON without indentation. Each decision object maps every inventory id to
+its decision, in input order (units, missingSlots, sourceIds, grids respectively).
+readingOrder alone is the ordered array of block IDs."""
 
 
 def unit_choices(plan, unit):
@@ -620,33 +620,26 @@ def unit_choices(plan, unit):
 
 
 def output_schema(plan):
+    definitions = {}
+
+    def labels(values):
+        key = json.dumps(list(values))
+        name = definitions.setdefault(key, f"labels{len(definitions)}")
+        return {"$ref": f"#/$defs/{name}"}
+
     def decisions(ids, values):
-        # Each decision names its inventory id and offers only the labels the plan's
-        # own facts allow: a positional string array let the model shift decisions
-        # between neighbours, and an unrestricted label set let it call a unit that
-        # references a string or carries content pixels a table border, which the
-        # receiver then had to reject after the call.
-        if not ids:
-            return {"type": "array", "items": {"type": "null"}, "maxItems": 0}
+        # One property per inventory id, in input order, offering only the labels the
+        # plan's own facts allow: the grammar then binds every id exactly once. A
+        # positional string array let the model shift decisions between neighbours,
+        # an unrestricted label set let it call a string-referencing or content unit
+        # a table border, and one branch per id made the request exceed the model
+        # context.
         allowed = values if isinstance(values, dict) else dict.fromkeys(ids, values)
         return {
-            "type": "array",
-            "minItems": len(ids),
-            "maxItems": len(ids),
-            "items": {
-                "anyOf": [
-                    {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": "string", "enum": [identifier]},
-                            "decision": {"type": "string", "enum": list(allowed[identifier])},
-                        },
-                        "required": ["id", "decision"],
-                        "additionalProperties": False,
-                    }
-                    for identifier in ids
-                ]
-            },
+            "type": "object",
+            "properties": {identifier: labels(allowed[identifier]) for identifier in ids},
+            "required": list(ids),
+            "additionalProperties": False,
         }
 
     result = {
@@ -682,6 +675,10 @@ def output_schema(plan):
             [g["id"] for g in proposal["grids"]], ["rectangular_grid", "unknown"]
         )
         result["required"].extend(["sourceChecks", "gridChecks"])
+    if definitions:
+        result["$defs"] = {
+            name: {"type": "string", "enum": json.loads(key)} for key, name in definitions.items()
+        }
     return result
 
 
@@ -703,19 +700,13 @@ def decode_review_response(plan, wire):
     for key, ids in inventories.items():
         values = wire[key]
         require(
-            isinstance(values, list)
+            isinstance(values, dict)
+            and set(values) == set(ids)
             and len(values) == len(ids)
-            and all(
-                isinstance(v, dict)
-                and set(v) == {"id", "decision"}
-                and isinstance(v["id"], str)
-                and isinstance(v["decision"], str)
-                for v in values
-            )
-            and sorted(v["id"] for v in values) == sorted(ids),
+            and all(isinstance(v, str) for v in values.values()),
             "visual_decision_inventory",
         )
-        result[key] = [{"id": v["id"], "decision": v["decision"]} for v in values]
+        result[key] = [{"id": i, "decision": values[i]} for i in ids]
     return result
 
 
