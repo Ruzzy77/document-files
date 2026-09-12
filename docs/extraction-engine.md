@@ -58,8 +58,12 @@ required, and missing values are not excused by this correction. Public observat
 nodes, exact numeric spellings, formulas and caches are not rewritten.
 
 The simple HWPX development case also retains a title and caption as two generic
-scalar fields. Native observations, interpreted document roles and business data
-need separate handling; identical text alone cannot identify redundant occurrences.
+scalar fields. `engine.py::_initial_result` currently returns a generic object
+`documentSchema`, while `document.structure` retains native regions/tables/relations
+and `coverage.semanticAccounting` records source use. Neither is a complete interpreted
+title/caption/section hierarchy. Native observations, interpreted document roles and
+business data need separate handling; identical text alone cannot identify redundant
+occurrences. Do not turn a usage disposition into proven document structure.
 These are current implementation gaps, not the intended structure contract. See
 [current native checks and priorities](../SUPPORT.md).
 
