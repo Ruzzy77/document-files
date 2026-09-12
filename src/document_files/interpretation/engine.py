@@ -119,7 +119,7 @@ from .table_selection import (
     validate_selection_history,
     wire_selection,
 )
-from .table_sources import source_inventory
+from .table_sources import SourceReviewError, source_inventory
 
 CHECKPOINT_VERSION = "document-files.regional-checkpoint.v3"
 
@@ -1882,7 +1882,7 @@ def extract_schema_from_stream(
             except (ValueError, TypeError, KeyError) as exc:
                 feedback = (
                     str(exc)
-                    if isinstance(exc, CompileError)
+                    if isinstance(exc, (CompileError, SourceReviewError))
                     else "invalid_native_structure_contract"
                 )
                 state.update(status="failed", feedback=[feedback])

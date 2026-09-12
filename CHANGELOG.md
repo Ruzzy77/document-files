@@ -4,6 +4,11 @@
 
 ### Document extraction
 
+- Preserve specific source-quotation errors in native structural repair rather than
+  hiding meaning-quote failures behind generic contract feedback. Native-structure
+  v2 invalidates old stage checkpoints; the correction has local regression coverage
+  but has not yet been verified with an actual model.
+
 - Separate native HWP/HWPX semantic structure from value reading in protocol v6
   / native-structure v1. Freeze source-grounded fields, types, repeated occurrences
   and missing states before issuing exact value handles; preserve them on value

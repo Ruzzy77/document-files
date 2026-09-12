@@ -155,7 +155,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v6 and native-structure v1 identify the three-stage execution;
+own configured reasoning behavior. Protocol v6 and native-structure v2 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 The unchanged native development comparison did not improve with reasoning enabled;
@@ -307,6 +307,20 @@ revalidates contracts, exact quotes, owned sources and the resulting compiled st
 it rejects changed identities or inconsistent selections. Native meaning ranges are
 program-derived and tied to the source inventory. Value compilation does not prune
 frozen fields merely because a parser label or a record value shares their source.
+
+Native-structure v2 retains source-quotation error codes in bounded structural repair;
+malformed model contracts still receive sanitized generic diagnostics. A meaning quote
+and a row quote must not report the same invalid occurrence differently. No raw source
+or model-authored labels enter these diagnostic codes. This changes checkpoint identity.
+
+The v1 Spark run exposed output size as a separate limit even when input fits. The
+next representation should reduce repeated JSON, not fields or source evidence:
+program-issued structural IDs, whole-owned-block anchors where exact quote repetition
+is unnecessary, and compact column/row status references are design candidates. They
+must retain explicit blank/absence decisions, source ordering and narrower anchors
+when several items share a block. They are not implemented yet, and no output-limit
+increase substitutes for whole-result review. Duplicate scalar/record proposals and
+incorrect field types remain semantic failures, not aliases to drop automatically.
 
 The current boundary is deliberately strict: an incorrect **valid** structure cannot
 be silently rewritten during value repair. An explicit source-grounded structure
@@ -576,7 +590,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v38 / v20 / v32 |
-| Document outline / native role-content protocol / native structure | v1 / v6 / v1 |
+| Document outline / native role-content protocol / native structure | v1 / v6 / v2 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |

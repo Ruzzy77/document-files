@@ -311,3 +311,40 @@ def test_value_compilation_does_not_prune_a_frozen_field_that_shares_a_record_so
     )
     assert result.data["first_item"] == result.data["items"][0]["name"] == "Basil"
     assert not result.dropped_fields
+
+
+def test_meaning_quote_error_gives_specific_safe_feedback_for_bounded_structure_repair():
+    import json
+
+    from document_files.interpretation.backends import InferenceResponse
+
+    class Model(StagedModel):
+        def infer(self, request):
+            response = super().infer(request)
+            if json.loads(request.messages[-1]["content"]).get("documentStage") != "structure":
+                return response
+            value = json.loads(response.text)
+            value["meanings"] = [
+                {
+                    "id": "quantity-unit",
+                    "kind": "unit",
+                    "status": "interpreted",
+                    "sourceQuotes": [
+                        {
+                            "sourceRef": "n1",
+                            "text": "private units",
+                            "occurrence": 1 if len(self.structure_requests) == 1 else 0,
+                        }
+                    ],
+                }
+            ]
+            return InferenceResponse(json.dumps(value), {})
+
+    model = Model()
+    result = execute(model, raw=raw_document(("Count: 0007 private units",)), budget=3)
+    feedback = model.structure_requests[1]["repairFeedback"]
+    assert feedback == ["quote_occurrence_required_or_invalid"]
+    assert "private" not in json.dumps(feedback)
+    assert model.calls == 3 and result["extraction"]["status"] == "partial"
+    state = next(iter(result["coverage"]["documentInterpretation"].values()))
+    assert state["structureStatus"] == "complete" and state["structureUsage"]["modelCalls"] == 2
