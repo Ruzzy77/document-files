@@ -234,8 +234,8 @@ reports `structured_native_capture_unavailable` instead of complete native captu
 
 There is no public result-to-HWPX/XLSX writer yet. HWPX creation takes an authoring
 plan; copy editing requires an existing input file. These are different contracts.
-Result-only reconstruction is the next product requirement for these primary formats,
-as described in [the architecture](product-architecture.md#reconstruction-from-extraction-results).
+The current priority is [structural completeness and document understanding](product-architecture.md#structural-completeness-and-document-understanding),
+not a new writer. Retained native parts alone do not establish extraction accuracy.
 Callers that only need schema and values may continue to set `reconstructionContext=False`.
 
 ## Results and explicit resume

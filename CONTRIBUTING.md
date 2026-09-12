@@ -68,7 +68,9 @@ Build from clean source for candidate attestation. The optional pack workflow
 checks one selected host; its explicit attestation step verifies candidate bytes
 without claiming it built or quality-qualified the upstream model.
 
-HWP/HWPX and XLSX extraction plus editable, result-only reconstruction come first.
+Consistent HWP/HWPX and XLSX structure and understanding across varied forms come
+first. Compare source hierarchy, complete values, relationships and provenance;
+a result-to-file writer is not a completion requirement.
 Use Spark for internal AI and then check personal Mac use. Word and PPTX follow;
 Google document integration is a later expansion. Keep existing secondary-format
 features, but do not expand them or a broad PDF qualification effort ahead of the

@@ -10,8 +10,12 @@
   group-header scope candidates and exact lexical numeric handling.
 - Separate record-table structure, source selection, content and applicability;
   preserve compiled rows across bounded repairs and explicit-budget resume.
+- Preserve text-only data, subtotal and note rows when model column citations
+  conflict. Only native-declared header rows can be corrected automatically;
+  content-only definitions request bounded repair. Compiler v27 rejects old
+  checkpoints from the citation-driven rule. Source bindings and precision remain.
 - Add cross-page continuation and duplicate-presentation handling with source
-  provenance. Known data-row and equal-valued-continuation defects remain in
+  provenance. Equal-valued continuation and other quality gaps remain in
   [SUPPORT.md](SUPPORT.md); these rules are not independently quality-approved.
 - Add isolated CPU recognition and source-bound PDF visual review, literal image
   reading, alternative table projections, exact pixel membership displays and
@@ -41,9 +45,10 @@
 - Add clean-source candidate builds, target-aware ARM64/x64 packaging, offline input
   inventories, SBOMs, source/license records and exact-byte release qualification.
   Packaging success is not model quality or redistribution approval.
-- Prioritize HWP/HWPX and XLSX extraction and editable, result-only reconstruction.
-  The reconstruction writer is still planned, not shipped. Use Spark for internal AI
-  and then verify personal Mac use; expand to Word/PPTX afterward and Google documents
+- Prioritize consistent HWP/HWPX and XLSX structure and understanding across varied
+  forms. Reconstruction illustrates structural sufficiency, not a separate writer
+  requirement. Use Spark for internal AI and then verify personal Mac use;
+  expand to Word/PPTX afterward and Google documents
   later. Defer other-platform qualification, formal publication and application upgrades.
 - Use `main` as the normal working branch. All GitHub workflows are manual-only;
   platform workflows operate on one explicitly selected target, defaulting to ARM64.

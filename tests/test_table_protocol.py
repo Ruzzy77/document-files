@@ -138,10 +138,21 @@ class TableModel:
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
 
-def execute(model, *, restore=None, states=None, additional_budget=None, cancelled=None, **options):
+def execute(
+    model,
+    *,
+    content=HTML,
+    restore=None,
+    states=None,
+    additional_budget=None,
+    cancelled=None,
+    **options,
+):
     return extract_schema_from_stream(
-        AnalysisJob(job_id="table-stages", input=AnalysisInput.from_bytes(HTML, format_id="html")),
-        io.BytesIO(HTML),
+        AnalysisJob(
+            job_id="table-stages", input=AnalysisInput.from_bytes(content, format_id="html")
+        ),
+        io.BytesIO(content),
         model_client=model,
         options=ExtractionOptions(reconstructionContext=False, **options),
         checkpoint=states.append if states is not None else None,
@@ -156,6 +167,76 @@ def fixture():
     region = prepare_regions(doc, context_chars=16000)[0]
     payload = region_payload(doc, region)
     return doc, region, payload, record_response(payload)
+
+
+TEXT_RECORDS = (
+    b"<table><tr><th>Name</th><th>State</th></tr>"
+    b"<tr><td>Alice</td><td>active</td></tr>"
+    b"<tr><td>Bob</td><td>paused</td></tr></table>"
+)
+
+
+class ContentCitationModel(TableModel):
+    def __init__(self, *, only_content=False):
+        super().__init__()
+        self.only_content = only_content
+
+    def infer(self, request):
+        response = super().infer(request)
+        payload = json.loads(request.messages[-1]["content"])
+        if payload["tableStage"] != "structure":
+            return response
+        value = json.loads(response.text)
+        table = next(iter(payload["tables"].values()))
+        cells = table["cells"]
+        if isinstance(cells, dict):
+            cells = [dict(zip(cells["columns"], row, strict=True)) for row in cells["rows"]]
+        for col in value["record"]["columns"]:
+            col["valueType"] = "string"
+            if len(self.requests) == 1:
+                col["definitionRefs"] = [
+                    c["sourceRef"]
+                    for c in cells
+                    if c["col"] == col["column"] and (not self.only_content or c["row"] == 1)
+                ]
+        return InferenceResponse(json.dumps(value), response.usage)
+
+
+@pytest.mark.parametrize("only_content", [False, True])
+def test_table_path_preserves_text_records_and_repairs_content_only_definitions(only_content):
+    model = ContentCitationModel(only_content=only_content)
+    result = execute(model, content=TEXT_RECORDS, maxModelCalls=3)
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert result["data"] == {
+        "records": [{"code": "Alice", "size": "active"}, {"code": "Bob", "size": "paused"}]
+    }
+    assert result["validation"]["valid"]
+    assert len(model.requests) == (3 if only_content else 2)
+    if only_content:
+        feedback = json.loads(model.requests[1].messages[-1]["content"])["repairFeedback"]
+        assert "column_definition_conflicts_with_content" in json.dumps(feedback)
+    else:
+        corrections = result["coverage"]["programCorrections"]
+        assert [c["code"] for c in corrections] == ["column_definition_content_cells_dropped"] * 2
+
+
+def test_unrepaired_content_only_definitions_do_not_report_complete():
+    model = ContentCitationModel(only_content=True)
+    result = execute(model, content=TEXT_RECORDS, maxModelCalls=1)
+    assert result["extraction"]["status"] == "partial"
+    assert len(model.requests) == 1
+    assert "column_definition_conflicts_with_content" in json.dumps(result["issues"])
+
+
+def test_checkpoint_from_citation_driven_header_compiler_cannot_resume():
+    states = []
+    model = TableModel()
+    execute(model, states=states)
+    checkpoint = copy.deepcopy(states[-1])
+    checkpoint["identity"]["compilerVersion"] = "document-files.result-compiler.v26"
+    with pytest.raises(ValueError, match="incompatible"):
+        execute(model, restore=checkpoint)
+    assert len(model.requests) == 2
 
 
 def test_contracts_cannot_generate_repeated_records_or_rewrite_frozen_columns():

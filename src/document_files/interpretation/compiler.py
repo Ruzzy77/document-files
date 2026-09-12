@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from jsonschema import Draft202012Validator
 from referencing import Registry
 
-from ..document_model.table_headers import declared_header, observed_rows
+from ..document_model.table_headers import declared_header, fixed_header_rows, observed_rows
 from ..result_types import Assertion, Evidence, SourceBinding, Target
 from .accounting import bound_node_dispositions, observed_heading
 from .bindings import resolve
@@ -21,12 +21,6 @@ from .semantic_types import RegionInterpretation
 from .table_revisions import meaning_revision
 from .table_sources import SourceReviewError, review_ranges, source_inventory
 from .validation import check_schema, escape, leaves, pointer, schema_definitions
-
-_BARE_NUMBER = re.compile(r"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$")
-
-
-def _bare_number(text):
-    return isinstance(text, str) and text != "" and bool(_BARE_NUMBER.match(text.strip()))
 
 
 class CompileError(ValueError):
@@ -274,7 +268,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         out.has_data = True
         return "/" + "/".join(escape(t) for t in tokens)
 
-    def definition(entity_id, label, source_refs, schema_path, data_targets):
+    def definition(entity_id, label, source_refs, schema_path, data_targets, *, uncertain=False):
         source_refs = refs(source_refs)
         sid = prefix + entity_id
         schema_target = Target(space="dataSchema", path=schema_path)
@@ -287,7 +281,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 scope=data_targets or [schema_target],
                 sourceRefs=source_refs,
                 basis="ai_interpreted",
-                status="interpreted",
+                status="uncertain" if uncertain else "interpreted",
             ).model_dump()
         )
         out.schema_evidence.append(
@@ -296,7 +290,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 sourceRefs=source_refs,
                 semanticIds=[sid],
                 raw="",
-                status="present",
+                status="uncertain" if uncertain else "present",
                 transformation="field_definition_from_observed_context",
             ).model_dump()
         )
@@ -656,38 +650,30 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             actual_refs = {cell["sourceRef"] for cell in observed[role.row]}
             if set(role.sourceRefs) != actual_refs:
                 raise CompileError("repeat_row_role_sources_disagree_with_geometry")
-        # A row whose every observed cell is cited as a column definition is a header
-        # row: definitions are never values. A response that still labels such a row
-        # as content is compiled with the row as header and the disagreement recorded;
-        # naming the row in repair feedback alone did not converge on the pinned model.
-        cited = {ref for col in repeat.columns for ref in col.definitionRefs}
-        for row, row_cells in observed.items():
-            role = roles.get(row)
-            if role is None or role.role in {"header", "blank", "unresolved"}:
+        # Only source-declared header-only rows have a program-owned role. Column
+        # citations cannot override content roles: text records, subtotals and notes
+        # are not headers merely because the model used them to define a column.
+        # Use the same declaration/geometry rule as the table structure protocol;
+        # recognizer predictions and mixed header/value rows stay model decisions.
+        for row in sorted(fixed_header_rows(table) & set(roles)):
+            role = roles[row]
+            if role.role in {"header", "blank", "unresolved"}:
                 continue
-            row_refs = {cell["sourceRef"] for cell in row_cells}
-            # A bare number is a value, never a definition (table protocol v18), so a
-            # fully cited row holding one is a content row whose citations are wrong,
-            # not a header row: the delivery-form run cited every cell of each column.
-            if (
-                row_refs
-                and row_refs <= cited
-                and not any(_bare_number(nodes.get(ref, {}).get("text")) for ref in row_refs)
-            ):
-                roles[row] = role.model_copy(update={"role": "header"})
-                out.corrections.append(
-                    {
-                        "code": "column_definition_row_relabeled_header",
-                        "regionId": out.id,
-                        "tableRef": repeat.tableRef,
-                        "row": row,
-                        "declaredRole": role.role,
-                        "basis": "every_observed_cell_cited_as_column_definition",
-                    }
-                )
+            roles[row] = role.model_copy(update={"role": "header"})
+            out.corrections.append(
+                {
+                    "code": "native_header_row_role_corrected",
+                    "regionId": out.id,
+                    "tableRef": repeat.tableRef,
+                    "row": row,
+                    "declaredRole": role.role,
+                    "basis": "all_observed_cells_declared_headers",
+                }
+            )
         # A cell of a content row (data, subtotal, note) is a value, not a column
         # definition: such citations are dropped from the column and recorded. A column
-        # that would keep no citation retains them for the header checks below.
+        # that would keep no citation retains its proposal as uncertain for repair;
+        # it cannot silently turn its cited content rows into headers.
         content_refs = {
             cell["sourceRef"]
             for row, row_cells in observed.items()
@@ -695,6 +681,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             for cell in row_cells
         }
         columns = []
+        conflicting_column_definitions = set()
         for col in repeat.columns:
             dropped = [ref for ref in col.definitionRefs if ref in content_refs]
             kept = [ref for ref in col.definitionRefs if ref not in content_refs]
@@ -711,6 +698,17 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                     }
                 )
                 col = col.model_copy(update={"definitionRefs": kept})
+            elif dropped:
+                conflicting_column_definitions.add(col.id)
+                out.issues.append(
+                    {
+                        "code": "column_definition_conflicts_with_content",
+                        "tableRef": repeat.tableRef,
+                        "columnId": col.id,
+                        "column": col.column,
+                        "sourceRefs": dropped,
+                    }
+                )
             columns.append(col)
         repeat = repeat.model_copy(update={"columns": columns})
         # Header geometry is program knowledge: every column's definition carries the
@@ -880,6 +878,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 column_sources[col.id],
                 f"{sp}/items/properties/{escape(key)}",
                 field_targets[col.id],
+                uncertain=col.id in conflicting_column_definitions,
             )
         assign(tokens, rows, {"type": "array", "items": row_shape})
         out.repeat_paths[repeat.id] = {

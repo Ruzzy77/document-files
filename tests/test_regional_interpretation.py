@@ -426,10 +426,10 @@ def test_single_source_delimiter_pair_can_supply_a_missing_binding_without_new_i
     assert not any(item.get("errors") == ["binding_not_in_region"] for item in ambiguous["issues"])
 
 
-def _table():
+def _table(values=(("Name", "Amount"), ("A", "0"), ("B", "0"), ("C", ""))):
     doc = ObservationDocument()
-    for row, values in enumerate((("Name", "Amount"), ("A", "0"), ("B", "0"), ("C", ""))):
-        for col, value in enumerate(values):
+    for row, row_values in enumerate(values):
+        for col, value in enumerate(row_values):
             ref = doc.node(f"c{row}:{col}", value)
             doc.bind(ref, start=0, end=len(value), candidateRole="content")
     doc.tables["t"] = {
@@ -513,22 +513,22 @@ def _table():
     return doc, region, ir
 
 
-def test_header_row_marked_data_is_compiled_as_header_and_recorded():
-    # The sixth and seventh GPU whole-path runs marked the raster table's header row
-    # as data on every attempt, even when the repair feedback named the row.
-    doc, region, ir = _table()
+@pytest.mark.parametrize("headers", [("Name", "Amount"), ("2024", "2025")])
+def test_native_declared_header_row_marked_data_is_corrected_and_recorded(headers):
+    # A source declaration, not model citations or text spelling, fixes this row.
+    doc, region, ir = _table((headers, ("A", "0"), ("B", "0"), ("C", "")))
     region["requiredBindingIds"] = list(doc.bindings)
     ir.repeats[0].rowRoles[0].role = "data"
     ir.repeats[0].columns[1].valueType = "integer"
     compiled = compile_region(ir, doc, region)
     assert compiled.corrections == [
         {
-            "code": "column_definition_row_relabeled_header",
+            "code": "native_header_row_role_corrected",
             "regionId": "r",
             "tableRef": "t",
             "row": 0,
             "declaredRole": "data",
-            "basis": "every_observed_cell_cited_as_column_definition",
+            "basis": "all_observed_cells_declared_headers",
         }
     ]
     assert not compiled.issues
@@ -2071,7 +2071,7 @@ class TripleFieldModel(ReferenceModel):
 def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     from document_files.interpretation.semantic_types import COMPILER_VERSION
 
-    assert COMPILER_VERSION == "document-files.result-compiler.v26"
+    assert COMPILER_VERSION == "document-files.result-compiler.v27"
     model = TripleFieldModel()
     result = run(b"cond: do not ship\n", model)
     assert result["data"] == {"cond": "do not ship"}
@@ -2092,14 +2092,23 @@ def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     assert result["validation"]["valid"], result["validation"]
 
 
-def test_content_row_citations_are_dropped_and_rows_with_bare_numbers_stay_data():
+@pytest.mark.parametrize(
+    "values",
+    [
+        (("Name", "Amount"), ("A", "0"), ("B", "0"), ("C", "")),
+        (("Name", "State"), ("Alice", "active"), ("Bob", "paused"), ("Carol", "")),
+        (("품목", "상태"), ("부품 가", "확인 중"), ("부품 나", "완료"), ("부품 다", "")),
+        (("Code", "Size"), ("0007", "1.2300"), ("0008", "0.00"), ("0009", "")),
+    ],
+    ids=["numeric", "text", "korean-text", "precision"],
+)
+def test_content_row_citations_are_dropped_without_changing_records(values):
     # The delivery-form development run cited every cell of each column as its
     # definition; the fully cited data rows were then compiled as header rows.
-    doc, region, ir = _table()
+    doc, region, ir = _table(values)
     region["requiredBindingIds"] = list(doc.bindings)
     ir.repeats[0].columns[0].definitionRefs = ["c0:0", "c1:0", "c2:0"]
     ir.repeats[0].columns[1].definitionRefs = ["c0:1", "c1:1", "c2:1"]
-    ir.repeats[0].columns[1].valueType = "integer"
     compiled = compile_region(ir, doc, region)
     assert [c["code"] for c in compiled.corrections] == [
         "column_definition_content_cells_dropped",
@@ -2110,17 +2119,74 @@ def test_content_row_citations_are_dropped_and_rows_with_bare_numbers_stay_data(
     assert not compiled.issues
     result = combine_regions([compiled])
     assert result["data"] == {
-        "rows": [
-            {"name": "A", "amount": 0},
-            {"name": "B", "amount": 0},
-            {"name": "C", "amount": ""},
-        ]
+        "rows": [{"name": name, "amount": amount} for name, amount in values[1:]]
     }
+    for row in range(3):
+        for column, key in enumerate(("name", "amount")):
+            evidence = next(
+                e for e in compiled.value_evidence if e["target"]["path"] == f"/rows/{row}/{key}"
+            )
+            assert evidence["binding"]["sourceRef"] == f"c{row + 1}:{column}"
+            assert evidence["raw"] == values[row + 1][column]
     definitions = [
         s for s in compiled.semantics if s["kind"] == "field_definition" and "column" in s["id"]
     ]
     assert all(set(s["sourceRefs"]) <= {"c0:0", "c0:1"} for s in definitions)
     assert {r["role"] for r in compiled.row_scopes["rows"]["rows"].values()} == {"header", "data"}
+
+
+@pytest.mark.parametrize("role", ["data", "subtotal", "note"])
+def test_text_content_role_survives_conflicting_definition_citations(role):
+    doc, region, ir = _table((("Name", "State"), ("Alice", "active"), ("Bob", "paused"), ("C", "")))
+    ir.repeats[0].rowRoles[1].role = role
+    for col in ir.repeats[0].columns:
+        col.definitionRefs.append(f"c1:{col.column}")
+    compiled = compile_region(ir, doc, region)
+    assert compiled.row_scopes["rows"]["rows"]["1"]["role"] == role
+    assert len(compiled.data["rows"]) == (3 if role == "data" else 2)
+    assert all(c["code"] == "column_definition_content_cells_dropped" for c in compiled.corrections)
+    assert not compiled.issues
+
+
+@pytest.mark.parametrize("basis", ["recognition", "unknown", "mixed-native"])
+def test_citations_do_not_turn_predicted_or_mixed_header_rows_into_fixed_headers(basis):
+    doc, region, ir = _table()
+    ir.meanings = []
+    ir.repeats[0].rowRoles[0].role = "data"
+    if basis == "mixed-native":
+        doc.tables["t"]["cells"][1]["isHeader"] = False
+    else:
+        doc.tables["t"]["basis"] = basis
+    compiled = compile_region(ir, doc, region)
+    assert compiled.data["rows"][0] == {"name": "Name", "amount": "Amount"}
+    assert compiled.row_scopes["rows"]["rows"]["0"]["role"] == "data"
+    assert not compiled.corrections
+    assert "column_definition_conflicts_with_content" in {i["code"] for i in compiled.issues}
+    assert all(
+        s["status"] == "uncertain" for s in compiled.semantics if s["id"] in {"r:name", "r:amount"}
+    )
+    assert all(
+        e["status"] == "uncertain"
+        for e in compiled.schema_evidence
+        if e["semanticIds"] in [["r:name"], ["r:amount"]]
+    )
+
+
+def test_explicitly_classified_repeated_header_preserves_other_rows_and_sources():
+    doc, region, ir = _table((("Name", "Amount"), ("A", "0"), ("Name", "Amount"), ("B", "1")))
+    ir.repeats[0].rowRoles[2].role = "header"
+    for col in ir.repeats[0].columns:
+        col.definitionRefs.append(f"c2:{col.column}")
+    compiled = compile_region(ir, doc, region)
+    assert compiled.data["rows"] == [{"name": "A", "amount": "0"}, {"name": "B", "amount": "1"}]
+    assert compiled.row_scopes["rows"]["rows"]["2"]["role"] == "header"
+    assert not compiled.issues and not compiled.corrections
+    assert set(compiled.repeat_paths["rows"]["headerSourceRefs"]) == {
+        "c0:0",
+        "c0:1",
+        "c2:0",
+        "c2:1",
+    }
 
 
 class DuplicateFieldModel(ReferenceModel):

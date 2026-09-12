@@ -7,9 +7,9 @@ in [the API reference](python-api.md); model setup and jobs are in [operations](
 
 HWP/HWPX and XLSX are the primary completion targets. Existing PDF processing below
 remains documented, but broad PDF/scan qualification is no longer a prerequisite for
-finishing those formats. Result-only reconstruction is specified in
-[the architecture](product-architecture.md#reconstruction-from-extraction-results);
-the current capture helper is not a reconstruction engine.
+finishing those formats. The KPI is [consistent structure and understanding across
+varied forms](product-architecture.md#structural-completeness-and-document-understanding),
+not a separate reconstruction feature.
 
 ## 1. Observation, source bindings and region ownership
 
@@ -212,10 +212,20 @@ spelling alone is not sufficient to remove a legitimate repeated value. Context-
 meanings and unsupported heading definitions can be dropped; original nodes remain.
 Accounting proves what was processed, not whether a model interpreted it correctly.
 
-**Known unsafe rule:** the current compiler can relabel a fully definition-cited,
-non-numeric data row as a header (`column_definition_row_relabeled_header`). This
-can silently discard real text-only records. It is not the intended preservation
-contract and must be fixed before further accuracy claims. See [priority 1](../SUPPORT.md).
+Column definition citations never promote a content row to a header. Only the
+shared `fixed_header_rows` rule can correct a content role: every observed cell in
+that row must be a native-declared header. The correction is recorded as
+`native_header_row_role_corrected`. Recognition predictions, mixed header/value rows
+and the presence or absence of numeric text do not fix a row's role; an explicit AI
+header decision remains possible.
+
+Citations of data/subtotal/note cells are dropped when other definition citations
+remain. If every citation conflicts, `column_definition_conflicts_with_content`
+marks the proposed column definition and its schema evidence uncertain while the
+compiler retains the row roles and bound values. The table structure stage asks for
+repair rather than freezing that proposal; exhausted repair stays partial. Correct
+source citations and actual value evidence remain separate checks. Compiler v27
+invalidates checkpoints made with the earlier citation-driven row rule.
 
 ## 5. Cross-page relations and applicability
 
@@ -286,7 +296,7 @@ relevant row when changing its owning behavior. Do not patch stored IDs to resum
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v30 / v15 / v26 |
+| Semantic prompt / region plan / result compiler | v30 / v15 / v27 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v13 / v6 |
 | Scope selection wire / source binding / regional checkpoint | v2 / v2 / v3 |

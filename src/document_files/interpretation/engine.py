@@ -1459,6 +1459,7 @@ def extract_schema_from_stream(
                                 if i["code"]
                                 in {
                                     "column_definition_not_above_column",
+                                    "column_definition_conflicts_with_content",
                                     "column_leaf_header_missing",
                                     "table_rows_outside_repeat",
                                     "header_cell_bound_as_value",

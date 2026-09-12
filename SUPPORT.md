@@ -2,15 +2,16 @@
 
 This file records current capability, checked outcomes and unresolved defects.
 Implementation details belong in [the extraction engine](docs/extraction-engine.md),
-not in an accumulating experiment log. Last source audit: **2026-09-12**, product
-commit **8744a5c1c89b87370c8b6dd3c8d49cd464400277**. The later documentation commit
-`ea30cb9` records the same implementation. Version **1.8.0 is not formally released**.
+not in an accumulating experiment log. Last source audit: **2026-09-12**. The Spark
+model runs below used **8744a5c1c89b87370c8b6dd3c8d49cd464400277**; subsequent package
+and compiler corrections have local regression evidence, not fresh model approval.
+Version **1.8.0 is not formally released**.
 
 ## Current scope
 
-1. **HWP/HWPX and Excel XLSX:** accurate structure, schema, values, relationships and
-   source links, followed by editable HWPX/XLSX reconstructed from the extraction
-   result alone. The generator must not reopen or copy the original file.
+1. **HWP/HWPX and Excel XLSX:** consistent document structure and understanding
+   across varied layouts and forms, with complete hierarchy, fields/records, exact
+   values, relationships and source links. This is the product KPI.
 2. **Runtime:** native parsing and internal AI on DGX Spark, then personal Mac use.
    Recognition runs on CPU when needed; internal model inference uses CUDA.
 3. **Later formats:** Word and PPTX after the primary formats; Google Docs/Sheets/Slides
@@ -21,24 +22,25 @@ commit **8744a5c1c89b87370c8b6dd3c8d49cd464400277**. The later documentation com
    upgrades. Existing builders and interfaces remain available for explicit use.
 
 Company-specific back-office implementation and cloud-model quality certification
-remain outside this completion target. Result-only reconstruction is now included,
-not an optional personal follow-up. HWP inputs target HWPX; binary `.xls` and `.doc`
-are not currently supported native formats. Installed consumers and packs are unchanged.
+remain outside this completion target. Reconstruction illustrates how much structure
+the result should retain; implementing a writer is not a separate feature target or
+completion gate. Binary `.xls` and `.doc` are not currently supported native formats.
+Installed consumers and packs are unchanged.
 
 ## What is implemented and what is checked
 
 | Area | Current state |
 |---|---|
 | Native formats | TXT, Markdown, HTML, DOCX, HWP/HWPX, XLSX and PPTX parsing and common structure extraction are implemented. Broad independent AI quality is not established. |
-| Reconstruction | HWPX/XLSX native package parts can be retained in `reconstructionContext`. There is no result-to-file writer or fidelity approval. HWP native capture is unavailable. Existing HWPX plan-based creation/copy editing and Skill-guided XLSX authoring do not meet the result-only requirement. |
+| Optional native capture | HWPX/XLSX package parts can be retained in `reconstructionContext`; binary HWP capture and a result-to-file writer are unavailable. Capture is not evidence of logical structure or understanding, and a writer is not a current KPI gate. |
 | PDF and scans | CPU recognition, source-bound pixel review, additional literal reading and reviewed alternative tables are implemented. Development examples ran through this path; arbitrary scans are not qualified. |
-| Tables | Structure/content/applicability are separated. The compiler reads all mapped rows and preserves precision and source bindings. **Two data-preservation risks remain below.** |
+| Tables | Structure/content/applicability are separated. The compiler reads all mapped rows and preserves precision and source bindings. Citation-driven text-row loss is fixed in compiler v27; equal-valued continuation remains unresolved below. |
 | Jobs and APIs | Python/CLI/MCP and authenticated HTTP use the same engine. Cancellation, saved results and explicit-budget resume have regression coverage. An installed Spark HTTP service has not been qualified. |
 | Spark | Actual bounded GPU extraction runs exist with the installed ARM64 recognition, CUDA runtime and vision packs. These are development runs, not independent quality approval or CPU memory qualification. |
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check after the independent-package corrections passed **2,637 tests,
+The full local check after the row-preservation correction passed **2,652 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -61,8 +63,8 @@ qualify a platform installer, a live agent session or a formal release.
 
 ## Latest Spark development evidence
 
-These earlier HTML/PDF runs exercise shared interpretation code, not primary-format
-reconstruction. The following runs used the same product source above. Their 182 source files were
+These earlier HTML/PDF runs exercise shared interpretation code, not independent
+HWP/HWPX or XLSX quality. The following runs used the model-run source above. Their 182 source files were
 rechecked against the committed tree, and collection hashes were checked. Expected
 answers were kept outside extractor input. These documents have already influenced
 development and cannot be reused as independent holdouts.
@@ -81,53 +83,69 @@ Some old run-plan fields say 1,024 scope reasoning tokens while actual requests 
 use the separately checked source-file identity, not a rewritten success receipt.
 GPU cgroup measurements must not be advertised as a CPU-only 16 GiB qualification.
 
+## Row-preservation correction
+
+Compiler v27 no longer infers a header from definition citations or numeric spelling.
+Native-declared header-only rows use the same geometry rule as the table structure
+protocol. Other data, subtotal and note roles stay intact. Content-cell citations
+are removed when other citations remain; content-only definitions are uncertain and
+request structural repair. An exhausted repair does not report complete extraction.
+
+Local regressions cover English/Korean text records, numbers and precise strings,
+explicit empty cells, subtotal/note roles, predicted or mixed headers, repeated
+headers, exact value bindings, bounded repair and incompatible old checkpoints.
+These deterministic checks close the reproduced compiler defect. They do not approve
+AI row classification or primary-format quality; affected real-model examples still
+need bounded reruns on the corrected source.
+
 ## Unresolved defects and next implementation order
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **A real text-only data row can be removed as a header.** `interpretation/compiler.py` relabels a fully definition-cited row when no cell is a bare number. A synthetic Name/State table loses Alice/active and keeps only Bob/paused, with no issue. | Do not let model definition citations override observed data ownership. Preserve the row; report conflicting definitions for repair or uncertainty. Test real text rows, valid repeated headers, numeric rows, subtotal/note rows and source links. |
-| 2 | **Equal values remove the `continue` choice.** `interpretation/regions.py` sets `rightRepeatsLeft` from matching cell text/positions; `engine.py` then offers only duplicate/separate/unresolved. Separate transactions with identical values can genuinely continue. | Keep the distinction between an additional record and a second presentation of the same record. Equal text is a candidate signal, not identity proof. Test equal-valued new rows, exact repeated presentations, explicit continuation context and retained per-page provenance. |
-| 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Tighten the prior expectations and review the actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
+| 1 | **Equal values remove the `continue` choice.** `interpretation/regions.py` sets `rightRepeatsLeft` from matching cell text/positions; `engine.py` then offers only duplicate/separate/unresolved. Separate transactions with identical values can genuinely continue. | Keep the distinction between an additional record and a second presentation of the same record. Equal text is a candidate signal, not identity proof. Test equal-valued new rows, exact repeated presentations, explicit continuation context and retained per-page provenance. |
+| 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
+| 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
-| 5 | Result-only HWPX/XLSX writers and the binary-HWP capture path are missing. | Reuse retained native parts where appropriate, validate a self-contained result/resource package and write a separate editable output without source access. For HWP, preserve conversion/source mapping and expose conversion loss. Follow the [implementation direction](docs/product-architecture.md#reconstruction-from-extraction-results). |
-| 6 | HWP/HWPX and XLSX have not passed independent end-to-end extraction and reconstruction review. | Freeze new native fixtures and prior expected values/layout, run extraction on Spark, then generate from the result alone. Check complete values, definitions, relationships, field/value provenance, output structure and layout. A failed holdout becomes a development example. |
+| 5 | New HWP/HWPX and XLSX documents have not passed independent end-to-end structural and semantic review. | Freeze unseen native inputs with prior expected structure, values, relationships and provenance; run the actual product path on Spark. Review the full result independently of execution. A failed holdout used for a fix becomes a development case. |
 
-The first two defects were reproduced without a model call. Fix those invariants
-before another broad inference run. Then run only affected examples within a
-predeclared budget; retain raw failures and do not automatically increase that budget.
+Fix reproduced preservation defects before another broad inference run. Run only
+affected examples within a predeclared budget; retain raw failures and do not
+increase that budget automatically. A result-to-file writer, visual editor and
+pixel-matched reproduction are not prerequisites for this work.
 
 ## What finishes the primary formats
 
 - The data-preservation defects above are fixed with directly relevant regressions.
-- New HWP, HWPX and XLSX documents cover forms, merged/nested or continued tables,
-  repeated records, notes and long content. All required values, relationships and
-  source links match independently prepared expectations.
-- A separate generator, given only the serialized result and its declared resources,
-  creates editable HWPX or XLSX. The original and its directory are unavailable to
-  that generator; source comparison belongs to a separate review step.
-- Reopening, structural comparison, compatible-application layout review and sample
-  edits pass. Merely copying a file, repackaging a hidden original archive, preserving
-  native parts or returning `nativeCaptureComplete` does not establish both extraction
-  accuracy and reconstruction fidelity.
+- New HWP, HWPX and XLSX documents cover varied forms and layouts, including different
+  presentations of equivalent content and documents whose structures genuinely differ.
+  All required hierarchy, fields/records, values, relationships and source links match
+  independently prepared expectations. Consistency means the same preservation and
+  evidence rules, not identical field names or a fixed output template.
+- Comparison covers the whole result: no missing/reordered record, duplicate field,
+  incorrect header grouping or unreported change of scope. Unclear and unobserved
+  elements remain distinguishable from explicit blanks and absent values.
+- Layout and resource information needed to understand the source is retained or its
+  absence reported. Raw text, an opaque XML archive or a copy-like output alone does
+  not demonstrate logical structure and meaning. No standalone writer or application
+  rendering check is required to finish this KPI.
 - An oversized or unresolved document exposes the missing work in a useful partial
-  result; that separate failure-behavior check does not count as accuracy success.
+  result; this separate failure-behavior check does not count as accuracy success.
 - The actual Spark product entry point uses native parsing and the configured model,
   records total cost, and preserves results across explicit resume. Recognition is
-  included when the selected input actually requires it.
-  No provided model answers or outside-agent interpretation stand in for this path.
+  included when the selected input actually requires it. No supplied model answers
+  or outside-agent interpretation stand in for this path.
 - Operation remains bounded and safe on the shared host, with no source mutation,
   hidden model download or unrequested external document transfer.
 
 | Format | Required comparison for the selected completion cases |
 |---|---|
-| HWP → HWPX / HWPX → HWPX | Text and reading order; table cells, merges and nesting; checkbox states and list markers; notes, headers/footers, images; page setup, fonts, paragraph/table formatting and placement. Conversion loss or unsupported objects must be identified, not silently omitted. |
-| XLSX → XLSX | Sheet names/order/visibility; cell coordinates, native types, exact strings and decimal spelling; formulas and saved caches separately; explicit blanks; merges and row/column sizes; styles, notes, links, validations, named ranges, drawings/charts and print settings present in the case. Do not recalculate formulas or activate external links to fabricate expected values. |
+| HWP / HWPX | Text, reading order and section hierarchy; labels and values; table cells, merges, nesting and header/record roles; checkbox states and list markers; notes, headers/footers and referenced objects. Link units, conditions and footnotes to the correct elements. Preserve original source locations and expose conversion loss or unsupported objects. |
+| XLSX | Sheet names/order and cell coordinates; label/value and repeated-record structure; native types, exact strings and decimal spelling; formulas and saved caches separately; explicit blanks and missing cells; merges, header groups, notes and their applicability. Retain relevant native references and never execute formulas or external links to fabricate expected values. |
 
-Use the original only in the comparison environment. Account for font availability
-and application rendering differences before judging copy-like layout; a parser's
-successful reopen is not visual approval. Whole-page images do not satisfy editability.
-Secondary formats and broad PDF qualification do not gate this narrower target, and
-finishing it must not be reported as the older multi-format formal release approval.
+Use prior expected structure and independently inspect the actual bindings, not
+just whether a string appears somewhere in the source. Secondary formats and broad
+PDF qualification do not gate this target, and finishing it is not the older
+multi-format formal release approval.
 
 There is no separate response-time SLA. Evaluation defaults remain short **12 calls /
 900 seconds**, long **64 calls / 3,600 seconds**; development comparisons can use an

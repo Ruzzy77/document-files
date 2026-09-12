@@ -4,8 +4,8 @@ This directory supplies packaging/deployment interfaces, not prequalified model
 weights or a tested Docker installation. No model is downloaded at document time.
 The repository's HWP source-preservation backend remains in the core distribution.
 
-The current priority is accurate HWP/HWPX and XLSX extraction plus result-only
-reconstruction, with internal AI on Spark and personal Mac use next. Native parsing
+The current priority is consistent HWP/HWPX and XLSX structure and understanding
+across varied forms, with internal AI on Spark and personal Mac use next. Native parsing
 comes first; ARM64 CPU recognition and CUDA inference packs are separate options.
 Start with [operations](../docs/operations.md)
 and `compose.gpu.yaml`. Other-platform distribution and CPU-only 16 GiB qualification
