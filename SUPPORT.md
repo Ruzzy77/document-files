@@ -329,7 +329,69 @@ review SHA `b8e24f49…`) returned **complete** in 17 calls and 441.87 product s
 with one four-row table in source order under the first page's keys, the repeated
 statements folded, the unit and the English condition on the quantity column of every
 row, and a no-call resume; the Korean condition chose every column of the record, so
-the mechanical development review still fails on that scope. Not qualification.
+the mechanical development review still failed on that scope.
+
+Two follow-ups closed that gap on 2026-09-12. Replaying the fifteenth run's three saved
+applicability requests on the same model path (`scope-prompt-probe-03`, review SHA
+`a7fa117d…`; greedy sampling with a fixed seed, so a replay reproduces the product
+answer exactly) showed that the Korean wording alone had moved the model from the
+quantity column to every mapped column, because the rule's outcome concerns the record.
+Scope-axis v6 adds one sentence (a condition selects the values it tests, not the subject
+of its outcome); with it the Korean condition chose the quantity column and the English
+condition and the unit kept their answers. Compiler v23 reads a delimiter label/value
+line as one scalar within a region: the raster page's region had emitted a whole-line
+field and a label field beside each condition value, so only the value had folded into
+the earlier page. The sixteenth run (`arm-gpu-pdf-continued-16`, source `1c78644`,
+review SHA `5b8b55d0…`) returned **complete** in 17 calls and 434.53 product seconds
+with the unit and both conditions on the quantity column of all four rows, no page 2
+residue in the data, and the development review passed. The mixed PDF
+(`arm-gpu-pdf-product-18`, review SHA `5df353d5…`, 17 calls, 421.25 product seconds) and
+the HTML document (`arm-gpu-html-product-06`, review SHA `05c49e9a…`, 5 calls, 158.94
+product seconds) returned complete with unchanged decisions on the same source. Not
+qualification.
+
+A fourth development document followed the same day: a one-page native delivery form
+(`public-form-subtotal.pdf`, `arm-gpu-pdf-form-01..06`) with a title, three delimiter
+label/value lines, an amount-unit statement, a table with a header row, three data rows,
+a subtotal row and a full-width note row that the recognition layer keeps outside the
+table, two condition lines and one line of 8 pt small print. Six bounded runs fixed what
+it exposed. The note row's frame shares a pixel component with the table grid, so the
+page review displayed it, but the first pass had prepared no lossless detail and the
+frame had no admissible label: page review v16 records whether a unit lies entirely on
+the page's own vector line objects and offers `native_rule`, prepares a detail covering
+every displayed unit, sizes its output allowance by the decision inventory (a fixed
+2,048 tokens beside two images exceeded the model context) and lists only unimplied
+`requiredBefore` precedences. The table structure answer then cited every data and
+subtotal cell of each column as a definition, and the compiler relabeled the fully cited
+data rows as headers: compiler v24 drops content-row citations, relabels a fully cited
+row only when it holds no bare number, and drops a second field over one binding; table
+protocol v19 says definitionRefs name header cells only, and semantic prompt v30 says a
+unit or currency statement is a unit meaning (the amount unit had been read as a
+definition). The title's scope-less definition then returned unresolved from its
+applicability call and the title region needed a repair for the unaccounted heading:
+compiler v25 drops such a definition and accounts for a recognized section header or
+title that no field reads. Finally the subtotal row's scalar region exceeded the context
+budget with every data cell as context: region plan v15 gives it the column headers and
+the surrounding text, trims its cell nodes and lists only the cells it owns or sees. The
+sixth run (source `09325d1`, review SHA `9d2bc543…`) returned **complete** in 10 calls
+and 243.14 product seconds: three item rows in source order, the label/value scalars
+bound to their value spans, the subtotal quantity and amount as separate scalars, the
+note and the small print retained, the unit on the amount, unit price and subtotal
+amount, the conditions on the quantity column and the subtotal quantity, and a no-call
+resume. Three more runs closed what the regressions of the other documents and the form
+itself then exposed: a later statement that restates several earlier statements at once
+now folds into all of them, the meaning selection says a data cell holding only its own
+value adds no meaning (table protocol v20), the table details request carries only text,
+role and a differing native value per context node, and compiler v26 drops a meaning
+that cites only context nodes and no longer requires a proven blank cell of the scalar
+region. On source `8744a5c` all four development documents return complete with the
+development review passing: the form (`arm-gpu-pdf-form-09`, 10 calls, 247.61 product
+seconds, review SHA `2ad4c887…`), the continued table (`arm-gpu-pdf-continued-19`, 17
+calls, 427.30 seconds), the mixed PDF (`arm-gpu-pdf-product-21`, 18 calls, 424.45
+seconds) and the HTML document (`arm-gpu-html-product-09`, 5 calls, 158.31 seconds).
+Small residues: the subtotal scalars are keyed `subtotal-value-1/2` rather than by their
+columns, and the model still emits an empty scalar for the blank price cell although it
+is no longer required. Not qualification.
 
 Evidence: `arm-scope-label-origin-{unit,whole}-01`, `arm-scope-column-review-{unit,
 condition,whole}-01`, `arm-scope-budget-1024-01`, `arm-scope-sampling-official-01`,
