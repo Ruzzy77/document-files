@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- The table details request's `referenceContext` carries each context node's text, role
+  and a differing native value only; geometry, recognition basis and per-node status stay
+  in the stored observation. The seventh delivery-form regression selected a header as
+  carrying meaning, and the details request then exceeded the context budget by 394
+  characters with every context node's full view repeated.
 - Table protocol v20 says in the meaning selection that a data cell holding only its
   own value (an item name, code or label already read into the record) adds no meaning:
   the seventeenth continued-table regression selected the raster table's item names as

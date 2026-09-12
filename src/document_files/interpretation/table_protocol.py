@@ -433,14 +433,25 @@ def structure_payload(payload):
 
 
 def _meaning_context_node(node):
-    """Remove only byte-equal text copies, preserving basis and all other metadata."""
-    result = copy.deepcopy(node)
-    semantic = result.get("semantic")
+    """Text, role and a differing native value: context clarifies, it is not evidence.
+
+    Geometry, recognition basis and per-node status stay in the stored observation;
+    with them repeated for every context node, the delivery-form table's details
+    request exceeded the context budget once its selection named a source.
+    """
+    result = {"text": node.get("text")}
+    if node.get("semanticRole") is not None:
+        result["semanticRole"] = node["semanticRole"]
+    semantic = node.get("semantic")
     value = semantic.get("value") if isinstance(semantic, dict) else None
-    if isinstance(value, dict) and value.get("kind") == "text":
-        for key in ("raw", "value"):
-            if isinstance(result.get("text"), str) and value.get(key) == result["text"]:
-                value.pop(key, None)
+    if isinstance(value, dict):
+        kept = copy.deepcopy(value)
+        if kept.get("kind") == "text":
+            for key in ("raw", "value"):
+                if isinstance(node.get("text"), str) and kept.get(key) == node["text"]:
+                    kept.pop(key, None)
+        if any(k not in {"kind"} for k in kept):
+            result["semantic"] = {"value": kept}
     return result
 
 

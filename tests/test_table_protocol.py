@@ -952,12 +952,15 @@ def test_context_compaction_only_removes_exact_text_copies(kind, raw, value):
     }
     before = copy.deepcopy(node)
     result = _meaning_context_node(node)
-    expected = copy.deepcopy(node)
+    # Context carries text, role and a differing native value only; geometry, basis
+    # and per-node status stay in the stored observation.
+    expected = {"text": "same", "semantic": {"value": copy.deepcopy(node["semantic"]["value"])}}
     if kind == "text":
         for key in ("raw", "value"):
             if expected["semantic"]["value"][key] == "same":
                 expected["semantic"]["value"].pop(key)
     assert result == expected
+    assert "sourceStructure" not in result and "semanticInput" not in result
     assert node == before
 
 
