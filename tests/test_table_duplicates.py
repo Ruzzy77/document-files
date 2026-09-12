@@ -27,7 +27,19 @@ from document_files.interpretation.semantic_types import (
 ROWS = (("Name", "Amount"), ("A", "1"), ("B", "2"), ("C", "3"))
 
 
-def _page(doc, prefix, page, rows, unit, *, key, extra_statement=False):
+def _page(
+    doc,
+    prefix,
+    page,
+    rows,
+    unit,
+    *,
+    key,
+    extra_statement=False,
+    repeat_key="rows",
+    column_keys=("name", "amount"),
+    amount_type="string",
+):
     statement = doc.node(f"{prefix}stmt", f"Unit: {unit}", role="text", locator={"page": page})
     extra = []
     if extra_statement:
@@ -107,7 +119,7 @@ def _page(doc, prefix, page, rows, unit, *, key, extra_statement=False):
             "repeats": [
                 {
                     "id": "rows",
-                    "key": "rows",
+                    "key": repeat_key,
                     "label": "Rows",
                     "tableRef": f"{prefix}t",
                     "rowStart": 0,
@@ -124,16 +136,17 @@ def _page(doc, prefix, page, rows, unit, *, key, extra_statement=False):
                     "columns": [
                         {
                             "id": "name",
-                            "key": "name",
+                            "key": column_keys[0],
                             "label": "Name",
                             "column": 0,
                             "definitionRefs": [f"{prefix}c0:0"],
                         },
                         {
                             "id": "amount",
-                            "key": "amount",
+                            "key": column_keys[1],
                             "label": "Amount",
                             "column": 1,
+                            "valueType": amount_type,
                             "definitionRefs": [f"{prefix}c0:1"],
                         },
                     ],
@@ -148,11 +161,11 @@ def _page(doc, prefix, page, rows, unit, *, key, extra_statement=False):
     return [(text_region, text_ir), (table_region, table_ir)]
 
 
-def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False):
+def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False, **page2):
     doc = ObservationDocument()
     parts = [
         *_page(doc, "p1", 1, ROWS, "pcs", key="unit", extra_statement=extra_statement),
-        *_page(doc, "p2", 2, rows2, unit2, key="unit_2"),
+        *_page(doc, "p2", 2, rows2, unit2, key="unit_2", **page2),
     ]
     regions = [region for region, _ in parts]
     compiled = [compile_region(ir, doc, region) for region, ir in parts]
@@ -378,3 +391,39 @@ def test_integration_request_sends_bounded_position_views_of_whole_rows():
     }
     # The twelfth GPU run could not send whole-row evidence in the full observation view.
     assert len(encode(request)) < 3200
+
+
+def test_continuation_fragment_keys_follow_the_earlier_fragment_by_column_position():
+    # The twelfth continued-table run decided continue, but the later page had named
+    # its repeat and columns differently and the join was refused as a column conflict.
+    later = (("Name", "Amount"), ("D", "4"), ("E", "5"), ("F", "6"))
+    doc, regions, compiled = two_pages(rows2=later, repeat_key="items", column_keys=("item", "amt"))
+    candidates = continuation_candidates(doc, regions)
+    joined, issues, links = join_continuations(compiled, candidates, {"continuation:1": "continue"})
+    assert not issues and links
+    result = combine_regions(joined)
+    assert not result["errors"] and "items" not in result["data"]
+    assert result["data"]["rows"] == [
+        {"name": "A", "amount": "1"},
+        {"name": "B", "amount": "2"},
+        {"name": "C", "amount": "3"},
+        {"name": "D", "amount": "4"},
+        {"name": "E", "amount": "5"},
+        {"name": "F", "amount": "6"},
+    ]
+    evidence = {e["target"]["path"]: e for e in result["valueEvidence"]}
+    assert evidence["/rows/5/amount"]["sourceRefs"][0] == "p2c3:1"
+    later_amount = next(
+        s
+        for s in result["semantics"]
+        if s["kind"] == "field_definition" and s["sourceRefs"] == ["p2c0:1"]
+    )
+    assert later_amount["targets"][0]["path"] == "/properties/rows/items/properties/amount"
+    assert {t["path"] for t in later_amount["scope"]} == {f"/rows/{i}/amount" for i in (3, 4, 5)}
+    renamed = next(c for c in result["corrections"] if c["code"] == "continuation_columns_renamed")
+    assert renamed["renamed"] == {"item": "name", "amt": "amount"}
+    # A value type that differs at the same column still conflicts.
+    doc, regions, compiled = two_pages(rows2=later, amount_type="integer")
+    candidates = continuation_candidates(doc, regions)
+    _, issues, _ = join_continuations(compiled, candidates, {"continuation:1": "continue"})
+    assert [i["code"] for i in issues] == ["table_continuation_column_conflict"]

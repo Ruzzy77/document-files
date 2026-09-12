@@ -2,6 +2,11 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- After a decided `continue` or `duplicate`, the later fragment's repeat and column
+  keys follow the earlier fragment's keys by column position (recorded as
+  `continuation_columns_renamed`), because regions are interpreted independently and
+  the twelfth continued-table run's later page named the same columns differently, so
+  the join was refused as a column conflict; value types must still agree.
 - Compiler v22 accounts for a selected node whose entire text is the consumed binding
   of a field: its whole content is the field's value, so no disposition is needed. The
   ninth continued-table run had bound the raster page's title that way, given no

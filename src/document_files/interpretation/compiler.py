@@ -775,6 +775,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             "rowEnd": repeat.rowEnd,
             "columns": [c.column for c in repeat.columns],
             "columnDefinitions": {str(c.column): prefix + c.id for c in repeat.columns},
+            "columnKeys": {str(c.column): c.key for c in repeat.columns},
             "headerSourceRefs": sorted(declared),
         }
         out.row_scopes[repeat.id] = row_scope
@@ -1384,6 +1385,29 @@ def _merge_duplicate_table(left, right, a, candidate_id, aliases):
         _drop_semantic(right, item["id"])
 
 
+def unescape(segment):
+    return segment.replace("~1", "/").replace("~0", "~")
+
+
+def _column_renames(a, b):
+    """Right keys that differ from the left key of the same column position."""
+    keys_a, keys_b = a.get("columnKeys"), b.get("columnKeys")
+    if not keys_a or not keys_b or set(keys_a) != set(keys_b):
+        return {}
+    return {keys_b[c]: keys_a[c] for c in keys_a if keys_b[c] != keys_a[c]}
+
+
+def _rename_keys(row, renamed):
+    return {renamed.get(k, k): v for k, v in row.items()}
+
+
+def _rename_row_schema(schema, renamed):
+    items = schema.get("items", {})
+    properties = {renamed.get(k, k): v for k, v in items.get("properties", {}).items()}
+    required = [renamed.get(k, k) for k in items.get("required", [])]
+    return {**schema, "items": {**items, "properties": properties, "required": required}}
+
+
 def join_continuations(compiled, candidates, decisions):
     """Apply decided table relations and rewrite dependent generated pointers only.
 
@@ -1428,13 +1452,38 @@ def join_continuations(compiled, candidates, decisions):
                 pointer(left.schema, a["schemaPath"]),
                 pointer(right.schema, b["schemaPath"]),
             )
-            if schema_a != schema_b or a["columns"] != b["columns"]:
+            if a["columns"] != b["columns"]:
+                raise ValueError
+            # Regions are interpreted independently, so the later fragment names the
+            # same columns with its own keys. Under the decided relation column i of
+            # the right table is column i of the left, so the right keys follow the
+            # left keys; value types must still agree.
+            renamed = _column_renames(a, b)
+            if renamed:
+                rows_b = [_rename_keys(row, renamed) for row in rows_b]
+                schema_b = _rename_row_schema(schema_b, renamed)
+            if schema_a != schema_b:
                 raise ValueError
         except (ValueError, KeyError, TypeError):
             issues.append(
                 {"code": "table_continuation_column_conflict", "candidateId": candidate["id"]}
             )
             continue
+        if renamed:
+            pointer(right.data, b["path"])[:] = rows_b
+            row_schema = pointer(right.schema, b["schemaPath"])
+            row_schema.clear()
+            row_schema.update(schema_b)
+            right.corrections.append(
+                {
+                    "code": "continuation_columns_renamed",
+                    "regionId": right.id,
+                    "candidateId": candidate["id"],
+                    "tableRef": candidate["rightTable"],
+                    "renamed": dict(renamed),
+                    "basis": "same_column_positions_under_the_decided_relation",
+                }
+            )
         if duplicate:
             if rows_a != rows_b:
                 issues.append(
@@ -1448,18 +1497,28 @@ def join_continuations(compiled, candidates, decisions):
         if candidate["confirmed"]:
             a["rowEnd"] = b["rowEnd"]
 
-        def remap(target, a=a, b=b, offset=offset):
+        def remap(target, a=a, b=b, offset=offset, renamed=renamed):
             key = "path"
             if target.get("space") == "dataSchema":
                 old, new = b["schemaPath"], a["schemaPath"]
                 if target[key] == old or target[key].startswith(old + "/"):
-                    target[key] = new + target[key][len(old) :]
+                    rest = target[key][len(old) :]
+                    prefix = "/items/properties/"
+                    if renamed and rest.startswith(prefix):
+                        column, slash, tail = rest[len(prefix) :].partition("/")
+                        column = escape(renamed.get(unescape(column), unescape(column)))
+                        rest = prefix + column + slash + tail
+                    target[key] = new + rest
             elif target.get("space") == "data":
                 if target[key] == b["path"]:
                     target[key] = a["path"]
                 elif target[key].startswith(b["path"] + "/"):
                     suffix = target[key][len(b["path"]) + 1 :]
                     row, slash, rest = suffix.partition("/")
+                    if renamed and rest:
+                        column, slash2, tail = rest.partition("/")
+                        column = escape(renamed.get(unescape(column), unescape(column)))
+                        rest = column + slash2 + tail
                     target[key] = f"{a['path']}/{int(row) + offset}" + (
                         slash + rest if slash else ""
                     )
