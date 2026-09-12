@@ -416,8 +416,39 @@ instruction. Nine focused regressions cover exact JSON types, full source recove
 roles/structure/values/batches, actual native parsing, fixed limits and checkpoint reuse.
 
 The unchanged eight-paragraph seed receipt now plans as one region at the original
-16,000-character limit rather than two. This is source-preserving request sizing, not
-an inference result or cross-region continuation. Actual-model quality remains unverified.
+16,000-character limit rather than two. Its conservative structure request is 15,242
+characters, compared with 17,175 for the equivalent unshared metadata. Sizing alone is
+not cross-region continuation or proof of understanding.
+
+Source **825971ac208061fa3011e4cdb03379ea28195c6e** then ran on **Spark-B** using a
+separate, task-owned 9B CUDA server. Existing verified model/runtime components and
+Python dependencies were copied from Spark-A; no model download or global installation
+was performed. The shared RPC service was unchanged. Spark-B Python 3.12.3 passed
+**347 tests**, with eight fixture-writer tests deselected.
+
+The actual product returned **partial after six calls / 91.9 seconds** under the original
+12-call / 900-second allowance. All eight source blocks reached every native request;
+48 complete source views and 80 displayed binding texts match the original observations.
+This is the first actual-model execution of native value batches, **not a batching
+quality pass**. The model made individual scalar attributes instead of two item records,
+kept unnecessary title fields and combined distinct meanings. Title-value conflicts and
+whole-paragraph numeric quotes caused both value batches to fail. No non-null data value
+was accepted; the absent receipt date and two unresolved meanings do not pass the KPI.
+
+The subsequent structure-revision request measured **18,819 characters**, exceeding the
+unchanged 16,000-character limit, so it made no model call. Source-grounded revision quality
+therefore remains unverified. The next correction must make that review callable without
+losing its source/history checks, and address why structure/value decisions still fail;
+full source context alone did not fix them.
+
+Evidence is in private `structural-kpi-20260913/native-context-21/`. Input, original
+nodes/bindings and committed source matched. The owned server stopped and its container
+was removed; the temporary source export/archive were deleted after review. The verified
+Spark-B components are retained for the next bounded primary-format check, not as a
+persistent service. Shared RPC identity/settings and host OOM were unchanged. The model
+server had a 16 GiB cgroup limit and no cgroup swap allowance; the host still had swap
+configured, and GPU allocations are not fully represented by that cgroup counter. This
+is not CPU-only memory, managed-pack, independent holdout or formal runtime qualification.
 
 ## Earlier HTML/PDF development evidence
 
@@ -467,7 +498,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The v7 comparison blocks nonempty-as-blank choices, but still creates whole-paragraph scalar attributes instead of item records and separate meaning relations. | Source-valid choices ran on Spark; exact invalid-member repair has regression and captured-response coverage. Batching still has no actual-model execution evidence. Explicit failure-triggered structure revision is implemented in v8, with actual-model verification pending. Verify it on Spark, then add cross-region context; do not weaken source/type/state checks or delete fields to pass. See `docs/extraction-engine.md`. |
+| 1 | **Native complete extraction is not approved.** The v9 Spark-B run retains all eight paragraphs in one region, but still produces per-item scalar attributes, title copies and compound numeric quotes. Both actual value batches fail. | Make the source-grounded review fit its unchanged input budget (18,819 vs 16,000 characters in this run), and diagnose the structure/value representation rather than adding accounting-only repairs. Preserve atomic replacement, complete history and source/type/state checks. Then implement genuine cross-region continuation and validate new native forms. Do not delete legitimate fields or raise limits automatically to pass. See `docs/extraction-engine.md`. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

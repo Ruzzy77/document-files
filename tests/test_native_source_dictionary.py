@@ -120,6 +120,16 @@ def test_formatted_hwpx_stays_in_one_owned_context_and_checkpoint_rebuilds_it(tm
     role, structure = model.outline_requests[0], model.structure_requests[0]
     assert len(role["blocks"]) == len(structure["blocks"]) == 8
     assert "sourceTemplate" in role and "sourceTemplate" in structure
+    saved = next(iter(states[-1]["documentStages"].values()))
+    for record, system, payload in [
+        (saved, roles.ROLE_SYSTEM, role),
+        (saved["structure"], native.SYSTEM, structure),
+    ]:
+        messages = contract_messages(system, payload, payload["outputContract"])
+        assert record["inputPreflight"]["systemCharacters"] == len(messages[0]["content"])
+        assert record["inputPreflight"]["totalMessageContentCharacters"] == sum(
+            len(m["content"]) for m in messages
+        )
     assert [n["text"] for n in structure["blocks"].values()] == [f"Text {i}" for i in range(8)]
     assert len(result["document"]["outline"]["elements"]) == 8
     restored = execute(model, raw=raw, contextChars=16000, restore=states[-1])

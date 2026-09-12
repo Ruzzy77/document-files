@@ -1445,7 +1445,9 @@ def extract_schema_from_stream(
                 else payload.get("documentStage", "content"),
                 "phase": "repair" if feedback is not None else "initial",
                 **({"substage": table_phase} if table_phase is not None else {}),
-                "systemCharacters": len(system),
+                "systemCharacters": sum(
+                    len(m["content"]) for m in messages if m["role"] == "system"
+                ),
                 "payloadCharacters": len(encode(payload)),
                 "outputContractCharacters": len(encode(contract)),
                 "feedbackCharacters": len(encode(feedback)) if feedback is not None else 0,
