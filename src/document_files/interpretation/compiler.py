@@ -15,7 +15,7 @@ from referencing import Registry
 
 from ..document_model.table_headers import declared_header, observed_rows
 from ..result_types import Assertion, Evidence, SourceBinding, Target
-from .accounting import bound_node_dispositions
+from .accounting import bound_node_dispositions, observed_heading
 from .bindings import resolve
 from .semantic_types import RegionInterpretation
 from .table_revisions import meaning_revision
@@ -958,11 +958,41 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         return owned
 
     repeats_by_id = {r.id: r for r in ir.repeats}
+    disposition_roles = {d.sourceRef: d.role for d in ir.dispositions}
+    consumed_refs = {bindings[b]["sourceRef"] for b in out.consumed_bindings}
+
+    def heading(ref):
+        """A heading by the model's disposition or by the recognized role of an unread node."""
+        if disposition_roles.get(ref) == "heading":
+            return True
+        return observed_heading(nodes.get(ref, {})) and ref not in consumed_refs
+
     for meaning in ir.meanings:
         if meaning.id in meaning_ids or meaning.id in ids:
             raise CompileError("duplicate_meaning_id")
         meaning_ids.add(meaning.id)
         source_refs = refs(meaning.sourceRefs)
+        if (
+            meaning.kind == "definition"
+            and meaning.rowStart is None
+            and not meaning.groupIds
+            and not meaning.repeatIds
+            and not [entity for entity in meaning.fieldIds if entity not in collapsed]
+            and all(heading(ref) for ref in source_refs)
+        ):
+            # A document or section title defines no offered value: a definition over
+            # headings alone names nothing to apply to, and an applicability request
+            # for it can only come back unresolved (delivery-form run 4).
+            out.corrections.append(
+                {
+                    "code": "heading_definition_dropped",
+                    "regionId": out.id,
+                    "semanticId": prefix + meaning.id,
+                    "sourceRefs": source_refs,
+                    "basis": "definition_without_scope_over_headings",
+                }
+            )
+            continue
         targets = []
         invalid_ids = []
         scope_errors = []

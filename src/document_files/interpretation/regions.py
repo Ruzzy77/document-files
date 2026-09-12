@@ -10,7 +10,7 @@ from .compiler import preferred_binding
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v14"
+REGION_PLAN_VERSION = "document-files.region-plan.v15"
 
 
 def _encoded(value):
@@ -300,6 +300,18 @@ def route_table_values(observation, region, frozen, compiled, *, context_chars, 
         return None, record
     child_id = region["id"] + ":nonrecord-values"
     bids = [bid for bid in region["bindingIds"] if observation.bindings[bid]["sourceRef"] in routed]
+    # The scalar region needs the column headers and the surrounding text, not the
+    # data cells already compiled into the record: with every cell as context, the
+    # delivery-form subtotal row's request exceeded the context budget.
+    header_cells = {
+        cell["sourceRef"]
+        for cell in table["cells"]
+        if declared_header(cell, table)
+        or any(
+            roles.get(row) == "header"
+            for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1))
+        )
+    }
     child = {
         "id": child_id,
         "parentRegionId": region["id"],
@@ -308,7 +320,11 @@ def route_table_values(observation, region, frozen, compiled, *, context_chars, 
         "contextNodeIds": list(
             dict.fromkeys(
                 [
-                    *[ref for ref in region["nodeIds"] if ref not in routed],
+                    *[
+                        ref
+                        for ref in region["nodeIds"]
+                        if ref not in routed and ref in header_cells
+                    ],
                     *region.get("contextNodeIds", []),
                 ]
             )

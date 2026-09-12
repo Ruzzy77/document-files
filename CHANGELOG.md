@@ -2,6 +2,17 @@
 
 ## 1.8.0 — independent product candidate (not released)
 
+- Compiler v25 drops a definition meaning that names no field, column or group and
+  whose sources are headings (`heading_definition_dropped`), because a title defines
+  no offered value and its applicability request can only return unresolved; a
+  recognized section header or title that no field reads and that carries no required
+  value candidate is accounted for as a heading without a model disposition. Region
+  plan v15 gives the non-record value region of a table (subtotal and note cells) the
+  column headers and the surrounding text as context, not the data cells already
+  compiled into the record. In the fourth delivery-form run the title's definition
+  stayed unresolved after an applicability call, the first attempt at the title region
+  needed a repair for the unaccounted heading, and the subtotal row's request exceeded
+  the context budget with every data cell as context.
 - Compiler v24 drops a column definition citation of a cell in a row the structure
   decision labels data, subtotal or note (`column_definition_content_cells_dropped`),
   relabels a fully cited content row as a header only when none of its cells is a bare

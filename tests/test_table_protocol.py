@@ -828,6 +828,13 @@ def test_subtotal_and_note_values_use_scalar_region_and_retain_exact_records_and
     assert not set(parent["nodeIds"]) & set(child["nodeIds"])
     assert not set(parent["bindingIds"]) & set(child["bindingIds"])
     assert set(child["nodeIds"]) <= set(parent["contextNodeIds"])
+    # The scalar region sees the column headers and the surrounding text, never the
+    # data cells already compiled into the record.
+    cells = result["document"]["structure"]["tables"][parent["tableRef"]]["cells"]
+    header_refs = {c["sourceRef"] for c in cells if c["row"] == 0}
+    data_refs = {c["sourceRef"] for c in cells if c["row"] in (1, 2)}
+    assert header_refs <= set(child["contextNodeIds"])
+    assert not data_refs & set(child["contextNodeIds"])
     assert len(result["document"]["structure"]["tables"][parent["tableRef"]]["cells"]) == 9
     routes = states[-1]["tableStages"][parent["id"]]["structure"]["valueRoutes"]
     assert sum(r["valueRoute"] == "scalar_region" for r in routes) == 3

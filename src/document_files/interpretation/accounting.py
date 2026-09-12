@@ -7,11 +7,18 @@ observed table cell can do so. Explicit unresolved dispositions take precedence.
 
 from __future__ import annotations
 
+HEADING_ROLES = {"section_header", "title"}
+
+
+def observed_heading(node):
+    """The recognition layer observed this node as a section header or title."""
+    return isinstance(node, dict) and node.get("semanticRole") in HEADING_ROLES
+
 
 def bound_node_dispositions(observation, region, fields, consumed, header_sources):
     nodes, bindings = observation.nodes, observation.bindings
     selected = set(region["nodeIds"])
-    ranges, used, roles = {}, {}, {}
+    ranges, used, roles, explanations = {}, {}, {}, {}
 
     def span(binding):
         if binding.get("path") != "/text":
@@ -117,11 +124,26 @@ def bound_node_dispositions(observation, region, fields, consumed, header_source
 
     for ref in header_sources & selected:
         roles.setdefault(ref, "structural")
+    # A recognized section header or title that no field reads and that carries no
+    # required value candidate is a heading: the recognition layer observed that
+    # role, and asking the model to say so cost the delivery-form runs a repair call.
+    consumed_refs = {bindings[b]["sourceRef"] for b in consumed if b in bindings}
+    required_refs = {
+        bindings[b]["sourceRef"] for b in region.get("requiredBindingIds", []) if b in bindings
+    }
+    for ref in selected:
+        if ref in roles or ref in ranges or ref in consumed_refs or ref in required_refs:
+            continue
+        if observed_heading(nodes.get(ref)):
+            roles[ref] = "heading"
+            explanations[ref] = "Recognized section header or title without value candidates"
     return {
         ref: {
             "sourceRef": ref,
             "role": role,
-            "explanation": "Verified field bindings cover this source content",
+            "explanation": explanations.get(
+                ref, "Verified field bindings cover this source content"
+            ),
             "basis": "program_derived",
             "bindingIds": sorted(set(used.get(ref, []))),
         }

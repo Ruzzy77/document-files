@@ -584,7 +584,10 @@ restates; a meaning that listed the dropped field keeps its remaining scope. A s
 field over the same binding is dropped as `duplicate_binding_field_dropped`, and a column
 definition citation of a cell in a data, subtotal or note row is dropped as
 `column_definition_content_cells_dropped`; a fully cited content row becomes a header row
-only when none of its cells is a bare number.
+only when none of its cells is a bare number. A definition meaning without any scope whose
+sources are all headings is dropped as `heading_definition_dropped`; a recognized section
+header or title that no field reads and that carries no required value candidate is
+accounted for as a heading.
 
 ### OCR ruling evidence
 

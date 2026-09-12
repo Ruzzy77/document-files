@@ -2049,7 +2049,7 @@ class TripleFieldModel(ReferenceModel):
 def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     from document_files.interpretation.semantic_types import COMPILER_VERSION
 
-    assert COMPILER_VERSION == "document-files.result-compiler.v24"
+    assert COMPILER_VERSION == "document-files.result-compiler.v25"
     model = TripleFieldModel()
     result = run(b"cond: do not ship\n", model)
     assert result["data"] == {"cond": "do not ship"}
@@ -2128,3 +2128,75 @@ def test_second_field_over_the_same_binding_is_dropped():
     assert [c["fieldId"].endswith("-copy") for c in dropped] == [True, True]
     assert all(c["keptFieldId"] + "-copy" == c["fieldId"] for c in dropped)
     assert result["extraction"]["status"] == "complete", result["issues"]
+
+
+def _heading_document(*, disposition):
+    doc = ObservationDocument()
+    title = doc.node("h", "납품 확인서 / Delivery Confirmation", role="section_header")
+    line = doc.node("n0", "Doc No: DC-1")
+    label = doc.bind(line, start=0, end=6, candidateRole="label")
+    value = doc.bind(line, start=8, end=12, candidateRole="value", labelRefs=[label])
+    region = {
+        "id": "r",
+        "nodeIds": [title, line],
+        "bindingIds": [label, value],
+        "contextNodeIds": [],
+        "requiredBindingIds": [value],
+    }
+    ir = RegionInterpretation.model_validate(
+        {
+            "regionId": "r",
+            "fields": [
+                {
+                    "id": "doc_no",
+                    "key": "doc_no",
+                    "label": "Doc No",
+                    "definitionRefs": [line],
+                    "bindingId": value,
+                    "valueType": "string",
+                }
+            ],
+            "meanings": [
+                {
+                    "id": "title",
+                    "kind": "definition",
+                    "description": "Document title",
+                    "sourceRefs": [title],
+                    "status": "interpreted",
+                }
+            ],
+            "dispositions": (
+                [{"sourceRef": title, "role": "heading", "explanation": "Title"}]
+                if disposition
+                else []
+            ),
+        }
+    )
+    return doc, region, ir, title
+
+
+@pytest.mark.parametrize("disposition", [True, False])
+def test_definition_over_a_heading_alone_is_dropped_and_the_heading_is_accounted(disposition):
+    # Delivery-form run 4: the title's definition meaning named no field, and its
+    # applicability request could only return unresolved.
+    doc, region, ir, title = _heading_document(disposition=disposition)
+    compiled = compile_region(ir, doc, region)
+    assert compiled.data == {"doc_no": "DC-1"}
+    assert [c["code"] for c in compiled.corrections] == ["heading_definition_dropped"]
+    assert compiled.corrections[0]["sourceRefs"] == [title]
+    assert not compiled.semantic_details and not compiled.issues, compiled.issues
+    accounted = next(d for d in compiled.dispositions if d["sourceRef"] == title)
+    assert accounted["role"] == "heading"
+    if not disposition:
+        assert accounted["basis"] == "program_derived"
+        assert "Recognized section header" in accounted["explanation"]
+
+
+def test_recognized_heading_with_a_required_value_stays_unaccounted():
+    doc, region, ir, title = _heading_document(disposition=False)
+    extra = doc.bind(title, start=0, end=6, candidateRole="value")
+    region["bindingIds"].append(extra)
+    region["requiredBindingIds"].append(extra)
+    ir = ir.model_copy(update={"meanings": []})
+    compiled = compile_region(ir, doc, region)
+    assert any(i["code"] == "node_semantics_unaccounted" for i in compiled.issues)
