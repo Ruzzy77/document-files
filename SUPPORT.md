@@ -140,8 +140,18 @@ This is a stage diagnostic, not checkpoint resume or complete-product qualificat
 
 Revision v4 now explicitly asks for correctness review on the **same** source. Its
 complete request measures **15,980 characters** at the same 16,000-character limit;
-source/history and acceptance rules remain unchanged. Sizing alone does not establish
-review quality. Values must still cite exact inner substrings and distinct occurrences.
+source/history and acceptance rules remain unchanged. A one-call comparison returned a
+replacement in **56.4 seconds**, but it omitted both old and new meanings from its change
+ledger and was correctly rejected. Its 11 scalar fields, values used as labels and lack
+of item records also fail semantic review. The actual feedback would make the request
+16,102 characters, so there was no repair call or increased allowance. This is a targeted
+stage comparison, not a v11 full-product pass (`native-review-probe-26/`).
+
+The next comparison will test occurrence-first structure decisions rather than repeat
+whole-document inference or add accounting-only repairs. That design is **not implemented
+or adopted as successful**; its boundaries and acceptance checks are in the extraction
+engine document. Exact source occurrences, complete metadata/missing states and review
+headroom must be checked alongside row grouping.
 
 ## Earlier evidence that still limits the claim
 

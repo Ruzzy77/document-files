@@ -468,9 +468,44 @@ final source accounting; this is a controller check, not a short-document qualit
 Cross-region logical continuation still needs separately source-bound earlier-record
 context and a relation decision; nearby text or equal keys cannot authorize merging.
 
+### Next native structure comparison — not implemented
+
+The current single structural response mixes attribute naming, record grouping, row
+boundaries, types, presence and meaning discovery. Actual failures include item-numbered
+scalars, mismatched row states, values used as labels and missing change-ledger entries.
+A fitted initial request can still leave no repair headroom. A complete ledger would
+not make the underlying proposal semantically correct.
+
+The next bounded comparison should separate **occurrence discovery** from **attribute
+and state decisions** before changing the product protocol:
+
+1. Discover standalone attributes versus logical repeated-item groups and their exact
+   owned source ranges, without reading values or inventing table geometry. Multiple
+   items in one paragraph must remain separate. Plain label/value forms remain scalar.
+2. Issue program-owned group/occurrence references, then define shared attributes and
+   per-occurrence states against that fixed inventory. Distinguish an item's value range
+   from separate metadata or missing-state evidence about it; a note outside the range
+   is not automatically a value source or permission to merge occurrences.
+3. Read exact values and decide each meaning's applicability separately. Equal values
+   must keep distinct source positions. A row-first result is not successful if it loses
+   identifiers, metadata, explicit blanks, missing facts or notes.
+
+Compare equivalent content in separate paragraphs and in one paragraph, plus a genuine
+scalar form. Freeze expected structure before calls and judge complete fields, records,
+values, relationships and bindings, not just the proposed number of rows. Development
+inputs cannot certify independence. Keep the original 12-call/900-second document
+allowance, all source context and actual request/repair sizing; extra stages do not
+create additional budget. Reject a design that merely moves the same failure downstream.
+
+This is a design comparison, not an adopted replacement. Existing atomic replacement,
+full history, exhaustive change checks and public v1 contracts remain in force. Any
+adopted internal request/state change needs a new identity and checked failure/resume
+behavior. Cross-region continuation and independent varied-format tests remain separate
+unfinished work.
+
 ### Bounded native value requests
 
-Native-structure v9 / native-value-batches v2 keeps the existing single request when
+Native-structure v11 / native-value-batches v2 keeps the existing single request when
 it fits. An oversized request instead uses deterministic batches of at most 16 value
 handles, sized from the actual system, payload and closed output contract. Every batch
 retains **all original nodes, formatting and binding text**; relevant occurrence
