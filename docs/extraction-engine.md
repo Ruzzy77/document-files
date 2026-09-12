@@ -172,38 +172,60 @@ These are not model-quality approval. The unchanged failed native files retain
 their prior expectations and 12-call/900-second budgets. Additional layouts, binary
 HWP and long source views still need characterization and independent comparisons.
 
-#### Content selection boundary under evaluation
+#### Next native-content boundary: exact facts and logical records
 
-The remaining field-invention defect is not fixed. A bounded request diagnostic
-compared compact inputs with an explicit source-content decision. Compacting alone
-still generated fields; explicit decisions avoided them in the negative examples,
-but confused introductory prose with an additional note. This is not yet a product
-protocol or quality-approved selection rule.
+This extension is **not implemented yet**. Positive/negative request controls did
+not justify using a field-relevance flag as a loss gate, and that prototype was not
+adopted. A field/meaning routing label is not the same as preservation of the fact.
+Document identifiers, metadata and explicit missing values are in scope, not only
+business/entity values. Pure structural text remains in the outline without needing
+a duplicate scalar, but its inner values and conditions cannot be discarded.
 
-The next candidate must establish whether each owned source contributes real fields,
-values or additional meaning before constructing field definitions. Separate these
-questions: a title may contain an actual value; a label in one paragraph may describe
-a value in another; ordinary prose is already retained without inventing a note.
-Never forbid fields solely from the accepted document role.
+The native seed-receipt audit confirms the present limitation: multi-attribute prose
+has no exact offered bindings for separate item names/counts, and every non-table
+contract prohibits repeats. This is an input/representation constraint, not solely a
+model-selection defect. Address both sides before another broad quality run:
 
-Selection must cover the exact source views and record unresolved/unreviewed choices.
-A no-content choice cannot waive an observed required-value candidate without explicit
-accounting. Only explicitly reviewed no-content sources may bypass content generation;
-selected sources retain neighboring definitions and exact original bindings. Enforce
-source/selection compatibility without forbidding legitimate cross-node forms.
+1. **Exact value grounding.** Keep existing binding IDs and add a bounded exact-source
+   quotation alternative for native text values. Reuse `table_sources.source_inventory`
+   and `resolve_quotes`: only owned source views, exact Unicode text, no normalization,
+   no model-written offsets, and explicit zero-based occurrence for repeated/overlapping
+   matches. Code resolves original ranges and reads the source value; a quote proposal
+   is not permission to copy an invented value. Empty quotes do not establish blanks.
+   Explicit blanks retain existing source bindings, and missing/unreadable/uncertain
+   fields require their own evidence/status rather than a fabricated literal.
+2. **Logical records independent of tables.** Introduce a private record form with
+   exact source-owned occurrences and field/value links, then compile arrays, schema,
+   row order and evidence. Do not invent observed cells, geometry or a table reference
+   for prose. Equal-valued occurrences remain distinct. The physical-table protocol,
+   programmatic row traversal and native cell/formula/cache bindings stay unchanged.
+3. **Meaning and missingness.** Units, conditions, footnotes and stated absence can
+   occur with values in the same sentence. Preserve their typed state and applicability
+   independently of which internal response section proposed them. Shared units and
+   item-specific conditions must work on logical records as on native table records.
+   A source's general purpose text is not automatically an operating note on its data.
+4. **State and accounting.** Resolved quote bindings are interpreted, source-verified
+   links, not new native observations. Keep original nodes, observation identity and
+   bounded source views immutable. Derived bindings need deterministic identities,
+   coverage/evidence visibility and rebuild-on-resume verification. Check all required
+   candidates, source occurrences and committed fields/records; never mark a whole
+   multi-attribute paragraph covered merely because one substring was read. A private
+   protocol/compiler version change must reject incompatible checkpoints.
 
-Retain selection and detail responses separately under the content stage, with exact
-request/source identity, bounded attempts and usage counted in the original document
-budget. An interrupted or invalid detail response preserves roles/previous values but
-must not certify content completion. A new private protocol version must reject old
-checkpoints. Do not add an unconditional third call when no detail is needed.
+Owning changes span `semantic_types.py` (private links/records), native
+`document_protocol.py` (request boundary), `compiler.py` (source-grounded scalar and
+record compilation), source-range helpers, region accounting and integration scope
+handles. Do not ship an unused grounding helper or an isolated new output shape as
+if the product path supports it. Public v1 result/CLI/MCP contracts remain compatible.
 
-Before implementation, compare real inner values, units/conditions in structural text,
-separate label/value paragraphs, explicit blanks and ordinary prose. Include meaningful
-positive examples, not only documents where an empty field set is correct. Then rerun
-the actual product path against frozen expectations and varied native forms. Source-
-declared captions/headings and contextual or ambiguous labels require distinct review
-criteria; author intent alone is not a native role marker.
+Before adoption, check multiple values on one line, repeated literal occurrences,
+non-ASCII text, quotes outside a bounded view, ambiguous/absent quotes, explicit blank
+versus stated absence, cross-node definitions and mixed value/condition paragraphs.
+Then compare the complete native seed receipt and a differently laid-out equivalent
+form against frozen whole-result expectations within the original budget. Independent
+new HWP/HWPX and XLSX cases remain necessary after development corrections. Source-
+declared captions/headings, contextual readings and genuine ambiguity have distinct
+review criteria; author intent alone is not an observed role marker.
 
 ## 2. PDF recognition and optional visual reading
 

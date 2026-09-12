@@ -139,14 +139,46 @@ and installed packs are unchanged. Host OOM did not increase; there was no cgrou
 swap/OOM. GPU allocations are not included in that memory counter, so this is not
 CPU-only or total-memory qualification. None of these is a new independent holdout.
 
-A separate **four-call request diagnostic** reused the same recorded text and
-accepted model roles, not expected roles. Removing source metadata still produced
-extra fields/meanings. An explicit content/no-content choice selected no business
-fields in these five blocks, but still treated introductory purpose prose as an
-additional meaning. `native-content-diagnostic-05/` retains this comparison and its
-cleanup records. It did not execute or qualify a new product path. Before adopting
-selection-first content handling, check positive inner-value/unit/condition cases
-and split label/value forms; negative examples alone cannot establish preservation.
+### Native prose and forms: confirmed representation gap
+
+The four-call negative request comparison was followed by positive controls: split
+label/value lines, an identifier, explicit blanks, units/conditions and a seed-receipt
+form with two items written as sentences. Both non-thinking and bounded-thinking
+9B runs completed within their fixed six-call budget. An already running alternative
+model was also checked in three idle-slot requests, without installing, restarting
+or changing its shared service. Neither comparison qualifies an extraction path.
+
+An identifier was incorrectly marked as neither a field nor meaning in both models'
+non-thinking/default comparisons. The 9B thinking run also rejected explicit
+missingness in prose. Differences between a field route and a meaning route alone
+are **not** evidence of lost facts: units or missingness could be preserved through
+meaning details. Private routing labels are not the product KPI. A tested source-
+relevance guard prototype was therefore **not adopted**; no relevance-based field
+suppression was added to the product. Calling the target only “business fields” is
+also too narrow for document identifiers, metadata and explicit missing states.
+
+A fresh native-parser/planner audit of the seed receipt establishes a harder limit:
+
+- The source has two item records in prose and **no native table**. Every generated
+  region contract sets `repeats.maxItems = 0`; `RepeatLink` requires a table reference.
+- `SEED-604` is offered exactly, but `Basil`, `Marigold`, the individual `8`/`5` counts
+  and `packets` are not. Existing whole-text/delimiter candidates combine several
+  attributes; globally hidden token candidates cannot supply those exact choices.
+- The model cannot select missing binding IDs or emit a forbidden record structure.
+  More role repair or a different model cannot remove this representation limit.
+
+The next implementation must add bounded exact-source value grounding and logical
+records that do not require physical table geometry. Preserve native table handling,
+all source occurrences, exact values, explicit blanks and absent/unreadable/uncertain
+states. Do not turn prose into a fake observed table, globally expose arbitrary word
+fragments, or infer that a negative relevance flag authorizes omission.
+
+`content-positive-diagnostic-06/` retains the requests, local prior expectations,
+explicit pre-review truth correction, rejected prototype and native representation
+audit. `shared-model-diagnostic-07/` retains the alternative-model comparison and
+service/slot checks. These are under the same private parent. Task-only exports were
+removed; raw evidence remains. The shared model's shards were not fully hashed and
+its memory was not isolated, so no model-pack or resource qualification is claimed.
 
 ## Earlier HTML/PDF development evidence
 
@@ -196,8 +228,8 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native document roles remain inaccurate.** Source formatting and role/level grammar are corrected, but caption/title confusion and role/value conflicts survive bounded repair on Spark. | The staged role/content boundary is implemented in `docs/extraction-engine.md`, including immutable roles, exact inner values, bounded table context and failure/resume preservation. The unchanged-file comparison still fails. Diagnose field invention with explicit content/no-content decisions and compact source views; preserve real inner fields and cross-node label/value forms. Separate native role evidence from ambiguous author intent, then check different layouts and new independent cases. |
-| 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
+| 1 | **Native text cannot express exact multi-attribute values or prose records.** `regions.py` hides token choices and `RepeatLink` requires physical table geometry. Negative relevance decisions also risk suppressing identifiers and missingness. | Add bounded original-text quote grounding and a separate logical-record contract/compiler. Reuse exact range/occurrence validation; preserve source identity, all record occurrences, blanks/missingness, scopes and checkpoint safety. Do not substitute a relevance filter or invent native table geometry. See the native-content design boundary in `docs/extraction-engine.md`. |
+| 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
 | 5 | New HWP/HWPX and XLSX documents have not passed independent end-to-end structural and semantic review. | Freeze unseen native inputs with prior expected structure, values, relationships and provenance; run the actual product path on Spark. Review the full result independently of execution. A failed holdout used for a fix becomes a development case. |
