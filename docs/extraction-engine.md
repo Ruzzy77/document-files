@@ -146,6 +146,10 @@ tokens; content retains the managed client output cap. Other clients retain thei
 own configured reasoning behavior. Protocol v2 records this execution change and
 rejects v1 checkpoints; it does not certify model accuracy.
 
+The unchanged native development comparison did not improve with reasoning enabled;
+see `SUPPORT.md`. Transport completion, valid role grammar and preserved source
+bindings do not establish correct role or field selection.
+
 Each stage gets at most two local attempts and separate cumulative usage counters;
 all calls/time remain inside the original document budget. The role request hash
 covers the actual system, owned views, source formatting, preceding headings, table
@@ -167,6 +171,39 @@ previews, context limits, stage failures/resume and stale/tampered checkpoints.
 These are not model-quality approval. The unchanged failed native files retain
 their prior expectations and 12-call/900-second budgets. Additional layouts, binary
 HWP and long source views still need characterization and independent comparisons.
+
+#### Content selection boundary under evaluation
+
+The remaining field-invention defect is not fixed. A bounded request diagnostic
+compared compact inputs with an explicit source-content decision. Compacting alone
+still generated fields; explicit decisions avoided them in the negative examples,
+but confused introductory prose with an additional note. This is not yet a product
+protocol or quality-approved selection rule.
+
+The next candidate must establish whether each owned source contributes real fields,
+values or additional meaning before constructing field definitions. Separate these
+questions: a title may contain an actual value; a label in one paragraph may describe
+a value in another; ordinary prose is already retained without inventing a note.
+Never forbid fields solely from the accepted document role.
+
+Selection must cover the exact source views and record unresolved/unreviewed choices.
+A no-content choice cannot waive an observed required-value candidate without explicit
+accounting. Only explicitly reviewed no-content sources may bypass content generation;
+selected sources retain neighboring definitions and exact original bindings. Enforce
+source/selection compatibility without forbidding legitimate cross-node forms.
+
+Retain selection and detail responses separately under the content stage, with exact
+request/source identity, bounded attempts and usage counted in the original document
+budget. An interrupted or invalid detail response preserves roles/previous values but
+must not certify content completion. A new private protocol version must reject old
+checkpoints. Do not add an unconditional third call when no detail is needed.
+
+Before implementation, compare real inner values, units/conditions in structural text,
+separate label/value paragraphs, explicit blanks and ordinary prose. Include meaningful
+positive examples, not only documents where an empty field set is correct. Then rerun
+the actual product path against frozen expectations and varied native forms. Source-
+declared captions/headings and contextual or ambiguous labels require distinct review
+criteria; author intent alone is not a native role marker.
 
 ## 2. PDF recognition and optional visual reading
 

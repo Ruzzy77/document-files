@@ -45,7 +45,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,731 tests,
+The full local check including the native outline path passed **2,732 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -93,55 +93,60 @@ swap or OOM, but GPU memory was not captured by that counter; this is not a CPU-
 
 ### Native logical outline comparison
 
-The first outline implementation passed its scripted contracts, then failed both
-frozen development comparisons on Spark. The English register used **4 calls / 54.1
-seconds**: both role responses assigned heading level 1 to paragraphs and were
-rejected. The Korean inspection document used **5 calls / 68.7 seconds** and returned
-engine `complete`, but classified its title and table caption as ordinary paragraphs.
-Its section headings were correct. Both documents retained all table records,
-exact values (including decimal spelling) and their own source bindings. Neither
-passed the expected hierarchy/caption comparison. ARM regressions passed 99 tests;
-seven fixture-authoring tests required an optional writer and ran only on Mac.
+Current native text handling separates role decisions from immutable-role content
+interpretation (compiler v29, prompt v34, region plan v19, document protocol v2).
+Exact source text and formatting remain separate from business data. Failed content
+preserves accepted roles and compiled table records; resume checks stage identity,
+source context and cumulative cost. This boundary is implemented and regression-tested,
+not a claim that model role/content judgments are accurate.
 
-Inspection of the original HWPX packages found title/caption typography that the
-parser had not exposed. Direct source formatting is now preserved, native paragraph
-containers are distinguished from logical-role decisions in model requests, and
-the role grammar disallows paragraph heading levels. The correction passed **115
-ARM regressions** (the same seven writer-dependent tests ran only on Mac).
-Both unchanged documents were then checked against the unchanged prior expectations:
+The latest complete-path comparison used
+**d7357750d6cd51e8deab4005a5f145e0c2dd1d4c** after **137 ARM regressions**
+(the seven fixture-authoring tests excluded there passed on Mac). Both unchanged
+HWPX inputs were compared with unchanged prior expectations, never supplied to the
+model, under their original 12-call / 900-second limits.
 
-| Formatting correction | Calls / seconds | Comparison with frozen expectations |
+| Document | Calls / seconds | Whole-result review |
 |---|---|---|
-| English register | 3 / 45.2 | No invalid role/level pair, but both title and caption became document titles. Engine `complete` is not a role-quality pass. |
-| Korean inspection | 8 / 128.1 | The combined role/value response repeatedly generated value fields from section headings. The compiler rejected those conflicts; the final outline remained unresolved. |
+| English register | 5 / 149.7 | Partial. The intended caption became a section heading; content invented two unresolved title/heading fields and notes about formatting. |
+| Korean inspection | 9 / 265.6 | Engine `complete`, but review failed. Caption and heading hierarchy differed; the body was bound as a title value and the caption as a heading value. Notes described document structure rather than additional source meaning. |
 
-Both still retain every expected table record, exact spelling and actual cell/header
-source link. All 22 captured text-element formatting references were checked against
-original package XML; pre-existing native fields and both input hashes are unchanged.
-No expected answer was sent to inference. Owned servers/containers, source exports,
-transfer archives and activation copies are removed; shared services and installed
-packs remain unchanged. Host OOM did not increase; there was no cgroup swap/OOM.
-The GPU-memory qualification limitation above still applies.
+All expected table records, row order, exact decimal/identifier spelling and actual
+cell/header source links match in both cases. Original nodes/input hashes are
+unchanged; 22 formatting text-element references were compared with original XML.
+These preservation checks do not excuse extra fields or incorrect relationships.
 
-Failures and comparisons remain in
-`private/qualification/structural-kpi-20260913/outline-native-01/` and
-`outline-formatting-02/`. These are development cases, not new independent holdouts.
-The staged implementation (`b560f16cb506a018e6f4ef2d667cb5278c432789`) passed
-136 ARM regressions, then ran the same inputs in **5 calls / 60.5 seconds** and
-**9 calls / 118.4 seconds**. English still labeled its caption as a second title;
-Korean retained title/section hierarchy but called its caption a paragraph. Content
-created unnecessary fields, including binding the body paragraph as a document-title
-value. All table records and exact cell/header sources remain correct; the whole
-results do not pass. Accepted roles survived content failure as designed.
-The source/usage/checkpoint checks and original-format comparisons are retained in
-`roles-staged-03/` under the same private parent; owned execution resources are cleaned.
+The caption expectations describe the author's intended table labels. Neither input
+has a native caption XML element: the inspected fixture writer emits the caption as
+an ordinary paragraph with heading formatting. In particular, the repeated English
+label admits a section-heading reading. Preserve this author-intent comparison as
+failed, but do not misreport it as loss of an explicit native caption marker. New
+qualification must distinguish explicit source roles, contextual interpretations
+and genuinely ambiguous cases. The unrelated invented fields remain definite defects.
 
-Recorded transport diagnostics show that both new native stages used non-thinking
-mode, unlike the existing bounded-thinking relation path. Native protocol v2 now
-uses that existing managed transport with a 1,024-token reasoning-block allowance,
-without adding calls or extending the document deadline. Non-managed clients keep
-their configuration. The affected comparison is pending; this is not yet a quality
-correction.
+Transport diagnostics confirm protocol v2's 1,024-token reasoning-block allowance
+was applied. It did **not** correct these defects and increased cost relative to the
+non-thinking staged comparison (5 / 60.5 seconds and 9 / 118.4 seconds). A larger
+reasoning allowance is not the next quality fix. Inspect input/response representation
+and explicit content decisions before adding further repair instructions.
+
+Evidence is retained under `private/qualification/structural-kpi-20260913/`:
+`outline-native-01/`, `outline-formatting-02/`, `roles-staged-03/` and
+`roles-thinking-04/`. Frozen expectations, raw failures, independent binding checks
+and the source-role ambiguity review remain available. Owned servers/containers,
+source exports, transfer archives and activation copies are removed; shared services
+and installed packs are unchanged. Host OOM did not increase; there was no cgroup
+swap/OOM. GPU allocations are not included in that memory counter, so this is not
+CPU-only or total-memory qualification. None of these is a new independent holdout.
+
+A separate **four-call request diagnostic** reused the same recorded text and
+accepted model roles, not expected roles. Removing source metadata still produced
+extra fields/meanings. An explicit content/no-content choice selected no business
+fields in these five blocks, but still treated introductory purpose prose as an
+additional meaning. `native-content-diagnostic-05/` retains this comparison and its
+cleanup records. It did not execute or qualify a new product path. Before adopting
+selection-first content handling, check positive inner-value/unit/condition cases
+and split label/value forms; negative examples alone cannot establish preservation.
 
 ## Earlier HTML/PDF development evidence
 
@@ -191,7 +196,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native document roles remain inaccurate.** Source formatting and role/level grammar are corrected, but caption/title confusion and role/value conflicts survive bounded repair on Spark. | The staged role/content boundary is implemented in `docs/extraction-engine.md`, including immutable roles, exact inner values, bounded table context and failure/resume preservation. Compare this source against the unchanged failed files and expectations before claiming a correction; then check different native layouts and new independent cases. |
+| 1 | **Native document roles remain inaccurate.** Source formatting and role/level grammar are corrected, but caption/title confusion and role/value conflicts survive bounded repair on Spark. | The staged role/content boundary is implemented in `docs/extraction-engine.md`, including immutable roles, exact inner values, bounded table context and failure/resume preservation. The unchanged-file comparison still fails. Diagnose field invention with explicit content/no-content decisions and compact source views; preserve real inner fields and cross-node label/value forms. Separate native role evidence from ambiguous author intent, then check different layouts and new independent cases. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
