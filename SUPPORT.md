@@ -309,6 +309,28 @@ native HTML case rerun on that source returned **complete** with the same decisi
 before (`arm-gpu-html-product-04`, review SHA `d52af908…`, five calls, 162.34 product
 seconds). These remain development passes on two cases.
 
+A third development document followed on 2026-09-12: a native page whose raster
+second page continues the table with two new rows and repeats the title (with a
+continuation marker), the unit statement, the header row and the condition statements
+(`public-table-continued.pdf`, `arm-gpu-pdf-continued-01..15`). Fifteen bounded runs
+fixed what it exposed: page review v12 to v15 (a text label on a unit that references
+no string is recorded as a reinterpreted `unknown`; every decision is an object keyed
+by inventory id offering only the labels the unit's facts allow), image read v5 (grid
+cells over the page and lossless detail, text lines one per lossless strip on a labeled
+line sheet per request, because the pinned model fills entries in reading order and
+ignores their rectangles), review images v2, prompt v29 (both pages' text lines and
+the header-repeat fact as relation evidence, a 1,024-token reasoning budget within
+2,048 output tokens), compiler v22 (a node whose entire text is a field's binding is
+accounted for; a continuation fragment's keys follow the earlier fragment's keys by
+column position and the earlier column definitions govern the appended rows), scope
+integration batches with an output reserve, and table protocol v18 (bare-number
+sources are offered only the review choices). The fifteenth run (source `5a4e5e6`,
+review SHA `b8e24f49…`) returned **complete** in 17 calls and 441.87 product seconds
+with one four-row table in source order under the first page's keys, the repeated
+statements folded, the unit and the English condition on the quantity column of every
+row, and a no-call resume; the Korean condition chose every column of the record, so
+the mechanical development review still fails on that scope. Not qualification.
+
 Evidence: `arm-scope-label-origin-{unit,whole}-01`, `arm-scope-column-review-{unit,
 condition,whole}-01`, `arm-scope-budget-1024-01`, `arm-scope-sampling-official-01`,
 `arm-scope-budget-html-product-01` (review SHA `7e2a0a86…`) and
