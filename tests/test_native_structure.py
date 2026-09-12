@@ -4,6 +4,7 @@ import copy
 
 import pytest
 from jsonschema import Draft202012Validator
+from test_document_outline import structure_wire
 from test_document_protocol import StagedModel, execute, raw_document
 from test_native_records import fixture, structure_fixture
 
@@ -47,7 +48,7 @@ def test_structure_stage_has_original_blocks_and_no_parser_value_choices():
     assert payload["acceptedRoles"] == roles["documentElements"]
     assert "bindings" not in payload and "requiredBindingIds" not in payload
     assert all(payload["blocks"][r]["text"] == n["text"] for r, n in doc.nodes.items())
-    raw = structure.model_dump(exclude_unset=True)
+    raw = structure_wire(structure.model_dump(exclude_unset=True))
     Draft202012Validator(contract).validate(raw)
     del raw["fields"][0]["valueType"]
     assert not Draft202012Validator(contract).is_valid(raw)
@@ -326,10 +327,9 @@ def test_meaning_quote_error_gives_specific_safe_feedback_for_bounded_structure_
             value = json.loads(response.text)
             value["meanings"] = [
                 {
-                    "id": "quantity-unit",
                     "kind": "unit",
                     "status": "interpreted",
-                    "sourceQuotes": [
+                    "anchors": [
                         {
                             "sourceRef": "n1",
                             "text": "private units",

@@ -4,6 +4,13 @@
 
 ### Document extraction
 
+- Compact native structural responses without removing semantic decisions: program
+  IDs, exact whole-block/partial-quote anchors, ordered column states and explicit
+  source overrides (native-structure v3 / wire v1, prompt v39). Preserve raw and
+  expanded decisions with hashes and bounded expansion; revalidate both on resume.
+  Share record-occurrence context in value requests. No output-budget increase or
+  actual-model quality approval is implied.
+
 - Preserve specific source-quotation errors in native structural repair rather than
   hiding meaning-quote failures behind generic contract feedback. Native-structure
   v2 invalidates old stage checkpoints; the correction has local regression coverage

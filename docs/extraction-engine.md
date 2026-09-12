@@ -110,7 +110,7 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v32, prompt v38, region plan v20 and document-outline v1 / document-protocol v6 identify this
+Compiler v32, prompt v39, region plan v20 and document-outline v1 / document-protocol v6 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
@@ -155,7 +155,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v6 and native-structure v2 identify the three-stage execution;
+own configured reasoning behavior. Protocol v6 and native-structure v3 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 The unchanged native development comparison did not improve with reasoning enabled;
@@ -308,19 +308,35 @@ it rejects changed identities or inconsistent selections. Native meaning ranges 
 program-derived and tied to the source inventory. Value compilation does not prune
 frozen fields merely because a parser label or a record value shares their source.
 
-Native-structure v2 retains source-quotation error codes in bounded structural repair;
+Native-structure v3 retains source-quotation error codes in bounded structural repair;
 malformed model contracts still receive sanitized generic diagnostics. A meaning quote
 and a row quote must not report the same invalid occurrence differently. No raw source
 or model-authored labels enter these diagnostic codes. This changes checkpoint identity.
 
-The v1 Spark run exposed output size as a separate limit even when input fits. The
-next representation should reduce repeated JSON, not fields or source evidence:
-program-issued structural IDs, whole-owned-block anchors where exact quote repetition
-is unnecessary, and compact column/row status references are design candidates. They
-must retain explicit blank/absence decisions, source ordering and narrower anchors
-when several items share a block. They are not implemented yet, and no output-limit
-increase substitutes for whole-result review. Duplicate scalar/record proposals and
-incorrect field types remain semantic failures, not aliases to drop automatically.
+The v1 Spark run exposed output size as a separate limit even when input fits.
+`native_structure_wire.py` now carries the same decisions with less repeated JSON:
+
+- Code issues field, record, column, row and meaning IDs. Model keys and labels still
+  define the document's own organization; existing group/parent relationships remain.
+- Each record defines columns once. Every row has one explicit state per column, in
+  column order. A bare state explicitly cites the row's anchor sources; a state object
+  can narrow those sources. Missing/extra states and foreign sources are rejected.
+- An anchor is an owned block ID for its exact entire view, or an exact source quote
+  for part of a block. Several items in one block need distinct narrower anchors;
+  overlapping whole-block rows cannot become distinct records by changing IDs.
+- Column definition sources may inherit the record's sources; field definitions may
+  inherit their value sources. Distinct definitions remain explicit. This is a defined
+  model choice, not an inference from a nearby parser label.
+- The raw response and its hash are retained beside the expanded structure. Resume
+  decodes it again and compares the result; editing only the expanded state is invalid.
+  Expansion is bounded before per-cell objects are created.
+
+Value requests carry each occurrence's source quotes once and refer to that context
+from field handles. Exact source choices and compiler ownership checks are unchanged.
+The compact wire does not increase output limits, accept truncated JSON, omit missing
+states or certify model completeness. Duplicate scalar/record proposals and wrong
+field types remain semantic failures, not aliases to drop automatically. Actual
+whole-result model comparison of this representation is still required.
 
 The current boundary is deliberately strict: an incorrect **valid** structure cannot
 be silently rewritten during value repair. An explicit source-grounded structure
@@ -589,8 +605,9 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v38 / v20 / v32 |
-| Document outline / native role-content protocol / native structure | v1 / v6 / v2 |
+| Semantic prompt / region plan / result compiler | v39 / v20 / v32 |
+| Document outline / native role-content protocol / native structure | v1 / v6 / v3 |
+| Native structural response wire | v1 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |

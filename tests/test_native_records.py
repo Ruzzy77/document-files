@@ -379,7 +379,7 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     import io
     import json
 
-    from test_document_outline import OutlineModel, make_file
+    from test_document_outline import OutlineModel, make_file, structure_wire
 
     from document_files.api import (
         AnalysisInput,
@@ -427,19 +427,18 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
 
                 self.grounded = remap(value)
                 self.grounded["regionId"] = payload["regionId"]
-                response = structure_fixture(self.grounded)
+                response = structure_wire(structure_fixture(self.grounded), payload["blocks"])
             elif stage == "values":
                 blank = next(b for b, v in payload["bindings"].items() if v.get("blank"))
                 selections = {}
                 for h, e in payload["handles"].items():
                     if "fieldId" in e:
-                        v = next(f for f in self.grounded["fields"] if f["id"] == e["fieldId"])
+                        v = self.grounded["fields"][int(e["fieldId"].split(":")[-1]) - 1]
                     else:
-                        r = next(
-                            r for r in self.grounded["logicalRecords"] if r["id"] == e["recordId"]
-                        )
-                        row = next(row for row in r["rows"] if row["id"] == e["rowId"])
-                        v = next(v for v in row["values"] if v["columnId"] == e["columnId"])
+                        r = self.grounded["logicalRecords"][int(e["recordId"].split(":")[-1]) - 1]
+                        row = r["rows"][int(e["rowId"].split(":")[-1]) - 1]
+                        column = r["columns"][int(e["columnId"].split(":")[-1]) - 1]
+                        v = next(v for v in row["values"] if v["columnId"] == column["id"])
                     selections[h] = (
                         {"kind": "quote", "quote": v["sourceQuote"]}
                         if v.get("sourceQuote")
@@ -520,7 +519,9 @@ def test_actual_hwpx_product_wire_schema_evidence_and_checkpoint(tmp_path):
     assert result["data"] == compile_value(doc, fixture()[1], value).data
     assert model.calls == 4
     ledger = result["coverage"]["nativeContentGrounding"]
-    assert sum(len(v["logicalOccurrences"]["items"]["rows"]) for v in ledger.values()) == 2
+    assert (
+        sum(len(next(iter(v["logicalOccurrences"].values()))["rows"]) for v in ledger.values()) == 2
+    )
     frozen = copy.deepcopy(states[-1])
     accepted = next(iter(frozen["accepted"].values()))
     assert accepted["fields"][0]["bindingId"] is None

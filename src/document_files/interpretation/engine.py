@@ -1021,9 +1021,17 @@ def extract_schema_from_stream(
             if semantic["status"] == "complete":
                 if not semantic["usage"]["modelCalls"] or "requestHash" not in semantic:
                     raise ValueError
-                if not Draft202012Validator(structure_request[1]).is_valid(semantic["response"]):
+                if not Draft202012Validator(structure_request[1]).is_valid(
+                    semantic["wireResponse"]
+                ):
                     raise ValueError
-                frozen = native_structure.NativeStructure.model_validate(semantic["response"])
+                if semantic["wireHash"] != document_protocol.digest(semantic["wireResponse"]):
+                    raise ValueError
+                frozen = native_structure.decode_structure(
+                    semantic["wireResponse"], observation, region
+                )
+                if frozen.model_dump(exclude_unset=True) != semantic["response"]:
+                    raise ValueError
                 if semantic["structureHash"] != document_protocol.digest(semantic["response"]):
                     raise ValueError
                 stub = native_structure.interpretation(
@@ -1853,7 +1861,7 @@ def extract_schema_from_stream(
                 )
                 if not Draft202012Validator(contract).is_valid(value):
                     raise ValueError("invalid_native_structure_contract")
-                structure = native_structure.NativeStructure.model_validate(value)
+                structure = native_structure.decode_structure(value, observation, region)
                 stub = native_structure.interpretation(structure, roles, observation, region)
                 fragment = compile_region(
                     stub, observation, region, target_schema=selected.targetSchema
@@ -1862,6 +1870,8 @@ def extract_schema_from_stream(
                 state.update(
                     status="complete",
                     response=response,
+                    wireResponse=copy.deepcopy(value),
+                    wireHash=document_protocol.digest(value),
                     structureHash=document_protocol.digest(response),
                 )
                 state.pop("feedback", None)
@@ -1883,6 +1893,12 @@ def extract_schema_from_stream(
                 feedback = (
                     str(exc)
                     if isinstance(exc, (CompileError, SourceReviewError))
+                    or str(exc)
+                    in {
+                        "native_structure_row_state_count_mismatch",
+                        "native_structure_block_anchor_invalid",
+                        "native_structure_expansion_budget_exceeded",
+                    }
                     else "invalid_native_structure_contract"
                 )
                 state.update(status="failed", feedback=[feedback])

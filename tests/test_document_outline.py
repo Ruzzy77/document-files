@@ -71,6 +71,47 @@ def native_wire(value):
     return value
 
 
+def structure_wire(raw, blocks=None):
+    """Compact a scripted semantic fixture; this is not a production fallback."""
+    value = copy.deepcopy(raw)
+
+    def anchors(quotes):
+        return [
+            q["sourceRef"]
+            if blocks
+            and q["text"] == blocks[q["sourceRef"]]["text"]
+            and q.get("occurrence", 0) == 0
+            else q
+            for q in quotes
+        ]
+
+    for f in value.get("fields", []):
+        f.pop("id", None)
+        if f.get("definitionRefs") == f.get("sourceRefs"):
+            f.pop("definitionRefs")
+    for r in value.get("records", []):
+        r.pop("id", None)
+        for c in r["columns"]:
+            c.pop("id", None)
+            if c.get("definitionRefs") == r["definitionRefs"]:
+                c.pop("definitionRefs")
+        r["emptyAnchors"] = anchors(r.pop("emptySourceQuotes", []))
+        for row in r["rows"]:
+            row.pop("id", None)
+            refs = list(dict.fromkeys(q["sourceRef"] for q in row["sourceQuotes"]))
+            row["anchors"] = anchors(row.pop("sourceQuotes"))
+            row["states"] = [
+                c["status"]
+                if c["sourceRefs"] == refs
+                else {"status": c["status"], "sourceRefs": c["sourceRefs"]}
+                for c in row.pop("cells")
+            ]
+    for m in value.get("meanings", []):
+        m.pop("id", None)
+        m["anchors"] = anchors(m.pop("sourceQuotes"))
+    return value
+
+
 class OutlineModel(PlainRegisterModel):
     def __init__(self, *, bad=None):
         super().__init__()
@@ -133,7 +174,7 @@ class OutlineModel(PlainRegisterModel):
                         }
                     )
             return InferenceResponse(
-                json.dumps({"regionId": payload["regionId"], "fields": fields}), {}
+                json.dumps(structure_wire({"regionId": payload["regionId"], "fields": fields})), {}
             )
         if payload.get("documentStage") == "values":
             self.calls += 1
