@@ -4,6 +4,11 @@
 
 ### Document extraction
 
+- Identify invalid native value handles and required present/blank states in bounded
+  repair (native-structure v5), rather than reporting a valid JSON selection error
+  as invalid JSON. Preserve closed contracts, source privacy and frozen structure;
+  local repair/checkpoint regressions are not actual-model quality approval.
+
 - Share identical native value-choice schemas without loosening their source/status
   constraints, remove redundant inner handle IDs, and keep unread-skeleton placeholders
   out of the initial value request (native-structure v4). Preserve original text and

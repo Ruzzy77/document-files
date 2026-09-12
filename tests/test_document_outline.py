@@ -298,7 +298,7 @@ def test_native_value_stage_cannot_add_a_field_to_frozen_structure(tmp_path):
     )
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert "wrong" not in result["data"]
-    assert "invalid_model_json" in json.dumps(model.content_requests[1])
+    assert model.content_requests[1]["repairFeedback"] == ["native_values_do_not_match_structure"]
     assert model.calls == 4
 
 

@@ -348,3 +348,69 @@ def test_meaning_quote_error_gives_specific_safe_feedback_for_bounded_structure_
     assert model.calls == 3 and result["extraction"]["status"] == "partial"
     state = next(iter(result["coverage"]["documentInterpretation"].values()))
     assert state["structureStatus"] == "complete" and state["structureUsage"]["modelCalls"] == 2
+
+
+@pytest.mark.parametrize("damage", ["status", "quote", "unknown", "missing", "accounting"])
+def test_value_contract_feedback_identifies_only_program_owned_handles(damage):
+    doc, region, roles, structure, old = prepared()
+    value = choices(structure, old)
+    handle = next(iter(value["selections"]))
+    private_text = "PRIVATE MODEL OR SOURCE TEXT"
+    if damage == "status":
+        value["selections"][handle] = {
+            "kind": "binding",
+            "bindingId": private_text,
+            "status": "blank",
+        }
+    elif damage == "quote":
+        value["selections"][handle]["quote"]["sourceRef"] = private_text
+    elif damage == "unknown":
+        value["selections"][private_text] = {"kind": "unresolved"}
+    elif damage == "missing":
+        del value["selections"][handle]
+    else:
+        value["excludedBindings"] = private_text
+    with pytest.raises(native.NativeValueError) as error:
+        native.accept_values(value, structure, roles, doc, region)
+    feedback = error.value.diagnostics
+    assert len(feedback) <= 12 and private_text not in str(feedback)
+    if damage in {"status", "quote"}:
+        assert any(x.startswith("native_value_selection_invalid:" + handle) for x in feedback)
+    if damage == "status":
+        assert feedback[-1].endswith(":required_status=present")
+    elif damage == "accounting":
+        assert "native_value_accounting_invalid" in feedback
+
+
+def test_value_repair_receives_handle_and_required_status_without_reclassifying_structure():
+    import json
+
+    from document_files.interpretation.backends import InferenceResponse
+
+    class WrongStatusOnce(StagedModel):
+        def infer(self, request):
+            response = super().infer(request)
+            payload = json.loads(request.messages[-1]["content"])
+            if payload.get("documentStage") == "values" and len(self.content_requests) == 1:
+                value = json.loads(response.text)
+                handle = next(iter(value["selections"]))
+                value["selections"][handle] = {
+                    "kind": "binding",
+                    "bindingId": next(iter(payload["bindings"])),
+                    "status": "blank",
+                }
+                return InferenceResponse(json.dumps(value), {})
+            return response
+
+    model, states = WrongStatusOnce(), []
+    result = execute(model, raw=raw_document(("Count: 0007",)), states=states)
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert model.calls == 4 and len(model.structure_requests) == 1
+    assert (
+        "native_value_selection_invalid:@value1:required_status=present"
+        in (model.content_requests[1]["repairFeedback"])
+    )
+    assert "invalid_model_json" not in model.content_requests[1]["repairFeedback"]
+    frozen = copy.deepcopy(states[-1])
+    restored = execute(model, raw=raw_document(("Count: 0007",)), restore=frozen)
+    assert restored["data"] == result["data"] and model.calls == 4

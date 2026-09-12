@@ -155,7 +155,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v6 and native-structure v4 identify the three-stage execution;
+own configured reasoning behavior. Protocol v6 and native-structure v5 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 The unchanged native development comparison did not improve with reasoning enabled;
@@ -308,7 +308,7 @@ it rejects changed identities or inconsistent selections. Native meaning ranges 
 program-derived and tied to the source inventory. Value compilation does not prune
 frozen fields merely because a parser label or a record value shares their source.
 
-Native-structure v4 retains source-quotation error codes in bounded structural repair;
+Native-structure v5 retains source-quotation error codes in bounded structural repair;
 malformed model contracts still receive sanitized generic diagnostics. A meaning quote
 and a row quote must not report the same invalid occurrence differently. No raw source
 or model-authored labels enter these diagnostic codes. This changes checkpoint identity.
@@ -343,7 +343,14 @@ The compact wire does not increase output limits, accept truncated JSON, omit mi
 states or certify model completeness. Duplicate scalar/record proposals and wrong
 field types remain semantic failures, not aliases to drop automatically. In the v3 Spark comparison, the original preserved two rows but the value request
 exceeded the input limit; the compact form duplicated item attributes and truncated.
-V4's lossless value-request reduction has local coverage, not model-quality approval.
+V4's actual 9B proposal duplicated fields again and exceeded the value-input limit.
+The existing 314B backend produced two item rows and fit its value requests, but its
+selection responses violated committed present/blank states; no values were accepted.
+V5 reports the offending program-issued handle and required state in bounded repair
+instead of the misleading generic JSON error. Unknown keys, invalid accounting and
+shape mismatches have safe codes; diagnostic messages never echo source/model text.
+All closed-contract, presence and source constraints remain unchanged. This feedback
+correction has local coverage, not an actual-model quality result.
 
 The current boundary is deliberately strict: an incorrect **valid** structure cannot
 be silently rewritten during value repair. An explicit source-grounded structure
@@ -352,6 +359,43 @@ regions also remains unimplemented; equal keys cannot authorize an unconditional
 Long-fragment hierarchy, bounded value execution, and varied HWP/HWPX/XLSX whole-result
 quality still need investigation. Repeated use of a development document is regression
 work, never a new independent holdout.
+
+### Next boundary: structure correction and bounded value reads
+
+These changes are **not implemented**. The latest failure is not just excess JSON:
+a model can propose syntactically valid item-numbered fields and duplicate them as
+one-row records. Compressing that proposal cannot establish correct item structure.
+The existing larger-backend comparison improved item structure but still failed values
+and complete applicability. Use that distinction when choosing further protocol changes. Do not add a document-specific field template or a
+rule that silently deletes every scalar sharing a record's source.
+
+A structural correction must be an explicit transition from the accepted structure
+hash. It must describe each changed/removed field, column, occurrence and meaning,
+retain source coverage, and pass the same quote, ownership, state and overlap checks.
+Validate the replacement before committing it. Recompute affected value handles,
+accounting and applicability; never reuse a value or scope decision merely because
+an ordinal ID or key stayed the same. Invalid or interrupted replacements preserve
+the preceding partial structure. No additional document budget is created. This is
+a traceable correction mechanism, not a semantic-accuracy certificate.
+
+Separately, a correct large structure needs value requests sized from the **actual**
+contract, not a promise that one compact example fits. Plan deterministic handle
+batches tied to the structure/source hashes; keep complete occurrence context and
+per-handle source/type/state constraints. If one indivisible source context cannot
+fit, report it as unfinished rather than trimming it. Source accounting must use
+the accumulated reads: a later batch cannot exclude a previously consumed candidate,
+and unresolved batches must not look fully reviewed. Save accepted batches and their
+cumulative cost before dispatching another; do not replay unknown exchanges on resume.
+Do not expose completion until all required handles, accounting and applicability
+are resolved. Per-document call/time ceilings still apply across all stages.
+
+Before accepting either implementation, test corrected titles versus genuine metadata,
+valid repeated scalars versus duplicate item attributes, equal values in distinct
+occurrences, explicit blanks/absence, failed replacement preservation and tampered
+checkpoints. Batch tests must match unbatched data, schema and exact evidence, preserve
+unread work at a stopped boundary, and reject stale batches after a structure change.
+Then use bounded actual-model comparisons and new varied HWP/HWPX/XLSX documents;
+scripted transitions alone cannot approve the KPI.
 
 ## 2. PDF recognition and optional visual reading
 

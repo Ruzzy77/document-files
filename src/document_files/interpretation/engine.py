@@ -2149,6 +2149,8 @@ def extract_schema_from_stream(
                     )
                     for e in exc.errors(include_input=False)[:12]
                 ]
+            except native_structure.NativeValueError as exc:
+                feedback = exc.diagnostics
             except CompileError as exc:
                 feedback = [str(exc)]
                 # Native candidate text is already in the request. Identify the
