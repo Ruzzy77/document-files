@@ -365,7 +365,7 @@ Evidence and full comparison are in `native-choices-19/` in the same private
 qualification directory. Input, canonical nodes/bindings and source hashes matched;
 the shared service stayed unchanged and idle afterward. The temporary source export
 and transfer archive were removed after review. This is not a memory, pack or independent
-holdout qualification. Explicit structure review/revision, cross-region logical context
+holdout qualification. Actual-model structure revision, cross-region logical context
 and varied independent quality remain open; an accounting-only repair will not correct
 the wrong committed structure. No field is removed to manufacture success.
 
@@ -387,8 +387,24 @@ changes, precise rereading, old/new state identity, budgets, unknown responses a
 batch replanning. The 32-field replan case remains partial at 12 calls and requires an
 explicit two-call grant for final accounting; no budget increase is automatic. The
 previous actual failure's full review request measures 14,894 characters without
-source trimming (sizing only, not an inference result). Actual-model verification of
-v8 remains pending. Cross-region logical continuation is still unimplemented.
+source trimming (sizing only, not an inference result).
+
+Source **eda8706d10fa6bddfb05d6f040a8986ba1f90c6f** was exported for the same
+bounded Spark comparison. Its fixed starting-memory check stopped execution before
+extraction: available memory was 16,907,100,160 bytes against a 16 GiB minimum
+(17,179,869,184 bytes). **No model call occurred.** The guard was not relaxed.
+A separate, CPU-only regression check on that same ARM64 source passed **338 tests**
+with eight fixture-writer tests deselected; it did not invoke the model.
+
+Evidence is retained in private `structural-kpi-20260913/native-revision-20/`.
+Source/input hashes, shared service identity and the idle slot were unchanged;
+host OOM did not increase. The source export and transfer archive were removed
+after review, retaining inputs, stopped-run records and regression evidence.
+Spark-B currently runs the shared model's RPC worker, not an independent HTTP
+inference endpoint. No shared service, installed pack, authentication or swap setting
+was changed. These checks do not establish model quality, memory qualification or
+independent accuracy. Actual-model verification of v8 and cross-region logical
+continuation remain unfinished.
 
 ## Earlier HTML/PDF development evidence
 
