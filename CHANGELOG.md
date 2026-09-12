@@ -33,6 +33,11 @@
   and mixed runs distinct. Prompt v33 and region plan v18 separate native containers
   from logical roles; constrained role/level/target alternatives reject invalid
   combinations before they consume a repair call. Old checkpoints cannot resume.
+- Separate native document-role decisions from immutable-role value/meaning work.
+  Preserve roles through content failure, verify bounded source-linked table context,
+  and retain exact inner values in structural text. Track stage usage and resume
+  identities without replaying unknown calls or increasing the original budget.
+  Prompt v34 / region plan v19 / compiler v29 identify the new protocol.
 - Add isolated CPU recognition and source-bound PDF visual review, literal image
   reading, alternative table projections, exact pixel membership displays and
   conservative blank-cell application. Original OCR and document bytes remain.

@@ -95,8 +95,9 @@ Code preserves exact `textBinding` ranges, original occurrences and native unit
 order, builds section parents from interpreted levels, and retains native table
 and nested-cell membership. `captionOf` relations connect a caption element to its
 observed table element. Running headers/footers do not change section ownership.
-Titles/headings/captions that also claim value fields are rejected for bounded
-repair, not silently deleted. Genuine fields, notes and applicability still use
+Whole title/heading/caption copies claimed as value fields are rejected for bounded
+repair, not silently deleted. Exact inner value candidates can coexist with the
+structural role; required accounting still applies. Genuine fields, notes and applicability still use
 the existing value/meaning paths; document roles never waive required candidate
 accounting. A prose-only document can return empty business data without fabricating
 fields. This does not waive a caller's target schema.
@@ -109,51 +110,57 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v28, prompt v33, region plan v18 and document-outline v1 identify this
+Compiler v29, prompt v34, region plan v19 and document-outline/protocol v1 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
 
-#### Next change: separate roles from content (not implemented)
+#### Separate roles from content
 
-The combined role/field response still fails real native development cases after
-bounded repair: a table caption becomes another document title, and section headings
-are also emitted as value fields. Source formatting and a valid grammar do not prove
-semantic accuracy. The next change replaces the combined decision for native text
-regions with two explicit stages; record-table and other-format paths stay separate.
+`interpretation/document_protocol.py` owns two native text-region decisions. The
+engine persists them separately in `documentStages`. Existing record-table and
+other-format paths retain their contracts.
 
-1. **Role stage.** Send only owned text blocks, source-declared formatting/outline
-   hints, document order, preceding interpreted headings and nearby table context.
-   Include source-linked declared header text or explicitly unclassified preview
-   cells, with a visible extent/completeness indicator. Never invent a header or
-   silently present a preview as the complete table. Do not send scalar bindings,
-   business-value output contracts or prior expected answers. Distinguish document
-   titles from labels of particular tables; do not enforce a single title merely
-   because the small development case has one.
-2. **Compile roles.** Validate exact ownership, offered targets and role/level pairs,
-   then preserve role decisions and original bindings independently of value work.
-   An accepted role does not certify a source's values or semantic applicability.
-   Repeated strings remain distinct occurrences. Ambiguous roles remain explicit.
-3. **Content stage.** Supply accepted roles as immutable context; its response cannot
-   reclassify blocks or create record-table structure. Keep real inner field values
-   and unit/condition/note meanings, even inside a title/caption. Pure title text
-   need not become a generic business field to preserve it. Define the distinction
-   through exact binding coverage, not blanket source exclusion or deletion of a
-   conflicting field. Required candidate accounting must still hold.
-4. **Budgets and resume.** Persist per-stage state and validated intermediate roles,
-   tied to input/observation, source views, table-context inventory, model identity
-   and protocol version. Count all calls against the original document budget; do
-   not add an implicit allowance. Interrupted/failed content preserves accepted
-   roles and compiled table values but cannot make overall extraction complete.
-   Reject incompatible old checkpoints; do not replay completed role calls during
-   a normal resume or trust a saved public outline as the accepted decision.
+The **role request** sends owned text, source-declared formatting/outline hints,
+source order, preceding accepted headings and nearby table context. Table previews
+include up to 12 whole cells and 1,200 text characters, preferring declared headers
+and then source order. Counts and completeness are explicit; unclassified cells
+are never promoted to headers, and oversized text is not silently clipped. No scalar
+binding inventory, value-generation contract or expected answer enters this stage.
+Code validates exact source ownership, target choices and role/level pairs, then
+retains the accepted roles and exact original text bindings. It does not certify
+business values or semantic applicability from a role decision.
 
-Direct regressions must cover title/caption/prose, section hierarchy, structural text
-containing a real field or applicability note, visually emphasized ordinary values,
-uncertain roles, partial context, stage failure/resume and stale checkpoints. The
-unchanged failed native files retain their prior expectations and 12-call/900-second
-budgets. Additional layouts and binary HWP still need independent characterization;
-passing these development cases will not finish the whole primary-format KPI.
+The **content request** carries those roles as immutable context. Its response may
+supply fields, groups, meanings and explicit accounting, not roles or record-table
+structure. Whole structural-text bindings cannot become generic scalar copies.
+A source-derived inner `value` candidate whose exact range is strictly inside its
+text view remains eligible, including an explicit empty value. This does not discard
+any source or waive required candidate accounting. Units/conditions/notes remain
+necessary even inside structural text; unresolved applicability remains visible.
+Clients without decoder constraints receive the same compiler checks.
+
+Each stage gets at most two local attempts and separate cumulative usage counters;
+all calls/time remain inside the original document budget. The role request hash
+covers the actual system, owned views, source formatting, preceding headings, table
+preview inventory and decoder contract. The engine identity additionally fixes the
+source, model, options and protocol version. Accepted content must retain exactly
+the accepted role decisions. Resume recomputes these checks, not the saved public
+outline. A changed earlier role context cannot silently validate a later decision.
+
+A failed/interrupted content stage preserves accepted roles and already compiled
+table values, but does not mark those regions' content read or overall extraction
+complete. Saved in-flight or transport-failed calls require an explicit additional
+allowance before another dispatch; ordinary resume does not replay an unknown
+response. An explicit grant can reopen unfinished stage attempts but retains total
+costs and accepted structure. Completed stages are not reissued.
+
+Direct regressions cover separated requests/counters, title/caption/prose hierarchy,
+real inner values and unit meanings, conflicts, uncertain roles, partial table
+previews, context limits, stage failures/resume and stale/tampered checkpoints.
+These are not model-quality approval. The unchanged failed native files retain
+their prior expectations and 12-call/900-second budgets. Additional layouts, binary
+HWP and long source views still need characterization and independent comparisons.
 
 ## 2. PDF recognition and optional visual reading
 
@@ -414,8 +421,8 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v33 / v18 / v28 |
-| Document outline | v1 |
+| Semantic prompt / region plan / result compiler | v34 / v19 / v29 |
+| Document outline / native role-content protocol | v1 / v1 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v13 / v6 |
 | Scope selection wire / source binding / regional checkpoint | v2 / v2 / v3 |

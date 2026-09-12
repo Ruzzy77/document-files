@@ -128,7 +128,8 @@ def constrain_schema(schema, observation, region):
         return
     refs = context["ownedSourceRefs"]
     schema["properties"]["documentElements"].update(minItems=len(refs), maxItems=len(refs))
-    schema.setdefault("required", []).append("documentElements")
+    if "documentElements" not in schema.setdefault("required", []):
+        schema["required"].append("documentElements")
     definition = schema["$defs"]["DocumentElement"]
     props = definition["properties"]
     props["sourceRef"] = {"type": "string", "enum": refs}
@@ -205,6 +206,24 @@ def preceding_headings(observation, region, compiled):
     return stack
 
 
+def structural_value_allowed(binding, node, window):
+    """A real inner value can coexist with a title/caption, not its whole text."""
+    start, end = binding.get("start"), binding.get("end")
+    path = binding.get("path")
+    same_text = path == "/text" or (
+        path == "/semantic/value/value"
+        and node.get("semantic", {}).get("value", {}).get("value") == node.get("text")
+    )
+    return (
+        binding.get("candidateRole") == "value"
+        and same_text
+        and type(start) is int
+        and type(end) is int
+        and window["start"] <= start <= end <= window["end"]
+        and (start, end) != (window["start"], window["end"])
+    )
+
+
 def compile_elements(elements, observation, region, fields):
     """Validate decisions even without decoder grammar; never erase conflicting data."""
     context = role_context(observation, region)
@@ -214,6 +233,8 @@ def compile_elements(elements, observation, region, fields):
     result = []
     for element in elements:
         ref = element.sourceRef
+        text = observation.nodes[ref]["text"]
+        window = region.get("nodeViews", {}).get(ref, {"start": 0, "end": len(text)})
         if (
             (element.role == "title" and element.level != 0)
             or (element.role == "section_heading" and (element.level is None or element.level < 1))
@@ -233,11 +254,12 @@ def compile_elements(elements, observation, region, fields):
         if element.role in {"title", "section_heading", "caption"} and any(
             f.bindingId in observation.bindings
             and observation.bindings[f.bindingId]["sourceRef"] == ref
+            and not structural_value_allowed(
+                observation.bindings[f.bindingId], observation.nodes[ref], window
+            )
             for f in fields
         ):
             raise ValueError("document_role_value_conflict")
-        text = observation.nodes[ref]["text"]
-        window = region.get("nodeViews", {}).get(ref, {"start": 0, "end": len(text)})
         result.append(
             {
                 **element.model_dump(),

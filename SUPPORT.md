@@ -126,9 +126,10 @@ The GPU-memory qualification limitation above still applies.
 Failures and comparisons remain in
 `private/qualification/structural-kpi-20260913/outline-native-01/` and
 `outline-formatting-02/`. These are development cases, not new independent holdouts.
-Next, separate document-role interpretation from value/meaning interpretation and
-provide source-linked table context for distinguishing a document title from a
-caption. The staged design below is not yet implemented or quality-approved.
+The native role/content stage separation is now implemented, with source-linked
+table previews, exact inner-value preservation and independent stage state/costs.
+Its affected Spark comparison is pending; scripted stage tests are not role-quality
+approval.
 
 ## Earlier HTML/PDF development evidence
 
@@ -178,7 +179,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native document roles remain inaccurate.** Source formatting and role/level grammar are corrected, but caption/title confusion and role/value conflicts survive bounded repair on Spark. | Implement the staged role/content boundary described in `docs/extraction-engine.md`: role-only decisions first, validated immutable roles as value-stage context, independent budgets/checkpoints and preservation on later failure. Supply bounded, source-linked table context without inventing headers. Preserve real values inside structural text, not just pure titles. Recheck these unchanged failures, then use new varied native cases. |
+| 1 | **Native document roles remain inaccurate.** Source formatting and role/level grammar are corrected, but caption/title confusion and role/value conflicts survive bounded repair on Spark. | The staged role/content boundary is implemented in `docs/extraction-engine.md`, including immutable roles, exact inner values, bounded table context and failure/resume preservation. Compare this source against the unchanged failed files and expectations before claiming a correction; then check different native layouts and new independent cases. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

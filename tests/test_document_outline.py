@@ -55,34 +55,53 @@ class OutlineModel(PlainRegisterModel):
         super().__init__()
         self.bad = bad
         self.outline_requests = []
+        self.content_requests = []
 
     def infer(self, request):
         payload = json.loads(request.messages[-1]["content"])
-        if "documentContext" not in payload:
+        if payload.get("documentStage") == "roles":
+            self.calls += 1
+            self.outline_requests.append(payload)
+            context = payload["documentContext"]
+            elements = []
+            for ref in context["ownedSourceRefs"]:
+                text = payload["blocks"][ref]["text"]
+                role, level, target = "paragraph", None, None
+                if text == "Staff Register":
+                    if context["sourceOrder"][ref] == 1:
+                        role, level = "title", 0
+                    else:
+                        role, target = "caption", next(iter(context["captionCandidates"]))
+                elif text.startswith("Section "):
+                    role, level = "section_heading", 1
+                elif text.startswith("Subsection "):
+                    role, level = "section_heading", 2
+                elif text.startswith("Count:"):
+                    role = "field_group"
+                elements.append(
+                    {
+                        "sourceRef": ref,
+                        "role": role,
+                        "level": level,
+                        "captionOf": target,
+                        "status": "interpreted",
+                    }
+                )
+            value = {"regionId": payload["regionId"], "documentElements": elements}
+            if self.bad == "missing":
+                value.pop("documentElements")
+            return InferenceResponse(json.dumps(value), {})
+        if "documentContent" not in payload:
             return super().infer(request)
         self.calls += 1
-        self.outline_requests.append(payload)
-        context = payload["documentContext"]
-        elements, fields = [], []
-        for ref in context["ownedSourceRefs"]:
-            text = payload["nodes"][ref]["text"]
-            role, level, target = "paragraph", None, None
-            if text == "Staff Register":
-                if context["sourceOrder"][ref] == 1:
-                    role, level = "title", 0
-                else:
-                    role, target = "caption", next(iter(context["captionCandidates"]))
-            elif text.startswith("Section "):
-                role, level = "section_heading", 1
-            elif text.startswith("Subsection "):
-                role, level = "section_heading", 2
-            elif text.startswith("Count:"):
-                role = "field_group"
-                bid = next(
-                    b
-                    for b, v in payload["bindings"].items()
-                    if v["sourceRef"] == ref and v.get("candidateRole") == "value"
-                )
+        self.content_requests.append(payload)
+        fields = []
+        for bid, binding in payload["bindings"].items():
+            ref = binding["sourceRef"]
+            if (
+                payload["nodes"][ref]["text"].startswith("Count:")
+                and binding.get("candidateRole") == "value"
+            ):
                 fields.append(
                     {
                         "id": "count",
@@ -94,26 +113,14 @@ class OutlineModel(PlainRegisterModel):
                         "status": "present",
                     }
                 )
-            elements.append(
-                {
-                    "sourceRef": ref,
-                    "role": role,
-                    "level": level,
-                    "captionOf": target,
-                    "status": "interpreted",
-                }
-            )
-        value = {"regionId": payload["regionId"], "documentElements": elements, "fields": fields}
-        if self.bad == "missing":
-            value.pop("documentElements")
-        elif self.bad == "conflict" and len(self.outline_requests) == 1:
-            title = elements[0]["sourceRef"]
+        if self.bad == "conflict" and len(self.content_requests) == 1:
+            title = payload["documentContent"]["roles"][0]["sourceRef"]
             bid = next(
                 b
                 for b, v in payload["bindings"].items()
                 if v["sourceRef"] == title and v.get("candidateRole") == "content"
             )
-            value["fields"].append(
+            fields.append(
                 {
                     "id": "wrong",
                     "key": "wrong",
@@ -124,7 +131,9 @@ class OutlineModel(PlainRegisterModel):
                     "status": "present",
                 }
             )
-        return InferenceResponse(json.dumps(value), {})
+        return InferenceResponse(
+            json.dumps({"regionId": payload["regionId"], "fields": fields}), {}
+        )
 
 
 def run(raw, model, *, states=None, restore=None, **options):
@@ -163,7 +172,7 @@ def test_actual_hwpx_preserves_equal_title_and_caption_as_distinct_roles(tmp_pat
         )
         # The native default remains an ordinary paragraph; no observation rewriting.
         assert result["document"]["nodes"][element["sourceRef"]]["semanticRole"] == "paragraph"
-    assert model.calls == 3
+    assert model.calls == 4
     assert all(
         e["binding"]["sourceRef"] not in {title["sourceRef"], caption["sourceRef"]}
         for e in result["valueEvidence"]
@@ -220,8 +229,8 @@ def test_conflicting_title_value_is_rejected_then_repaired_without_silent_field_
     result = run(make_file(tmp_path), model)
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert "wrong" not in result["data"]
-    assert "document_role_value_conflict" in json.dumps(model.outline_requests[1])
-    assert model.calls == 4
+    assert "document_role_value_conflict" in json.dumps(model.content_requests[1])
+    assert model.calls == 5
 
 
 def test_omitted_roles_remain_partial_even_when_values_are_extracted(tmp_path):
@@ -341,11 +350,11 @@ def test_checkpoint_rebuilds_outline_and_rejects_old_policies_or_invalid_role_re
     checkpoint["result"]["document"]["outline"]["elements"][0]["role"] = "invented"
     restored = run(raw, model, restore=checkpoint)
     assert restored["document"]["outline"] == result["document"]["outline"]
-    assert model.calls == 3
+    assert model.calls == 4
     for key, old in [
-        ("compilerVersion", "document-files.result-compiler.v27"),
-        ("promptVersion", "document-files.semantic-prompts.v32"),
-        ("regionPlanVersion", "document-files.region-plan.v17"),
+        ("compilerVersion", "document-files.result-compiler.v28"),
+        ("promptVersion", "document-files.semantic-prompts.v33"),
+        ("regionPlanVersion", "document-files.region-plan.v18"),
     ]:
         checkpoint = copy.deepcopy(states[-1])
         checkpoint["identity"][key] = old

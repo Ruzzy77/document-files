@@ -12,7 +12,7 @@ from .document_outline import role_context
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v18"
+REGION_PLAN_VERSION = "document-files.region-plan.v19"
 
 
 def _encoded(value):

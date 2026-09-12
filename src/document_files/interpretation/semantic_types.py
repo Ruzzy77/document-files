@@ -11,7 +11,7 @@ from ..result_types import Contract
 from .document_outline import DocumentElement, constrain_schema
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v28"
+COMPILER_VERSION = "document-files.result-compiler.v29"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 

@@ -257,7 +257,10 @@ private AI decision schema. `result_types` holds the public evidence/assertion t
 - `semantics`, `schemaEvidence`, `valueEvidence`: existing v1 interpretation and provenance.
 - `semanticDetails`: source-linked applicability, including conditions that are **not executable**.
 - `valueObservations`: exact native scalar/formula/cache observations where available.
-- `coverage`: pending regions and explicit unsupported/unresolved content.
+- `coverage`: pending regions and explicit unsupported/unresolved content. For staged
+  native text, `documentInterpretation` separates role/content statuses and usage.
+  A role-only region stays `structure_compiled` and unprocessed for content;
+  preserving its outline does not certify values or make extraction complete.
 - `resultRevision`: monotonically increasing committed snapshot version for retained results.
 
 Values come from bindings; the internal model cannot return a final `data` object

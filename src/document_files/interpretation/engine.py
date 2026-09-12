@@ -17,6 +17,7 @@ from ..document_model.capture import capture
 from ..document_model.model import OBSERVATION_VERSION, ObservationDocument
 from ..document_model.observe import observe_document
 from ..structured_extraction import project_structured_extraction
+from . import document_protocol
 from .backends import (
     ChatCompletionsClient,
     InferenceRequest,
@@ -492,6 +493,7 @@ def extract_schema_from_stream(
         "tableReferenceWireVersion": TABLE_REFERENCE_WIRE_VERSION,
         "regionPlanVersion": REGION_PLAN_VERSION,
         "documentOutlineVersion": DOCUMENT_OUTLINE_VERSION,
+        "documentProtocolVersion": document_protocol.VERSION,
         "model": model_identity,
     }
     visual_policy = review_identity(client) if job.input.format_id == "pdf" else None
@@ -514,6 +516,7 @@ def extract_schema_from_stream(
     repair_diagnostics = {}
     scope_decisions = {}
     table_states = {}
+    document_states = {}
     usage = {
         "modelCalls": 0,
         "elapsedSeconds": 0.0,
@@ -579,6 +582,9 @@ def extract_schema_from_stream(
             ):
                 raise ValueError
             table_states = copy.deepcopy(restore["tableStages"])
+            document_states = copy.deepcopy(restore.get("documentStages", {}))
+            if not isinstance(document_states, dict):
+                raise ValueError
             if not isinstance(table_states, dict):
                 raise ValueError
             for rid, state in table_states.items():
@@ -659,6 +665,13 @@ def extract_schema_from_stream(
                     state[stage]["usage"][key]
                     for state in table_states.values()
                     for stage in ("structure", "meaning")
+                )
+                total += sum(
+                    _restored_usage(state["usage"])[key] for state in document_states.values()
+                )
+                total += sum(
+                    _restored_usage(state["content"]["usage"])[key]
+                    for state in document_states.values()
                 )
                 tolerance = 1e-6 if key == "elapsedSeconds" else 0
                 if total > usage[key] + tolerance:
@@ -910,6 +923,74 @@ def extract_schema_from_stream(
     )
     candidates = continuation_candidates(observation, regions)
     compiled = {}
+    role_fragments = {}
+    # Rebuild accepted roles from the observation and preceding accepted roles;
+    # never trust a public outline or let a later content response reclassify them.
+    try:
+        if set(document_states) - {r["id"] for r in regions}:
+            raise ValueError
+        for region in regions:
+            rid = region["id"]
+            state = document_states.get(rid)
+            if state is None:
+                if rid in accepted and accepted[rid].documentElements:
+                    raise ValueError
+                continue
+            request = document_protocol.role_request(observation, region, role_fragments.values())
+            if request is None or not isinstance(state, dict):
+                raise ValueError
+            expected = document_protocol.digest([document_protocol.ROLE_SYSTEM, *request])
+            attempts = state["attempts"]
+            if (
+                state["requestHash"] != expected
+                or type(attempts) is not int
+                or not 0 <= attempts <= document_protocol.MAX_CALLS
+                or attempts > state["usage"]["modelCalls"]
+                or state["status"] not in {"pending", "running", "complete", "failed"}
+                or type(state.get("halted", False)) is not bool
+            ):
+                raise ValueError
+            if state["status"] == "running":
+                state["halted"] = True  # A saved in-flight call is not a response.
+            content_state = state["content"]
+            if (
+                not isinstance(content_state, dict)
+                or type(content_state["attempts"]) is not int
+                or not 0 <= content_state["attempts"] <= document_protocol.MAX_CALLS
+                or content_state["attempts"] > content_state["usage"]["modelCalls"]
+                or content_state["status"] not in {"pending", "running", "complete", "failed"}
+                or type(content_state.get("halted", False)) is not bool
+                or type(content_state.get("hasAcceptedResponse", False)) is not bool
+                or content_state.get("hasAcceptedResponse", False) != (rid in accepted)
+                or (content_state["status"] == "complete" and rid not in accepted)
+                or (state["status"] != "complete" and content_state["usage"]["modelCalls"])
+            ):
+                raise ValueError
+            if content_state["status"] == "running":
+                content_state["halted"] = True
+            if state["status"] == "complete":
+                response, fragment = document_protocol.accept_roles(
+                    state["response"], observation, region
+                )
+                if response != state["response"] or not state["usage"]["modelCalls"]:
+                    raise ValueError
+                role_fragments[rid] = fragment
+                if (
+                    rid in accepted
+                    and accepted[rid].documentElements
+                    != document_protocol.RoleDecision.model_validate(response).documentElements
+                ):
+                    raise ValueError
+            elif "response" in state or rid in accepted:
+                raise ValueError
+    except (ValueError, TypeError, KeyError):
+        raise ValueError("checkpoint is incompatible with document role stages") from None
+    if additional_budget is not None and grant["maxModelCalls"] > 0:
+        for record in document_states.values():
+            if record.get("status") != "complete":
+                record.update(attempts=0, reviewAttempts=0, halted=False, status="pending")
+            if record["content"]["status"] != "complete":
+                record["content"].update(attempts=0, halted=False, status="pending")
     for region in regions:
         if region["id"] in accepted:
             try:
@@ -1032,7 +1113,10 @@ def extract_schema_from_stream(
             else None
         )
         result["issues"] = [*issues, *projection_issues, *join_issues]
-        outline, outline_issues = project_outline(observation, compiled.values())
+        outline, outline_issues = project_outline(
+            observation,
+            [*compiled.values(), *(f for rid, f in role_fragments.items() if rid not in compiled)],
+        )
         if outline is not None:
             result["document"]["outline"] = outline
             result["issues"].extend(outline_issues)
@@ -1051,8 +1135,11 @@ def extract_schema_from_stream(
                 "id": r["id"],
                 "status": (
                     "structure_compiled"
-                    if table_states.get(r["id"], {}).get("kind") == "record_table"
-                    and table_states[r["id"]].get("meaning", {}).get("status") != "complete"
+                    if (
+                        table_states.get(r["id"], {}).get("kind") == "record_table"
+                        and table_states[r["id"]].get("meaning", {}).get("status") != "complete"
+                    )
+                    or (r["id"] in role_fragments and r["id"] not in compiled)
                     else "interpreted"
                     if r["id"] in compiled
                     else "pending"
@@ -1064,6 +1151,17 @@ def extract_schema_from_stream(
             for r in regions
         ]
         result["coverage"]["tableInterpretation"] = copy.deepcopy(table_states)
+        if document_states:
+            result["coverage"]["documentInterpretation"] = {
+                rid: {
+                    "roleStatus": state["status"],
+                    "roleAttempts": state["attempts"],
+                    "roleUsage": copy.deepcopy(state["usage"]),
+                    "contentStatus": state["content"]["status"],
+                    "contentUsage": copy.deepcopy(state["content"]["usage"]),
+                }
+                for rid, state in document_states.items()
+            }
         result["coverage"].update(_node_read_coverage(regions, compiled))
         result["coverage"]["unprocessedRegions"] = [
             r["id"] for r in regions if r["id"] not in compiled
@@ -1095,10 +1193,15 @@ def extract_schema_from_stream(
         result["provenance"]["scopeProtocol"] = copy.deepcopy(scope_execution)
         result["provenance"]["tableProtocolVersion"] = TABLE_PROTOCOL_VERSION
         result["provenance"]["tableReferenceWireVersion"] = TABLE_REFERENCE_WIRE_VERSION
+        result["provenance"]["documentProtocolVersion"] = document_protocol.VERSION
         complete = (
             any(c.has_data or c.document_elements for c in compiled.values())
             and bool(compiled)
             and len(compiled) == len(regions)
+            and all(
+                state["status"] == state["content"]["status"] == "complete"
+                for state in document_states.values()
+            )
             and all(
                 state.get("kind") == "scalar_form"
                 or (
@@ -1126,6 +1229,7 @@ def extract_schema_from_stream(
                         "decisions": decisions,
                         "scopeDecisions": scope_decisions,
                         "tableStages": table_states,
+                        "documentStages": document_states,
                         "failures": failures,
                         "repairDiagnostics": repair_diagnostics,
                         "usage": usage,
@@ -1150,7 +1254,9 @@ def extract_schema_from_stream(
         scope_phase=False,
         max_output_tokens=None,
         reasoning_budget_tokens=None,
+        document_stage=None,
     ):
+        stage_record = table_stage if table_stage is not None else document_stage
         if cancelled and cancelled():
             raise ModelError("ai_cancelled")
         if usage["modelCalls"] >= max_calls:
@@ -1163,9 +1269,11 @@ def extract_schema_from_stream(
         input_limit = min(
             selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
         )
-        if table_stage is not None:
-            table_stage["inputPreflight"] = {
-                "stage": payload["tableStage"],
+        if stage_record is not None:
+            stage_record["inputPreflight"] = {
+                "stage": payload["tableStage"]
+                if table_stage is not None
+                else payload.get("documentStage", "content"),
                 "phase": "repair" if feedback is not None else "initial",
                 **({"substage": table_phase} if table_phase is not None else {}),
                 "systemCharacters": len(system),
@@ -1183,15 +1291,15 @@ def extract_schema_from_stream(
         try:
             usage["modelCalls"] += 1
             usage["unreportedUsageCalls"] += 1
-            if table_stage is not None:
-                table_stage["attempts"] = table_stage.get("attempts", 0) + 1
-                if table_stage.get("acceptedResponse"):
-                    table_stage["reviewAttempts"] += 1
-                table_stage["status"] = "running"
-                table_stage.setdefault("usage", {})["modelCalls"] = (
-                    table_stage.get("usage", {}).get("modelCalls", 0) + 1
+            if stage_record is not None:
+                stage_record["attempts"] = stage_record.get("attempts", 0) + 1
+                if stage_record.get("acceptedResponse"):
+                    stage_record["reviewAttempts"] += 1
+                stage_record["status"] = "running"
+                stage_record.setdefault("usage", {})["modelCalls"] = (
+                    stage_record.get("usage", {}).get("modelCalls", 0) + 1
                 )
-                table_stage["usage"]["unreportedUsageCalls"] += 1
+                stage_record["usage"]["unreportedUsageCalls"] += 1
                 if table_phase is not None:
                     phase_usage = table_stage["phaseUsage"][table_phase]
                     phase_usage["modelCalls"] += 1
@@ -1248,8 +1356,8 @@ def extract_schema_from_stream(
                 value = decode(client.complete(messages, timeout=timeout))
             return meaning_wire.decode(value) if meaning_wire is not None else value
         finally:
-            if table_stage is not None:
-                counters = [table_stage["usage"]]
+            if stage_record is not None:
+                counters = [stage_record["usage"]]
                 if table_phase is not None:
                     counters.append(table_stage["phaseUsage"][table_phase])
                 elapsed = max(0.0, time.monotonic() - stage_started)
@@ -1566,8 +1674,73 @@ def extract_schema_from_stream(
                 return True
         return True
 
+    def interpret_roles(region):
+        rid = region["id"]
+        request = document_protocol.role_request(observation, region, role_fragments.values())
+        payload, contract = request
+        fingerprint = document_protocol.digest([document_protocol.ROLE_SYSTEM, *request])
+        state = document_states.setdefault(
+            rid,
+            {
+                "requestHash": fingerprint,
+                "status": "pending",
+                "attempts": 0,
+                "usage": _stage_usage(),
+                "content": {"status": "pending", "attempts": 0, "usage": _stage_usage()},
+            },
+        )
+        if state["requestHash"] != fingerprint:
+            issue("document_role_context_changed", regionId=rid)
+            return False
+        if state["status"] == "complete":
+            return True
+        if state.get("halted"):
+            issue("document_role_response_unavailable", regionId=rid)
+            return False
+        while state["attempts"] < document_protocol.MAX_CALLS:
+            before = state["attempts"]
+            try:
+                value = invoke(
+                    document_protocol.ROLE_SYSTEM,
+                    payload,
+                    contract,
+                    state.get("feedback"),
+                    document_stage=state,
+                    max_output_tokens=2048,
+                )
+                response, fragment = document_protocol.accept_roles(value, observation, region)
+                state.update(status="complete", response=response)
+                state.pop("feedback", None)
+                role_fragments[rid] = fragment
+                issues[:] = [
+                    i
+                    for i in issues
+                    if not (i.get("code") == "document_role_invalid" and i.get("regionId") == rid)
+                ]
+                save("interpreting")
+                return True
+            except ModelError:
+                if state["attempts"] > before:
+                    state.update(status="failed", halted=True)
+                raise
+            except (ValueError, TypeError, KeyError):
+                state.update(status="failed", feedback=["invalid_document_role_contract"])
+                issue("document_role_invalid", regionId=rid)
+                save("interpreting")
+        issue("document_role_invalid", regionId=rid)
+        return False
+
     for region in regions:
         rid = region["id"]
+        if rid in role_fragments:
+            current_request = document_protocol.role_request(
+                observation, region, role_fragments.values()
+            )
+            if document_states[rid]["requestHash"] != document_protocol.digest(
+                [document_protocol.ROLE_SYSTEM, *current_request]
+            ):
+                issue("document_role_context_changed", regionId=rid)
+                continue
         if (
             rid in compiled
             and not local_issues(compiled[rid])
@@ -1592,7 +1765,7 @@ def extract_schema_from_stream(
         payload.update(intent=selected.intent, targetHandles=catalog)
         if payload.get("documentContext"):
             payload["documentContext"]["precedingHeadings"] = preceding_headings(
-                observation, region, compiled.values()
+                observation, region, role_fragments.values()
             )
         candidate_schema = region_output_schema(observation, region, catalog)
         if region.get("tableRef"):
@@ -1637,6 +1810,30 @@ def extract_schema_from_stream(
                 issue(exc.code, regionId=rid)
                 save("paused")
                 return result
+        content_system = region_system(payload)
+        frozen_roles = None
+        content_state = None
+        if payload.get("documentContext") and not region.get("tableRef"):
+            try:
+                if not interpret_roles(region):
+                    continue
+                frozen_roles = document_states[rid]["response"]
+                content_state = document_states[rid]["content"]
+                if content_state.get("halted"):
+                    issue("document_content_response_unavailable", regionId=rid)
+                    continue
+                payload, candidate_schema = document_protocol.content_request(
+                    payload,
+                    region_output_schema(observation, region, catalog, compact=False),
+                    frozen_roles,
+                    observation,
+                    region,
+                )
+                content_system = document_protocol.CONTENT_SYSTEM
+            except ModelError as exc:
+                issue(exc.code, regionId=rid)
+                save("paused")
+                return result
         feedback = (
             [i["code"] for i in compiled[rid].issues[:20]]
             if rid in compiled
@@ -1648,15 +1845,31 @@ def extract_schema_from_stream(
             else None
         )
         # Local repair only; unchanged responses and previously exhausted failures do not loop.
-        for attempt in range(2):
+        attempts_remaining = (
+            document_protocol.MAX_CALLS - content_state["attempts"]
+            if content_state is not None
+            else 2
+        )
+        for attempt in range(attempts_remaining):
+            calls_before = usage["modelCalls"]
             try:
-                value = invoke(region_system(payload), payload, candidate_schema, feedback)
+                value = invoke(
+                    content_system,
+                    payload,
+                    candidate_schema,
+                    feedback,
+                    document_stage=content_state,
+                )
                 response_hash = hashlib.sha256(encode(value).encode()).hexdigest()
                 if response_hash == last_response or response_hash == failures.get(rid):
                     issue("region_repair_no_progress", regionId=rid)
                     break
                 last_response = response_hash
+                if frozen_roles is not None:
+                    value = document_protocol.attach_content(value, frozen_roles)
                 candidate = RegionInterpretation.model_validate(value)
+                if frozen_roles is not None and candidate.repeats:
+                    raise CompileError("document_content_cannot_generate_records")
                 if candidate.tableMeaningState is not None or any(
                     m.sourceRanges for m in candidate.meanings
                 ):
@@ -1682,6 +1895,11 @@ def extract_schema_from_stream(
                     issue("region_repair_no_progress", regionId=rid)
                     break
                 accepted[rid], compiled[rid] = candidate, fragment
+                if content_state is not None:
+                    content_state.update(
+                        status="complete" if not local_issues(fragment) else "pending",
+                        hasAcceptedResponse=True,
+                    )
                 failures.pop(rid, None)
                 repair_diagnostics.pop(rid, None)
                 issues[:] = [
@@ -1698,6 +1916,8 @@ def extract_schema_from_stream(
                 feedback = [_feedback_code(i) for i in fragment.issues[:20]]
                 continue
             except ModelError as exc:
+                if content_state is not None and usage["modelCalls"] > calls_before:
+                    content_state.update(status="failed", halted=True)
                 issue(exc.code, regionId=rid)
                 save("paused")
                 return result
@@ -1723,7 +1943,11 @@ def extract_schema_from_stream(
             issue("region_interpretation_invalid", regionId=rid, errors=feedback)
             repair_diagnostics[rid] = feedback
             failures[rid] = last_response
+            if content_state is not None:
+                content_state["status"] = "failed"
             save("interpreting")
+        if content_state is not None and content_state["status"] == "running":
+            content_state["status"] = "failed"
     pending = [
         c
         for c in candidates
