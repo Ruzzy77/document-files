@@ -114,6 +114,47 @@ behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
 
+#### Next change: separate roles from content (not implemented)
+
+The combined role/field response still fails real native development cases after
+bounded repair: a table caption becomes another document title, and section headings
+are also emitted as value fields. Source formatting and a valid grammar do not prove
+semantic accuracy. The next change replaces the combined decision for native text
+regions with two explicit stages; record-table and other-format paths stay separate.
+
+1. **Role stage.** Send only owned text blocks, source-declared formatting/outline
+   hints, document order, preceding interpreted headings and nearby table context.
+   Include source-linked declared header text or explicitly unclassified preview
+   cells, with a visible extent/completeness indicator. Never invent a header or
+   silently present a preview as the complete table. Do not send scalar bindings,
+   business-value output contracts or prior expected answers. Distinguish document
+   titles from labels of particular tables; do not enforce a single title merely
+   because the small development case has one.
+2. **Compile roles.** Validate exact ownership, offered targets and role/level pairs,
+   then preserve role decisions and original bindings independently of value work.
+   An accepted role does not certify a source's values or semantic applicability.
+   Repeated strings remain distinct occurrences. Ambiguous roles remain explicit.
+3. **Content stage.** Supply accepted roles as immutable context; its response cannot
+   reclassify blocks or create record-table structure. Keep real inner field values
+   and unit/condition/note meanings, even inside a title/caption. Pure title text
+   need not become a generic business field to preserve it. Define the distinction
+   through exact binding coverage, not blanket source exclusion or deletion of a
+   conflicting field. Required candidate accounting must still hold.
+4. **Budgets and resume.** Persist per-stage state and validated intermediate roles,
+   tied to input/observation, source views, table-context inventory, model identity
+   and protocol version. Count all calls against the original document budget; do
+   not add an implicit allowance. Interrupted/failed content preserves accepted
+   roles and compiled table values but cannot make overall extraction complete.
+   Reject incompatible old checkpoints; do not replay completed role calls during
+   a normal resume or trust a saved public outline as the accepted decision.
+
+Direct regressions must cover title/caption/prose, section hierarchy, structural text
+containing a real field or applicability note, visually emphasized ordinary values,
+uncertain roles, partial context, stage failure/resume and stale checkpoints. The
+unchanged failed native files retain their prior expectations and 12-call/900-second
+budgets. Additional layouts and binary HWP still need independent characterization;
+passing these development cases will not finish the whole primary-format KPI.
+
 ## 2. PDF recognition and optional visual reading
 
 ### CPU observation

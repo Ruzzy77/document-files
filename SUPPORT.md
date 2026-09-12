@@ -7,6 +7,8 @@ XLSX candidate-boundary check used **d7334e9eb0d23cdbfd926f54aa677bf87faf90dc**.
 The HWPX and relation development checks used **b97fe61df3c3195f592e50f7099724e3ea14d9ed**.
 The first native-outline comparison used **6dacdff4c9ec5d2528138bcbf783c1458e43a522**;
 it did not pass document-role quality.
+The formatting/role-contract correction used **0d0a4548a18bb3650654d0edce9a3a4fb5568d09**;
+its source-preservation checks passed, but both role comparisons still failed.
 Earlier HTML/PDF runs used **8744a5c1c89b87370c8b6dd3c8d49cd464400277**. None of these is independent approval of the structural KPI.
 Version **1.8.0 is not formally released**.
 
@@ -104,9 +106,29 @@ seven fixture-authoring tests required an optional writer and ran only on Mac.
 Inspection of the original HWPX packages found title/caption typography that the
 parser had not exposed. Direct source formatting is now preserved, native paragraph
 containers are distinguished from logical-role decisions in model requests, and
-the role grammar disallows paragraph heading levels. This correction has not yet
-passed the affected Spark comparison. Original failures and unchanged expectations
-remain in `private/qualification/structural-kpi-20260913/outline-native-01/`.
+the role grammar disallows paragraph heading levels. The correction passed **115
+ARM regressions** (the same seven writer-dependent tests ran only on Mac).
+Both unchanged documents were then checked against the unchanged prior expectations:
+
+| Formatting correction | Calls / seconds | Comparison with frozen expectations |
+|---|---|---|
+| English register | 3 / 45.2 | No invalid role/level pair, but both title and caption became document titles. Engine `complete` is not a role-quality pass. |
+| Korean inspection | 8 / 128.1 | The combined role/value response repeatedly generated value fields from section headings. The compiler rejected those conflicts; the final outline remained unresolved. |
+
+Both still retain every expected table record, exact spelling and actual cell/header
+source link. All 22 captured text-element formatting references were checked against
+original package XML; pre-existing native fields and both input hashes are unchanged.
+No expected answer was sent to inference. Owned servers/containers, source exports,
+transfer archives and activation copies are removed; shared services and installed
+packs remain unchanged. Host OOM did not increase; there was no cgroup swap/OOM.
+The GPU-memory qualification limitation above still applies.
+
+Failures and comparisons remain in
+`private/qualification/structural-kpi-20260913/outline-native-01/` and
+`outline-formatting-02/`. These are development cases, not new independent holdouts.
+Next, separate document-role interpretation from value/meaning interpretation and
+provide source-linked table context for distinguishing a document title from a
+caption. The staged design below is not yet implemented or quality-approved.
 
 ## Earlier HTML/PDF development evidence
 
@@ -156,7 +178,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **HWP/HWPX logical outline is implemented; two Spark role comparisons failed.** Title/caption typography was missing from model input, and the old grammar permitted invalid paragraph levels. The source-formatting and role-contract correction is implemented but not yet model-verified. | Rerun the unchanged documents against unchanged expected hierarchy, caption links, exact records and source bindings within frozen budgets. Do not accept engine `complete` instead of role accuracy. Long paragraph fragments and broader native list/container hierarchy still need work; do not count these development cases as independent approval. |
+| 1 | **Native document roles remain inaccurate.** Source formatting and role/level grammar are corrected, but caption/title confusion and role/value conflicts survive bounded repair on Spark. | Implement the staged role/content boundary described in `docs/extraction-engine.md`: role-only decisions first, validated immutable roles as value-stage context, independent budgets/checkpoints and preservation on later failure. Supply bounded, source-linked table context without inventing headers. Preserve real values inside structural text, not just pure titles. Recheck these unchanged failures, then use new varied native cases. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
