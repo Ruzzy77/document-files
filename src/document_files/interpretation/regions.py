@@ -7,10 +7,12 @@ import json
 
 from ..document_model.table_headers import declared_header
 from .compiler import preferred_binding
+from .document_outline import enabled as outline_enabled
+from .document_outline import role_context
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v16"
+REGION_PLAN_VERSION = "document-files.region-plan.v17"
 
 
 def _encoded(value):
@@ -208,6 +210,7 @@ def region_payload(observation, region):
             candidate["headerText"] = " > ".join(
                 observation.nodes.get(ref, {}).get("text", "") for ref in candidate["headerRefs"]
             )
+    document_context = role_context(observation, region)
     return {
         "regionId": region["id"],
         "nodeIds": region["nodeIds"],
@@ -216,6 +219,7 @@ def region_payload(observation, region):
         "bindings": {b: observation.bindings[b] for b in region["bindingIds"]},
         "requiredBindingIds": region.get("requiredBindingIds", []),
         "tables": tables,
+        **({"documentContext": document_context} if document_context else {}),
         **(
             {
                 "tableKind": "nonrecord_values",
@@ -261,7 +265,7 @@ def route_table_values(observation, region, frozen, compiled, *, context_chars, 
     nodes move; source observations, geometry and compiled record reads do not.
     Unclassified rows remain unresolved in the parent until structure is repaired.
     """
-    from .semantic_prompts import SYSTEM
+    from .semantic_prompts import region_system
     from .semantic_types import region_output_schema
 
     table = observation.tables[region["tableRef"]]
@@ -352,7 +356,7 @@ def route_table_values(observation, region, frozen, compiled, *, context_chars, 
         "outputContract": region_output_schema(observation, child, metadata.get("targetHandles")),
     }
     child["inputChars"] = len(_encoded(region_payload(observation, child)))
-    child["requestChars"] = len(SYSTEM) + len(_encoded(request))
+    child["requestChars"] = len(region_system(request)) + len(_encoded(request))
     child["withinContextBudget"] = child["requestChars"] <= context_chars
     child["budgetReason"] = "nonrecord_value_region_exceeds_budget"
     region["nodeIds"] = [ref for ref in region["nodeIds"] if ref not in routed]
@@ -380,7 +384,14 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
                     listing.setdefault(ref, []).append(region["tableRef"])
     # A caption that exactly one table lists is that table's own context: interpret
     # it with the table instead of as a separate region of guessed scalar values.
-    captions = {ref for ref, tables in listing.items() if len(tables) == 1}
+    # Native HWP/HWPX captions now have explicit document-role ownership in
+    # their scalar region. Table context remains available, but never owns them
+    # a second time or turns their role into an ordinary business value.
+    captions = (
+        set()
+        if outline_enabled(observation)
+        else {ref for ref, tables in listing.items() if len(tables) == 1}
+    )
     if captions:
         kept = []
         for region in source_regions:
@@ -461,6 +472,7 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
             ref
             for ref in selected_nodes
             if observation.nodes.get(ref, {}).get("semanticRole") == "caption"
+            and not outline_enabled(observation)
         }
         if region.get("tableRef"):
             not_values.update(

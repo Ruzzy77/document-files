@@ -245,7 +245,15 @@ private AI decision schema. `result_types` holds the public evidence/assertion t
 
 - `document.nodes`: unchanged native nodes plus additive precise observations.
 - `document.bindings`: product-generated source addresses and Unicode code-point ranges.
-- `document.structure`: versioned regions, observed cells, hierarchy and reference edges.
+- `document.structure`: versioned native regions, observed cells, hierarchy and reference edges.
+- `document.outline`: additive HWP/HWPX logical roles and hierarchy. Each text element
+  has an exact `textBinding`, `sourceRefs`, role/status and program-resolved `parentId`.
+  Table elements point to `document.structure.tables` through `tableRef`; caption
+  relations reference outline element IDs. Original strings are resolved from bindings,
+  never copied from a model answer. `partial` exposes missing/uncertain roles or
+  unjoined text views; `interpreted` is not independent accuracy approval. Other
+  formats retain native structure but do not yet receive this logical outline.
+  `documentSchema` still validates the original nodes map; its meaning has not changed.
 - `semantics`, `schemaEvidence`, `valueEvidence`: existing v1 interpretation and provenance.
 - `semanticDetails`: source-linked applicability, including conditions that are **not executable**.
 - `valueObservations`: exact native scalar/formula/cache observations where available.

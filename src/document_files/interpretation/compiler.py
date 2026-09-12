@@ -17,6 +17,7 @@ from ..document_model.table_headers import declared_header, fixed_header_rows, o
 from ..result_types import Assertion, Evidence, SourceBinding, Target
 from .accounting import bound_node_dispositions, observed_heading
 from .bindings import resolve
+from .document_outline import compile_elements
 from .semantic_types import RegionInterpretation
 from .table_revisions import meaning_revision
 from .table_sources import SourceReviewError, review_ranges, source_inventory
@@ -148,6 +149,7 @@ class CompiledRegion:
     issues: list[dict] = field(default_factory=list)
     consumed_bindings: set[str] = field(default_factory=set)
     dispositions: list[dict] = field(default_factory=list)
+    document_elements: list[dict] = field(default_factory=list)
     repeat_paths: dict[str, dict] = field(default_factory=dict)
     row_scopes: dict[str, dict] = field(default_factory=dict)
     meaning_statuses: dict[str, str] = field(default_factory=dict)
@@ -171,6 +173,17 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         by_source.setdefault(candidate["sourceRef"], {})[bid] = candidate
     catalog = target_catalog(target_schema)
     out = CompiledRegion(ir.regionId)
+    try:
+        out.document_elements = compile_elements(
+            ir.documentElements, observation, region, ir.fields
+        )
+    except ValueError as exc:
+        raise CompileError(str(exc)) from None
+    out.issues.extend(
+        {"code": "document_element_uncertain", "sourceRef": element["sourceRef"]}
+        for element in out.document_elements
+        if element["status"] == "uncertain" or element["role"] == "unresolved"
+    )
     if ir.tableMeaningState is not None:
         state = ir.tableMeaningState
         if len(ir.repeats) != 1 or not region.get("tableRef"):
@@ -1151,6 +1164,23 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
     derived = bound_node_dispositions(
         observation, region, resolved_fields, out.consumed_bindings, header_definition_sources
     )
+    for element in out.document_elements:
+        # Source use follows a separately validated role decision, not vice versa.
+        # This does not exempt any of the required value candidates below.
+        derived.setdefault(
+            element["sourceRef"],
+            {
+                "sourceRef": element["sourceRef"],
+                "role": "unresolved"
+                if element["status"] == "uncertain"
+                else "heading"
+                if element["role"] in {"title", "section_heading"}
+                else "structural",
+                "explanation": "Source preserved by an explicit document element decision",
+                "basis": "ai_interpreted",
+                "documentElementId": element["id"],
+            },
+        )
     for ref in region["nodeIds"]:
         if (
             ref not in dispositions
@@ -1307,9 +1337,15 @@ def combine_regions(compiled: list[CompiledRegion], *, target_schema=None):
                     break
         except Exception:
             errors.append("data_schema_invalid")
-        if leaves(data) - seen_values:
+        document_only = (
+            not assigned
+            and data == {}
+            and schema == _object()
+            and any(r.document_elements for r in compiled)
+        )
+        if not document_only and leaves(data) - seen_values:
             errors.append("data_leaves_missing_evidence")
-        if schema_definitions(schema) - seen_schema:
+        if not document_only and schema_definitions(schema) - seen_schema:
             errors.append("schema_definitions_missing_evidence")
     return {
         "data": data if compiled else None,

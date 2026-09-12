@@ -2,7 +2,7 @@
 
 This file records current capability, checked outcomes and unresolved defects.
 Implementation details belong in [the extraction engine](docs/extraction-engine.md),
-not in an accumulating experiment log. Last source audit: **2026-09-12**. Current
+not in an accumulating experiment log. Last source audit: **2026-09-13**. Current
 XLSX candidate-boundary check used **d7334e9eb0d23cdbfd926f54aa677bf87faf90dc**.
 The HWPX and relation development checks used **b97fe61df3c3195f592e50f7099724e3ea14d9ed**.
 Earlier HTML/PDF runs used **8744a5c1c89b87370c8b6dd3c8d49cd464400277**. None of these is independent approval of the structural KPI.
@@ -41,7 +41,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check after the row-preservation and XLSX candidate corrections passed **2,671 tests,
+The full local check including the native outline path passed **2,694 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -135,7 +135,7 @@ general duplicate/continuation quality still requires varied document tests.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **HWPX title and caption are ordinary scalar fields.** The native table case preserves two text occurrences but does not distinguish their document roles. `documentSchema` is still a generic object schema; `semanticAccounting` is a usage ledger, not interpreted hierarchy. | Trace native role/containment observations through regional interpretation and output. Define source-linked document roles/hierarchy separately from native observations, business data and coverage accounting. Preserve title/caption occurrences as structure and context, not invented business fields. Do not solve this by deleting equal strings: identical text can have different roles. Check ordinary prose and genuine label/value fields as counterexamples. |
+| 1 | **HWP/HWPX logical outline is implemented; Spark comparison is pending.** The new `document.outline` keeps explicit role decisions, exact text bindings, interpreted section levels and caption/table links separately from business data and coverage. | Regressions retain same-text title/caption occurrences and complete table records; distinguish prose, nested sections and real fields; reject title/value conflicts and stale checkpoints. Run the unchanged HWPX case and a different hierarchy/layout within frozen budgets. Long paragraph fragments and broader native list/container hierarchy still need work; do not count this implementation as broad accuracy approval. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Use independently prepared expectations to check the current native observations and complete extraction path. Cover section/reading hierarchy, label/value forms, record tables, different merged-header structures, nested/continued tables, subtotal/note rows and long content. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
 | 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |

@@ -8,9 +8,10 @@ from typing import Literal
 from pydantic import Field
 
 from ..result_types import Contract
+from .document_outline import DocumentElement, constrain_schema
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v27"
+COMPILER_VERSION = "document-files.result-compiler.v28"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -139,6 +140,7 @@ class RegionInterpretation(Contract):
     excludedBindings: list[BindingDisposition] = Field(default_factory=list, max_length=2000)
     unresolved: list[str] = Field(default_factory=list, max_length=100)
     tableMeaningState: TableMeaningState | None = None
+    documentElements: list[DocumentElement] = Field(default_factory=list, max_length=5000)
 
 
 def region_output_schema(observation, region, target_handles=None, *, compact=True):
@@ -193,6 +195,7 @@ def region_output_schema(observation, region, target_handles=None, *, compact=Tr
         schema["properties"]["repeats"]["maxItems"] = 0
     if not bindings:
         schema["properties"]["excludedBindings"]["maxItems"] = 0
+    constrain_schema(schema, observation, region)
     return _compact_contract(schema) if compact else schema
 
 

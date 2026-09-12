@@ -140,6 +140,17 @@ def extraction_result_schema() -> dict:
                 },
             },
             "semanticRelations": {"type": "array"},
+            "outline": {
+                "type": "object",
+                "required": ["version", "status", "orderBasis", "elements", "relations"],
+                "properties": {
+                    "version": {"type": "string"},
+                    "status": {"enum": ["partial", "interpreted"]},
+                    "orderBasis": {"type": "string"},
+                    "elements": {"type": "array", "items": {"type": "object"}},
+                    "relations": {"type": "array", "items": {"type": "object"}},
+                },
+            },
         }
     )
     return {

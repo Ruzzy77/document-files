@@ -23,6 +23,11 @@
   generated coordinate/display text. Keep real inner fields, empty values and native
   number/formula/cache bindings. Region plan v16 rejects incompatible candidate IDs
   in old checkpoints; missing-value accounting is not relaxed.
+- Add source-linked HWP/HWPX document roles and logical outline separately from
+  native observations and business data. Require owned-role decisions, exact text
+  bindings, heading levels and explicit caption links; reject title/value conflicts
+  without deleting values. Preserve uncertain/missing/fragmented structure as partial.
+  Version compiler v28, prompt v32 and region plan v17 for checkpoint safety.
 - Add isolated CPU recognition and source-bound PDF visual review, literal image
   reading, alternative table projections, exact pixel membership displays and
   conservative blank-cell application. Original OCR and document bytes remain.

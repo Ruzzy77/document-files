@@ -32,6 +32,8 @@ from .compiler import (
     target_catalog,
 )
 from .contracts import RESULT_VERSION, ExtractionOptions
+from .document_outline import VERSION as DOCUMENT_OUTLINE_VERSION
+from .document_outline import preceding_headings, project_outline
 from .integration import (
     SCOPE_VERSION,
     apply_scope_decision,
@@ -60,7 +62,7 @@ from .scope_protocol import (
 from .scope_reference_wire import VERSION as SCOPE_REFERENCE_WIRE_VERSION
 from .scope_selection_wire import prepare_scope_selection_wire
 from .scope_source_binding import bind_scope_choices
-from .semantic_prompts import INTEGRATE, PROMPT_VERSION, SYSTEM
+from .semantic_prompts import INTEGRATE, PROMPT_VERSION, region_system
 from .semantic_types import (
     COMPILER_VERSION,
     SEMANTIC_VERSION,
@@ -347,6 +349,7 @@ def _initial_result(job, observation, analyzer, selected, client, content):
             "compilerVersion": COMPILER_VERSION,
             "semanticVersion": SEMANTIC_VERSION,
             "regionPlanVersion": REGION_PLAN_VERSION,
+            "documentOutlineVersion": DOCUMENT_OUTLINE_VERSION,
             "model": client.identity if client else None,
         },
     }
@@ -488,6 +491,7 @@ def extract_schema_from_stream(
         "tableProtocolVersion": TABLE_PROTOCOL_VERSION,
         "tableReferenceWireVersion": TABLE_REFERENCE_WIRE_VERSION,
         "regionPlanVersion": REGION_PLAN_VERSION,
+        "documentOutlineVersion": DOCUMENT_OUTLINE_VERSION,
         "model": model_identity,
     }
     visual_policy = review_identity(client) if job.input.format_id == "pdf" else None
@@ -1028,6 +1032,10 @@ def extract_schema_from_stream(
             else None
         )
         result["issues"] = [*issues, *projection_issues, *join_issues]
+        outline, outline_issues = project_outline(observation, compiled.values())
+        if outline is not None:
+            result["document"]["outline"] = outline
+            result["issues"].extend(outline_issues)
         result["document"]["semanticRelations"] = links
         result["coverage"]["semanticAccounting"] = [
             d for c in compiled.values() for d in c.dispositions
@@ -1088,7 +1096,7 @@ def extract_schema_from_stream(
         result["provenance"]["tableProtocolVersion"] = TABLE_PROTOCOL_VERSION
         result["provenance"]["tableReferenceWireVersion"] = TABLE_REFERENCE_WIRE_VERSION
         complete = (
-            any(c.has_data for c in compiled.values())
+            any(c.has_data or c.document_elements for c in compiled.values())
             and bool(compiled)
             and len(compiled) == len(regions)
             and all(
@@ -1582,6 +1590,10 @@ def extract_schema_from_stream(
             continue
         payload = region_payload(observation, region)
         payload.update(intent=selected.intent, targetHandles=catalog)
+        if payload.get("documentContext"):
+            payload["documentContext"]["precedingHeadings"] = preceding_headings(
+                observation, region, compiled.values()
+            )
         candidate_schema = region_output_schema(observation, region, catalog)
         if region.get("tableRef"):
             table = observation.tables[region["tableRef"]]
@@ -1638,7 +1650,7 @@ def extract_schema_from_stream(
         # Local repair only; unchanged responses and previously exhausted failures do not loop.
         for attempt in range(2):
             try:
-                value = invoke(SYSTEM, payload, candidate_schema, feedback)
+                value = invoke(region_system(payload), payload, candidate_schema, feedback)
                 response_hash = hashlib.sha256(encode(value).encode()).hexdigest()
                 if response_hash == last_response or response_hash == failures.get(rid):
                     issue("region_repair_no_progress", regionId=rid)

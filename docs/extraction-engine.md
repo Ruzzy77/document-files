@@ -40,7 +40,7 @@ pending, not truncated. Table slices keep declared leading headers as context;
 headers do not become a fabricated standalone data region. OCR header predictions
 are not native declarations.
 
-### Native projections and unresolved document roles
+### Native spreadsheet projections
 
 The XLSX parser's readable node text includes a generated coordinate prefix, such
 as `A2=Alice`; its actual typed cell value is separately stored in `semantic.value`.
@@ -57,15 +57,44 @@ boundaries. Required-candidate accounting is unchanged: real inner fields remain
 required, and missing values are not excused by this correction. Public observation
 nodes, exact numeric spellings, formulas and caches are not rewritten.
 
-The simple HWPX development case also retains a title and caption as two generic
-scalar fields. `engine.py::_initial_result` currently returns a generic object
-`documentSchema`, while `document.structure` retains native regions/tables/relations
-and `coverage.semanticAccounting` records source use. Neither is a complete interpreted
-title/caption/section hierarchy. Native observations, interpreted document roles and
-business data need separate handling; identical text alone cannot identify redundant
-occurrences. Do not turn a usage disposition into proven document structure.
-These are current implementation gaps, not the intended structure contract. See
-[current native checks and priorities](../SUPPORT.md).
+### Logical document outline (HWP/HWPX)
+
+`interpretation/document_outline.py` adds `document.outline` without repurposing
+`documentSchema` (which validates the original node map), changing native nodes or
+turning `semanticAccounting` into structure. Other formats retain their existing
+native structure; they do not yet receive this logical-block interpretation.
+
+For each owned non-cell text source, the scalar interpreter must choose a document
+role and certainty. Titles use outline level 0, section headings use levels 1–12;
+other roles have no heading level. Default native paragraph levels/styles do not
+establish logical headings. Caption links select nearby observed table identities,
+not model-created table names. Prior interpreted headings are context only; their
+text counts against the actual request budget and cannot become newly owned data.
+Native HWP/HWPX captions keep their own role/meaning region instead of being consumed
+a second time by table interpretation.
+
+Code preserves exact `textBinding` ranges, original occurrences and native unit
+order, builds section parents from interpreted levels, and retains native table
+and nested-cell membership. `captionOf` relations connect a caption element to its
+observed table element. Running headers/footers do not change section ownership.
+Titles/headings/captions that also claim value fields are rejected for bounded
+repair, not silently deleted. Genuine fields, notes and applicability still use
+the existing value/meaning paths; document roles never waive required candidate
+accounting. A prose-only document can return empty business data without fabricating
+fields. This does not waive a caller's target schema.
+
+`document.outline.status` is `interpreted` only when its role inventory is accounted
+for; it is not independent accuracy approval. Unreviewed/uncertain blocks and
+unjoined long-paragraph views keep it partial. Exact fragments remain available;
+a reviewed fragment cannot stand in for the whole paragraph. Mixed native text
+segments, complex list/container hierarchy and long views still need broader
+characterization. Source-bound values and the native table model remain separate
+from outline quality.
+
+Compiler v28, prompt v32, region plan v17 and document-outline v1 identify this
+behavior. A checkpoint's saved outline is recomputed from its validated role
+decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
+under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
 
 ## 2. PDF recognition and optional visual reading
 
@@ -321,12 +350,13 @@ extraction completeness, schema validation and independent accuracy are distinct
 
 ### Current internal identities
 
-These identify the implementation audited at product commit `8744a5c`; update the
-relevant row when changing its owning behavior. Do not patch stored IDs to resume.
+These identify the current implementation; update the relevant row when changing
+its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v31 / v16 / v27 |
+| Semantic prompt / region plan / result compiler | v32 / v17 / v28 |
+| Document outline | v1 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v13 / v6 |
 | Scope selection wire / source binding / regional checkpoint | v2 / v2 / v3 |
