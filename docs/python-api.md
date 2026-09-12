@@ -1,62 +1,63 @@
-# Python, CLI and MCP integration
-
-Internal applicability uses scope-axis protocol v6, selection wire v2 and compiler-owned
-source-binding v2 over scope integration v12 / reference wire v2 / compiler v19.
-Private regional checkpoint v3 records the actual scope policy, batch context,
-citation-free selection and compiler source trace. Replay regenerates the request
-identity and source bindings before applying a saved decision; incompatible older
-checkpoints are rejected. Public v1 APIs remain unchanged. This is not quality approval.
-
-The model returns one `selections` list, choosing record intersections or standalone
-candidates without being required to fill two unrelated lists. Record selections
-use the same `columnHandle` identifiers displayed with column candidates and record
-columns, not a second set of column IDs. Only typed selection fields are translated;
-source text, labels and explanations remain literal. The general codec retains
-scalar-only/mixed decisions, multiple records, header groups, bounded candidates,
-missing rows and up to eight independent tasks. The axis codec still validates the
-canonical intersections; overlaps and foreign references remain invalid.
-
-For records the model independently selects rowCoverage and columnCoverage and the
-compiler applies their intersection. allDataRows is not allMappedColumns. Row
-references are fragment-local; optional numeric sourceRowRange endpoints retain
-unobserved coordinates without inventing cells. Standalone scalar/mixed candidates
-remain available. A row-only selection does not annotate a whole column's schema.
-Scalar candidates now include valueOrigins: an existing binding and observation
-status, bounded original value text and source-table coordinates. Compiled row roles
-are labeled as interpretation, not native geometry or an applicability rule.
-Missing bindings remain missing; disagreements between row mappings remain visible.
-This context and the full private evidence participate in fingerprints; changing
-geometry, role, binding or observed status invalidates prior context. Source-binding
-v2 verifies selected scalar evidence before linking its existing value source.
-
-The model does not write sourceRefs, values or generated pointers. Code binds current
-content/definitions and existing selected scalar/row-filter value sources; blank,
-absent and uncertain states remain distinct. Source binding and semantic accuracy
-are separate checks. Overlaps, stale mappings and explicit expansion/source limits
-still fail closed. Long-range compact provenance remains unimplemented.
-
-On ManagedPackClient only, the engine requests reasoning budget 2,048 for this phase
-and caps total output at 3,072 tokens (or a smaller client ceiling). Other phases keep
-the profile default. The same request override reaches template/token checks and
-inference, without mutating the profile or leaking to later calls. Generic/cloud
-clients keep their own reasoning policy; no llama-specific parameters are sent.
-Complete-only clients retain their own output limits, recorded distinctly in the
-checkpoint. All calls and elapsed time share the existing cumulative document budget.
-
-Prompt v24 / table protocol v17 distinguish a meaning's own uncertainty from
-unknown applicability. Internal `Meaning.status` describes its kind and content;
-an unresolved `scope` no longer overwrites that status. The compiler retains this
-private status in task identity and marks the public result uncertain until both
-content and applicability are resolved. Selecting valid rows or columns cannot
-clear `semantic_interpretation_uncertain`; such results stay partial, including
-after checkpoint resume. Scope-only uncertainty may be resolved normally. No new
-public result field is added, and old internal checkpoints cannot resume. The
-uncertainty issue itself does not trigger rereading unchanged content when only
-applicability was being resolved. This does not certify actual-model quality.
+# Python, CLI, MCP and HTTP integration
 
 The supported Python import is `document_files.api`. The engine, CLI, local MCP and
 HTTP service call the same document interpretation implementation. A host chat
 subscription is not an API credential. Nothing falls back to an unconfigured model.
+
+## Embedding the Python package
+
+Install the `document-files` wheel and its declared Python dependencies in the
+calling application's environment. Import `document_files.api`; do not copy a plugin
+cache or reach into another checkout. No agent login, plugin installation, document
+registration service or running MCP/HTTP server is required for an in-process call.
+Python 3.11 or newer is required; the pinned development environment uses 3.12.
+
+```sh
+python -m pip install /delivery/document_files-1.8.0-py3-none-any.whl
+```
+
+The path above represents a supplied build, not a currently published 1.8.0 release.
+For offline installation, supply the exact dependency wheels as well and use an
+explicit local wheelhouse. Retain the engine and dependency license notices. Model,
+recognition and optional native conversion/rendering packs are separate assets;
+installing the Python wheel does not supply or download them. Source/plugin bundle
+preparation is described in [deployment](../deployment/RELEASE.md).
+
+The application owns its documents, permissions, identifiers, storage and business
+mapping. Document Files receives authorized bytes and processing options and returns
+source-linked results. Native reading needs no model:
+
+```python
+from io import BytesIO
+from document_files.api import (
+    AnalysisBudgets,
+    AnalysisInput,
+    AnalysisJob,
+    extract_structure_from_stream,
+)
+
+content = "# 발주서\n\n수량: 3\n".encode("utf-8")
+job = AnalysisJob(
+    job_id="order-001",
+    input=AnalysisInput.from_bytes(content, format_id="md"),
+    budgets=AnalysisBudgets(max_input_bytes=1_048_576, completion_seconds=30),
+)
+result = extract_structure_from_stream(job, BytesIO(content))
+```
+
+The stream can be sequential and need not have a filename, descriptor or `seek`.
+Declared byte count, SHA256 and format identify the input; mismatches fail before
+interpretation. For raw `AnalysisResult v1`, use `analyze_document(job, stream)` and
+`result.to_dict()`. The structure projection above is a JSON-compatible dictionary.
+Neither call starts a document service, retains a job database or changes the input.
+Format parsers may use private temporary files, removed when the call finishes.
+
+For AI extraction use `extract_schema_from_stream` with an explicit model client,
+finite `ExtractionOptions` and optional recognition backend. A directly supplied
+client takes precedence over `DOCUMENT_FILES_AI_*` configuration. Without either
+an explicit client or that configuration, the result reports `ai_unavailable` and
+is not a successful AI extraction. Ordinary stream calls return results in memory;
+checkpoint callbacks, retained path calls and managed jobs are separate choices.
 
 ## Native reading and HWPX operations
 
@@ -88,7 +89,7 @@ source-relative table preservation. Conversion/editing publishes a separate outp
 The analysis contract consists of `AnalysisJob v1` plus a separate byte stream and
 returns `AnalysisResult v1`, with format, size and SHA256 identifying the bytes rather
 than their local path. Temporary input copies allow safe repeated parser access and
-are removed after analysis. The local `process` JSONL boundary used by Sync carries
+are removed after analysis. The optional local `process` JSONL adapter carries
 an inherited read-only descriptor; Windows uses a separately verified read-only
 snapshot. This transport does not change the shared analysis contract. Original-file
 ownership, capture/revision/projection management and access policy belong to callers.
@@ -96,20 +97,37 @@ ownership, capture/revision/projection management and access policy belong to ca
 ## In-process extraction
 
 ```python
-from document_files.api import ChatCompletionsClient, extract_schema
+from io import BytesIO
+from document_files.api import (
+    AnalysisInput,
+    AnalysisJob,
+    ChatCompletionsClient,
+    ExtractionOptions,
+    extract_schema_from_stream,
+)
 
 client = ChatCompletionsClient(
     endpoint="http://127.0.0.1:8080/v1/chat/completions",
     model="your-explicitly-configured-model",
 )
-result = extract_schema(
-    "/absolute/path/document.docx",
+content = b"Order ID: 000123\nQuantity: 3\n"
+job = AnalysisJob(
+    job_id="order-001",
+    input=AnalysisInput.from_bytes(content, format_id="txt"),
+)
+result = extract_schema_from_stream(
+    job,
+    BytesIO(content),
     model_client=client,
-    options={"reconstructionContext": False},
-    retain=False,
+    options=ExtractionOptions(
+        reconstructionContext=False,
+        maxModelCalls=12,
+        completionSeconds=900,
+    ),
 )
 if result["extraction"]["status"] != "complete":
-    handle_partial(result["issues"], result["coverage"])
+    # Keep the partial result and expose its unprocessed or uncertain content.
+    print(result["issues"], result["coverage"])
 ```
 
 Supply credentials through your application's secret handling, not source code.
@@ -130,7 +148,7 @@ follow the [structured-output specification](https://developers.openai.com/api/d
 The managed llama.cpp runtime uses its own constrained grammar without that cloud
 wire dialect. Every mode passes through the same source-reference/compiler checks.
 
-Use `ManagedPackClient(pack_root, runtime_id, model_id)` for installed CPU packs and
+Use `ManagedPackClient(pack_root, runtime_id, model_id)` for installed CPU/CUDA packs and
 always call `close()` in a `finally` block. Its model starts lazily, after PDF
 recognition. It validates the actual formatted prompt token count against its
 fixed 8,192-token working context and 3,072-token output ceiling; it does not
@@ -193,8 +211,17 @@ with profile_clients("/absolute/path/server.json", "cpu") as (model, observation
 
 For byte streams, use `AnalysisInput.from_bytes`, `AnalysisJob` and
 `extract_schema_from_stream(job, binary_stream, ...)`. This entry point does not
-retain a database unless the caller supplies a checkpoint callback. Input bytes
-must match the declared format, byte count and SHA256.
+retain a database. A caller-supplied `checkpoint` callback may store resumable state
+in the application's own storage; pass it back with `restore` and the same bytes and
+configuration. Incompatible private checkpoints are rejected. Input bytes must match
+the declared format, byte count and SHA256.
+
+For an existing path, `extract_schema(path, model_client=client, retain=False)` is a
+convenience adapter around the stream call. Its default `retain=True` instead saves a
+private result/checkpoint database. Set `storage_dir` to an application-owned directory
+when using that facility, and use the same directory for get/resume/delete. Otherwise,
+`DOCUMENT_FILES_STORAGE_DIR` or the product's platform cache directory is used. This
+choice is independent of the application's source document store.
 
 ## Results and explicit resume
 

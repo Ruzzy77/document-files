@@ -1,9 +1,10 @@
 # Document Files
 
-PDF, Office, HWP/HWPX 문서를 읽고 만들거나 편집하는 AI 에이전트용 플러그인입니다.
+PDF, Office, HWP/HWPX 문서를 읽고 만들거나 편집하는 독립 플러그인이자 Python 라이브러리입니다.
 본문과 표를 추출하고, 문서에 기록된 구조와 값을 원본 위치가 연결된 JSON으로 제공합니다.
 문서 작업 방법을 담은 `Document Files` Skill과 로컬 실행 도구를 함께 제공하며,
-Python API, CLI, MCP, HTTP를 통해 다른 프로그램에서도 사용할 수 있습니다.
+에이전트에서는 플러그인으로, 다른 소프트웨어에서는 문서 처리 모듈로 사용할 수 있습니다.
+Python API, CLI, MCP, HTTP는 같은 문서 처리 엔진을 호출합니다.
 
 ## 주요 기능
 
@@ -115,6 +116,28 @@ MCP 클라이언트에는 준비된 저장소의 `launchers/document-files-mcp`�
 Python에서는 `document_files.api`를 사용합니다. HTTP 서비스는 문서 바이트를 업로드하고
 작업 상태와 결과를 조회하는 방식을 제공합니다. 호출 예제, 모델 설정, 결과 형식과 작업 관리
 명령은 [Python·CLI·MCP 연동 문서](docs/python-api.md)에 있습니다.
+
+### 다른 소프트웨어에 모듈로 넣기
+
+호출하는 프로그램의 Python 환경에 `document-files` wheel과 선언된 의존성을 설치하면 됩니다.
+플러그인 설치, 에이전트 로그인이나 문서 등록 서비스는 필요하지 않습니다. 문서 바이트를
+전달하고 결과를 받아 호출하는 프로그램의 저장소·화면·업무 흐름에 연결할 수 있습니다.
+
+```python
+from io import BytesIO
+from document_files.api import AnalysisInput, AnalysisJob, extract_structure_from_stream
+
+content = "# 발주서\n\n수량: 3\n".encode("utf-8")
+job = AnalysisJob(
+    job_id="order-001",
+    input=AnalysisInput.from_bytes(content, format_id="md"),
+)
+result = extract_structure_from_stream(job, BytesIO(content))
+```
+
+이 예시는 모델 없이 원본 구조를 읽습니다. AI 스키마 추출도 같은 바이트 입력을 사용하며,
+모델 연결과 처리 예산을 명시합니다. 패키지 구성과 저장·오류 처리 방법은
+[모듈 연동 안내](docs/python-api.md#embedding-the-python-package)를 참고해 주세요.
 
 ## 원본과 데이터 처리
 

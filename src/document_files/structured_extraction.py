@@ -1,6 +1,6 @@
 """Public, format-neutral projection of source-addressed extraction units.
 
-The extraction envelope remains the strict Corpus boundary.  This module adds
+The extraction envelope remains the validated adapter boundary.  This module adds
 only a reusable read API: it normalizes explicit structure and values without
 creating index identities, guessing adjacent-cell relationships, or evaluating
 document code and formulas.

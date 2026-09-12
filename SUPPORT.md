@@ -12,8 +12,8 @@ commit **8744a5c1c89b87370c8b6dd3c8d49cd464400277**. The later documentation com
    source links. Linux ARM64 recognition on CPU; internal interpretation on CUDA.
 2. **Personal Mac use:** adapt and check the accurate extraction path after Spark.
 3. **Deferred:** Windows, Intel Mac and Linux x64 qualification; five-platform
-   distribution; CPU-only 16 GiB qualification; publication and Toolkit/Sync/client
-   migration. Existing builders and interfaces remain available for explicit use.
+   distribution; CPU-only 16 GiB qualification; publication and downstream application
+   upgrades. Existing builders and interfaces remain available for explicit use.
 
 Company-specific back-office implementation, personal source reconstruction and
 cloud-model quality certification are not part of this completion target. Installed consumers and active model packs remain unchanged.
@@ -30,10 +30,26 @@ cloud-model quality certification are not part of this completion target. Instal
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check after the documentation/manual-CI cleanup passed **2,633 tests, with 227 skips and
-12 subtests**. Skips are not passes, and this count is not a measure of model quality.
-Focused checks accompany later documentation/workflow changes; they do not change
-the product behavior represented by this audit.
+The full local check after the independent-package corrections passed **2,637 tests,
+with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
+passes, and this count is not a measure of model quality or qualification of the
+pinned Python 3.12 deployment runtime.
+
+### Standalone package checks
+
+A fresh macOS ARM64 environment installed the declared, lock-pinned dependencies
+without an editable checkout or agent plugin. The generated remote Skill read a
+document using only its bundled package source and those dependencies. After installing
+the wheel, public byte-stream analysis, result serialization, structured reading and
+MCP startup/tool discovery/document reading passed from an unrelated working directory.
+The source remained unchanged; stream calls did not create a retained result database.
+
+AI extraction without a configured model returned `ai_unavailable`. A supplied test
+client exercised the in-process model interface and exact source-bound values, but
+was not a real-model quality check. Source and wheel contents were checked for private
+files and application-specific linkage. Host-source bundles now include their declared
+launchers, and each generated Skill points to its own runtime. These checks do not
+qualify a platform installer, a live agent session or a formal release.
 
 ## Latest Spark development evidence
 

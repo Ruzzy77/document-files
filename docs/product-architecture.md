@@ -6,7 +6,7 @@ repair. A caller does not need another AI agent to construct the interpretation.
 
 **Current priority:** make this extraction reliable on DGX Spark (Linux ARM64, CUDA
 inference), then adapt the verified path for personal use on Mac. Other platforms,
-formal release publication and Toolkit/Sync/client migration are deferred. Existing
+formal release publication and downstream application upgrades are deferred. Existing
 interfaces and platform code remain; deferred does not mean qualified or removed.
 See [current readiness and defects](../SUPPORT.md) before relying on a feature.
 
@@ -108,10 +108,34 @@ verified upstream replacement passes the same mixed-state cases. Reading must no
 require an optional editor. Editing writes a separate output and checks the complete
 old cell value and verified selector; ambiguous/unsafe nested-cell changes are refused.
 
-Toolkit and Sync own registration, captures and projections. Document Files owns
-parsing and extraction. Exact adapter/config identity records how an output was made;
-it does not automatically change `reanalysis_generation` for unchanged source files.
-Installed consumers remain on their existing versions until a separate verified update.
+The calling application owns document registration, access policy, revisions,
+indexing and business-specific projections. Document Files owns parsing and extraction;
+it neither imports that application nor needs its database or configuration. Exact
+adapter/config identity records how an output was made; it does not automatically
+change `reanalysis_generation` for unchanged source files. Reprocessing and application
+upgrades remain explicit caller decisions.
+
+## Independent delivery and embedding
+
+The Python wheel contains the `document_files` package, result schemas and required
+notices. It can be installed in another application's environment and called through
+`document_files.api`, without plugin registration, an agent account or a running
+document service. The CLI, MCP plugin and optional HTTP service are adapters around
+the same engine; they are not prerequisites for an in-process call.
+
+Use `AnalysisJob` plus a binary stream for an application-owned input. The stream API
+returns its result directly; it does not create the retained job database. Temporary
+parser files are private and removed after use. Result storage/checkpoints, managed
+job workers and pack activation are separate, explicitly selected facilities.
+Model and recognition clients are supplied through product interfaces. No endpoint,
+credentials, model weights or recognition assets are bundled into the core wheel.
+The declared Python dependencies are still required; independence does not mean a
+standard-library-only package or a model-free AI extractor.
+
+Source archives and platform/plugin bundles carry their own launchers and Skill.
+The remote `.skill` carries its helper and the same package source, using an existing
+host Python environment. None of these forms resolves a sibling project. See the
+[embedding API](python-api.md#embedding-the-python-package) for ownership and setup.
 
 ## Safety and optional delivery
 

@@ -1,4 +1,4 @@
-"""Document extraction process used by Corpus and the public CLI.
+"""Document extraction subprocess for applications and the public CLI.
 
 The process owns all format-specific parsing.  Callers pass a read-only file
 descriptor and receive ordered structural observations without index identity,

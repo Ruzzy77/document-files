@@ -458,8 +458,8 @@ only then makes the release public. A failure leaves the draft for inspection; i
 does not overwrite, delete or automatically retry. Private evidence is not uploaded
 implicitly: only explicit `releaseAssets`, their verified transport files and the explicitly
 selected public aggregate inventory are sent.
-Validate external installation and actual consumer operation before changing the
-Toolkit/Sync pinned release. Keep rollback and existing stored results available.
+Validate external installation and actual application operation before changing an
+application's pinned dependency. Keep rollback and existing stored results available.
 
 ## Candidate CI is not delivery qualification
 

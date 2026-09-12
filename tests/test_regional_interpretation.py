@@ -5,12 +5,15 @@ import json
 
 import pytest
 
-from document_files.analysis import AnalysisInput, AnalysisJob
+from document_files.api import (
+    AnalysisInput,
+    AnalysisJob,
+    ExtractionOptions,
+    extract_schema_from_stream,
+)
 from document_files.document_model.model import ObservationDocument
 from document_files.document_model.observe import observe_document
 from document_files.interpretation.compiler import CompileError, combine_regions, compile_region
-from document_files.interpretation.contracts import ExtractionOptions
-from document_files.interpretation.engine import extract_schema_from_stream
 from document_files.interpretation.regions import prepare_regions
 from document_files.interpretation.semantic_types import RegionInterpretation, region_output_schema
 
@@ -133,6 +136,25 @@ def test_default_protocol_program_reads_duplicate_zero_false_and_blank():
     payload = json.loads(model.messages[0][-1]["content"])
     assert "proposal" not in payload and "previousProposal" not in payload
     assert "data" not in payload["outputContract"]["properties"]
+
+
+def test_application_model_client_overrides_environment_without_retained_storage(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DOCUMENT_FILES_RUNTIME_ROOT", str(tmp_path / "runtime"))
+    monkeypatch.setenv("DOCUMENT_FILES_STORAGE_DIR", str(tmp_path / "results"))
+    monkeypatch.setenv("DOCUMENT_FILES_AI_ENDPOINT", "invalid-unused-endpoint")
+    monkeypatch.setenv("DOCUMENT_FILES_AI_MODEL", "unused-model")
+    client = ReferenceModel()
+
+    result = run(b"Order ID: 000123\nQuantity: 3\n", client, maxModelCalls=1)
+
+    assert result["data"] == {"Order ID": "000123", "Quantity": "3"}
+    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert client.calls == 1
+    assert all(item["binding"] for item in result["valueEvidence"])
+    assert not list(tmp_path.iterdir())
 
 
 class BindingOnlyModel(ReferenceModel):

@@ -6,13 +6,14 @@ from typing import BinaryIO
 
 import pytest
 
-from document_files.analysis import (
+from document_files.api import (
     AnalysisInput,
     AnalysisJob,
     AnalysisResult,
     LocalAnalyzerBackend,
+    analyze_document,
+    extract_structure_from_stream,
 )
-from document_files.engine import extract_structure_from_stream
 from document_files.extraction_errors import ExtractionError
 
 
@@ -88,3 +89,27 @@ def test_local_backend_rejects_bytes_that_do_not_match_job_identity() -> None:
 
     with pytest.raises(ExtractionError, match="do not match"):
         LocalAnalyzerBackend().analyze(_job(content), SequentialBytes(b"different"))
+
+
+def test_application_can_read_bytes_without_a_source_path_or_retained_store(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DOCUMENT_FILES_RUNTIME_ROOT", str(tmp_path / "runtime"))
+    monkeypatch.setenv("DOCUMENT_FILES_STORAGE_DIR", str(tmp_path / "results"))
+    content = "# 발주서\n\n수량: 3\n".encode()
+    stream = BytesIO(content)
+    job = _job(content)
+
+    analysis = analyze_document(job, stream)
+    restored = AnalysisResult.from_dict(
+        json.loads(json.dumps(analysis.to_dict())), expected_job=job
+    )
+    projection = extract_structure_from_stream(job, SequentialBytes(content))
+
+    assert restored.input == job.input
+    assert [unit["text"] for unit in projection["units"]] == ["발주서", "수량: 3"]
+    assert projection["analysis"]["input"]["sha256"] == job.input.sha256
+    assert not stream.closed
+    assert stream.getvalue() == content
+    assert not list(tmp_path.iterdir())

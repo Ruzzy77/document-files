@@ -5,6 +5,13 @@ Document Files owns document observation, interpretation, source binding and
 validation; do not turn an external LLM application into an undocumented dependency.
 Preserve the public v1 contracts and existing HWP checkbox patch behavior.
 
+The plugin and Python package are independent delivery forms of one product. Do not
+add consumer-specific imports, sibling-repository paths, registration requirements
+or application names to their runtime, Skill or public documentation. Applications
+integrate through the public API and own their storage, indexing and access policy.
+Verify packaging changes from outside the checkout, using only the delivered files
+and declared dependencies; a development editable install is not that check.
+
 ## Working tree and documents
 
 Work directly on `main` in the registered product repository by default. Before

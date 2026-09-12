@@ -56,6 +56,7 @@ def host_bundle(stage: Path) -> None:
     for name in (
         "src",
         "openai-runtime",
+        "launchers",
         "skills",
         "assets",
         "patches",
@@ -83,21 +84,28 @@ def host_bundle(stage: Path) -> None:
         shutil.copy2(ROOT / "scripts" / name, stage / "scripts" / name)
 
 
-def portable_skill(body: str, *, windows: bool) -> str:
+def _skill_runtime(body: str, note: str, example: str) -> str:
+    """Replace only delivery-specific instructions, leaving document guidance intact."""
     start = body.index("- ChatGPT 또는 원격 Codex에서는")
     end = body.index("- 파일 작업에 필요한 실행 기능", start)
-    body = (
-        body[:start] + "- 이 배포본에는 로컬 Python 실행 환경이 포함되어 있다. "
-        "ChatGPT 원격 실행에는 별도 `.skill` 배포본을 사용한다.\n" + body[end:]
-    )
+    body = body[:start] + note + "\n" + body[end:]
     start = body.index("배포 진입점은 다음처럼 호출한다.")
     end = body.index("\n```", body.index("```sh", start)) + len("\n```")
+    return body[:start] + "포함된 실행기는 다음처럼 호출한다.\n\n" + example + body[end:]
+
+
+def portable_skill(body: str, *, windows: bool) -> str:
     example = (
         '```bat\n"${SKILL_DIR}/../../launchers/document-files.cmd" capabilities\n```'
         if windows
         else '```sh\nsh "${SKILL_DIR}/../../launchers/document-files" capabilities\n```'
     )
-    return body[:start] + "포함된 실행기는 다음처럼 호출한다.\n\n" + example + body[end:]
+    return _skill_runtime(
+        body,
+        "- 이 배포본에는 로컬 Python 실행 환경이 포함되어 있다. "
+        "ChatGPT 원격 실행에는 별도 `.skill` 배포본을 사용한다.",
+        example,
+    )
 
 
 def skill_bundle(stage: Path) -> None:
@@ -121,9 +129,14 @@ def skill_bundle(stage: Path) -> None:
     )
     skill = stage / "SKILL.md"
     body = skill.read_text(encoding="utf-8")
-    body = body.replace(
-        "${SKILL_DIR}/../../runtime/document-files/document-files",
-        "${SKILL_DIR}/scripts/document-files/document-files",
+    body = _skill_runtime(
+        body,
+        "- 이 `.skill` 배포본은 `${SKILL_DIR}/scripts/document-files/document-files` "
+        "셸 실행기와 제품 소스를 포함한다. 셸 실행기를 Python 스크립트로 실행하지 않는다. "
+        "호스트의 `python3`를 사용하며, 별도 경로는 `DOCUMENT_FILES_HOST_PYTHON`으로 지정한다. "
+        "필요한 라이브러리는 호스트에 준비되어 있어야 한다.",
+        '```sh\nDOCUMENT_FILES_HOST_PYTHON="$HOST_PYTHON" '
+        'sh "${SKILL_DIR}/scripts/document-files/document-files" capabilities\n```',
     )
     skill.write_text(body, encoding="utf-8")
 
@@ -339,7 +352,7 @@ def main() -> None:
             "args": ["-I", "${CLAUDE_PLUGIN_ROOT}/launchers/run.py", "mcp_server"],
         }
         write_json(stage / ".mcp.json", {"mcpServers": {"document-files": launch}})
-        # Skill CLI points to the release launcher, not a Toolkit sibling directory.
+        # Skill CLI points to this bundle's own launcher.
         skill = stage / "skills/document-files/SKILL.md"
         body = portable_skill(skill.read_text(encoding="utf-8"), windows=os.name == "nt")
         skill.write_text(body, encoding="utf-8")

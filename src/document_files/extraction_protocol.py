@@ -2,7 +2,7 @@
 
 Adapters only produce ordered structural observations.  Index identity,
 revision identity, source-unit identity, final source anchors, and authority
-remain owned by the core.
+remain owned by the calling application, not the document parser.
 """
 
 from __future__ import annotations

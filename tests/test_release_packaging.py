@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -145,6 +148,69 @@ def test_generated_skill_uses_platform_launcher_and_remote_upload_keeps_metadata
     assert "${SKILL_DIR}/scripts/document-files/document-files" in (stage / "SKILL.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_host_source_bundle_contains_its_declared_plugin_and_cli_entrypoints(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    builder = load_script("build_release")
+    stage = tmp_path / "standalone product"
+    stage.mkdir()
+    builder.host_bundle(stage)
+
+    config = json.loads((stage / ".mcp.json").read_text())
+    server = config["mcpServers"]["document-files"]
+    command = server["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(stage))
+    assert Path(command).is_file()
+    assert (stage / "launchers/run.py").is_file()
+    assert (stage / "launchers/document-files.cmd").is_file()
+    assert (stage / "launchers/document-files-mcp.cmd").is_file()
+    assert (stage / "skills/document-files/../../launchers/document-files").resolve().is_file()
+
+
+def test_remote_skill_runs_its_bundled_package_from_an_unrelated_directory(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    builder = load_script("build_release")
+    stage = tmp_path / "standalone skill"
+    builder.skill_bundle(stage)
+    runtime = stage / "scripts/document-files"
+    work = tmp_path / "application"
+    work.mkdir()
+    source = work / "sample.md"
+    content = "# 발주서\n\n수량: 3\n".encode()
+    source.write_bytes(content)
+    environment = {
+        key: value for key, value in os.environ.items() if key.upper() in {"SYSTEMROOT", "WINDIR"}
+    }
+    environment.update(
+        HOME=str(work),
+        USERPROFILE=str(work),
+        DOCUMENT_FILES_RUNTIME_ROOT=str(work / "runtime"),
+        DOCUMENT_FILES_STORAGE_DIR=str(work / "results"),
+    )
+    # Only this artifact's source and the interpreter's installed dependencies.
+    script = (
+        "import pathlib,runpy,sys; "
+        "root=pathlib.Path(sys.argv.pop(1)); "
+        "sys.path.insert(0,str(root/'src')); "
+        "import document_files; "
+        "assert pathlib.Path(document_files.__file__).is_relative_to(root); "
+        "runpy.run_path(str(root/'host_cli.py'),run_name='__main__')"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", script, str(runtime), "extract-structure", str(source)],
+        cwd=work,
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+        timeout=60,
+    )
+    response = json.loads(completed.stdout)
+    assert response["ok"] is True
+    assert [unit["text"] for unit in response["result"]["units"]] == ["발주서", "수량: 3"]
+    assert source.read_bytes() == content
+    assert not (work / "results").exists()
 
 
 def test_evaluation_limits_formats_and_never_promotes_or_overwrites_evidence(tmp_path, monkeypatch):

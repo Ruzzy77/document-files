@@ -10,7 +10,7 @@ and quality qualification. A prepared Compose file is not an installed HTTP serv
 Before a run, identify the product commit, actual source-file hashes, pack root,
 active manifests and explicit model/profile options. Use one known source checkout
 or a clean copied source inventory, not a mixture of an old wheel and edited modules.
-Installed Toolkit/Sync versions are separate consumers and are not updated by this.
+Other applications' installed copies are not updated by preparing this checkout.
 
 On shared Spark hosts, inspect existing workloads, host available memory, GPU memory
 and any active Document Files process before starting another. Begin with one model
@@ -166,8 +166,8 @@ SHA256, inspect license/source inventories, then explicitly activate them. Prese
 previous versions and activation state for rollback. Never update an in-use model
 behind a running job. The service pins pack manifests when submitting and checks
 again before execution/resume; changed active configuration is a conflict, not a
-silent model upgrade. Changing parser package versions alone does not request Corpus
-reanalysis of unchanged documents.
+silent model upgrade. Changing parser package versions alone does not request
+reanalysis of unchanged documents in a calling application.
 
 Runtime packages, model weights, product source, installed-client evidence and final
 quality qualification are tracked separately. Keep logs to job ID, stage, timings,

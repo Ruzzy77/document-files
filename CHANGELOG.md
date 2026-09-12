@@ -32,11 +32,17 @@
 
 ### Packaging and development
 
+- Document the independent plugin and embeddable Python package as two delivery
+  forms of the same engine. Remove application-specific references and sibling
+  runtime paths from shipped documentation, source comments and the Skill.
+- Include the declared CLI/MCP launchers in host-source bundles and generate each
+  Skill's invocation for its own layout. Add public byte-stream and relocated-bundle
+  regressions without changing the extraction or result contracts.
 - Add clean-source candidate builds, target-aware ARM64/x64 packaging, offline input
   inventories, SBOMs, source/license records and exact-byte release qualification.
   Packaging success is not model quality or redistribution approval.
 - Focus current work on reliable Spark extraction, then personal Mac use. Defer
-  other-platform qualification, formal publication and Toolkit/Sync/client migration.
+  other-platform qualification, formal publication and downstream application upgrades.
 - Use `main` as the normal working branch. All GitHub workflows are manual-only;
   platform workflows operate on one explicitly selected target, defaulting to ARM64.
 - Replace chronological status accumulation with topic-based architecture, extraction,
@@ -45,5 +51,5 @@
 
 Detailed internal protocol identities and behavior are maintained in
 [the extraction-engine reference](docs/extraction-engine.md), not repeated here.
-The Apache-2.0 engine originated in Personal Agent Toolkit; original Git history,
-NOTICE and third-party conditions remain. Installed consumers have not been migrated.
+Original Git history, NOTICE and third-party conditions remain. Downstream
+applications have not been upgraded.

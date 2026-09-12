@@ -1,8 +1,8 @@
 """Format-to-adapter routing owned by Document Files.
 
 Backend packages can change without making their identifiers, chunks, or
-lifecycle part of the index schema.  The registry only selects an adapter;
-the service continues to own revisions, projections, anchors, and authority.
+lifecycle part of a caller's index schema. The registry only selects an adapter;
+the calling application owns revisions, projections, final anchors and access policy.
 """
 
 from __future__ import annotations

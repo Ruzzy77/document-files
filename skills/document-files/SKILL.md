@@ -18,21 +18,20 @@ description: 문서·스프레드시트·발표 자료를 읽고 만들거나 �
 - PDF 제작·페이지 조작·양식 편집: [PDF](references/pdf.md)
 - Google Docs·Sheets·Slides 읽기·제작·편집: [Google 문서](references/google-workspace.md)
 
-로컬 파일은 원본을 보존하고 별도 출력에 쓴다. 일반 문서 제작에는 현재 호스트의 라이브러리를 사용하며, 사용자 요청 없이 Library에 발행하거나 외부 서비스에 업로드하지 않는다. Google 문서 요청에서는 연결된 해당 문서와 원래 ID를 유지한다.
+로컬 파일은 원본을 보존하고 별도 출력에 쓴다. 일반 문서 제작에는 현재 호스트의 라이브러리를 사용하며, 사용자 요청 없이 외부 서비스에 발행하거나 업로드하지 않는다. Google 문서 요청에서는 연결된 해당 문서와 원래 ID를 유지한다.
 
 ## 실행 경계
 
 - 파일 분석과 지원되는 HWP/HWPX 작업에는 현재 호스트에 Document Files MCP 도구가 있으면 그 도구를 사용한다. 일반 DOCX·XLSX·PPTX·PDF 제작을 분석 도구로 대신하지 않는다.
-- 로컬 호스트와 Sync에서는 설치된 `document-files` 실행기를 사용한다. 독립 저장소나 실행 환경 포함 배포본에서는 제품 루트의 `launchers/document-files`를, Windows에서는 `launchers/document-files.cmd`를 사용한다.
-- ChatGPT 또는 원격 Codex에서는 이 Skill과 함께 배포된
-  `${SKILL_DIR}/../../runtime/document-files/document-files` 셸 진입점을 사용한다. 이 파일을 Python 스크립트로 실행하지 않는다. 진입점이 `host_cli.py`를 호스트 Python으로 실행하며, 별도 Python 경로는 `DOCUMENT_FILES_HOST_PYTHON`으로 지정한다. 호스트가 제공하는 실행 환경은 사용 가능한 의존성 안내 도구에서 확인한다.
-- 파일 작업에 필요한 실행 기능이나 라이브러리가 없으면 `runtime_unavailable`을 알리고 해당 작업을 중단한다. 원문을 다른 서버나 Cloudflare 분석기로 보내지 않는다. Google 문서의 연결·권한 조건은 해당 안내를 따른다.
+- Python 패키지 설치 환경에서는 `document-files` 실행기를 사용한다. 소스 저장소나 실행 환경 포함 배포본에서는 제품 루트의 `launchers/document-files`를, Windows에서는 `launchers/document-files.cmd`를 사용한다.
+- ChatGPT 또는 원격 Codex에서는 실행기와 제품 소스가 포함된 별도 `.skill` 배포본을 사용한다. 소스 저장소의 Skill 폴더만 복사하면 실행기가 포함되지 않는다. 패키지만 호출하는 프로그램에는 Skill 설치나 에이전트 로그인이 필요하지 않다.
+- 파일 작업에 필요한 실행 기능이나 라이브러리가 없으면 `runtime_unavailable`을 알리고 해당 작업을 중단한다. 원문을 임의의 서버나 다른 분석 서비스로 보내지 않는다. Google 문서의 연결·권한 조건은 해당 안내를 따른다.
 - 경로는 CLI·MCP 입력 어댑터에서만 받는다. 분석 계약은 `AnalysisJob v1`과 별도 byte stream이며 결과는 `AnalysisResult v1`이다.
 
-배포 진입점은 다음처럼 호출한다. Python 경로를 지정하지 않으면 호스트의 `python3`를 사용한다.
+배포 진입점은 다음처럼 호출한다. 소스 저장소는 미리 준비한 `.venv`를, 실행 환경 포함 배포본은 동봉된 Python을 사용한다.
 
 ```sh
-DOCUMENT_FILES_HOST_PYTHON="$HOST_PYTHON" sh "${SKILL_DIR}/../../runtime/document-files/document-files" capabilities
+sh "${SKILL_DIR}/../../launchers/document-files" capabilities
 ```
 
 `capabilities`는 실행 환경을 처음 확인하거나 실행 오류를 진단할 때 사용하며 문서를 읽을 때마다 반복하지 않는다. 작업 중의 재설치나 provisioning을 기본 절차로 삼지 않는다.
