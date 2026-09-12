@@ -1,7 +1,6 @@
 name: CPU qualification environment preflight
+# Manual only: regular commits do not start builds or send CI notifications.
 on:
-  push:
-    paths: ['scripts/measure_cpu_execution.py', '.github/workflows/cpu-environment.yml']
   workflow_dispatch:
 permissions:
   contents: read

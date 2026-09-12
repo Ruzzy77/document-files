@@ -1,8 +1,19 @@
 name: Build and test release candidates
+# Manual only: regular commits do not start builds or send CI notifications.
 on:
-  push:
-  pull_request:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'One target only; Spark development uses linux-aarch64'
+        type: choice
+        required: true
+        default: linux-aarch64
+        options:
+          - linux-aarch64
+          - macos-aarch64
+          - linux-x86_64
+          - macos-x86_64
+          - windows-x86_64
 permissions:
   contents: read
 jobs:
@@ -12,23 +23,9 @@ jobs:
       contents: read
       id-token: write
       attestations: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            target: macos-aarch64
-          - os: macos-15-intel
-            target: macos-x86_64
-          - os: ubuntu-22.04
-            target: linux-x86_64
-          - os: ubuntu-22.04-arm
-            target: linux-aarch64
-          - os: windows-2022
-            target: windows-x86_64
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ fromJSON('{"linux-aarch64":"ubuntu-22.04-arm","macos-aarch64":"macos-14","linux-x86_64":"ubuntu-22.04","macos-x86_64":"macos-15-intel","windows-x86_64":"windows-2022"}')[inputs.target] }}
     env:
-      TARGET: ${{ matrix.target }}
+      TARGET: ${{ inputs.target }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
@@ -58,10 +55,10 @@ jobs:
           RHWP="$RUNNER_TEMP/rhwp-candidate/bin/rhwp"
           if [ "$RUNNER_OS" = "Windows" ]; then RHWP="$RHWP.exe"; fi
           uv run --frozen python scripts/build_release.py --rhwp "$RHWP" --rhwp-license "${RUNNER_TEMP}/rhwp-source/LICENSE"
-          uv run --frozen python scripts/smoke_release.py "dist/document-files-1.8.0-${{ matrix.target }}.zip"
+          uv run --frozen python scripts/smoke_release.py "dist/document-files-1.8.0-${{ inputs.target }}.zip"
       - name: Check every Linux portable ELF against the bookworm ABI
         if: runner.os == 'Linux'
-        run: uv run --frozen python scripts/linux_abi.py --archive dist/document-files-1.8.0-${{ matrix.target }}.zip --output dist/linux-abi --target "${{ matrix.target }}"
+        run: uv run --frozen python scripts/linux_abi.py --archive dist/document-files-1.8.0-${{ inputs.target }}.zip --output dist/linux-abi --target "${{ inputs.target }}"
       - name: Relocated bookworm core startup (not final image qualification)
         if: runner.os == 'Linux'
         shell: bash
@@ -92,7 +89,7 @@ jobs:
             --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
             --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,exec,size=2g \
             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/linux_abi.py,dst=/probe.py,readonly" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/dist/document-files-1.8.0-${{ matrix.target }}.zip,dst=/input/archive.zip,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/dist/document-files-1.8.0-${{ inputs.target }}.zip,dst=/input/archive.zip,readonly" \
             --mount "type=bind,src=$EVIDENCE,dst=/evidence" \
             "$IMAGE" python /probe.py --archive /input/archive.zip --output /evidence/result \
             --target "$TARGET" --startup core --startup-only > "$EVIDENCE/create.txt"
@@ -125,7 +122,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: candidates-${{ matrix.target }}
+          name: candidates-${{ inputs.target }}
           path: |
             dist/
             ${{ runner.temp }}/rhwp-source/rhwp-abi.txt

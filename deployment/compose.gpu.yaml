@@ -13,7 +13,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 256
-    # Unified memory: host RAM and GPU allocations share this budget on GB10.
+    # cgroup limit; separately measure host/GPU use (not proof of a full GPU memory cap).
     mem_limit: ${DOCUMENT_FILES_MEMORY_LIMIT:-32g}
     memswap_limit: ${DOCUMENT_FILES_MEMORY_LIMIT:-32g}
     cpus: ${DOCUMENT_FILES_CPU_LIMIT:-8}

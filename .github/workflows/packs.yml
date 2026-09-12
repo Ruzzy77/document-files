@@ -1,11 +1,14 @@
 name: Offline pack contracts and candidate provenance
+# Manual only: regular commits do not start builds or send CI notifications.
 on:
-  push:
-    paths: ['src/document_files/runtime_packs.py', 'scripts/*pack.py', 'scripts/release_parts.py', 'scripts/verify_candidate_packs.py', 'tests/test_candidate_pack_verification.py', 'tests/test_runtime_packs.py', 'deployment/**', '.github/workflows/packs.yml']
-  pull_request:
-    paths: ['src/document_files/runtime_packs.py', 'scripts/*pack.py', 'scripts/release_parts.py', 'scripts/verify_candidate_packs.py', 'tests/test_candidate_pack_verification.py', 'tests/test_runtime_packs.py', 'deployment/**', '.github/workflows/packs.yml']
   workflow_dispatch:
     inputs:
+      runner:
+        description: 'Run pack contracts on one selected host'
+        type: choice
+        required: true
+        default: ubuntu-22.04-arm
+        options: [ubuntu-22.04-arm, macos-14, ubuntu-24.04, macos-15-intel, windows-2022]
       candidate_release:
         description: 'Optional existing candidate release tag; verify uploaded pack transports, not model quality'
         required: false
@@ -23,11 +26,7 @@ permissions:
   contents: read
 jobs:
   contracts:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-2022, macos-14, macos-15-intel]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

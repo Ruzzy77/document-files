@@ -1,9 +1,19 @@
 name: Build pinned native CPU runtime candidates
+# Manual only: regular commits do not start builds or send CI notifications.
 on:
-  push:
-    paths: ['scripts/prepare_windows_build.ps1', 'scripts/windows_build_evidence.py', 'tests/test_windows_build_evidence.py', 'scripts/windows_runtime_notice.py', 'tests/test_windows_runtime_notice.py', 'scripts/build_cpu_runtime.py', 'scripts/linux_abi.py', 'tests/test_linux_abi.py', '.github/workflows/cpu-runtime.yml']
   workflow_dispatch:
     inputs:
+      target:
+        description: 'One target only; Spark development uses linux-aarch64'
+        type: choice
+        required: true
+        default: linux-aarch64
+        options:
+          - linux-aarch64
+          - macos-aarch64
+          - linux-x86_64
+          - macos-x86_64
+          - windows-x86_64
       pack_version:
         description: 'New immutable CPU runtime pack version (b10853-cpu.N)'
         type: string
@@ -14,25 +24,11 @@ permissions:
 jobs:
   runtime:
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            target: macos-aarch64
-          - os: macos-15-intel
-            target: macos-x86_64
-          - os: ubuntu-22.04
-            target: linux-x86_64
-          - os: ubuntu-22.04-arm
-            target: linux-aarch64
-          - os: windows-2022
-            target: windows-x86_64
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ fromJSON('{"linux-aarch64":"ubuntu-22.04-arm","macos-aarch64":"macos-14","linux-x86_64":"ubuntu-22.04","macos-x86_64":"macos-15-intel","windows-x86_64":"windows-2022"}')[inputs.target] }}
     env:
       PYTHONPATH: src
       PACK_VERSION: ${{ inputs.pack_version || 'b10853-cpu.4' }}
-      TARGET: ${{ matrix.target }}
+      TARGET: ${{ inputs.target }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
@@ -109,7 +105,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always() && runner.os != 'Windows'
         with:
-          name: cpu-runtime-candidate-${{ matrix.target }}
+          name: cpu-runtime-candidate-${{ inputs.target }}
           path: |
             ${{ runner.temp }}/cpu-runtime-artifacts/
             ${{ runner.temp }}/cpu-runtime-build/configure.log

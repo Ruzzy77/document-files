@@ -151,18 +151,18 @@ def test_actual_selected_compiler_must_be_gcc12(monkeypatch):
         abi.toolchain()
 
 
-def test_workflows_keep_four_targets_and_exact_cleanup_and_baseline():
+def test_manual_workflows_keep_optional_targets_and_exact_cleanup_and_baseline():
     root = SCRIPTS.parent
     for name in ["cpu-runtime", "recognition-native", "build"]:
         text = (root / ".github/workflows" / f"{name}.yml").read_text()
-        assert "- os: ubuntu-22.04\n            target: linux-x86_64" in text
+        assert '"linux-x86_64":"ubuntu-22.04"' in text
         assert "python:3.12-bookworm" in text and "RepoDigests" in text
         assert 'timeout 300 docker start --attach "$CID"' in text
         assert 'timeout 60 docker rm --force "$CID"' in text
         assert '--cidfile "$EVIDENCE/container-id.txt"' in text
     text = (root / ".github/workflows/build.yml").read_text()
     for target in ["macos-aarch64", "macos-x86_64", "linux-x86_64", "windows-x86_64"]:
-        assert "target: " + target in text
+        assert "          - " + target + "\n" in text
     assert '--output "${RUNNER_TEMP}/rhwp-candidate"' in text
     assert "--output dist/linux-abi" in text and "--archive dist/document-files-1.8.0-" in text
 

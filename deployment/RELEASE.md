@@ -4,6 +4,11 @@ These tools prepare and check a release. They do not establish model quality mer
 by running, and no candidate in this checkout is thereby qualified. Preserve the
 frozen consumer baseline until the final release and actual consumer checks pass.
 
+**Deferred procedure:** current work finishes accurate extraction on Spark first,
+then personal Mac use. This broad release gate is retained for a later explicitly
+scoped distribution; it is not the current completion checklist. Do not weaken it
+or submit GPU development evidence as CPU-only/multi-platform qualification.
+
 ## Build one source identity
 
 Review and commit the selected changes before stable-candidate construction. Build
@@ -458,8 +463,9 @@ Toolkit/Sync pinned release. Keep rollback and existing stored results available
 
 ## Candidate CI is not delivery qualification
 
-`cpu-runtime.yml` builds the five native runtime candidates from the pinned source.
-It runs only for an explicit dispatch or changes to that builder/workflow, leaves
+`cpu-runtime.yml` builds one selected native runtime candidate from the pinned source.
+All repository workflows run only on explicit dispatch; no push, PR or schedule
+starts them. The runtime workflow defaults to Linux ARM64, leaves
 outputs under runner-temporary storage and does not activate packs. Windows uses
 `prepare_windows_build.ps1` to identify the installed VS2022 Enterprise instance,
 prepare explicitly pinned official Enterprise/Professional terms, and record actual

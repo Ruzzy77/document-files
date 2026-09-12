@@ -5,37 +5,21 @@ A 16 GiB container ceiling is not a claim that a 16 GiB physical computer has en
 room for its operating system and container runtime. Keep host headroom available.
 No Windows/native-platform support follows from a Linux container result.
 
-## Remaining inputs for a full run
+## Optional CPU qualification prerequisites
 
-The preparation host inspected on 2026-09-08 is macOS ARM64, 24 GiB RAM and 10 CPU
-cores. No Docker, Podman, Colima, Lima or OrbStack runtime/socket was found. Its
-existing Tailscale client was stopped, with no current peer inventory; known
-remote development host names did not resolve. No service was started, settings
-changed, credentials exposed, remote document sent or model loaded for this check.
-These are time-specific observations, not claims about unavailable hosts' hardware.
+CPU-only 16 GiB qualification is deferred behind Spark GPU extraction and personal
+Mac use. This procedure remains available for a future explicit CPU target. A GPU
+run is not evidence for it. `cpu-environment.yml` is a manual synthetic isolation
+preflight, not a model/document test; `cpu-runtime.yml` builds one selected target.
 
-The CI definitions now include four-platform CPU runtime builds and a dedicated
-Linux cgroup isolation preflight (`cpu-runtime.yml`, `cpu-environment.yml`). The
-preflight executes only a small synthetic memory allocation, not a document or
-model. Workflow definitions and contract tests are not execution evidence; retain
-the actual run artifacts. Recognition plus model qualification remains separate. Mac-only runtime packs cannot be activated in the Linux image. A previously
-prepared model may also declare an exact Mac runtime compatibility identity; do
-not edit its manifest or bypass that check to make it load on Linux.
-
-Before the single run below, an approved Linux x64 host must have an existing
-Docker Engine/Compose installation, sufficient host RAM/free disk, cgroup v2 memory
-and swap controllers, a locally loaded digest-pinned product image, and validated
-Linux CPU recognition/runtime packs plus an exactly compatible model pack. Missing
-Linux artifacts are a provisioning blocker, not a reason to run Mac binaries under
-emulation or silently fetch replacements. Do not rebuild existing whole packs just
-to perform an environment inventory. Resolve any provisioning need separately.
-
-The b1a6cc9 Linux CPU/native builds now pass actual relocated startup in an identified
-bookworm image; their measured ELF requirements fit that image. This addresses the
-previous glibc mismatch but does not supply the full recognition pack, compatible
-Linux model manifest or final product image. Existing synthetic isolation evidence
-and these startup probes remain separate from the full recognition/inference run.
-See [Linux build compatibility](RELEASE.md#linux-build-and-runtime-compatibility).
+Before a full run, the selected Linux host needs existing authorized Docker/Compose
+access, sufficient host headroom and disk, cgroup v2 memory/swap controllers, a
+locally loaded digest-pinned product image and validated matching-architecture CPU
+recognition/runtime/model packs. ARM64 and x64 are distinct targets; Mac-only packs
+cannot run in Linux and a model's exact runtime compatibility cannot be bypassed.
+Resolve missing provisioning separately. Do not rebuild existing packs just to
+inventory the environment. A relocated startup probe remains distinct from full
+recognition/inference and physical-host memory qualification.
 
 ## Fixed configuration
 

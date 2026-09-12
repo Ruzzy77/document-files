@@ -5,6 +5,26 @@ Document Files owns document observation, interpretation, source binding and
 validation; do not turn an external LLM application into an undocumented dependency.
 Preserve the public v1 contracts and existing HWP checkbox patch behavior.
 
+## Working tree and documents
+
+Work directly on `main` in the registered product repository by default. Before
+editing, inspect the branch, worktrees, uncommitted changes and running jobs. Preserve
+other work. Do not create another worktree or a long-lived branch unless the task
+needs one and the user chooses it. Use focused commits and normal pushes; no force
+push or history rewrite is needed for this workflow.
+
+Keep documentation by responsibility: architecture for boundaries, extraction-engine
+for detailed algorithms, API for callers, operations for execution, SUPPORT for
+current limitations. Update the relevant section rather than appending another dated
+run report. Raw run evidence belongs in private evaluation storage; old history stays
+in Git. Do not create an additional handoff or duplicate implementation plan.
+
+All GitHub workflows are `workflow_dispatch` only. Regular pushes and pull requests
+do not start CI. Select one target for a necessary manual build; ARM64 is the default,
+Mac is the next priority, other targets are optional. Manual runs can still notify
+according to the user's existing GitHub preferences. Do not change account-wide
+notification settings or dispatch expensive builds for documentation-only edits.
+
 ## Development
 
 Use the pinned Python/dependency environment (`uv sync --frozen --python 3.12`).
@@ -36,8 +56,11 @@ staging files and a manifest declaration. It emits the archive, manifest, SHA256
 and file-level CycloneDX inventory. Add transitive component/version information
 in the declaration's `components` field for a distributable dependency SBOM.
 Build from clean source for candidate attestation. The optional pack workflow
-checks all four host contract surfaces; its explicit attestation step verifies
-candidate bytes without claiming it built or quality-qualified the upstream model.
+checks one selected host; its explicit attestation step verifies candidate bytes
+without claiming it built or quality-qualified the upstream model.
+
+Spark extraction correctness comes first, followed by personal Mac use. Formal
+release and consumer migration are deferred, not silently approved.
 
 Do not automatically publish or mark a candidate stable merely because packaging
 or scripted tests passed. Maintain the feature support and qualification matrix.

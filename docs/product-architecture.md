@@ -1,244 +1,125 @@
-# Product architecture — approved implementation, 1.8.0
+# Product architecture
 
-The current approved scope is printed Korean/English documents, including native
-formats, PDF/scans and cross-page tables/notes. CPU-only full extraction targets a
-16 GB host. HTTP is single-company installation, not multi-tenant SaaS. Intel Mac
-full recognition uses a local Linux CPU container; native existing features remain.
-This document describes the implementation target, not a qualification certificate.
+Document Files turns document bytes into source-linked structure, schema, values and
+meaning. It owns observation, model requests, compilation, validation and bounded
+repair. A caller does not need another AI agent to construct the interpretation.
 
-## Stable boundaries
+**Current priority:** make this extraction reliable on DGX Spark (Linux ARM64, CUDA
+inference), then adapt the verified path for personal use on Mac. Other platforms,
+formal release publication and Toolkit/Sync/client migration are deferred. Existing
+interfaces and platform code remain; deferred does not mean qualified or removed.
+See [current readiness and defects](../SUPPORT.md) before relying on a feature.
 
-Input snapshot → immutable observations → structure relations → semantic decisions
-→ source-bound compiler → public results. Document Files owns these representations;
-Docling, OCR and model objects do not become public contracts. Native locations,
-lexical values, formulas, caches and uncertainty remain distinct. Observation/model
-revisions identify results but never trigger an automatic Corpus reanalysis.
+## Reading map
 
-`AnalysisJob v1`, `AnalysisResult v1`, byte streams and existing CLI/MCP names remain.
-Public extraction v1 contracts are independent of private model proposals. New
-structure and semantic detail fields are additive and versioned. Historical result
-readers remain usable. Model protocol v8 uses region-local fields/groups/repetitions
-and precomputed source binding IDs, not model-written values or JSON pointers.
-An explicit legacy protocol adapter remains for existing scripted integrations.
+| Question | Reference |
+|---|---|
+| What owns each part of the product? | This document |
+| How are PDF pages, tables, values and meanings interpreted? | [Extraction engine](extraction-engine.md) |
+| How do I call it and consume results? | [Python, CLI and MCP API](python-api.md) |
+| How do I run, stop, resume and update it? | [Operations](operations.md) |
+| What is checked, and what must be fixed next? | [Readiness](../SUPPORT.md) |
+| How are model evaluations reviewed? | [Evaluation](../evaluation/README.md) |
+| How are optional distributable packs built? | [Deployment](../deployment/README.md) |
 
-Each request constrains source and binding references to the candidates actually
-issued for that region. New scalar decisions explicitly select a binding and
-presence state. For older compact decisions that omitted a binding, the compiler
-can resolve a single delimiter-declared label/value pair within the field's cited
-source; it records this derivation and refuses ambiguous alternatives. It does not
-search for equal-looking values elsewhere or infer a company-specific field rule.
-Verified complete label/value spans and bound table cells are accounted for by the
-program, not repeated once per row in the model's response. This usage ledger does
-not establish semantic correctness or excuse omitted units, notes or conditions.
-Malformed scope IDs leave an unresolved source-linked statement without discarding
-the valid values in the same region. Repair diagnostics survive budget exhaustion.
+These documents describe current behavior by topic, not one entry per experiment.
+Git preserves earlier implementations; private run directories preserve original
+requests, failures and reviews. Neither a historical run nor a prose description
+supersedes the current source or an independently checked output.
 
-## Components
+## Processing flow
 
-- `document_model`: native observations, precise binding candidates, region context,
-  table geometry, explicit relations and optional offline PDF recognition adapters.
-- `interpretation`: compact decisions, source-bound compilation, local correction,
-  cross-region integration, checkpoints and explicit budgets.
-- `jobs` / HTTP: durable SQLite jobs, one supervised process, private snapshots,
-  cancellation/resume, configured model profiles, authenticated streaming uploads.
-- `runtime_packs`: checksum-pinned offline installation/activation/rollback, CPU
-  llama.cpp, separately pinned Qwen3.5-9B Q4_K_M and recognition assets.
+```text
+caller-owned bytes + AnalysisJob + explicit options/profile
+  → private immutable input snapshot
+  → native observations / optional isolated CPU recognition
+  → optional source-bound PDF visual review and additional reading
+  → region planning and value ownership
+  → table structure or scalar interpretation
+  → program-owned value compilation + content review
+  → cross-page relations + independent applicability decisions
+  → validation, coverage and public result
+```
 
-## Selected backends
+Original observations are never replaced by a model answer. A reviewed alternative
+PDF reading is a separate projection with its own source links. Interpretation works
+on an explicitly selected view, and records which original uncertainty it can resolve.
+A model can propose relationships but cannot supply authoritative document values,
+write JSON pointers, execute a condition or silently declare unobserved content empty.
 
-Keep existing Office/HWP parsers and checkbox preservation. Native Markdown uses
-markdown-it-py, PDF uses PDFium/pdfplumber. Recognition uses Docling Standard PDF,
-Heron, TableFormer accurate and explicit Tesseract `kor`/`eng`, all CPU/offline.
-Use original observed table cells, never synthesized blank grid cells as evidence.
-Native and OCR text conflicts remain visible. No library's cleaned text replaces
-the immutable original observation.
+## Components and code entry points
 
-An opt-in `ruled_tables_v1` repair uses the already computed layout TABLE boxes.
-It removes verified long ruling lines only from a separate bounded OCR crop; the
-source page and TableFormer image are unchanged. Original and transformed OCR are
-retained separately; overlapping different tokens remain conflicts. A repaired
-`o` is never silently changed to `0`. Only budget-interrupted repairs are resumable;
-an OCR mistake is not an instruction to loop. The default policy remains off until
-a specific pack/profile is explicitly prepared and qualified with it.
+All paths below are relative to `src/document_files/`.
 
-The opt-in `ruled_cells_v2` alternative segments only proven closed grid cells.
-It crops original glyph pixels to their ink bounds, adds white padding, and selects
-single-line or multi-line Tesseract segmentation from geometry. Empty ink, no OCR
-output, failed recognition and unsupported merged/boundary-touching cells remain
-different states. Coordinates use the actual rendered canvas scale, not a presumed
-DPI ratio; whole-page rendering and per-cell OCR remain budgeted. Each committed
-cell is reused on explicit budget resume, without changing the old v1 policy.
+| Layer | Files | Responsibility |
+|---|---|---|
+| Public calls | `api.py`, `cli.py`, `mcp_server.py` | Shared application functions, typed input/output and capability reporting |
+| Analysis | `analysis.py`, `processor.py`, `extractors.py`, format adapters | Byte-stream analysis, native locations, text/structure projections |
+| Observation | `document_model/model.py`, `observe.py`, `native.py`, `html.py`, `markdown.py`, `pdf.py` | Immutable nodes, tables, bindings, geometry and source identity |
+| Recognition | `document_model/docling_adapter.py`, `docling_pipeline.py`, `recognition_worker.py` | Offline Docling/OCR, measured pixels and additive recognition evidence |
+| Interpretation | `interpretation/engine.py`, `regions.py`, `table_protocol.py`, `compiler.py` | Region/stage control, proposals, exact value reads and compiled results |
+| Meaning and relations | `interpretation/integration.py`, `scope_protocol.py`, `scope_source_binding.py` | Table continuation/duplication, applicability selection and source verification |
+| Execution | `interpretation/workflow.py`, `jobs.py`, `server_worker.py`, `http_server.py` | Saved results, cumulative budgets, one supervised worker and authenticated jobs |
+| Models and packs | `profiles.py`, `runtime_packs.py`, `interpretation/backends.py` | Explicit model selection, verified offline assets and managed llama.cpp lifetime |
 
-A structure-only view orders candidates by grid cell, geometric text line and x
-position. A token may be excluded from that view only when all its observed ink
-lies within verified long grid strokes, never by its spelling. The original OCR
-text, geometric counter-evidence and unresolved conflict remain in observations.
-Docling's pinned layout postprocessor sorts candidates by index. The structure
-view therefore receives new order indices on deep copies, with an explicit mapping
-back to unchanged source indices. Reordering the list alone is insufficient.
-[Upstream implementation](https://github.com/docling-project/docling/blob/v2.126.0/docling/utils/layout_postprocessor.py)
+## Public boundaries
 
-The corrected path recovered all 11 nonempty cells, including headers, in the
-existing public scanned-table case through actual TableFormer. This is not a proof
-that a missing table cell is blank or that the whole scanned document is understood.
-Published candidate packs are not silently rewritten to enable the new policy.
+`AnalysisJob v1`, `AnalysisResult v1`, byte-stream input, existing CLI/MCP names and
+`schema-extraction-result.v1` semantics remain unchanged. Private model schemas and
+checkpoints are versioned independently. Their incompatibility prevents unsafe
+resume; it does not invalidate an already saved public result.
 
-The semantic runtime starts lazily after recognition releases its process. Calls
-are bounded by region and include ancestors, headers, units and notes. Committed
-regions survive errors; repair only changed regions and their dependents. Natural
-language conditions are data, never executable code.
-The fixed llama.cpp grammar adapter projects only large array cardinality bounds
-out of the sampler grammar to avoid a verified upstream grammar expansion failure.
-The original internal contract, post-generation Pydantic checks, and token/byte
-budgets remain intact. This is tested for the product's internal decision schemas,
-not a promise to support arbitrary external JSON Schema grammars.
+The result separates `dataSchema`, `data`, semantic definitions/relationships,
+evidence, validation, coverage and issues. Values point back to observed bindings;
+field and column definitions have their own source references. Lexical numeric
+precision, native types, formula text and saved formula caches are distinct.
+Present empty strings, absent fields, unread cells and uncertain interpretations
+must not collapse into a single null or disappear.
 
-A decided table relation is applied by the program: `continue` appends the later
-rows, `duplicate` binds a repeated presentation of the same rows (a copy or an image
-of the same page) to the earlier rows as provenance only, and both fold a field or
-statement whose exact wording and value repeat on the joined page into the earlier
-one; a duplicate whose compiled rows differ stays unresolved.
-After table continuation remaps generated pointers, unresolved unit/note/condition
-statements can be linked to same-region definitions, bounded neighboring definitions
-or explicit native note references. Same-region membership is not applicability proof. The product issues target handles and resolves their scope; the model
-does not rewrite data or pointers. Different statements in one paragraph remain
-separate. Truncated context and missing candidates keep an uncertain result. Saved
-scope decisions are reused only while their statement/context/target fingerprint
-matches; an unchanged unresolved question is not sent repeatedly. Independent statements are decided separately within the shared finite budget. Invalid or duplicate decisions
-do not discard valid siblings. A malformed/omitted decision can be retried only
-with a new explicit model-call budget grant; a valid unchanged unresolved decision
-is not automatically repeated. This repair stage never asks for the full schema or
-values again. Scope integration v5 includes observed header-group membership and current statement context in checkpoint identity.
+`complete` means the engine's configured processing and checks completed. It is
+not a semantic accuracy certificate: a structurally valid model mistake may pass
+those checks. Independent review compares the original, prior expected result and
+actual bound output. Useful partial results never count as complete extraction.
 
-Scope-axis protocol v2 now connects selection wire v1 and compiler
-source binding to the engine. It batches against the actual serialized system,
-payload and schema, keeping meanings from a shared source in separate calls. The
-model selects scope only; compiler provenance remains independently identified.
-Regional checkpoint v3 stores the selection, original batch fingerprint, execution
-policy and source trace. Resume rebinds and compares the trace against current
-compiled observations before any new call. Changed evidence cannot be accepted by
-trusting a stored success flag. This preserves public v1 contracts and the document's
-cumulative call/time budget. Managed inference uses bounded reasoning only in this
-phase; no profile-wide mode change is implied. The model uses a single
-selection list for record intersections and standalone candidates, with one shared
-column identifier on both sides of the boundary. The compiler still owns canonical
-column IDs and destination pointers. All offered capabilities remain available;
-old internal policy/wire identities cannot resume through the new request format.
+## Runtime choice
 
-Table protocol v17 removes applicability from active record-table detail replies.
-Content is retained with deferred targets; the independent scope request is mandatory,
-not merely a fallback for models that happened to answer unresolved. The input schema,
-decoder, repair feedback and restored accepted-content checks enforce this boundary.
-No field-specific unit rule or automatic target choice is introduced. A content repair
-can invalidate a saved batch by withdrawing a sibling; a freshly validated replacement
-clears only the stale diagnostic for its own task. Existing provenance checks remain.
+The primary development configuration uses the ARM64 CPU recognition pack followed
+by a CUDA llama.cpp runtime and a compatible Qwen3.5-9B Q4_K_M vision model pack.
+Recognition and inference have separate processes and identities. Installed assets
+are checksum-pinned; processing does not download models or choose another endpoint.
+A chat subscription does not imply usable model API credentials.
 
-### Source review and revisable table meaning
+Spark is a shared host. Container limits, host memory pressure and GPU allocations
+must all be observed. A cgroup ceiling alone is not proof of a complete GPU memory
+bound. Host swap, authentication, other users' services and existing workloads are
+not changed to make a test pass. See [operations](operations.md).
 
-Table protocol v6 separates immutable source ranges from model conclusions. Literal
-quotes are matched against the owning region's actual text view; context-only text
-cannot be quoted as owned evidence. Text outside quotes requires explicit review,
-including text already compiled as values or headers. Numeric data is not automatically
-classified as free of embedded annotations.
+## Source preservation and adjacent features
 
-A full repair may revise kind, description, applicability or status, split/merge
-meanings or withdraw a mistake. Each changed previous ID has an explicit replacement
-or source review and reason. Content, source inventory and the transition chain are
-hashed and validated on resume. Structure and values remain frozen. Exact coverage
-checks are not semantic approval; an uncertain correction may be safer than a confident
-but mistaken answer. Existing scalar-form interpretation remains separate.
+Existing reading, conversion, HWPX creation/editing and the single Document Files
+Skill remain. Ordinary DOCX/XLSX/PPTX/PDF creation uses the host's appropriate library;
+Google native documents use the requested connection. This work does not add a
+company-specific back office, database mapping, renderer or reconstruction engine.
+Personal reconstruction context is a separate option, not the current accuracy gate.
 
-Captured PDF/OCR input pixels have a measured coordinate chain through the framework
-render/crop, optional rotation or padded cell crop, serialized one-page PDF and original
-page. This does not verify reported recognition boxes or the meaning of missing cells.
-Unverified transforms and original issues survive; visual coverage and reading-order
-completion still need their own checks.
+The HWP checkbox guard compares original HWP and produced HWPX independently of
+rhwp's IR. Keep the pinned checkbox patch and loss reporting until an explicitly
+verified upstream replacement passes the same mixed-state cases. Reading must not
+require an optional editor. Editing writes a separate output and checks the complete
+old cell value and verified selector; ambiguous/unsafe nested-cell changes are refused.
 
-Full-render visual observations are collected independently of OCR rectangles. Every
-non-white pixel is counted before bounded component analysis; low-contrast pixels,
-edge contact and omitted geometry remain explicit. Render/profile/source hashes bind
-the observations on import. Their components are unclassified: enclosing a component
-inside a text box does not prove that the text explains it, and white pixels do not
-prove a missing business value. Content correspondence, cell interpretation and reading
-order must be checked separately before an original issue can be resolved.
+Toolkit and Sync own registration, captures and projections. Document Files owns
+parsing and extraction. Exact adapter/config identity records how an output was made;
+it does not automatically change `reanalysis_generation` for unchanged source files.
+Installed consumers remain on their existing versions until a separate verified update.
 
-The first correspondence layer records bounded, two-way bbox candidates against
-source-bound native glyphs and raw OCR. It rechecks existing exact-text links when
-connecting structure elements and never treats their reported boxes as independent
-content support. Missing, multiple and partial candidates survive. This provenance
-is excluded from model payloads; its source/geometry identity changes recognition
-checkpoints, not the public extraction contract.
+## Safety and optional delivery
 
-Repeated OCR tokens may additionally match through a unique whole-text sequence in
-one verified horizontal raw OCR line. Exact source text, TSV word/line identities,
-coordinates and unique anchors are rechecked. Table overlap, cross-line joins,
-normalized tokens and ambiguous or incomplete duplicate lines remain unresolved.
-This derived correspondence cannot establish overall reading order or OCR truth.
+No implicit external transfer, macro/script execution, source mutation or raw prompt/
+key logging. Native subprocess separation is not an OS security sandbox. HTTP accepts
+bounded bytes and administrator profile names, not caller-chosen paths or executables.
 
-### Bounded non-table source views
-
-An oversized text region is partitioned into disjoint source views. Original nodes
-and bindings are not rewritten. Each view carries original character ranges and
-program-issued binding IDs; declared label/value pairs stay atomic and each value
-has one owning view. Adjacent text is read-only context, not another value owner.
-Accounting and semantic source text refer to the view actually read. A source node
-counts as fully read only after every owning view has been interpreted.
-
-Indivisible values, cross-node atomic references, or explicit context larger than
-the selected budget remain pending with a specific budget reason. No chunker can
-make an arbitrarily large indivisible value fit by silently truncating it. The
-region-plan version is part of checkpoint identity; old results remain readable,
-but incompatible checkpoints are not automatically replayed.
-
-### Smaller model-facing contracts
-
-Only reachable schema definitions are sent for each region. A text-only region
-cannot emit table repeats, so its empty-array contract does not include the unused
-table/column graph. Cosmetic schema titles are removed, while reference enums,
-types, limits and validation remain. New fields/columns explicitly select their
-value type; ordinary labels do not need duplicate meaning entries. Historical
-typed IR defaults are preserved for compatibility.
-
-The contract stays in both the prompt and decoder request. A decoder constraint
-does not itself teach the model the required structure, as described in the
-[pinned llama.cpp grammar guide](https://github.com/ggml-org/llama.cpp/blob/9dcf84e5ae2718947188b539aab8b9c2b15d3ba1/grammars/README.md).
-
-## Safety and delivery
-
-No implicit external endpoints, model downloads, macro/script execution, source
-mutation, or source/key/prompt logging. Native subprocess isolation is not a security
-sandbox. Offline container workers have no external network. HTTP accepts bytes and
-registered profile names, not arbitrary paths, endpoints or executables.
-
-Build core/runtime/model packs separately, with hashes, licenses, SBOM and provenance.
-Keep previous activated packs and results for rollback. Manual retention remains the
-default. Preserve the separate personal reconstruction-context default; project
-profiles explicitly disable it. Existing creation/editing functions are retained,
-not replaced by a new document renderer or a company-specific back office.
-
-## Release gate
-
-Code, package availability and qualified support are separate. Related regressions
-run without inference; real-model checks run only for affected behavior and the final
-candidate. Independent public holdouts must test actual completeness, not merely
-schema validity or honest partial results. CPU runtime, installed clients, HTTP and
-container use need direct evidence before a supported release. No release or Toolkit
-pin activation may claim these checks passed while they are still pending.
-
-### Table request sizing
-
-Region plan v4 sizes table views against the serialized request, system prompt,
-current output contract and target-schema catalog, instead of reserving a fixed
-12,000 characters for every schema. Required headers and context are still included.
-Indivisible oversized rows remain explicit partial results. Long identical reference
-enums are shared with internal JSON Schema references; the allowed choices and
-post-generation compiler checks are unchanged. CPU tokenization remains the final
-context guard, independent of this character-based preparation budget.
-
-When a native table must be sliced, its leading declared header rows stay as
-context for each data view, with explicit `headerCells` row/column/span geometry.
-They are not emitted as an artificial header-only region. An all-header form is
-not dropped, and no header is guessed for OCR tables. Table-context nodes can
-explain definitions and scope but do not offer scalar value bindings in another
-region; their own source region retains actual values. This avoids duplicate
-reference choices and prevents context-only labels from becoming value candidates.
+Packs remain immutable and carry source, license and hash records. Deferred release
+work does not waive redistribution or security checks. The [release procedure](../deployment/RELEASE.md)
+is retained for a future distribution; it is not the current Spark extraction task's
+completion checklist.

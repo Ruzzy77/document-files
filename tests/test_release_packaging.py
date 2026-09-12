@@ -253,8 +253,8 @@ def test_linux_python_foreign_elf_rejected_before_any_execution(monkeypatch, tmp
 def test_native_arm_ci_keeps_x64_and_uses_explicit_bookworm_architecture():
     for name in ("build.yml", "cpu-runtime.yml"):
         body = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
-        assert "os: ubuntu-22.04-arm\n            target: linux-aarch64" in body
-        assert "os: ubuntu-22.04\n            target: linux-x86_64" in body
+        assert '"linux-aarch64":"ubuntu-22.04-arm"' in body
+        assert '"linux-x86_64":"ubuntu-22.04"' in body
         assert "linux-aarch64) PROBE_PLATFORM=linux/arm64; EXPECTED_ARCH=arm64" in body
         assert 'docker pull --platform "$PROBE_PLATFORM" python:3.12-bookworm' in body
         assert '--target "$TARGET" --startup' in body

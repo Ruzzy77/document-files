@@ -150,25 +150,25 @@ def test_cpu_and_candidate_cli_help_does_not_build_or_download(monkeypatch):
         assert "usage:" in output
 
 
-def test_cpu_runtime_workflow_has_narrow_triggers_matching_hosts_and_real_windows_notice():
+def test_workflows_are_manual_only_and_cpu_targets_match_hosts():
+    for path in (ROOT / ".github/workflows").glob("*.yml"):
+        workflow = path.read_text()
+        events = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        assert re.findall(r"^  ([a-z_]+):", events, re.M) == ["workflow_dispatch"]
+        assert "strategy:" not in workflow  # one selected host, not a five-host fan-out
     body = (ROOT / ".github/workflows/cpu-runtime.yml").read_text()
-    trigger = re.search(r"paths: (\[[^\n]+\])", body).group(1)
-    import ast
-
-    assert set(ast.literal_eval(trigger)) == {
-        "scripts/prepare_windows_build.ps1",
-        "scripts/windows_build_evidence.py",
-        "tests/test_windows_build_evidence.py",
-        "scripts/windows_runtime_notice.py",
-        "tests/test_windows_runtime_notice.py",
-        "scripts/build_cpu_runtime.py",
-        "scripts/linux_abi.py",
-        "tests/test_linux_abi.py",
-        ".github/workflows/cpu-runtime.yml",
-    }
-    assert "workflow_dispatch:" in body and "pull_request:" not in body
-    for target in ("macos-aarch64", "macos-x86_64", "linux-x86_64", "windows-x86_64"):
-        assert f"target: {target}" in body
+    assert "default: linux-aarch64" in body
+    for target, host in {
+        "linux-aarch64": "ubuntu-22.04-arm",
+        "macos-aarch64": "macos-14",
+        "linux-x86_64": "ubuntu-22.04",
+        "macos-x86_64": "macos-15-intel",
+        "windows-x86_64": "windows-2022",
+    }.items():
+        assert f'"{target}":"{host}"' in body
+        assert f"          - {target}\n" in body
+    assert "[inputs.target]" in body
+    assert "TARGET: ${{ inputs.target }}" in body
     assert '--work "$RUNNER_TEMP/cpu-runtime-build"' in body
     helper = (ROOT / "scripts/prepare_windows_build.ps1").read_text()
     assert "prepare_windows_build.ps1 -Kind cpu" in body

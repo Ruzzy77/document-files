@@ -611,7 +611,7 @@ def test_linux_delivery_preserves_only_checked_candidate_sources_and_proof(linux
     assert len(list((case.output / "sources").iterdir())) == 1
     assert not (case.output / "private-secret.txt").exists()
     assert "steps.linux_candidate.outcome == 'success'" in case.workflow
-    assert "recognition-native-inputs-${{ matrix.target }}-${{ github.sha }}" in case.workflow
+    assert "recognition-native-inputs-${{ inputs.target }}-${{ github.sha }}" in case.workflow
     assert "if: always()" in case.workflow
     with pytest.raises(FileExistsError):
         run_linux_delivery(case)

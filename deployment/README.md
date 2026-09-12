@@ -1,8 +1,14 @@
-# Offline runtime packs and CPU deployment
+# Offline packs and deployment options
 
 This directory supplies packaging/deployment interfaces, not prequalified model
 weights or a tested Docker installation. No model is downloaded at document time.
 The repository's HWP source-preservation backend remains in the core distribution.
+
+The current priority is Spark extraction using ARM64 CPU recognition and a CUDA
+inference pack, followed by personal Mac use. Start with [operations](../docs/operations.md)
+and `compose.gpu.yaml`. Other-platform distribution and CPU-only 16 GiB qualification
+are deferred. Five target names remain in the pack format for compatibility; they
+are not a claim that all five are qualified. All CI in this repository is manual-only.
 
 ## Pack contract
 

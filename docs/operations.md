@@ -1,192 +1,149 @@
-# Internal installation and operation
+# Operation on Spark and personal hosts
 
-Start with the checked release's support matrix and pack manifests. An archive
-being well formed does not establish extraction quality or platform compatibility.
+The primary environment is DGX Spark with CPU recognition and CUDA interpretation.
+Mac use follows after extraction correctness. These instructions describe the runtime;
+[SUPPORT.md](../SUPPORT.md) separates actual development checks from pending service
+and quality qualification. A prepared Compose file is not an installed HTTP service.
 
-## Configuration and network
+## 1. Select and verify the environment
 
-Copy `deployment/server.example.json` outside the source tree and use private
-absolute storage/pack paths. Profiles are administrator-managed and revisioned.
-Local CPU profiles reference installed packs. Cloud profiles reference an explicit
-endpoint/model plus `apiKeyEnv`; optionally pair `packRoot` and `recognitionPackId`
-for local PDF recognition. Never store inline API keys in profile JSON.
-Cloud profiles can explicitly select `responseFormat`, `strictSchema`,
-`maxOutputTokens` and `sampling` (`temperature`, `top_p`, `top_k`, `seed`); unset
-sampling keeps the provider's defaults. The managed local interpreter always
-decodes greedily. These settings belong to the administrator profile, not upload
-options. Changing them changes execution identity; unsupported provider features
-fail with a diagnostic rather than switching modes or endpoints automatically.
+Before a run, identify the product commit, actual source-file hashes, pack root,
+active manifests and explicit model/profile options. Use one known source checkout
+or a clean copied source inventory, not a mixture of an old wheel and edited modules.
+Installed Toolkit/Sync versions are separate consumers and are not updated by this.
 
-Local-pack profiles can set `threads` (generation) and `threadsBatch` (prompt
-processing) as explicit integers. Unset values keep the pinned llama.cpp defaults;
-the product never sizes them from the host. On the inspected Apple M5 (four
-performance and six efficiency cores), `threads` 4 with `threadsBatch` 10 processed
-prompts about a third faster than the default at unchanged generation speed, while
-ten generation threads slowed generation by about a third. Under a container CPU
-quota keep both values within the quota. These values are part of the profile
-fingerprint and of the recorded model identity, like the other profile settings.
+On shared Spark hosts, inspect existing workloads, host available memory, GPU memory
+and any active Document Files process before starting another. Begin with one model
+run per available host, not an assumed four-model capacity. Previous concurrent
+runs encountered OOM; total physical capacity is not free capacity. Record host
+pressure/OOM and cgroup measurements alongside GPU allocation. Do not disable swap,
+stop unrelated jobs, change authentication or weaken container controls for a test.
 
-### CUDA runtime packs (DGX Spark)
+Use the already configured SSH/Tailscale route and existing authorized container
+access. Keep private addresses, host paths and tokens outside public source. Each
+run has an explicit source/input identity, call/time budget, new output location and
+cleanup target. Only that run's processes/containers may be stopped or removed.
 
-A runtime pack whose manifest declares `accelerator: cuda` (Linux only, with an explicit
-`cudaArchitectures` list and an optional `minimumDriverVersion`) runs the managed
-llama.cpp server with every layer, the vision projector and the KV cache on `CUDA0`
-instead of the CPU-only placement. The pack is built with
-`scripts/build_cpu_runtime.py --accelerator cuda` inside a GCC 12 / CUDA 13 build
-container: cudart and cuBLAS are linked statically, so the pack needs only the host
-driver interface (`libcuda.so.1`), which the container runtime injects through CDI. A
-model pack lists the CUDA runtime in `compatibleRuntimes`; `prepare_model_pack.py
---from-pack` re-declares that list for an already converted pack without reconversion.
-The client identity records `accelerator: cuda`, so CPU and GPU checkpoints never mix;
-CPU packs keep their existing identity. `deployment/compose.gpu.yaml` shows the DGX
-Spark profile with the CDI device request. GPU packs are qualified separately from
-the CPU 16 GiB profile; declaring one does not change CPU results.
+## 2. Packs and model configuration
 
-Scope-axis protocol v5 / selection wire v2 use one list for record and standalone
-selections, with shared column handles; a column handle may be chosen directly as a
-standalone target and means every data row of that column. The prompt states that a
-meaning's own statement is never a candidate and that the decision selects the values
-it qualifies.
-Old policy/wire identities are rejected on resume, not silently translated. The phase
-has an engine-owned managed request policy: reasoning budget 2,048, within a total
-output cap of 3,072 tokens or a smaller client ceiling. This does
-not enable reasoning globally or rewrite the installed model/profile. Other phases
-inherit the profile setting. Context checks, generation, diagnostics and private
-checkpoint v3 record the effective per-request policy. Old checkpoints are not
-silently migrated. Cloud/generic clients retain their own reasoning settings;
-complete-only clients retain their client-owned output limits. None of this is
-independent quality qualification. Long-range provenance and content-stage accuracy
-still require further work.
+Runtime, model and recognition packs are independently versioned. Use normal
+PackStore verification, installation and activation; never edit an installed
+manifest. PDF recognition uses an explicitly selected ARM64 CPU pack with its own
+Python/native libraries. Core dependencies do not silently acquire GPU wheels.
 
-Record-table details under protocol v17 no longer select scope. Each retained meaning
-uses the separate applicability phase within the same cumulative budget. A document
-may therefore pause after successful content extraction while scope is still pending;
-this is not complete extraction or independent quality approval. Older table-protocol
-checkpoints are rejected rather than silently converted.
+A Linux llama.cpp runtime with `accelerator: cuda`, explicit `cudaArchitectures` and
+optional `minimumDriverVersion` uses CUDA0 for model layers, projector and KV cache.
+The current builder is `scripts/build_cpu_runtime.py --accelerator cuda`; the name
+is retained for compatibility. Its CUDA build uses the selected GCC 12 / CUDA 13
+container and static cudart/cuBLAS, while the host driver interface is injected by
+CDI. The model's `compatibleRuntimes` must match the exact runtime manifest. CPU
+packs retain CPU placement; accelerator identity prevents mixed-checkpoint resume.
 
-On shared Spark hosts, development runs first check available host memory and retain
-host pressure/OOM samples as well as cgroup measurements. The four-concurrent-model
-trial lost one child to OOM and timed out three calls; nominal 128 GB host capacity was
-not available workload headroom. Existing host swap and unrelated jobs are not changed.
-A subsequent single-job run had no OOM or container swap, but still failed semantic
-scope quality. These component checks do not qualify full recognition-plus-inference.
+A model pack may explicitly declare an inventoried `model.vision` projector and
+integer image-token bounds `1024 <= minImageTokens <= maxImageTokens <= 1536`.
+Prepare a separate immutable pack with `prepare_model_pack.py
+--include-vision-projector`; an existing conversion may be redeclared for an exact
+runtime with `--from-pack`. Neither option authorizes replacing an active pack.
 
-An administrator may explicitly set `reasoningBudgetTokens` on a local-pack profile.
-For example, `1024` enables thinking with that finite **per-block** limit while keeping
-greedy sampling and the existing 3,072-token total output ceiling. Omitting the setting
-retains the non-thinking default. The profile accepts integers from 0 to 3,071; zero
-requests immediate reasoning termination. Null, booleans, negative/unlimited values
-and values at or above the total ceiling are rejected. A request whose output ceiling
-is no larger than the reasoning budget fails with `ai_reasoning_budget_conflict`,
-without changing either limit.
+The internal image transport accepts at most two inline opaque single-frame 8-bit
+RGB/L PNG or JPEG images, totaling 16 MiB and 16 million pixels. External URLs,
+paths, animation, transparency and EXIF/XMP are rejected without resampling. Context
+checks and generation use the same frozen multimodal request. Text-only token
+estimates do not replace multimodal capability checks. [PDF reading details](extraction-engine.md#2-pdf-recognition-and-optional-visual-reading)
 
-The same mode is used for template/context checks and inference. Mode, budget and
-execution-contract version are recorded in the selected profile and checkpoint identity;
-the installed model manifest is not rewritten. Reasoning is not returned as document
-content. A length-limited response without final JSON preserves usage and incomplete
-status. Per-block termination does not guarantee a fixed final-answer reservation or
-semantic accuracy. The two-clause development comparison is not approval to change an
-installed production profile; full-path and independent qualification remain required.
+Local profiles may explicitly set `threads` and `threadsBatch`; otherwise the
+pinned runtime defaults remain. Respect container CPU quota. Managed sampling is
+greedy; seed, sampling, accelerator and thread settings are part of identity, but
+greedy is not a bit-for-bit reproducibility guarantee across execution orders.
 
-An explicitly selected model pack may also declare `model.vision` with an inventoried
-projector `file` and integer `minImageTokens`/`maxImageTokens` satisfying
-`1024 <= min <= max <= 1536`. The managed server loads only that projector, on CPU;
-it does not discover files, download assets or modify an active text-only pack.
-The internal image transport accepts at most two inline, single-frame, opaque 8-bit
-PNG/JPEG images (RGB or L), totaling 16 MiB and 16 million pixels. It rejects external
-URLs, paths, animation, transparency, EXIF/XMP and malformed images without resampling.
-The pinned server may preprocess images within the declared image-token limits.
-Image bytes, dimensions, projector digest and policy are recorded separately from
-content judgments. The same frozen request is used for the server's multimodal
-capability/context checks and generation; text token estimates are not a fallback.
-Visual policy changes also invalidate the job profile identity. This transport alone
-does not review a PDF page, resolve an empty cell or approve extraction completeness.
+Optional profile `reasoningBudgetTokens` accepts integers 0–3071, not null/bool or
+unlimited values. Omitting it retains non-thinking defaults outside phase-specific
+policies. The per-block reasoning allowance must be smaller than the total output
+ceiling, otherwise `ai_reasoning_budget_conflict` is returned. It does not guarantee
+a reserved final-answer length. Current managed applicability uses 2048/3072 tokens;
+table relations use 1024/2048. Actual request policy, not an old run-plan label, is
+recorded in checkpoints. Incomplete generation remains incomplete, not empty success.
 
-For PDF schema extraction with an explicit vision pack, the engine runs the internal
-page-review v3 stage before semantic region planning. It reuses completed recognition,
-reproduces source-bound images, accounts for exact foreground pixels and measures
-line candidates on that same render. Every page and its full missing-slot detail must
-receive a consistent decision before blank values or region order are applied.
-Page calls share the requested document call/time budget. A pending page may resume;
-reviewed pages are reused, and unknown/failed/interrupted calls are not silently retried.
-Checkpoints retain source/image hashes, pixel membership and decisions, not image bytes.
-A processing decision does not certify OCR accuracy or independent document quality.
+Cloud profiles are optional explicit endpoint/model configurations with `apiKeyEnv`,
+never inline keys. They may specify `responseFormat`, `strictSchema`, `maxOutputTokens`
+and `sampling` (`temperature`, `top_p`, `top_k`, `seed`); unset sampling uses provider
+defaults. There is no automatic cloud fallback or cloud quality claim.
 
-To build a separate optional vision model pack, use `--include-vision-projector` with
-`prepare_model_pack.py`; explicit image-token bounds remain within 1024–1536. The
-builder validates the existing snapshot's preprocessor/config, creates a separate F16
-projector, inspects its GGUF type/dimensions and records conversion receipt v2. Use a
-new output location and qualify the resulting exact pack before activation. This does
-not authorize replacing an installed text-only pack or skipping full CPU memory tests.
+## 3. Run through the product, not a substitute interpreter
 
-Generate a random server token of at least 32 ASCII characters and supply it via
-`DOCUMENT_FILES_SERVER_TOKEN` or the container's owner-readable secret file.
-The foreground service defaults to loopback. LAN publication still requires auth;
-terminate TLS at the authenticated reverse proxy described in the deployment guide.
-Use the offline Compose network for offline jobs. Cloud-enabled networks are an
-explicitly different administrator configuration, not fallback behavior.
+For local source use, prepare the pinned environment and call the normal launcher:
 
-The service accepts `POST /v1/jobs` as a bounded `application/octet-stream` body
-with `X-Document-Format`, `X-Model-Profile`, optional JSON `X-Extraction-Options`,
-and an optional `Idempotency-Key`. Same key + same bytes/options/profile pins returns
-that job; any difference conflicts. No server file paths or input URLs are accepted.
+```sh
+uv sync --frozen --python 3.12
+launchers/document-files capabilities
+launchers/document-files diagnose
+launchers/document-files extract-schema input.pdf --options /private/run-options.json \
+  --request-id example --storage-dir /private/results
+```
 
-## Progress and failures
+These commands do not prepare missing model assets. Configure verified packs/profile
+first using [deployment](../deployment/README.md) and [API options](python-api.md).
+An evaluation wrapper must call the same public engine; prior expected answers or
+provided model replies cannot substitute for an actual full-path accuracy check.
 
-A process reaching its end is not proof of complete extraction. Inspect the stored
-result's `extraction.status`, `validation` and `coverage`, not only job lifecycle.
-The job response separates `executionStatus` from `extractionStatus`; a finished
-attempt can still contain a partial extraction. `resultRevision` identifies the
-committed snapshot, including paged reads. Restart pagination if the version changes.
-A partial result may contain useful committed observations/values. Unresolved fields,
-notes, OCR/native conflicts, oversized regions and unprocessed pages are not silently
-converted into absent values. Authentication, quota, timeout, invalid output, unavailable
-runtime and context-budget errors are distinct; do not work around them by enabling
-another endpoint or disabling checks.
+Set a finite call/time allowance before dispatch. Evaluation defaults are 12 calls /
+900 seconds for short documents and 64 / 3600 for long ones. The supplied
+`deployment/long-document-options.json` grants the long allowance, not a larger model
+context or a completion guarantee. A development comparison may use a different
+explicit allowance; failure does not automatically increase it. Record recognition
+cost and actual total processing separately from model tokens and generation time.
 
-Recognition works on one framework page at a time; completed frames can be saved
-before the worker finishes and replayed without repeating completed OCR. Semantic
-checkpoints store accepted region decisions, not the whole conversation history.
-Record tables additionally checkpoint structure and meaning separately. A structure
-may be retained as `structure_compiled` while the extraction remains partial. Resume
-then uses the saved structure, not another record-generation call. Each stage has at
-most two attempts sharing the total call/time budget; exhausted stages require an
-explicit additional grant. Checkpoint v2 includes table-protocol identity; old
-incompatible checkpoints must not be force-resumed. A stage completing is not a
-semantic quality approval. Non-record subtotal/note values now use a separate scalar
-region, with no overlapping value bindings and the same total budget. Its unfinished
-work remains partial and resumes without another record-structure call.
-Meaning input uses a compact model-only view and reversible reference-wire v2.
-Canonical source text and provenance are retained. The full dictionary stays in
-checkpoint identity, not repeated model input. Its dictionary and activation are
-rechecked on resume, including completed stages; prior protocol checkpoints cannot
-be resumed as current ones. Do not edit checkpoint versions to bypass this boundary.
-`inputPreflight` shows the exact initial/repair character total and limit. Overflow
-pauses without another model call or loss of the compiled structure. Preparation
-errors stop rather than entering a model-repair loop; call/time limits do not increase.
+## 4. Optional HTTP service and container
 
-The current table protocol is v10. Every observed non-fixed row needs an explicit
-role; only native-declared header rows are fixed automatically, not OCR predictions.
-Missing cells and invalid decimal readings stay uncertain with original evidence.
-Row source provenance is program-derived; meaning applicability uses exclusive
-column/record/row/unresolved choices. Exact quotes and explicit remaining-text reviews
-have a separate source inventory. Meaning responses decide each owned source first;
-only `has_meaning` permits meanings. A joint meaning is anchored once but may quote
-multiple owned sources. Context alone cannot supply direct evidence. Explicit
-`unreviewed` keeps a source pending, including fully quoted or empty sources.
-Repairs cannot return previously reviewed sources to unreviewed work.
-Repairs can correct or withdraw a mistaken meaning
-but must retain original text coverage and a hash-bound revision/change history.
-Scope uncertainty is separate from unreviewed source text. Independent content review
-is mandatory: structural acceptance and fewer issues do not establish correctness.
-Resume checks the input and exact installed configuration. A budget grant is explicit;
-it never resets existing usage. No automatic replay occurs after service interruption.
-For a deliberately longer run, select the CPU profile and pass the supplied
-`deployment/long-document-options.json` to `start-job --options` or
-`extract-schema --options`. This grants up to 64 calls and one hour; it does not
-increase the local model's 8,192-token context or promise completion within that
-time. The legacy synchronous defaults remain unchanged. Budget exhaustion keeps
-the unprocessed regions and a resumable position rather than dropping them.
+Copy `deployment/server.example.json` outside the repository and set private absolute
+state/pack paths and administrator-managed profiles. Upload options cannot choose
+arbitrary endpoints or executables. Generate a random server token of at least 32
+ASCII characters; supply `DOCUMENT_FILES_SERVER_TOKEN` or an owner-readable secret
+file, not source control or a run log.
+
+`deployment/compose.gpu.yaml` is the Spark template: locally loaded digest-pinned
+ARM64 image, CDI GPU access, read-only root/packs, non-root process, dropped
+capabilities, bounded PIDs, no new privileges and loopback port 8765. It defaults to
+8 CPUs and 32 GiB memory with equal memory-plus-swap limits. **These cgroup settings
+do not by themselves establish a complete GPU/unified-memory cap.** Verify actual
+host and GPU use. The internal offline network is not evidence that every possible
+external route is blocked; inspect the deployed isolation and test it explicitly.
+
+Review rendered configuration before starting. Do not pull/build images as part of
+document processing. LAN publication requires authentication and the deployment's
+TLS reverse-proxy arrangement. Spark model tests do not qualify service installation,
+restart, access control or client operation; check those when deploying this service.
+
+`POST /v1/jobs` accepts a bounded `application/octet-stream` body with
+`X-Document-Format`, `X-Model-Profile`, optional JSON `X-Extraction-Options` and an
+optional `Idempotency-Key`. The same key and identical bytes/options/profile pins
+return the same job; differences conflict. Paths and input URLs are rejected.
+See [managed-job commands](python-api.md#managed-jobs) for status, results and control.
+
+## 5. Progress, cancellation and resume
+
+Inspect `extraction.status`, validation, coverage and issues, not only process exit.
+A finished attempt can contain partial work. Job `executionStatus` is separate from
+`extractionStatus`; `resultRevision` identifies the committed paged result. Restart
+pagination if that revision changes. Unread cells/pages, conflicts, missing scope or
+oversized regions remain explicit rather than becoming absent values.
+
+Recognition pages, PDF review and semantic/table stages have separate checkpoints.
+A record structure can survive as `structure_compiled` while content or scope is
+pending. Explicit resume reuses compatible committed work and preserves cumulative
+usage. It does not grant a fresh stage allowance, replay an interrupted model request
+or reset a failed independent evaluation. Call/time additions are explicit.
+
+Resume rechecks input, source, active packs, execution policy, protocol/revision and
+source trace. Do not edit version fields to bypass a conflict. Old public results
+can be read without reinterpreting them. Request preflight overflow preserves work
+without a model call; context checks, timeout, quota, invalid output and unavailable
+runtime remain different errors. The detailed stage and retry rules are in
+[the extraction engine](extraction-engine.md).
+
+Cancellation preserves committed results and targets the managed worker and its
+children. Confirm actual process/container termination after a bounded run; a client
+timeout alone is not a teardown receipt. Do not terminate another shared workload.
 
 ## Retention, backup and deletion
 
@@ -217,7 +174,11 @@ quality qualification are tracked separately. Keep logs to job ID, stage, timing
 usage and fixed error codes. Default logs must not contain source text, keys, prompts
 or model responses. Review `SECURITY.md` for document/native-code trust boundaries.
 
-## Qualification and publication
+## Optional qualification and publication
+
+Formal multi-platform release and consumer migration are deferred. The retained
+checks are not the completion criteria for current Spark extraction work. Do not
+substitute GPU development results for CPU-only or independent-release evidence.
 
 Use [the release procedure](../deployment/RELEASE.md) to freeze a clean candidate,
 bind its actual artifacts to independent reviews and installed execution evidence,
