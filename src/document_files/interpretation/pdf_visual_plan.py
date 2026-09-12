@@ -8,7 +8,7 @@ import math
 import time
 from copy import deepcopy
 
-VERSION = "document-files.pdf-visual-review.v12"
+VERSION = "document-files.pdf-visual-review.v13"
 MAX_SOURCES = 128
 MAX_UNITS = 128
 MAX_SPLIT_RUNS = 65536
@@ -599,20 +599,36 @@ Never classify a unit from other content inside its rectangle. Labels and panel 
 are generated navigation, not document content; the JSON lists panel/source coordinates.
 The first image remains the unmodified full page. A membership mask cannot prove a
 string correct, an edge harmless or a cell empty. Preserve unknowns and extra marks.
-Return compact JSON without indentation. Decision arrays contain ONLY decision strings in
-input order (units, missingSlots, sourceIds, grids respectively); do not repeat IDs in these
-arrays. readingOrder alone is the ordered array of block IDs."""
+Return compact JSON without indentation. Each decision array lists every inventory id
+exactly once, in input order, as {id, decision} (units, missingSlots, sourceIds, grids
+respectively). readingOrder alone is the ordered array of block IDs."""
 
 
 def output_schema(plan):
     def decisions(ids, values):
+        # Each decision names its inventory id: a positional string array let the
+        # model shift decisions between neighbours (two exact cell readings were
+        # answered unknown at the positions of the border units).
         if not ids:
             return {"type": "array", "items": {"type": "null"}, "maxItems": 0}
         return {
             "type": "array",
             "minItems": len(ids),
             "maxItems": len(ids),
-            "items": {"type": "string", "enum": values},
+            "items": {
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "enum": [identifier]},
+                            "decision": {"type": "string", "enum": values},
+                        },
+                        "required": ["id", "decision"],
+                        "additionalProperties": False,
+                    }
+                    for identifier in ids
+                ]
+            },
         }
 
     result = {
@@ -671,10 +687,17 @@ def decode_review_response(plan, wire):
         require(
             isinstance(values, list)
             and len(values) == len(ids)
-            and all(isinstance(v, str) for v in values),
+            and all(
+                isinstance(v, dict)
+                and set(v) == {"id", "decision"}
+                and isinstance(v["id"], str)
+                and isinstance(v["decision"], str)
+                for v in values
+            )
+            and sorted(v["id"] for v in values) == sorted(ids),
             "visual_decision_inventory",
         )
-        result[key] = [{"id": i, "decision": v} for i, v in zip(ids, values, strict=True)]
+        result[key] = [{"id": v["id"], "decision": v["decision"]} for v in values]
     return result
 
 

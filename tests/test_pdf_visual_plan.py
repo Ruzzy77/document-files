@@ -81,7 +81,7 @@ def wire_response(value, decision):
     for key, ids in inventories.items():
         choices = {v["id"]: v["decision"] for v in decision[key]}
         assert len(choices) == len(decision[key]) and set(choices) == set(ids)
-        result[key] = [choices[i] for i in ids]
+        result[key] = [{"id": i, "decision": choices[i]} for i in ids]
     return result
 
 
@@ -417,13 +417,17 @@ def test_one_faint_interior_pixel_cannot_be_a_table_border_or_empty_value():
         plan.validate_decision(value, decision, detail_bounds=[0, 0, 170, 170])
 
 
-def test_compact_wire_restores_plan_owned_ids_without_changing_checkpoint_decision():
+def test_wire_decisions_name_their_inventory_ids_and_keep_checkpoint_decisions():
     value = build()
     decision = answer(value)
     decision["units"][1]["decision"] = "unknown"
     wire = wire_response(value, decision)
     before = deepcopy(wire)
-    assert wire["units"] == ["source_text", "unknown"]
+    ids = [u["id"] for u in value["units"]]
+    assert wire["units"] == [
+        {"id": ids[0], "decision": "source_text"},
+        {"id": ids[1], "decision": "unknown"},
+    ]
     assert plan.decode_review_response(value, wire) == decision and wire == before
     assert (
         plan.validate_decision(value, plan.decode_review_response(value, wire), detail_bounds=None)[
@@ -431,10 +435,12 @@ def test_compact_wire_restores_plan_owned_ids_without_changing_checkpoint_decisi
         ]
         == "unresolved"
     )
+    # A permuted but complete answer keeps each decision with its own id.
     wire["units"].reverse()
-    assert plan.decode_review_response(value, wire)["units"][0] == {
-        "id": value["units"][0]["id"],
-        "decision": "unknown",
+    decoded = plan.decode_review_response(value, wire)
+    assert {v["id"]: v["decision"] for v in decoded["units"]} == {
+        ids[0]: "source_text",
+        ids[1]: "unknown",
     }
     payload = plan.review_payload(value)
     assert "parts" not in payload["unitColumns"]
@@ -442,7 +448,9 @@ def test_compact_wire_restores_plan_owned_ids_without_changing_checkpoint_decisi
         dict(zip(payload["unitColumns"], payload["units"][0], strict=True))["sourceIds"]
         == value["units"][0]["sourceIds"]
     )
-    assert plan.output_schema(value)["properties"]["units"]["items"]["type"] == "string"
+    branches = plan.output_schema(value)["properties"]["units"]["items"]["anyOf"]
+    assert [b["properties"]["id"]["enum"] for b in branches] == [[i] for i in ids]
+    assert all(b["additionalProperties"] is False for b in branches)
 
 
 @pytest.mark.parametrize(
@@ -452,7 +460,7 @@ def test_compact_wire_rejects_old_or_malformed_decisions(change):
     value = build()
     wire = wire_response(value, answer(value))
     if change == "legacy":
-        wire = answer(value)
+        wire["units"] = [v["decision"] for v in wire["units"]]
     elif change == "omitted":
         wire["units"].pop()
     elif change == "extra":
@@ -464,7 +472,7 @@ def test_compact_wire_rejects_old_or_malformed_decisions(change):
     elif change == "nonstring":
         wire["units"][0] = 1
     else:
-        wire["units"][0] = "discard_noise"
+        wire["units"][0]["decision"] = "discard_noise"
     with pytest.raises(plan.PdfVisualReviewError):
         plan.validate_decision(value, plan.decode_review_response(value, wire), detail_bounds=None)
 
