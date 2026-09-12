@@ -19,6 +19,10 @@
   remains unresolved. Preserve the compiled-row check and per-page value bindings.
   Other quality gaps remain in [SUPPORT.md](SUPPORT.md); these rules are not
   independently quality-approved.
+- Derive spreadsheet label/value candidates from exact native cell strings, not
+  generated coordinate/display text. Keep real inner fields, empty values and native
+  number/formula/cache bindings. Region plan v16 rejects incompatible candidate IDs
+  in old checkpoints; missing-value accounting is not relaxed.
 - Add isolated CPU recognition and source-bound PDF visual review, literal image
   reading, alternative table projections, exact pixel membership displays and
   conservative blank-cell application. Original OCR and document bytes remain.

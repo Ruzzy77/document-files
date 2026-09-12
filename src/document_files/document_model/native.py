@@ -13,8 +13,27 @@ _FIELD = re.compile(r"(?:^|[;\n])\s*([^;\n:=]+?)\s*[:=]([^;\n]*)")
 
 
 def bind_spans(doc: ObservationDocument, node_id: str) -> list[str]:
-    text = doc.nodes[node_id].get("text", "")
+    node = doc.nodes[node_id]
+    text = node.get("text", "")
     ids = [doc.bind(node_id, start=0, end=len(text), candidateRole="content")]
+    path = "/text"
+    semantic = node.get("semantic", {})
+    value = semantic.get("value", {})
+    if (
+        semantic.get("sheet")
+        and semantic.get("cell")
+        and isinstance(value, dict)
+        and value.get("kind")
+    ):
+        # Sheet-cell text is a readable projection, e.g. A2=Alice. Its address
+        # and normalized display are not source label/value content. Keep the
+        # legacy text intact, but find candidates only in the actual string.
+        # Numbers, dates and formulas already have explicit native bindings;
+        # punctuation in their display must not create more field candidates.
+        if value["kind"] != "string" or not isinstance(value.get("value"), str):
+            return ids
+        text = value["value"]
+        path = "/semantic/value/value"
     for match in _FIELD.finditer(text):
         label_start, label_end = match.span(1)
         raw_start, raw_end = match.span(2)
@@ -24,12 +43,14 @@ def bind_spans(doc: ObservationDocument, node_id: str) -> list[str]:
             raw_end -= 1
         label = doc.bind(
             node_id,
+            path=path,
             start=label_start,
             end=label_end,
             candidateRole="label",
         )
         value = doc.bind(
             node_id,
+            path=path,
             start=raw_start,
             end=raw_end,
             candidateRole="value",
@@ -52,6 +73,7 @@ def bind_spans(doc: ObservationDocument, node_id: str) -> list[str]:
             ids.append(
                 doc.bind(
                     node_id,
+                    path=path,
                     start=token.start(),
                     end=token.end(),
                     candidateRole="lexeme",

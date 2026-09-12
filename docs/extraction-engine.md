@@ -44,12 +44,18 @@ are not native declarations.
 
 The XLSX parser's readable node text includes a generated coordinate prefix, such
 as `A2=Alice`; its actual typed cell value is separately stored in `semantic.value`.
-Currently `native.py::bind_spans` also treats that display prefix as a source
-label/value pair. Region planning can require both candidates, so a correctly read
-record still returns `value_candidate_unaccounted`. This is a candidate-boundary
-bug, not permission to ignore missing values. A correction must distinguish display
-metadata from genuine label/value content within a cell and retain formula/cache
-and lexical-value distinctions.
+`native.py::bind_spans` preserves the readable node, but derives label/value and
+lexeme candidates from the exact native string at `/semantic/value/value`. Ranges
+therefore address original cell content, not a normalized display. An actual cell
+containing `A2=Alice` still has a genuine delimiter candidate; a cell containing
+only `Alice` does not. Unicode, embedded whitespace, multiple clauses and empty
+inner values retain their original offsets. Non-string cells retain native number,
+formula and cache bindings without treating display punctuation as extra fields.
+
+Region plan v16 invalidates checkpoints whose candidate IDs used the display-derived
+boundaries. Required-candidate accounting is unchanged: real inner fields remain
+required, and missing values are not excused by this correction. Public observation
+nodes, exact numeric spellings, formulas and caches are not rewritten.
 
 The simple HWPX development case also retains a title and caption as two generic
 scalar fields. Native observations, interpreted document roles and business data
@@ -316,7 +322,7 @@ relevant row when changing its owning behavior. Do not patch stored IDs to resum
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v31 / v15 / v27 |
+| Semantic prompt / region plan / result compiler | v31 / v16 / v27 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v13 / v6 |
 | Scope selection wire / source binding / regional checkpoint | v2 / v2 / v3 |

@@ -233,9 +233,10 @@ def test_unrepaired_content_only_definitions_do_not_report_complete():
     [
         ("compilerVersion", "document-files.result-compiler.v26"),
         ("promptVersion", "document-files.semantic-prompts.v30"),
+        ("regionPlanVersion", "document-files.region-plan.v15"),
     ],
 )
-def test_checkpoint_from_earlier_row_preservation_policy_cannot_resume(key, version):
+def test_checkpoint_from_earlier_source_interpretation_policy_cannot_resume(key, version):
     states = []
     model = TableModel()
     execute(model, states=states)
