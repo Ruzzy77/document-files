@@ -752,6 +752,26 @@ def relation_node(node, *, cell=None):
     return result
 
 
+PAGE_LINE_LIMIT = 12
+
+
+def _page_lines(observation, members, page):
+    """Interpreted non-table member nodes of one page in reading order, bounded."""
+    if type(page) is not int:
+        return []
+    in_tables = {c["sourceRef"] for t in observation.tables.values() for c in t.get("cells", [])}
+    lines = []
+    for ref in members:
+        node = observation.nodes.get(ref, {})
+        if ref in in_tables or _node_page(node) != page:
+            continue
+        if node.get("semanticRole") in {"source_text", "recognition_source_cell"}:
+            continue
+        box = (node.get("sourceStructure") or {}).get("bbox") or {}
+        lines.append(((box.get("top", 0), box.get("left", 0)), ref))
+    return [ref for _, ref in sorted(lines)[:PAGE_LINE_LIMIT]]
+
+
 def continuation_candidates(observation, regions):
     """Require positional and structural evidence; header similarity alone is insufficient.
 
@@ -794,11 +814,17 @@ def continuation_candidates(observation, regions):
                 "leftRows": len(rows_a),
                 "rightRows": len(rows_b),
                 "rightRepeatsLeft": bool(texts_a) and texts_a == texts_b,
+                # Both pages' interpreted text lines (titles, continuation markers,
+                # statements) are the relation's context: the ninth continued-table
+                # run never saw the page 2 title or its "(continued)" marker because
+                # the table region's own context held only the nearest statements.
                 "sourceRefs": list(
                     dict.fromkeys(
                         [
                             *left.get("contextNodeIds", []),
                             *right.get("contextNodeIds", []),
+                            *_page_lines(observation, members, page_a),
+                            *_page_lines(observation, members, page_b),
                             *_row_refs(a, edge_a),
                             *_row_refs(b, edge_b),
                         ]
