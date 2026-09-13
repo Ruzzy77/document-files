@@ -1092,6 +1092,23 @@ recorded XLSX request. Changing only those two limits, from 5,000 / 2,000 to the
 passed token-count preflight. The diagnostic generated at most one token; it proves
 the specific initialization fix, not full JSON or document quality.
 
+### Exact spreadsheet text in structural requests
+
+The structural request uses the same native cell reader as meaning extraction.
+For an XLSX cell it presents the original string, numeric spelling or formula,
+with a `textRange` pointing to the native value path. Row candidates and computed
+header text use that view too. Display projections such as `C4=4.5` are not used
+in place of the original `4.5000`. A literal value beginning with an address is
+preserved: the code selects the native value, never strips a guessed prefix.
+
+Original observation nodes, typed metadata, cell coordinates/spans, stored caches
+and bindings are unchanged. A formula is not replaced by its cache. Explicit empty
+strings, whitespace and implicit grid gaps remain distinct. A missing native literal
+falls back to the existing display text; an already bounded `/text` view keeps its
+original offsets rather than applying them to the native value. Other formats retain
+their existing source text. Lossless request factoring happens after this source
+selection and planning measures the same request that is sent.
+
 ### Failed table reads and structural repair
 
 `table_structure_feedback.py` locates a compiler-rejected typed read using the
@@ -1109,6 +1126,20 @@ Unrelated errors retain their existing diagnostics. Failed diagnostics survive i
 table-stage checkpoint and result; structural repair still has at most two automatic
 attempts within the document allowance. The compiler and public v1 contracts are unchanged.
 
+`check_structure` blocks the same structural issue codes as before, but retains their
+column/source detail. Column errors group all distinct source references by zero-based
+column; row errors retain observed row positions, and header-value errors retain their
+source and expanded cell positions. Duplicate findings cannot overwrite another source.
+Only references from the offered table and nodes are included; invalid detail does not
+remove the blocking code. Model field IDs, labels and cell values are not copied.
+Diagnostics are not truncated to make a repair fit: preflight retains them and returns
+a partial result without another model call if the complete request is too large.
+This grouping runs only after `compile_region` returns. An earlier typed-read exception
+uses its own source-local diagnostic; a duplicate column rejected in `structural_ir`
+does not produce compiled column findings. The current array-shaped response can be
+JSON-Schema-valid while repeating column indices. Runtime uniqueness validation remains
+mandatory, and rejected responses do not become accepted records.
+
 Table protocol v31 permits `bindingMode: formula` only with `valueType: string` or
 `native`: this operation reads the stored expression, not a computed result. The
 model schema uses two ordinary JSON Schema object alternatives, and `structural_ir`
@@ -1117,7 +1148,8 @@ choice produces `table_structure_formula_requires_text` plus the column index an
 chosen type/mode, not an invented failing cell. The `source`, `text` and `cached`
 mode/type choices are otherwise unchanged and still require actual source validation.
 No formula is evaluated; a saved cache is a separate explicit read. Older table
-checkpoints are incompatible rather than normalized into a different choice.
+checkpoints are incompatible rather than normalized into a different choice. The
+current table protocol is v33, including source-specific feedback and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
 the leaf-header row was marked as data, then the compiler tried to read its text as a
@@ -1132,6 +1164,8 @@ proposal. Adding that proposal to the v31 contract would make the recorded XLSX 
 17,166 characters, beyond the unchanged 16,000-character allowance. Removing only
 program-owned scaffolding from a hypothetical wire still leaves 16,374 characters
 before new prompt instructions. That prototype is not an adopted product contract.
+These are historical v31 measurements, not predictions for the current native-source
+view or a redesigned response shape.
 
 A retained-proposal design must reduce the decision/repair wire without losing source,
 business keys, labels, header references, row roles or chosen reads. It also needs
@@ -1582,7 +1616,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v40 / v23 / v36 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v31 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v33 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |

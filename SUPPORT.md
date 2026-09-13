@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,387 tests,
+The full local check including the native outline path passed **3,397 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v15, native-structure v20,
 structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v40,
-region plan v23, table protocol v29 and compiler v36. Public v1 result
+region plan v23, table protocol v33 and compiler v36. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -80,9 +80,9 @@ all source text, actual value/definition usage and compiler accounting remain.
 Initial content and accepted-meaning repair receive their respective instructions.
 These latest changes have regression/offline evidence, **not a new actual-model pass**.
 
-Whole XLSX cells now supply exact native strings, numeric spellings, empty content
-and formula expressions to table meaning review, rather than normalized address/value
-display text. Quotes keep their actual source path and offsets; original observations,
+Whole XLSX cells supply exact native strings, numeric spellings, empty content
+and formula expressions to both table structure and meaning requests, rather than
+normalized address/value display text. Quotes keep their actual source path and offsets; original observations,
 value bindings and formula caches remain unchanged. Existing display-only bounded views
 retain their `/text` path. Source inventory v2 has deterministic regression coverage;
 it does not establish that the model interprets these sources correctly.
@@ -149,17 +149,15 @@ Regression coverage verifies these mechanics, not the model's decisions. No rele
 filter, fixed business template, automatic deletion of legitimate fields or silent
 budget increase is used to manufacture a successful result.
 
-## Latest deterministic verification
+## Implemented preservation and review mechanisms
 
-Current product source: **ac168de4c79fa072fa2fdb6590a0bc71d3acb34c**.
-The local full suite passed **3,324 tests / 227 skips / 12 subtests**. The identical
-exported source passed **384 directly related ARM64 tests** on Spark-A Python 3.12.3.
-Warnings were treated as errors. These checks are not real-model quality approval.
+The current source and test counts are listed with the Spark verification below.
+These mechanisms have direct regression coverage, not independent model-quality approval.
 
-Joint role/structure revision is implemented for native HWP/HWPX regions. Before
-reading values, a present/blank attribute whose sources are all title/heading/caption
-blocks with no known inner-value binding receives one bounded review. This is a
-potential disagreement, not an inferred error. A reviewer can preserve a real title
+Joint role/structure revision is implemented for native HWP/HWPX regions. The
+current value-first controller attempts actual value selection before requesting a
+bounded review of a role/value conflict. A structural source is not automatically
+an invalid value source. A reviewer can preserve a real title
 and later select an exact inner value, revise roles with the full structure, or remove
 an invented field. It cannot silently change source metadata or drop real content.
 
@@ -217,14 +215,14 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-Current implementation source is **935cd8989f6d79e6e615cd94953b4334ac476743**.
-Table protocol v31 retains source-localized read feedback and prevents formula-mode
-reads from requesting numeric, boolean, decimal or null values. Expressions remain
-text; saved caches are separate reads. Compiler v36 and native value-first review
-are unchanged. Local checks
-passed **3,387 tests / 227 skips / 12 subtests**; the diagnostic/controller suite
-passed **117 tests with warnings treated as errors**. These are not model-quality results.
-The same source passed **558 related tests on Spark-A Python 3.12.3**.
+Current implementation source is **f3dd35fb2d73b9bc8ddc04dd2d24a9deb4a86b2c**.
+Table protocol v33 supplies exact native XLSX text to structure requests and preserves
+the compiler's source/column diagnostics when structural findings are returned.
+Formula-mode reads remain textual; saved caches are separate reads. Compiler v36
+and native value-first review are unchanged. Local checks passed **3,397 tests /
+227 skips / 12 subtests**; the related table checks passed **160 tests with warnings
+treated as errors**. The same source passed **593 related tests on Spark-A Python
+3.12.3**. These are not model-quality results.
 
 ### Same-source HWP backend comparison
 
@@ -283,47 +281,49 @@ swap-free or deployment qualification is implied.
 Evidence: `structural-kpi-20260913/native-value-first-61/` (314B and criterion audit),
 `native-backend-62/` (9B comparison), `independent-xlsx-63/` (original failed holdout
 and membership change), `table-read-feedback-64/` (source-local feedback), and
-`table-read-contract-65/` (current formula contract, actual run and repair-context audit).
+`table-read-contract-65/` (formula contract and repair-context audit),
+`table-source-feedback-66/` (grouped diagnostics and native-source discrepancy), and
+`table-native-view-67/` (current source, actual requests/results and cleanup).
 
-### Current formula contract verified; header interpretation still fails
+### Exact source delivery verified; duplicate columns and header roles still fail
 
-The current source reran the development XLSX under the unchanged allowance and
-returned **partial after 2 calls / 124.0 seconds**, with no accepted records. Both
-responses chose `formula/native`, not a numeric formula read. The first rejected
-fragment read both original formula expressions exactly. That fragment was not
-committed as product data: the model still marked the leaf-header row as data,
-creating an extra record containing header content.
+The current source returned **partial after 2 calls / 199.0 seconds**, with no
+accepted records. Both requests carried the original cell strings, exact decimal
+spellings and formula expressions, with native paths. Row candidates and header
+text used the same values. Native document content was unchanged. This corrects a
+real source-view discrepancy: earlier structure requests showed address-prefixed,
+sometimes rounded display values while exact native values were separate metadata.
+It does not establish a causal model improvement.
 
-The compiler detected **four column-definition/content conflicts and two missing
-leaf-header links**, each with source/column details. The structural-stage handler
-collapsed those six findings to two code names in the repair request. The second
-response kept the wrong row/header decisions, changed decimal columns to number,
-and failed first at C2 `Credit`. Values, applicability and semantic missingness remain
-unaccepted. The whole 12-call allowance was not exhausted; the two automatic structural
-attempts ended normally. Native document content is unchanged from the previous run.
+Both responses still marked the leaf-header row as data. The first defined six
+columns over five physical columns, repeating index 4. After receiving
+`table_structure_duplicate_column`, the second emitted 17 column definitions,
+including individual data and note cells. Both satisfy the supplied JSON Schema
+but fail the compiler's uniqueness check. Neither reaches value compilation,
+meaning or applicability. The two automatic structure attempts ended; the document's
+12-call allowance was not exhausted or enlarged.
 
-This confirms consistent formula choices in the actual constrained path, not complete
-interpretation. The preceding source-localized read diagnostic had reached the model
-but also failed to produce a correct repair; neither mechanism is semantic approval.
+Grouped source/column diagnostics are implemented and tested, but these actual
+responses fail before those compiler findings can be returned. The preceding run
+failed on a typed header read; its 16,028-character repair was correctly withheld.
+The current actual requests fit at **15,636 / 15,690 characters**, without deleting
+source text. Do not count request preparation, a rejected fragment or successful
+error delivery as accepted data.
 
-The owned engine returned, 19 evidence files were hash-checked, and 3,810 temporary
+The owned engine returned, 19 evidence files were hash-checked, and 3,812 temporary
 files plus both transfer archives were removed. Shared services/components are unchanged.
-Sampled minima were 13.88 GiB on A / 26.13 GiB on B, with no OOM count increase;
-the earlier resource-qualification limitations still apply.
+Sampled minima were 13.83 GiB on A / 26.13 GiB on B, with no OOM count increase;
+the resource-qualification limitations below still apply.
 
-**Next: preserve the compiler's existing source/column diagnostics in table repair.**
-A compact grouping of those same six findings would use 15,887 request characters,
-versus the actual 15,791, without removing original source or copying model field names.
-That grouping is an offline prototype, not installed behavior or a demonstrated model fix.
-Test completeness, safe references, context limits and resume before another inference run.
-
-A larger retained-proposal design is deferred: copying the prior structural response
-with the current contract would require 17,166 characters. Even a hypothetical wire
-that removes only program-owned scaffolding needs 16,374 before new instructions.
-Do not exceed the original 16,000-character allowance or discard source to fit it.
-Its semantic benefit remains unverified; the simpler loss of existing diagnostics is
-now directly reproduced and should be addressed first. Do not force header roles,
-coerce values or increase calls merely to pass this case.
+**Next: separate known coordinates from semantic choices in the structural response.**
+Investigate a closed object keyed by offered column/row coordinates instead of arrays
+that can repeat them. Keep column selection, names, types, definitions and non-fixed
+row roles as model decisions; do not force every observed column to be a field.
+Preserve canonical decisions and source links, reject duplicate JSON keys and unknown
+coordinates, and verify sparse/merged tables, scalar forms, context size and checkpoint
+replay before another bounded model run. This response redesign is not implemented
+or quality-validated. Showing the full rejected proposal remains a separate, deferred
+design; its older v31 size measurements are not current v33 measurements.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -396,7 +396,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Complete primary-format extraction is not approved.** The same-source 9B HWP comparison stopped at invalid structures; 314B accepted only two footnote values. XLSX now chooses textual formula reads, but header-row and definition choices still fail; detailed compiler findings are reduced to code names in repair. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Preserve existing compiler column/source diagnostics within the same context limit, then verify actual header-row repair and occurrence-bound HWP structures. A complete prior-proposal wire remains unproven and oversized. Review native facts, declared fields and added meanings separately. No forced roles, unsupported absence, blanket scalar deletion or approval by labels/counts. |
+| 1 | **Complete primary-format extraction is not approved.** HWP still lacks complete occurrence-bound values and relationships. XLSX structure requests now carry exact native cell text, but both latest responses duplicate physical columns and treat leaf headers as data. Grouped compiler diagnostics are implemented; these proposals fail before those findings return. The 50-row baseline still retains only 12/45 rows. | Investigate coordinate-keyed table decisions that cannot repeat offered row/column positions, without forcing semantic roles or mapping every column. Preserve canonical decisions, exact sources, subset/scalar-form choices and finite replay. Then verify actual header/record interpretation and HWP occurrence binding. No acceptance by labels/counts, automatic role assignment or source deletion. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |
