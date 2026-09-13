@@ -9,9 +9,10 @@ from pydantic import Field
 
 from ..result_types import Contract
 from .document_outline import DocumentElement, constrain_schema
+from .table_sources import SourceTextPath
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v32"
+COMPILER_VERSION = "document-files.result-compiler.v33"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -101,7 +102,7 @@ class LogicalRecord(Contract):
 
 class MeaningSourceRange(Contract):
     sourceRef: str
-    path: Literal["/text"]
+    path: SourceTextPath
     start: int = Field(ge=0)
     end: int = Field(ge=0)
     text: str = Field(min_length=1)

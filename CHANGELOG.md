@@ -4,6 +4,12 @@
 
 ### Document extraction
 
+- Read whole native spreadsheet cells from their stored string, lexical scalar or
+  formula path during table meaning review, not the normalized coordinate-prefixed
+  display (source inventory v2, table protocol v29, compiler v33). Preserve exact
+  quote paths, Unicode offsets, blanks, precision and separate formula caches;
+  keep existing `/text` views and reject stale checkpoints without rewriting sources.
+
 - Repack adjacent unstarted row views in a bounded two-view window (region plan v23).
   Preserve exact source/binding ownership and row order, reject unsafe overlaps or
   changed source geometry, and retain attempted work and budgets on resume. This

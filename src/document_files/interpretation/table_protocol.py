@@ -37,7 +37,7 @@ from .table_source_decisions import (
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v28"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v29"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -373,6 +373,8 @@ def meaning_response(ir, inventory):
         quotes = []
         for span in meaning.sourceRanges:
             source = sources[span.sourceRef]
+            if span.path != source["path"]:
+                raise CompileError("table_meaning_source_range_mismatch")
             offset, occurrence = 0, 0
             while True:
                 found = source["text"].find(span.text, offset)

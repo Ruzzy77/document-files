@@ -1,15 +1,20 @@
 """Immutable Unicode source ranges for revisable table meaning decisions.
 
 This module checks source identity and coverage, never semantic correctness.
-Offsets address the original Python string; text is never normalized.
+Offsets address the original Python string at the recorded path; text is never normalized.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from typing import Literal, get_args
 
-SOURCE_INVENTORY_VERSION = "document-files.table-source-inventory.v1"
+SOURCE_INVENTORY_VERSION = "document-files.table-source-inventory.v2"
+SourceTextPath = Literal[
+    "/text", "/semantic/value/value", "/semantic/value/raw", "/semantic/value/formula"
+]
+_SOURCE_PATHS = frozenset(get_args(SourceTextPath))
 _RANGE_KEYS = {"sourceRef", "path", "start", "end", "text", "textSHA256"}
 
 
@@ -40,15 +45,56 @@ def _inventory_hash(sources):
     )
 
 
-def _range(ref, start, text):
+def _range(ref, start, text, path="/text"):
     return {
         "sourceRef": ref,
-        "path": "/text",
+        "path": path,
         "start": start,
         "end": start + len(text),
         "text": text,
         "textSHA256": _hash(text),
     }
+
+
+def _source_text(node):
+    """Read an existing native cell string, never strip a guessed address prefix.
+
+    XLSX /text is a normalized display such as A2=Alice. Native values retain
+    whitespace and lexical precision. A formula is not its stored cached result;
+    the latter remains separate value evidence, not a replacement source quote.
+    Other nodes and cells lacking a native string keep their existing /text.
+    """
+    semantic = node.get("semantic")
+    if isinstance(semantic, dict) and node.get("semanticRole") == "sheet_cell":
+        sheet, cell, value = (semantic.get(k) for k in ("sheet", "cell", "value"))
+        if (
+            isinstance(sheet, dict)
+            and sheet
+            and isinstance(cell, dict)
+            and isinstance(cell.get("coordinate"), str)
+            and cell["coordinate"]
+            and isinstance(value, dict)
+        ):
+            kind = value.get("kind")
+            key = None
+            if kind == "string":
+                key = "value"
+            elif kind == "formula":
+                key = "formula"
+            elif isinstance(kind, str) and kind in {
+                "blank",
+                "integer",
+                "number",
+                "boolean",
+                "error",
+                "date",
+                "datetime",
+                "time",
+            }:
+                key = "raw"
+            if key is not None and isinstance(value.get(key), str):
+                return f"/semantic/value/{key}", value[key]
+    return "/text", node.get("text")
 
 
 def source_inventory(observation, region):
@@ -69,7 +115,9 @@ def source_inventory(observation, region):
         node = nodes.get(ref)
         if not isinstance(node, dict) or node.get("semanticRole") == "source_text":
             continue
-        text = node.get("text")
+        # Existing nodeViews address /text, not the native value. Never reuse
+        # display offsets on a different (possibly unnormalized) source string.
+        path, text = ("/text", node.get("text")) if ref in views else _source_text(node)
         if not isinstance(text, str):
             continue
         low, high = 0, len(text)
@@ -81,7 +129,7 @@ def source_inventory(observation, region):
                 type(low) is int and type(high) is int and 0 <= low <= high <= len(text),
                 "invalid_source_view",
             )
-        sources.append(_range(ref, low, text[low:high]))
+        sources.append(_range(ref, low, text[low:high], path))
     return {
         "version": SOURCE_INVENTORY_VERSION,
         "sha256": _inventory_hash(sources),
@@ -100,7 +148,8 @@ def _sources(inventory):
         ref, low, high, text = (item[k] for k in ("sourceRef", "start", "end", "text"))
         _require(isinstance(ref, str) and bool(ref) and ref not in by_ref, "invalid_source_ref")
         _require(
-            item["path"] == "/text"
+            isinstance(item["path"], str)
+            and item["path"] in _SOURCE_PATHS
             and type(low) is int
             and type(high) is int
             and 0 <= low <= high
@@ -147,7 +196,7 @@ def resolve_quotes(quotes, inventory):
         key = (ref, start, start + len(text))
         _require(key not in seen, "duplicate_source_quote")
         seen.add(key)
-        resolved.append(_range(ref, start, text))
+        resolved.append(_range(ref, start, text, source["path"]))
     return resolved
 
 
@@ -157,13 +206,15 @@ def _checked_range(item, sources):
     _require(isinstance(ref, str) and ref in sources, "unknown_meaning_source")
     source, low, high = sources[ref], item["start"], item["end"]
     _require(
-        item["path"] == "/text"
+        item["path"] == source["path"]
         and type(low) is int
         and type(high) is int
         and source["start"] <= low < high <= source["end"],
         "meaning_source_range_outside_view",
     )
-    expected = _range(ref, low, source["text"][low - source["start"] : high - source["start"]])
+    expected = _range(
+        ref, low, source["text"][low - source["start"] : high - source["start"]], source["path"]
+    )
     _require(item == expected, "meaning_source_range_mismatch")
     return ref, low, high
 
@@ -233,7 +284,7 @@ def review_ranges(meanings, reviews, inventory):
             meaning_ids = list(
                 dict.fromkeys(mid for a, b, mid in intervals if a <= low < high <= b)
             )
-            item = _range(ref, low, text)
+            item = _range(ref, low, text, source["path"])
             if meaning_ids:
                 item.update(role="meaning", meaningIds=meaning_ids)
             elif not text.strip():

@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,097 tests,
+The full local check including the native outline path passed **3,107 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v40,
-region plan v23, table protocol v28 and compiler v32. Public v1 result
+region plan v23, table protocol v29 and compiler v33. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v15 / scope protocol v7 now discover the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -79,6 +79,13 @@ expose unused value-binding candidates that neither response stage can address;
 all source text, actual value/definition usage and compiler accounting remain.
 Initial content and accepted-meaning repair receive their respective instructions.
 These latest changes have regression/offline evidence, **not a new actual-model pass**.
+
+Whole XLSX cells now supply exact native strings, numeric spellings, empty content
+and formula expressions to table meaning review, rather than normalized address/value
+display text. Quotes keep their actual source path and offsets; original observations,
+value bindings and formula caches remain unchanged. Existing display-only bounded views
+retain their `/text` path. Source inventory v2 has deterministic regression coverage;
+it does not establish that the model interprets these sources correctly.
 
 Table selection wire v4 requests only one status string per owned source. Canonical
 selection record v2 explicitly records that per-source explanations were not requested;

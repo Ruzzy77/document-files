@@ -198,6 +198,12 @@ those statements. Value bindings retain original absolute positions. `readNodes`
 counts fully covered nodes; `partiallyReadNodes` distinguishes nodes with pending
 views. An oversized indivisible value/context remains partial with a budget reason.
 
+For whole native spreadsheet cells, `semanticDetails[*].sourceRanges[*].path` can
+point to `/semantic/value/value`, `/semantic/value/raw` or `/semantic/value/formula`,
+not only `/text`. Unicode offsets address the exact string at that path on the source
+node. Read the recorded path rather than applying every range to the coordinate-prefixed
+display text. Original nodes, formula caches and value bindings remain available unchanged.
+
 For an installed recognition pack, use an administrator profile with
 `packRoot`, `runtimeId`, `modelId`, `recognitionPackId`. The optional recognition
 backend is resolved by `document_files.profiles.profile_clients(config, name)`:

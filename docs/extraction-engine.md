@@ -53,7 +53,7 @@ decoder for model output. The original observation and compiler inputs are uncha
 
 Savings include the decoding instruction. Planning and dispatch both measure the
 messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
-The public response contract is unchanged. Table protocol v28 and region plan v23
+The public response contract is unchanged. Table protocol v29 and region plan v23
 invalidate checkpoints made with the previous display and planning behavior.
 
 An earlier region's column mapping may not exist when the initial plan is made.
@@ -147,6 +147,25 @@ Region plan v16 invalidates checkpoints whose candidate IDs used the display-der
 boundaries. Required-candidate accounting is unchanged: real inner fields remain
 required, and missing values are not excused by this correction. Public observation
 nodes, exact numeric spellings, formulas and caches are not rewritten.
+
+Table meaning review also reads native cell content, rather than the coordinate-prefixed
+display. `table_sources.py` (source inventory v2) selects the stored string at
+`/semantic/value/value`, the formula expression at `/semantic/value/formula`, or a
+non-string scalar's existing lexical text at `/semantic/value/raw`. It requires an
+observed sheet-cell role, sheet/cell metadata and a coordinate; it never removes an
+address-looking prefix from arbitrary text. A cell whose actual content is
+`A2=Alice` therefore keeps that entire string. Stored blanks and empty strings stay
+distinct in the observation, with empty source text in both cases. Formula caches
+remain separate value evidence and cannot replace the formula in a source quote.
+
+Quotes, review ranges and their hashes retain the selected path and Unicode offsets
+within that exact string, including repeated phrases, whitespace and numeric precision.
+The compiler rechecks them against the observation before emitting semantic details.
+Existing bounded `nodeViews` still address `/text`: display offsets are never reused
+on a different native string. Other nodes, and cells without an eligible stored string,
+keep their original `/text`; this correction does not recover missing source metadata or
+restore normalization lost from a display-only view. Table protocol v29 / compiler v33
+invalidate prior checkpoints; neither original nodes nor public v1 contracts change.
 
 Native observation adapter v2 maps public `semantic.cell.columnSpan` to internal
 `colSpan`; the earlier spelling mismatch collapsed HWP/HWPX/XLSX merged widths to one.
