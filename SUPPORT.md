@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,347 tests,
+The full local check including the native outline path passed **3,345 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -62,8 +62,8 @@ qualify a platform installer, a live agent session or a formal release.
 
 ## Current extraction behavior
 
-The current internal contracts are document protocol v14, native-structure v19,
-structural wire v3, native-value-batches v4, structure-revision v9, scope-selection wire v3, prompt v40,
+The current internal contracts are document protocol v15, native-structure v20,
+structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v40,
 region plan v23, table protocol v29 and compiler v36. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
@@ -217,56 +217,59 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-The latest actual-model source **d0d8f40ee99018e3d35f8c6a1ebac3c1fa308d1f** ran the
-original binary HWP development fixture through the public stream API on Spark-A's
-existing **Motif-3-314B-Q4_K_M** service. The allowance remained **12 calls / 900
-seconds / 16,000 characters**; expected answers stayed local.
+The current source **c075ab0b47c9ef3da18305e8caba7a65729b60a3** ran the original
+binary HWP development fixture through the public stream API on Spark-A's existing
+**Motif-3-314B-Q4_K_M** service. The allowance remained **12 calls / 900 seconds /
+16,000 characters**, output 3,072 tokens; expected answers stayed local.
 
-It returned **partial after 9 calls / 465.1 seconds**, with **zero accepted values**.
-All 18 original nodes, 28 bindings and four native note objects, stored numbers and
-body links are unchanged. The actual sequence was two role calls, three structure
-calls, two early revision calls and two applicability calls. **No value request ran**:
+It returned **partial after 12 calls / 567.4 seconds**, accepting the two exact footnote
+texts. All 18 original nodes, 28 bindings and four native note objects, stored numbers
+and body links are unchanged. The sequence was two role calls, two structure calls,
+four value calls, two reviews and two applicability calls:
 
-- In the first region, both structural responses used the same scalar property key
-  for two distinct note sources. The compiler rejected `duplicate_data_property`;
-  its second response also dropped the former reference field.
-- In the second region, the early replacement omitted required change entries. Its
-  repair supplied those entries but repeated the original structure and roles, so
-  `native_revision_unchanged_replacement` was rejected. The model's explanation
-  incorrectly treated its inferred title role as a native fact.
-- The new follow-up after an early `retain` was **not exercised**. Both local review
-  attempts were consumed before actual values were read. Three unused document
-  calls cannot override exhausted stage limits or approve incomplete structures.
+- Both structures reached values without a speculative review. In the first region,
+  an actual role/value conflict triggered a checked title-to-paragraph replacement.
+  The model also changed its generic title field to absent. Fresh reading then
+  accepted both footnote texts with their original bindings.
+- The second region's review retained a title/whole-value contradiction. The final
+  value attempt repeated it and was rejected; no endnote values were accepted.
+- Added note applicability remained unresolved or targeted the note-text field itself.
+  Preserving the correct native body attachments does not validate those added relations.
+- No duplicate property appeared in this run. The new source-specific collision
+  feedback has native-parser regression and old-response replay coverage, **not an
+  actual-model repair result**.
 
-The follow-up controller is implemented and regression-tested, not model-qualified.
-It keeps the early review and uses only its remaining attempt after a reproduced
-role/value conflict. See [the implementation](docs/extraction-engine.md#source-grounded-structure-revision).
-The latest product source **08957814894ab11e93bf44d5903ef7cee2eb8117** additionally
-rejects malformed saved failure records: **3,347 local tests / 227 skips / 12 subtests**.
-The exact model-run source passed **405 related tests on Spark-A Python 3.12.3**.
-Replaying all nine collected replies on the final source generated identical requests,
-structure, data, source evidence and issues without another model call. That replay
-checks compatibility, not a new quality result.
+The source passed **3,345 local tests / 227 skips / 12 subtests** and **405 related
+tests on Spark-A Python 3.12.3**. Counts changed with replacement of obsolete
+pre-value-review tests, not qualification of skipped environments. Replaying five
+older responses prepares a value request at 11,486 characters instead of an early
+full revision and retains both duplicate source positions in repair feedback. That
+comparison makes no new model calls and is not a quality result.
 
-This is a **development quality failure**, not independent approval. The previous
-`ac168de` comparison did reach real values after two early retains, reproducing the
-controller defect now fixed; its failure and the earlier accepted role replacement
-remain separate evidence, not a claimed improvement in this run's extraction quality.
+This is a **development quality failure**, not independent approval. The frozen HWP
+specification requires exact note/body texts, control roles and source-linked native
+attachments. It does not prescribe the logical enum `paragraph` for the body references
+or require six invented scalar fields. Existing helper assumptions about those labels
+and scalar counts are now identified separately; the specification and older failed
+reviews were not rewritten. The present result still fails whole extraction because
+its declared values/relations are incomplete or unsupported, not merely because it
+misses an added label hypothesis.
 
-The shared-model run starts no new model process and leaves global settings unchanged.
-It uses a 4 GiB owned-engine address-space cap, 12 GiB available-memory admission and
-6 GiB running floor, with one-second A samples and external two-host monitoring.
-The sampled minima were **13.82 GiB on A / 26.13 GiB on B**, with no increase in either
-host's OOM count. These are safeguards, not peak-memory or swap-free qualification.
-Full model shard hashes remain unverified; the product default model was not changed.
-All 40 evidence files were collected and hash-checked. The 3,828 owned temporary
-files and two transfer archives were removed; shared services and existing components
-were preserved.
+The shared-model run started no new model process and left global settings unchanged.
+Its safeguards were a 4 GiB owned-engine address-space cap, 12 GiB available-memory
+admission and 6 GiB running floor. Sampled minima were **13.87 GiB on A / 26.13 GiB
+on B**, with no increase in either OOM count. These are not peak-memory or swap-free
+qualification. Full model shard hashes remain unverified and the product default was
+unchanged. All 49 evidence files were collected and hash-checked; 3,839 owned temporary
+files and two transfer archives were removed. Shared services/components were preserved.
 
-Current source-specific checks, model replies and review are in
-`structural-kpi-20260913/native-retain-followup-60/`; prior actual runs remain in
-`native-note-structure-model-59/` and `native-role-model-59/`. The next investigation
-is the structure/early-review boundary described below, not an identical model rerun.
+Current evidence is in `structural-kpi-20260913/native-value-first-61/`, including the
+criterion audit. Prior source-specific failures remain separate. The next bounded
+comparison should keep this product source and document fixed while using the already
+available 9B runtime; recheck its resources/components first and do not run it alongside
+the shared comparison. No automatic budget increase or identical 314B rerun is planned.
+A compact independent XLSX case is a separate required check, not replaced by this HWP
+comparison.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -339,7 +342,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** Retain-to-conflict follow-up is implemented, but the latest model run fails earlier: colliding scalar keys and an invalid/no-op early replacement prevent value reading. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Reproduce both blockers from saved responses. Design source-bound collision feedback that preserves distinct occurrences, and separate native facts from inferred roles. Compare the early full-review schedule with review after concrete value failure before selecting a change; preserve title inner values, bounded attempts, prior data and checkpoint validity. No automatic field renaming/deletion, forced body roles or approval of retained decisions. |
+| 1 | **Native complete extraction is not approved.** Real-value-first review now runs and accepted one role replacement, but another review retained a concrete contradiction; added note relations remain unresolved or self-targeted. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Keep the current source/input/allowance fixed for one existing-9B comparison to separate backend behavior from further protocol changes. Review native facts, declared fields and added meanings separately against the frozen criteria. Preserve real occurrences and exact sources; no automatic field deletion, forced roles, unsupported absence or approval by label/count shortcuts. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |
