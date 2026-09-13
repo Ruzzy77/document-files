@@ -96,18 +96,29 @@ and relationship proposals can still cite multiple objects. No values, new recor
 headings or note counts are inferred by these checks. Multiple text segments belonging
 to the same source object are not rejected merely for having different node IDs.
 
-The result also retains `document.structure.nativeNotes`. Compiler v35 can account for
+The result also retains `document.structure.nativeNotes`. Compiler v36 can account for
 a structural note disposition through its declared body link, recording `nativeNoteObjects`
 and `nativeNoteBasis` in the source-use ledger. This does **not** resolve an additional
 unit/condition's applicability or approve its interpretation. Unlinked notes and undecided
-additional meanings retain their existing issues. Controls and automatic numbers still
-need explicit source/binding accounting; the compiler does not waive all note content.
+additional meanings retain their existing issues.
+
+`native_note_accounting.py` derives structural dispositions only for owned, empty
+controls, explicitly structural containers and verified stored-number nodes belonging
+to a fully linked native note. It records the object IDs and native basis; original
+nodes, numbers and relationships are unchanged. Body/note paragraphs, nonempty members,
+unknown empty nodes and unlinked/conflicting objects are not covered by this rule.
+An explicit unresolved disposition takes precedence. Required value bindings still need
+reading or explicit exclusion, including stored note numbers; this is not a blanket
+exemption of attributes, note content or additional applicability.
 
 `native_value_batches._request` keeps the same note facts in both value and accounting
 requests. The earlier v3 reconstruction omitted them. Batch v4 sizes each request with
 all that context and fails explicitly if it cannot fit; it never strips the inventory to
-make a batch pass. `native_note_context.py` owns the role/structure versus value/accounting
-instructions. `contract_messages` appends those fixed instructions to the system message
+make a batch pass. `native_note_context.py` separates role-only, structure, value/accounting
+and revision instructions. The role stage sees declared note relationships but receives
+no field/value-selection tasks. A note reference does not force a paragraph or heading
+role. Structure/revision distinguish the retained native attachment from genuinely
+additional attributes and applicability; code does not delete meanings on that basis. `contract_messages` appends those fixed instructions to the system message
 only for this product-generated inventory. No source-provided guidance is promoted into
 instructions. Documents without that inventory keep their previous message content.
 
@@ -116,7 +127,7 @@ merely to survive in the result: the exact text, typed numbers and relationships
 belong to the native document structure. Actual attributes inside notes still require
 field/value interpretation. The public native unit projection is unchanged. Checkpoint
 replay re-derives the object inventory and refuses changed numbers, owners or omitted
-inventory. Document protocol v12 / native structure v17 / native adapter v4 / compiler v35
+inventory. Document protocol v13 / native structure v18 / native adapter v4 / compiler v36
 invalidate older incompatible checkpoints. Structure-revision change-ledger defects remain
 separate work; malformed references are not accepted to make a failed run appear complete.
 
@@ -139,8 +150,8 @@ references never become owned value choices.
 For native note requests, present/blank record cells use explicit `{status, sourceRefs}`
 rather than inheriting all row anchors through a bare status. This preserves the same
 checked cell decisions while preventing inherited sources from bypassing the closed
-choices. Other documents retain their existing wire choices. Native structure v17 /
-structural wire v3 / document protocol v12 / revision v7 identify the current contract.
+choices. Other documents retain their existing wire choices. Native structure v18 /
+structural wire v3 / document protocol v13 / revision v8 identify the current contract.
 Both schema validation and the existing independent occurrence checks still apply.
 
 Compatible sets are bounded at 1,024 combinations, 2,000,000 source/set comparisons
@@ -449,7 +460,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v12 and native-structure v17 identify the current three-stage execution;
+own configured reasoning behavior. Protocol v13 and native-structure v18 identify the current three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 Native role, structure, value, batch-accounting and structure-review requests use the
@@ -691,7 +702,7 @@ Unknown/in-flight exchanges do not authorize another call. The review's at most 
 attempts use the original document allowance. It is not universal review of otherwise
 `complete` outputs or independent quality approval.
 
-Revision v7 permits an optional complete `documentElements` array beside the full
+Revision v8 permits an optional complete `documentElements` array beside the full
 structural replacement. Omission explicitly retains all original roles. If supplied,
 it must contain every owned role exactly once in source order, satisfy the normal
 role/level/caption rules, and account for every old and new `role:N` in the same checked
@@ -744,6 +755,13 @@ merge entities. Each affected owned source is covered by its change evidence. A 
 can cite a genuinely empty owned block, without fabricating a nonempty quotation;
 logical-row/meaning anchor rules are not relaxed. Missing coverage is reported using
 only program-owned entity references, not source or model labels.
+
+Revision evidence quotes reuse the replacement's standard `SourceQuote` definition
+instead of displaying the same object schema twice. Owned nonempty source IDs, exact
+text constraints and optional zero-based occurrence are unchanged; controls cannot
+become quote sources. All original source and history content remains. This reduces
+request overhead but does not guarantee that every proposal or repair fits a fixed
+budget; an oversized request still stops before model generation.
 
 Full wire validation, exact source grounding and compilation against the caller's
 target schema precede commitment. A malformed, truncated or interrupted proposal
@@ -874,7 +892,7 @@ their exact catalogue for source accounting; unused alternative IDs are not part
 frozen field definition. This delivery fallback never excludes document information or
 increases the call/time/input limits.
 
-Native-structure v17 / native-value-batches v4 keeps the existing single request when
+Native-structure v18 / native-value-batches v4 keeps the existing single request when
 it fits. An oversized request instead uses deterministic batches of at most 16 value
 handles, sized from the actual system, payload and closed output contract. Every batch
 retains **all original nodes, formatting and binding text**; relevant occurrence
@@ -936,12 +954,31 @@ must survive.
 
 The earlier HWP comparison froze titles that later conflicted with whole-paragraph
 scalar values. Joint role/structure revision now addresses the inability to edit those
-roles, with direct parser/controller and ARM regressions. Its actual-model quality is
-still unverified. Large fixed context or repair feedback can remain oversized; known
+roles, with direct parser/controller and ARM regressions and one accepted real-model
+role replacement. Whole-document quality remains unapproved. Large fixed context or repair feedback can remain oversized; known
 inner-binding paths can still fail at actual value choice rather than the early overlap
 review. Complete interpretation needs source-grounded model decisions, not just a
 successful state transition. Neither native note membership nor row position alone
 decides the right document role.
+
+The latest actual comparison reached both early reviews, but each retained a title
+that the subsequent whole-text value selection contradicted. `interpret_native_revision`
+currently returns immediately for any completed review, including early retention.
+Value repair cannot change accepted roles, so the same conflict can recur while one
+of the two permitted review attempts remains unused. This is a reproduced controller
+limitation, not a reason to relax role/value validation.
+
+The next bounded change is planned, **not implemented**: preserve the early review and
+its request/response/usage, then permit its remaining review attempt only after a
+compiler-confirmed role/value conflict. Rebuild the later review's base and failure
+evidence from the actual attempted values; do not overwrite the early record or reuse
+its old request identity. Route this before repeating an incapable value-only repair.
+The combined review attempts must stay at two and all calls stay inside the original
+document allowance. Full replacement accounting, current-source checks, atomic value
+invalidation, unknown-transport stops and checkpoint replay remain mandatory. Tests
+must distinguish a legitimate retained title/inner value from a later real conflict,
+and cover rejection, exhaustion, partial preservation and downstream role dependencies.
+This does not authorize unlimited review cycles or guarantee a semantic correction.
 
 Cross-region logical continuation still requires source-bound earlier-record context
 and an explicit relation decision. Nearby text or equal keys cannot authorize merging.
@@ -1528,9 +1565,9 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v40 / v23 / v35 |
-| Document outline / native role-content protocol / native structure | v1 / v12 / v17 |
-| Native structural response wire / native value batches / structure revision | v3 / v4 / v7 |
+| Semantic prompt / region plan / result compiler | v40 / v23 / v36 |
+| Document outline / native role-content protocol / native structure | v1 / v13 / v18 |
+| Native structural response wire / native value batches / structure revision | v3 / v4 / v8 |
 | Table protocol / table reference wire / table source wire / selection wire | v29 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
