@@ -7,20 +7,48 @@ requires apply_scope_decision; source binding is not semantic quality approval.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 
 from .compiler import CompileError
-from .integration import ScopeDecision, _definition
+from .integration import BoundScopeDecision, ScopeDecision, _definition
 from .scope_rows import resolve_row_selection, row_options
 from .scope_values import scalar_value_evidence
+from .validation import pointer
 
-VERSION = "document-files.scope-source-binding.v2"
-MAX_SOURCE_REFS = 100
+VERSION = "document-files.scope-source-binding.v3"
+# Combined UTF-8 JSON bytes of the canonical decision and its source trace. This
+# replaces the model-citation count, not the existing trace/work resource limits.
+MAX_PROVENANCE_BYTES = 1024 * 1024
 MAX_TRACE_BINDINGS = 1000
 MAX_ROW_WORK = 1000000
 
 
 def _key(target):
     return target["space"], target["path"]
+
+
+def _encoded(value):
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+
+
+def _value_proof(evidence, data_owner):
+    """Freeze exact value/binding state, excluding mutable applicability links."""
+    if evidence["target"]["space"] != "data":
+        raise CompileError("scope_value_proof_requires_data_target")
+    return hashlib.sha256(
+        _encoded(
+            {
+                "evidence": {
+                    k: evidence.get(k)
+                    for k in ("target", "sourceRefs", "binding", "raw", "status", "transformation")
+                },
+                "value": pointer(data_owner.data, evidence["target"]["path"]),
+            }
+        )
+    ).hexdigest()
 
 
 def bind_scope_sources(choice, task, compiled, *, expected_fingerprint):
@@ -50,25 +78,41 @@ def bind_scope_sources(choice, task, compiled, *, expected_fingerprint):
         "modelSuppliedSourceRefs": False,
         "bindings": [],
     }
+    # Count actual serialization, including repeated references in trace entries.
+    # No prefix of an over-budget proof is returned as a successful decision.
+    canonical = selected.model_dump()
+    canonical["sourceRefs"] = []
+    proof_bytes = len(_encoded(canonical)) + len(_encoded(trace))
+    if proof_bytes > MAX_PROVENANCE_BYTES:
+        raise CompileError("scope_source_provenance_budget_exceeded")
     if selected.decision == "unresolved":
-        return copy.deepcopy(choice), trace
+        return BoundScopeDecision.model_validate(canonical), trace
     owners = {region.id: region for region in compiled}
     if len(owners) != len(compiled):
         raise CompileError("ambiguous_bound_scope_region")
     refs, seen_refs = [], set()
 
     def add(values, basis, **detail):
+        nonlocal proof_bytes
         if len(trace["bindings"]) >= MAX_TRACE_BINDINGS:
             raise CompileError("scope_source_trace_budget_exceeded")
+        entry = {"basis": basis, "sourceRefs": list(values), **detail}
+        size = len(_encoded(entry)) + bool(trace["bindings"])
+        additions = []
+        new_refs = set()
         for ref in values:
             if not isinstance(ref, str) or not ref:
                 raise CompileError("unavailable_bound_scope_source")
-            if ref not in seen_refs:
-                if len(refs) >= MAX_SOURCE_REFS:
-                    raise CompileError("scope_source_binding_budget_exceeded")
-                seen_refs.add(ref)
-                refs.append(ref)
-        trace["bindings"].append({"basis": basis, "sourceRefs": list(values), **detail})
+            if ref not in seen_refs and ref not in new_refs:
+                size += len(_encoded(ref)) + bool(refs or additions)
+                new_refs.add(ref)
+                additions.append(ref)
+        if proof_bytes + size > MAX_PROVENANCE_BYTES:
+            raise CompileError("scope_source_provenance_budget_exceeded")
+        proof_bytes += size
+        seen_refs.update(new_refs)
+        refs.extend(additions)
+        trace["bindings"].append(entry)
 
     def current_definition(region, frozen):
         matches = [d for d in region.semantics if d["id"] == frozen["id"]]
@@ -108,6 +152,7 @@ def bind_scope_sources(choice, task, compiled, *, expected_fingerprint):
                             targetHandle=handle,
                             destination=copy.deepcopy(item["target"]),
                             observationStatus=item["status"],
+                            valueProofSHA256=_value_proof(item, region),
                         )
             if "headerGroup" in target:
                 group = target["headerGroup"]
@@ -169,6 +214,7 @@ def bind_scope_sources(choice, task, compiled, *, expected_fingerprint):
                     raise CompileError("unavailable_or_ambiguous_scope_value_evidence")
                 item = evidence[0]
                 binding = item.get("binding")
+                proof = _value_proof(item, owners[catalog["dataOwnerRegionId"]])
                 if isinstance(binding, dict) and binding.get("sourceRef"):
                     ref = binding["sourceRef"]
                     if ref not in row_refs or ref not in geometry[_key(destination)]["sourceRefs"]:
@@ -179,6 +225,7 @@ def bind_scope_sources(choice, task, compiled, *, expected_fingerprint):
                         targetHandle=selection.targetHandle,
                         destination=copy.deepcopy(destination),
                         observationStatus=item["status"],
+                        valueProofSHA256=proof,
                     )
                 elif binding is None and item.get("status") in {"absent", "uncertain"}:
                     # Existing missingness only: this is row context, not an
@@ -192,6 +239,7 @@ def bind_scope_sources(choice, task, compiled, *, expected_fingerprint):
                         targetHandle=selection.targetHandle,
                         destination=copy.deepcopy(destination),
                         observationStatus=item["status"],
+                        valueProofSHA256=proof,
                     )
                 else:
                     raise CompileError("unavailable_scope_value_binding")
@@ -213,11 +261,14 @@ def bind_scope_sources(choice, task, compiled, *, expected_fingerprint):
                 complete=complete,
                 targetHandle=selection.targetHandle,
             )
-        result = copy.deepcopy(choice)
+        result = copy.deepcopy(canonical)
         result["sourceRefs"] = refs
-        ScopeDecision.model_validate(result)
-        return result, trace
-    except (KeyError, TypeError, AttributeError):
+        bound = BoundScopeDecision.model_validate(result)
+        # Keep accounting exact if the serialized decision/trace shape changes.
+        if len(_encoded(bound.model_dump())) + len(_encoded(trace)) > MAX_PROVENANCE_BYTES:
+            raise CompileError("scope_source_provenance_budget_exceeded")
+        return bound, trace
+    except (KeyError, IndexError, TypeError, AttributeError):
         raise CompileError("unavailable_bound_scope_mapping") from None
 
 

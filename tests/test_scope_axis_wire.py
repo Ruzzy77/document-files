@@ -78,9 +78,9 @@ def test_row_axis_round_trip_preserves_literals_sources_values_and_schema():
     Draft202012Validator.check_schema(wire.contract)
     Draft202012Validator(wire.contract).validate(value)
     decision, trace = bind(wire, value, task, [compiled])
-    assert decision["explanation"] == value["explanation"]
-    assert decision["rowSelections"][0]["rowStart"] == 2
-    assert "c2:1" in decision["sourceRefs"]
+    assert decision.explanation == value["explanation"]
+    assert decision.rowSelections[0].rowStart == 2
+    assert "c2:1" in decision.sourceRefs
     assert not trace["modelSuppliedSourceRefs"]
     result, changed = apply_scope_decision([compiled], task, decision)
     assert changed and (compiled, task) == before
@@ -104,7 +104,7 @@ def test_all_rows_is_distinct_from_all_columns(whole_columns):
     result, _ = apply_scope_decision([compiled], task, decision)
     paths = [t["path"] for t in result[0].semantic_details[0]["scope"]]
     assert paths == (["/rows"] if whole_columns else [f"/rows/{i}/amount" for i in range(3)])
-    assert not decision["rowSelections"]
+    assert not decision.rowSelections
 
 
 @pytest.mark.parametrize("joined", [False, True])
@@ -321,10 +321,10 @@ def test_binding_fingerprint_missing_evidence_and_budgets_fail_atomically(monkey
     with pytest.raises(CompileError, match="value_evidence"):
         bind_scope_sources(decoded, task, [missing], expected_fingerprint=task.fingerprint)
     before = copy.deepcopy(compiled)
-    monkeypatch.setattr(binding, "MAX_SOURCE_REFS", 1)
-    with pytest.raises(CompileError, match="binding_budget"):
+    monkeypatch.setattr(binding, "MAX_PROVENANCE_BYTES", 1)
+    with pytest.raises(CompileError, match="provenance_budget"):
         bind_scope_sources(decoded, task, [compiled], expected_fingerprint=task.fingerprint)
-    monkeypatch.setattr(binding, "MAX_SOURCE_REFS", 100)
+    monkeypatch.setattr(binding, "MAX_PROVENANCE_BYTES", 1024 * 1024)
     monkeypatch.setattr(binding, "MAX_TRACE_BINDINGS", 1)
     with pytest.raises(CompileError, match="trace_budget"):
         bind_scope_sources(decoded, task, [compiled], expected_fingerprint=task.fingerprint)
@@ -365,7 +365,7 @@ def test_wire_fingerprint_tracks_literal_and_mapping_changes():
         "recordScopes": [],
     }
     decision, trace = bind(original, value, task, [compiled])
-    assert not trace["bindings"] and decision["sourceRefs"] == []
+    assert not trace["bindings"] and decision.sourceRefs == []
     assert apply_scope_decision([compiled], task, decision) == ([compiled], False)
 
 
@@ -659,12 +659,12 @@ def test_record_context_reuses_bound_anchors_without_unrelated_value_sources(mon
     record_definition["sourceRefs"] = list(obs.nodes)
     task = build_scope_tasks(obs, [region], [compiled])[0]
     wire = prepare_scope_axis_wire([task])
-    monkeypatch.setattr(binding, "MAX_SOURCE_REFS", 2)
+    monkeypatch.setattr(binding, "MAX_PROVENANCE_BYTES", 4096)
     choice, trace = bind(wire, response(wire, task), task, [compiled])
-    assert set(choice["sourceRefs"]) == {"c0:1", "c2:1"}
+    assert set(choice.sourceRefs) == {"c0:1", "c2:1"}
     anchor = next(b for b in trace["bindings"] if b["basis"] == "selected_record_definition")
     assert anchor["referenceMode"] == "already_bound_intersection"
-    assert set(anchor["sourceRefs"]) == set(choice["sourceRefs"])
+    assert set(anchor["sourceRefs"]) == set(choice.sourceRefs)
     result, _ = apply_scope_decision([compiled], task, choice)
     assert result[0].semantic_details[0]["scope"] == [{"space": "data", "path": "/rows/1/amount"}]
 
@@ -678,7 +678,7 @@ def test_literal_column_identifier_and_escaped_output_key_are_not_wire_aliases()
     wire = prepare_scope_axis_wire([task])
     value = response(wire, task, columns=["@record1.dataRow1"])
     choice, _ = bind(wire, value, task, [compiled])
-    assert choice["rowSelections"][0]["columnIds"] == ["@record1.dataRow1"]
+    assert choice.rowSelections[0].columnIds == ["@record1.dataRow1"]
     result, _ = apply_scope_decision([compiled], task, choice)
     assert result[0].semantic_details[0]["scope"] == [{"space": "data", "path": "/rows/1/a~1b~01"}]
     assert result[0].data == compiled.data

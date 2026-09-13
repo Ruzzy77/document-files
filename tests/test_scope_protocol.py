@@ -76,7 +76,7 @@ def test_policy_does_not_guess_managed_capabilities_or_change_client_defaults():
     managed.max_output_tokens = 3072
     managed.reasoning_budget_tokens = None
     policy = scope_policy(managed)
-    assert policy["version"] == "document-files.scope-axis-protocol.v7"
+    assert policy["version"] == "document-files.scope-axis-protocol.v8"
     # Bounded thinking for applicability: 512 truncated the model's reasoning on the
     # merged-header unit case and 1,024 left the raster-page unit unresolved on the
     # mixed PDF (development probes); 2,048 must stay below the managed output cap.
@@ -109,7 +109,7 @@ def test_saved_batch_rebinds_before_reuse_and_checks_full_context(mutation):
     stored = {
         "fingerprint": tasks[0].fingerprint,
         "selection": decoded["decisions"][0],
-        "decision": bound["decisions"][0],
+        "decision": bound["decisions"][0].model_dump(),
         "sourceBinding": traces[tasks[0].id],
         "request": scope_request_identity(tasks, wire, policy),
     }
