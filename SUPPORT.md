@@ -132,6 +132,11 @@ budget increase is used to manufacture a successful result.
 
 ## Latest planning and request verification
 
+Source **89a88b83778960645c6b3114220cd3630206dd48** passed **304 directly related
+Spark-B ARM tests** on the retained Python 3.12.3 dependencies, without a model call.
+The temporary source export was checked and removed; shared RPC and dependencies
+were unchanged. This does not qualify the new source's actual model behavior.
+
 The same saved HWPX detail choices now produce a **15,251-character** initial
 request rather than 16,899, within the existing 16,000 limit. All original source
 texts, selections, frozen structure and compiler binding rules remain. This is
