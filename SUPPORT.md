@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v39,
-region plan v21, table protocol v21 and compiler v32. Public v1 result
+region plan v21, table protocol v22 and compiler v32. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 
 Native observation adapter v2 now preserves the public cell's `columnSpan` when
@@ -91,11 +91,12 @@ they do not fix the long-table request/understanding failures below.
   batches without discarding context or replaying completed batches. Real cross-region
   logical continuation is still missing.
 - **Table request context:** table source wire v1 retains every source ID/text and
-  shares only repeated metadata, cells and relations. Unstarted table slices are
-  re-sized against the actual prior column mapping and its original definition
+  shares only repeated metadata, cells and relations in structure and meaning
+  requests. Unstarted table slices are re-sized against the nearest preceding column mapping and its original definition
   sources; previously accepted rows are not replayed. Native header flags and value
   ownership are unchanged. The original 50-row development files initially plan as
-  11 HWPX / 5 XLSX regions instead of 53 / 14; actual model quality still needs checking.
+  11 HWPX / 5 XLSX regions instead of 53 / 14. Larger meaning inventories can still
+  exceed the budget, and actual whole-document quality remains unapproved.
 - **Explicit review:** failed value reading may trigger one bounded correctness review
   of the structure on the same source. It is not source-change detection. Full prior
   decisions are displayed through lossless property-name sharing, while canonical

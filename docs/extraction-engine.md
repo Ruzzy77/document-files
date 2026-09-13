@@ -43,7 +43,7 @@ are not native declarations.
 ### Table metadata and evolving request context
 
 `interpretation/table_source_wire.py` shares repeated properties in table structure
-requests. Every node ID and its text remain explicit and in order. Same-shaped native
+and meaning requests. Every node ID and its text remain explicit and in order. Same-shaped native
 metadata uses shared properties and nested-key columns; equal columns can share one
 exact value without merging source nodes. Cell and relation lists use the same typed
 record encoding when it saves space. Missing keys, null, empty strings, whitespace,
@@ -53,12 +53,13 @@ decoder for model output. The original observation and compiler inputs are uncha
 
 Savings include the decoding instruction. Planning and dispatch both measure the
 messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
-The public response contract is unchanged. Table protocol v21 and region plan v21
+The public response contract is unchanged. Table protocol v22 and region plan v21
 invalidate checkpoints made with the previous display and planning behavior.
 
-The first region's column mapping may not exist when the initial plan is made.
+An earlier region's column mapping may not exist when the initial plan is made.
 Before later **unstarted** table work, `add_table_definition_context` retains that
-accepted mapping's actual definition nodes and cell geometry as context. It does not
+nearest preceding accepted mapping's definition nodes and cell geometry as context.
+Later accepted regions never become an earlier region's prior context on resume. It does not
 guess which physical row is a header, set native header flags or add value owners.
 This keeps a header below a title available in later slices without treating the
 title as that header. `sameTableMapping` remains a prior model decision, not a native
@@ -73,6 +74,13 @@ explicit partial failure; there is no source truncation or automatic budget incr
 Both partial and completed checkpoints have regression coverage for no replay of
 accepted rows. This does not fix the remaining model, applicability or empty-fragment
 evidence errors.
+
+Meaning selection and details share cell/relation metadata **after** reference-wire
+translation. Source choice inventories, literal quotes, the selection/detail output
+contracts and the frozen structure are unchanged. Checkpoint reference dictionaries
+still use canonical sources, not display templates. Exact expansion is tested for
+both native HWPX and XLSX. Larger meaning inventories or repair feedback can still
+exceed the limit; sharing is not permission to omit them or expand the budget.
 
 ### Native spreadsheet projections
 
@@ -161,7 +169,7 @@ segments, complex list/container hierarchy and long views still need broader
 characterization. Source-bound values and the native table model remain separate
 from outline quality.
 
-Compiler v32, prompt v39, region plan v20 and document-outline v1 / document-protocol v6 identify this
+Compiler v32, prompt v39, region plan v21 and document-outline v1 / document-protocol v7 identify this
 behavior. A checkpoint's saved outline is recomputed from its validated role
 decisions, not trusted as a finished hierarchy. Earlier policies cannot resume
 under the new contract. See [checked outcomes and priorities](../SUPPORT.md).
@@ -973,7 +981,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v39 / v21 / v32 |
 | Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
 | Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
-| Table protocol / table reference wire / table source wire | v21 / v2 / v1 |
+| Table protocol / table reference wire / table source wire | v22 / v2 / v1 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |

@@ -5,12 +5,15 @@
 ### Document extraction
 
 - Share repeated table source metadata and relation/cell properties losslessly
-  (table protocol v21 / table source wire v1 / region plan v21). Keep every source
+  (table protocol v22 / table source wire v1 / region plan v21). Apply the display
+  to both structure and meaning requests, after meaning reference translation;
+  preserve every source choice, quote, response contract and frozen record. Keep every source
   ID, explicit text, ordered cell/relationship and exact JSON value. Plan and send
   the same decoding instructions. Before an unstarted table call, retain the prior
-  accepted mapping's actual definition sources as unclassified context and re-split
+  nearest preceding accepted mapping's definition sources as unclassified context and re-split
   rows if that current context exceeds the limit. Preserve completed work, source
   table identity, inherited context and bounded partial outcomes on checkpoint resume.
+  Later accepted regions do not alter an earlier region's context on resume.
   This request-delivery change is not a document-understanding quality approval.
 
 - Preserve native merged-column geometry by mapping public `columnSpan` to internal

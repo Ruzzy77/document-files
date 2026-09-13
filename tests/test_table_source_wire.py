@@ -12,6 +12,7 @@ from test_table_protocol import TableModel, execute, record_response
 
 from document_files.document_model.observe import observe_document
 from document_files.interpretation.backends import InferenceResponse
+from document_files.interpretation.compiler import compile_region
 from document_files.interpretation.legacy_engine import contract_messages
 from document_files.interpretation.regions import (
     add_table_definition_context,
@@ -23,14 +24,21 @@ from document_files.interpretation.regions import (
 from document_files.interpretation.source_dictionary import _same
 from document_files.interpretation.table_protocol import (
     STRUCTURE_SYSTEM,
+    meaning_decision_schema,
+    meaning_payload,
+    structural_ir,
     structure_payload,
     structure_schema,
 )
+from document_files.interpretation.table_reference_wire import prepare_meaning_wire
+from document_files.interpretation.table_selection import SYSTEM as SELECTION_SYSTEM
+from document_files.interpretation.table_selection import selection_schema
 from document_files.interpretation.table_source_wire import (
     SYSTEM,
     compact_table_sources,
     expand_table_sources,
 )
+from document_files.interpretation.table_sources import source_inventory
 
 
 def encoded(value):
@@ -318,6 +326,7 @@ def test_an_indivisible_table_row_does_not_create_an_endless_replan_or_extra_vie
     "key,old",
     [
         ("tableProtocolVersion", "document-files.table-protocol.v20"),
+        ("tableProtocolVersion", "document-files.table-protocol.v21"),
         ("regionPlanVersion", "document-files.region-plan.v20"),
     ],
 )
@@ -330,3 +339,112 @@ def test_old_table_display_and_planning_checkpoints_are_rejected_before_call(key
     with pytest.raises(ValueError, match="incompatible"):
         execute(model, restore=state)
     assert len(model.requests) == calls
+
+
+@pytest.mark.parametrize("format_id", ["hwpx", "xlsx"])
+def test_meaning_display_preserves_every_source_choice_and_frozen_native_record(format_id):
+    doc = observe(native_table(format_id), format_id)
+    region = prepare_regions(doc, context_chars=16000)[0]
+    table = doc.tables[region["tableRef"]]
+    headers = {c["col"]: c["sourceRef"] for c in table["cells"] if c["row"] == 0}
+    response = {
+        "regionId": region["id"],
+        "tableKind": "record_table",
+        "record": {
+            "id": "rows",
+            "key": "rows",
+            "label": "Rows",
+            "tableRef": region["tableRef"],
+            "rowStart": 0,
+            "rowEnd": max(c["row"] for c in table["cells"]),
+            "definitionRefs": list(headers.values()),
+            "rowRoles": [
+                {"row": row, "role": "header" if row == 0 else "data"}
+                for row in sorted({c["row"] for c in table["cells"]})
+            ],
+            "columns": [
+                {
+                    "id": key,
+                    "key": key,
+                    "label": key,
+                    "column": col,
+                    "valueType": "string",
+                    "definitionRefs": [headers[col]],
+                }
+                for col, key in enumerate(["id", "length", "width"])
+            ],
+        },
+    }
+    _, ir = structural_ir(response, doc, region)
+    compiled = compile_region(ir, doc, region)
+    payload = meaning_payload(
+        region_payload(doc, region), ir, compiled, source_inventory(doc, region)
+    )
+    wire = prepare_meaning_wire(payload, meaning_decision_schema(doc, region, ir, {}))
+    original = wire.payload | {"meaningPhase": "selection"}
+    schema = selection_schema(original["meaningSources"])
+    packed = compact_table_sources(original)
+    assert _same(expand_table_sources(packed), original)
+    assert "nodes" not in packed  # No invented source dictionary in a meaning request.
+    assert packed["meaningSources"] == original["meaningSources"]
+    assert packed["frozenStructure"] == original["frozenStructure"]
+    assert selection_schema(packed["meaningSources"]) == schema
+    before = sum(len(m["content"]) for m in contract_messages(SELECTION_SYSTEM, original, schema))
+    after = sum(len(m["content"]) for m in contract_messages(SELECTION_SYSTEM, packed, schema))
+    assert after < before
+    # Sharing cannot guarantee every later meaning/repair fits; never drop sources
+    # or broaden the configured limit to make that separate assertion true.
+
+
+def test_resume_uses_only_preceding_mappings_not_later_accepted_regions(monkeypatch):
+    from document_files.interpretation import engine
+
+    model, states = LongMappingModel(invalid_meaning=True), []
+    content = long_html()
+    execute(model, content=content, states=states, contextChars=11000, maxModelCalls=60)
+    assert len(states[-1]["accepted"]) > 1
+    first = states[-1]["regions"][0]["id"]
+    assert states[-1]["tableStages"][first]["meaning"]["status"] != "complete"
+    seen = []
+    original = engine.add_table_definition_context
+
+    def record(doc, region, refs):
+        seen.append(region["id"])
+        return original(doc, region, refs)
+
+    monkeypatch.setattr(engine, "add_table_definition_context", record)
+    model.invalid_meaning = False
+    resumed = execute(
+        model,
+        content=content,
+        restore=states[-1],
+        contextChars=11000,
+        maxModelCalls=60,
+        additional_budget={"maxModelCalls": 20},
+    )
+    assert seen and first not in seen
+    assert resumed["data"]["records"] == [{"code": f"{i:04}", "size": "1.2300"} for i in range(50)]
+
+
+def test_later_slice_receives_the_nearest_accepted_mapping_not_the_first_one():
+    class ChangingLabelModel(LongMappingModel):
+        last_label = None
+        structure_calls = 0
+
+        def infer(self, request):
+            payload = json.loads(request.messages[-1]["content"])
+            response = super().infer(request)
+            if payload.get("tableStage") != "structure":
+                return response
+            if self.last_label is not None:
+                assert payload["sameTableMapping"]["label"] == self.last_label
+            self.structure_calls += 1
+            self.last_label = "Scripted region label " + payload["regionId"]
+            value = json.loads(response.text)
+            value["record"]["label"] = self.last_label
+            return InferenceResponse(json.dumps(value), response.usage)
+
+    model = ChangingLabelModel()
+    result = execute(model, content=long_html(), contextChars=11000, maxModelCalls=60)
+    assert model.structure_calls >= 3
+    assert result["data"]["records"] == [{"code": f"{i:04}", "size": "1.2300"} for i in range(50)]

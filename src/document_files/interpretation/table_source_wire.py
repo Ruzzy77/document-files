@@ -159,7 +159,9 @@ def compact_table_sources(payload):
     if any("metadata" in node for node in payload.get("nodes", {}).values()):
         return payload  # Never confuse a real property with our typed representation.
     result = deepcopy(payload)
-    result["nodes"], templates = _pack_nodes(result.get("nodes", {}))
+    nodes, templates = _pack_nodes(result.get("nodes", {}))
+    if "nodes" in result:
+        result["nodes"] = nodes
     if templates:
         result["nodeTemplates"] = templates
     if "relations" in result:
@@ -179,7 +181,9 @@ def expand_table_sources(payload):
         return result
     if result.pop("tableSourceEncoding") != VERSION:
         raise ValueError("unknown_table_source_encoding")
-    result["nodes"] = _expand_nodes(result.get("nodes", {}), result.pop("nodeTemplates", {}))
+    templates = result.pop("nodeTemplates", {})
+    if "nodes" in result:
+        result["nodes"] = _expand_nodes(result["nodes"], templates)
     if "relations" in result:
         result["relations"] = _expand_records(result["relations"])
     for table in result.get("tables", {}).values():

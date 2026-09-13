@@ -122,6 +122,7 @@ from .table_selection import (
     validate_selection_history,
     wire_selection,
 )
+from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, source_inventory
 
 CHECKPOINT_VERSION = "document-files.regional-checkpoint.v3"
@@ -1684,6 +1685,11 @@ def extract_schema_from_stream(
                             raise ModelError("ai_cancelled")
                         value = negative_meaning_response(selection, rid)
                     else:
+                        if stage == "meaning":
+                            # Share display metadata after reference translation.
+                            # Source choices, literal quotes and the frozen record
+                            # remain complete; the wire's canonical identity is unchanged.
+                            call_payload = compact_table_sources(call_payload)
                         value = invoke(
                             call_system,
                             call_payload,
@@ -2317,8 +2323,9 @@ def extract_schema_from_stream(
         if region.get("tableRef"):
             table = observation.tables[region["tableRef"]]
             original_table = table.get("sourceTableRef", region["tableRef"])
-            for prior_ir in accepted.values():
-                if prior_ir.regionId == rid:
+            for preceding in reversed(regions[: region_index - 1]):
+                prior_ir = accepted.get(preceding["id"])
+                if prior_ir is None:
                     continue
                 prior = next(
                     (
