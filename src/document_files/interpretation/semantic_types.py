@@ -12,7 +12,7 @@ from .document_outline import DocumentElement, constrain_schema
 from .table_sources import SourceTextPath
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v40"
+COMPILER_VERSION = "document-files.result-compiler.v41"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -251,7 +251,7 @@ def region_output_schema(observation, region, target_handles=None, *, compact=Tr
     return _compact_contract(schema) if compact else schema
 
 
-def _compact_contract(schema):
+def _compact_contract(schema, *, share=True):
     """Drop unreachable array branches and cosmetic titles, not accepted decisions.
 
     A maxItems=0 array can never contain an item. Keeping its whole item graph
@@ -296,7 +296,8 @@ def _compact_contract(schema):
     references(schema)
     if reachable:
         schema["$defs"] = {name: body for name, body in definitions.items() if name in reachable}
-    _share_repeated_constraints(schema)
+    if share:
+        _share_repeated_constraints(schema)
     return schema
 
 

@@ -19,6 +19,7 @@ from document_files.api import (
 from document_files.interpretation.compiler import CompileError, compile_region
 from document_files.interpretation.legacy_engine import decode as decode_json
 from document_files.interpretation.table_protocol import structural_ir, structure_model_schema
+from document_files.interpretation.table_read_domains import encode_columns
 from document_files.interpretation.table_structure_wire import decode, encode
 
 
@@ -173,6 +174,7 @@ class WireModel(TableModel):
             return response
         wire = encode(json.loads(response.text))
         wire["record"].pop("rowRoles")
+        wire = encode_columns(wire)
         Draft202012Validator(request.output_schema).validate(wire)
         text = json.dumps(wire)
         if self.damage == "legacy":

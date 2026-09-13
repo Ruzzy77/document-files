@@ -689,9 +689,15 @@ def extract_schema_from_stream(
                 if state.get("kind") == "record_table" and rid not in accepted:
                     raise ValueError
                 if state.get("kind") == "record_table":
+                    from .table_read_domains import identity as read_domains_identity
+
                     expected_roles = table_layout.effective_roles(
                         latest_layout, observation, region
                     )
+                    if structural.get("readDomainsSHA256") != read_domains_identity(
+                        observation, region, expected_roles, latest_layout["sha256"]
+                    ):
+                        raise ValueError
                     if (
                         len(accepted[rid].repeats) != 1
                         or {role.row: role.role for role in accepted[rid].repeats[0].rowRoles}
@@ -1821,7 +1827,7 @@ def extract_schema_from_stream(
                 return True
             system = table_layout.MAPPING_SYSTEM if stage == "structure" else MEANING_SYSTEM
             contract = (
-                table_layout.mapping_schema(observation, region, catalog)
+                table_layout.mapping_schema(observation, region, catalog, layout=layout)
                 if stage == "structure"
                 else meaning_schema(observation, region, accepted[rid], catalog)
             )
@@ -1857,7 +1863,25 @@ def extract_schema_from_stream(
                         if layout["response"]["tableKind"] != "record_table":
                             return nonrecord_result(layout)
                         request = table_layout.mapping_request(payload, layout, observation, region)
-                    progress["layoutSHA256"] = layout["sha256"]
+                        contract = table_layout.mapping_schema(
+                            observation, region, catalog, layout=layout
+                        )
+                    from .table_read_domains import identity as read_domains_identity
+
+                    domain_hash = read_domains_identity(
+                        observation, region,
+                        table_layout.effective_roles(layout, observation, region),
+                        layout["sha256"],
+                    )
+                    if (
+                        progress.get("layoutSHA256") == layout["sha256"]
+                        and "readDomainsSHA256" in progress
+                        and progress["readDomainsSHA256"] != domain_hash
+                    ):
+                        raise ModelError("table_read_domains_checkpoint_mismatch")
+                    progress.update(
+                        layoutSHA256=layout["sha256"], readDomainsSHA256=domain_hash
+                    )
                 try:
                     try:
                         wire = (

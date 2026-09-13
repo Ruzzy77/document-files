@@ -133,6 +133,36 @@ def preferred_binding(bindings, source_ref, mode="source"):
     return None
 
 
+def table_cell_grid(cells, columns, start, end, *, conflicts=None):
+    """Expand only the requested coordinates, retaining each original source cell."""
+    grid = {}
+    for cell in cells:
+        for row in range(
+            max(cell["row"], start), min(cell["row"] + cell.get("rowSpan", 1), end + 1)
+        ):
+            for column in columns:
+                if cell["col"] <= column < cell["col"] + cell.get("colSpan", 1):
+                    key = (row, column)
+                    if key in grid and grid[key] != cell:
+                        if conflicts is None:
+                            raise CompileError("overlapping_observed_table_cells")
+                        conflicts.add(key)
+                    grid[key] = cell
+    return grid
+
+
+def table_value_selection(cell, mode, by_source, nodes, table):
+    """Use the same source choice and missing-state rules in planning and compilation."""
+    source = by_source.get(cell["sourceRef"], {}) if cell else {}
+    binding_id = preferred_binding(source, cell["sourceRef"], mode) if cell else None
+    if binding_id and source[binding_id].get("candidateStatus") == "unresolved_conflict":
+        return None, "uncertain"
+    if binding_id:
+        _, raw, _ = _read(source[binding_id], "string", nodes)
+        return binding_id, "blank" if raw == "" else "present"
+    return None, "uncertain" if table.get("basis") != "native_structure" else "absent"
+
+
 @dataclass
 class CompiledRegion:
     id: str
@@ -862,18 +892,9 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 for row, row_cells in sorted(observed.items())
             },
         }
-        grid = {}
-        for cell in cells:
-            for row in range(
-                max(cell["row"], repeat.rowStart),
-                min(cell["row"] + cell.get("rowSpan", 1), repeat.rowEnd + 1),
-            ):
-                for col in repeat.columns:
-                    if cell["col"] <= col.column < cell["col"] + cell.get("colSpan", 1):
-                        key = (row, col.column)
-                        if key in grid and grid[key] != cell:
-                            raise CompileError("overlapping_observed_table_cells")
-                        grid[key] = cell
+        grid = table_cell_grid(
+            cells, [col.column for col in repeat.columns], repeat.rowStart, repeat.rowEnd
+        )
         for row in sorted(observed):
             if row not in roles:
                 continue  # Missing decisions never create records, including synthetic gaps.
@@ -901,23 +922,9 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 field_targets[col.id].append(target)
                 row_targets[repeat.id][row].append(target)
                 row_scope["rows"][str(row)]["targets"][col.id] = target.model_dump()
-                binding_id = (
-                    preferred_binding(
-                        by_source.get(cell["sourceRef"], {}), cell["sourceRef"], col.bindingMode
-                    )
-                    if cell
-                    else None
+                binding_id, status = table_value_selection(
+                    cell, col.bindingMode, by_source, nodes, table
                 )
-                if (
-                    binding_id
-                    and bindings[binding_id].get("candidateStatus") == "unresolved_conflict"
-                ):
-                    binding_id, status = None, "uncertain"
-                elif binding_id:
-                    _, raw, _ = _read(bindings[binding_id], "string", nodes)
-                    status = "blank" if raw == "" else "present"
-                else:
-                    status = "uncertain" if table.get("basis") != "native_structure" else "absent"
                 record[key], shape = scalar(
                     binding_id,
                     col.valueType if status != "blank" else "string",

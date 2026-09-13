@@ -16,6 +16,7 @@ from document_files.interpretation.contracts import ExtractionOptions
 from document_files.interpretation.engine import extract_schema_from_stream
 from document_files.interpretation.regions import prepare_regions, region_payload
 from document_files.interpretation.table_protocol import structural_ir
+from document_files.interpretation.table_read_domains import encode_columns
 from document_files.interpretation.table_selection_wire import encode_selection
 from document_files.interpretation.table_source_wire import expand_table_sources
 from document_files.interpretation.table_structure_wire import encode
@@ -98,6 +99,7 @@ class Model:
             value = mapping(payload)
             if self.bad_mapping:
                 value["record"]["columns"]["0"]["valueType"] = "boolean"
+            value = encode_columns(value)
         else:
             value = encode_selection(
                 {
@@ -107,7 +109,10 @@ class Model:
                     }
                 }
             )
-        Draft202012Validator(request.output_schema).validate(value)
+        # Deliberate invalid-read injection still exercises the compiler/review
+        # boundary when a custom client ignores the new generation constraint.
+        if not (self.bad_mapping and payload["tableStage"] == "structure"):
+            Draft202012Validator(request.output_schema).validate(value)
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
 
@@ -404,7 +409,7 @@ def test_fifty_row_plans_reserve_real_mapping_capacity_and_preserve_all_cells(fo
             for m in contract_messages(
                 layout.MAPPING_SYSTEM,
                 layout.mapping_request(payload, current, doc, region),
-                layout.mapping_schema(doc, region, {}),
+                layout.mapping_schema(doc, region, {}, layout=current),
             )
         )
         assert actual <= sizes["mappingReserve"] <= region["requestChars"] <= 16000
@@ -431,7 +436,7 @@ def test_mapping_reservation_bounds_every_role_combination_without_native_mutati
         messages = contract_messages(
             layout.MAPPING_SYSTEM,
             layout.mapping_request(payload, current, doc, region),
-            layout.mapping_schema(doc, region),
+            layout.mapping_schema(doc, region, layout=current),
         )
         assert sum(len(m["content"]) for m in messages) <= bound
     assert doc == before

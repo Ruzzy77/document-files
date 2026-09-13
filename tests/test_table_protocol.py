@@ -161,6 +161,9 @@ def mapping_fixture(value):
     result = encode_structure(value)
     if isinstance(result, dict) and isinstance(result.get("record"), dict):
         result["record"].pop("rowRoles")
+        from document_files.interpretation.table_read_domains import encode_columns
+
+        result = encode_columns(result)
     return result
 
 
@@ -228,6 +231,9 @@ class CoordinateFixture:
                 assert value["record"].pop("rowRoles") == payload["tableLayout"]["rowRoles"], (
                     "Fixture must declare its layout_response separately from column mapping"
                 )
+                from document_files.interpretation.table_read_domains import encode_columns
+
+                value = encode_columns(value)
                 text = json.dumps(value)
             return replace(response, text=text) if name == "infer" else text
 
