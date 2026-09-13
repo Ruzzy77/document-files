@@ -1,7 +1,7 @@
 # Extraction readiness and priorities
 
 Current capability, confirmed defects and the next acceptance checks. Last verified:
-**2026-09-13**. Implementation and checkpoint behavior belong in
+**2026-09-14**. Implementation and checkpoint behavior belong in
 [the extraction engine](docs/extraction-engine.md); raw comparisons remain in private
 qualification evidence. This is not a chronological work log. Version **1.8.0 is not
 formally released**, and the primary-format structural KPI is not yet approved.
@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,345 tests,
+The full local check including the native outline path passed **3,353 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -217,59 +217,99 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-The current source **c075ab0b47c9ef3da18305e8caba7a65729b60a3** ran the original
-binary HWP development fixture through the public stream API on Spark-A's existing
-**Motif-3-314B-Q4_K_M** service. The allowance remained **12 calls / 900 seconds /
-16,000 characters**, output 3,072 tokens; expected answers stayed local.
+Current implementation source is **998c3e86dc89a7d22c20bb913c2e97c9de7ab1ec**.
+Table protocol v30 adds source-localized feedback for rejected typed cell reads;
+compiler v36 and the native value-first review policy are unchanged. Local checks
+passed **3,353 tests / 227 skips / 12 subtests**; the diagnostic/controller suite
+passed **83 tests with warnings treated as errors**. These are not model-quality results.
+The same source passed **524 related tests on Spark-A Python 3.12.3**.
 
-It returned **partial after 12 calls / 567.4 seconds**, accepting the two exact footnote
-texts. All 18 original nodes, 28 bindings and four native note objects, stored numbers
-and body links are unchanged. The sequence was two role calls, two structure calls,
-four value calls, two reviews and two applicability calls:
+### Same-source HWP backend comparison
 
-- Both structures reached values without a speculative review. In the first region,
-  an actual role/value conflict triggered a checked title-to-paragraph replacement.
-  The model also changed its generic title field to absent. Fresh reading then
-  accepted both footnote texts with their original bindings.
-- The second region's review retained a title/whole-value contradiction. The final
-  value attempt repeated it and was rejected; no endnote values were accepted.
-- Added note applicability remained unresolved or targeted the note-text field itself.
-  Preserving the correct native body attachments does not validate those added relations.
-- No duplicate property appeared in this run. The new source-specific collision
-  feedback has native-parser regression and old-response replay coverage, **not an
-  actual-model repair result**.
+Both backends used **c075ab0b47c9ef3da18305e8caba7a65729b60a3**, the same binary HWP
+fixture and unchanged **12-call / 900-second / 16,000-character** allowance, with
+3,072 output tokens and an 8,192-token context. Expected answers stayed local.
 
-The source passed **3,345 local tests / 227 skips / 12 subtests** and **405 related
-tests on Spark-A Python 3.12.3**. Counts changed with replacement of obsolete
-pre-value-review tests, not qualification of skipped environments. Replaying five
-older responses prepares a value request at 11,486 characters instead of an early
-full revision and retains both duplicate source positions in repair feedback. That
-comparison makes no new model calls and is not a quality result.
+| Backend | Actual result | Confirmed remaining defect |
+|---|---|---|
+| Existing Motif-3-314B-Q4_K_M service | 12 calls / 567.4 seconds, partial; two exact footnote values accepted | One actual role/value conflict produced a checked replacement; another review retained the contradiction. Added note applicability was unresolved or self-targeted. |
+| Existing Qwen3.5-9B-Q4_K_M runtime | 6 calls / 111.4 seconds, partial; no accepted values | Structures made artificial paragraph/note records, first with inconsistent row states and then with missing-state evidence from other occurrences. No value stage was reached. |
 
-This is a **development quality failure**, not independent approval. The frozen HWP
-specification requires exact note/body texts, control roles and source-linked native
-attachments. It does not prescribe the logical enum `paragraph` for the body references
-or require six invented scalar fields. Existing helper assumptions about those labels
-and scalar counts are now identified separately; the specification and older failed
-reviews were not rewritten. The present result still fails whole extraction because
-its declared values/relations are incomplete or unsupported, not merely because it
-misses an added label hypothesis.
+Both preserve all 18 original nodes, 28 bindings, four native note objects, stored
+numbers and body attachments. Neither passes whole extraction. The 9B path did
+less accepted work, so its shorter duration is not equivalent-work speedup. Model
+weights and runtime both differ; this is not a weights-only causal comparison.
+No actual-model duplicate-property repair was exercised.
 
-The shared-model run started no new model process and left global settings unchanged.
-Its safeguards were a 4 GiB owned-engine address-space cap, 12 GiB available-memory
-admission and 6 GiB running floor. Sampled minima were **13.87 GiB on A / 26.13 GiB
-on B**, with no increase in either OOM count. These are not peak-memory or swap-free
-qualification. Full model shard hashes remain unverified and the product default was
-unchanged. All 49 evidence files were collected and hash-checked; 3,839 owned temporary
-files and two transfer archives were removed. Shared services/components were preserved.
+The frozen HWP specification requires exact text, native control roles and source-linked
+attachments. It does not require a particular logical `paragraph` enum or six invented
+scalar fields. Additional reviewer assumptions are separate; the original expectations
+and historical failed reviews are unchanged. Correct native preservation does not
+approve incomplete declared values or unsupported added relationships.
 
-Current evidence is in `structural-kpi-20260913/native-value-first-61/`, including the
-criterion audit. Prior source-specific failures remain separate. The next bounded
-comparison should keep this product source and document fixed while using the already
-available 9B runtime; recheck its resources/components first and do not run it alongside
-the shared comparison. No automatic budget increase or identical 314B rerun is planned.
-A compact independent XLSX case is a separate required check, not replaced by this HWP
-comparison.
+The 9B components were hash-checked before use and its model/runtime files again after
+execution. Its owned authenticated server and temporary source were removed after
+34 evidence files were collected. Shared services and original components are unchanged.
+No OOM counter increased. Separate model-container and engine limits are **not** a
+whole-job 16 GiB, GPU-memory or swap-free qualification. Detailed resource evidence
+remains with the corresponding run rather than implying comparable memory regimes.
+
+### XLSX input-holdout failure
+
+The previously unrun credit-register input used that same **c075ab0** source and the
+existing 314B service. It returned **partial after 2 calls / 125.8 seconds**, with no
+accepted records. Both structure responses marked the leaf-header row as data; an
+offline replay reproduced the first rejected read exactly: **C2 `Credit` requested
+as a number**. The repair changed identifiers but repeated the rejected mapping.
+The visible column choices also cited the group header instead of the Credit leaf
+and selected numeric source reads for formulas. Meaning and applicability were not
+reached, so these later requirements are not reported as separately tested failures.
+
+Native IDs, original decimal spelling and both uncached formulas survived. D4 is an
+implicit XML gap with an explicit blank-not-zero note, not a stored empty cell; no
+zero or formula cache was invented. This is necessary source preservation, not
+semantic approval. The failure guided the current source-localized diagnostic, so
+the input is now development-only. Its frozen specification and original responses
+are unchanged; this was input holdout coverage, not an external blinded review.
+
+That run passed 441 related ARM tests. All 19 evidence files were hash-checked before
+its owned engine copy and transfer archives were removed. Sampled available-memory
+minima were 13.86 GiB on A / 26.05 GiB on B; OOM counts did not increase. Shared model
+settings were unchanged, and full 314B shard hashes remain unverified. No peak-memory,
+swap-free or deployment qualification is implied.
+
+Evidence: `structural-kpi-20260913/native-value-first-61/` (314B and criterion audit),
+`native-backend-62/` (9B comparison), `independent-xlsx-63/` (original failed holdout
+and membership change), and `table-read-feedback-64/` (current implementation and run).
+
+### Current diagnostic verified; XLSX interpretation still fails
+
+The current source reran that XLSX as development evidence under the same allowance.
+It returned **partial after 2 calls / 135.2 seconds**, with no accepted records.
+The first response chose decimal columns but retained the wrong leaf-header row role;
+its first rejected read was formula **E3 requested as a number**. The repair request
+delivered that exact source, path, type and geometry in **15,387 characters**, below
+the unchanged limit. The next response changed the decimal columns to number and
+formula binding to ordinary source binding, then failed first at **C2 `Credit`**.
+
+Thus source-localized diagnostics are confirmed in the actual model path, but they
+did not repair the document. Both proposals were rejected after the two automatic
+structural attempts; the whole 12-call allowance was not exhausted. Native document
+content is unchanged from the preceding run's document object.
+No value, unit/condition applicability or semantic missingness result was accepted.
+
+The owned engine returned, all 19 evidence files were hash-checked, and 3,809 temporary
+files plus both transfer archives were removed. Shared services/components are unchanged.
+Sampled minima were 13.93 GiB on A / 26.13 GiB on B, with no OOM count increase;
+the earlier resource-qualification limitations still apply.
+
+Before another inference run, inspect the allowed formula/type combinations and the
+repair request's missing prior structural proposal. The latter is a testable design
+hypothesis, not an established cause: the current repair sees original source and error
+locations but not the complete rejected mapping. Keep source facts separate from model
+choices, verify formula/cache and merged-header regressions, and fit any retained
+proposal inside the same budget. Do not add repeated prompt advice, force header roles,
+coerce rejected values or increase calls merely to pass this case.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -342,7 +382,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** Real-value-first review now runs and accepted one role replacement, but another review retained a concrete contradiction; added note relations remain unresolved or self-targeted. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Keep the current source/input/allowance fixed for one existing-9B comparison to separate backend behavior from further protocol changes. Review native facts, declared fields and added meanings separately against the frozen criteria. Preserve real occurrences and exact sources; no automatic field deletion, forced roles, unsupported absence or approval by label/count shortcuts. |
+| 1 | **Complete primary-format extraction is not approved.** The same-source 9B HWP comparison stopped at invalid structures; 314B accepted only two footnote values. XLSX still fails after confirmed source-localized feedback. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Inspect formula/type compatibility and the complete rejected mapping available to table repair before another model call. Then verify remaining row/header decisions and occurrence-bound HWP structures. Review native facts, declared fields and added meanings separately. No forced roles, unsupported absence, blanket scalar deletion or approval by labels/counts. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |
@@ -396,9 +436,12 @@ The earlier prepared independent set was re-audited: the identical HWPX receipt 
 already been used in failed model runs, and the binary HWP note fixture guided the
 native correction above. Both are development-only, removed from active independent
 membership with original bytes, expectations and the membership-change evidence retained.
-Nine candidates remain; that count is not approval or a fresh unseen-status guarantee
-for every retained case. The primary XLSX credit-register is still only a candidate;
-new independent HWP and HWPX cases are required.
+The primary XLSX credit-register then failed its first input-holdout model execution.
+That failure guided source-localized structural repair, so it too is development-only
+and removed from active membership. Original bytes, pre-inference expectations and
+responses are unchanged. Eight candidates in deferred formats remain; that count is
+not approval or a fresh unseen-status guarantee. New independent HWP, HWPX and XLSX
+cases are required. This was input holdout coverage, not a blinded external review.
 
 There is no separate response-time SLA. Evaluation defaults remain short **12 calls /
 900 seconds**, long **64 calls / 3,600 seconds**; development comparisons can use an

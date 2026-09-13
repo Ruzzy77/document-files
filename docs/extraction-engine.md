@@ -1092,6 +1092,30 @@ recorded XLSX request. Changing only those two limits, from 5,000 / 2,000 to the
 passed token-count preflight. The diagnostic generated at most one token; it proves
 the specific initialization fix, not full JSON or document quality.
 
+### Failed table reads and structural repair
+
+`table_structure_feedback.py` locates a compiler-rejected typed read using the
+compiler's binding selection and the region's owned observations. Repair feedback
+contains the error code plus `invalid_table_value_selection`: the offered `sourceRef`,
+source path, requested type and, for a unique source cell, its zero-based origin and
+span. A merged cell's origin is not the particular expanded record row that tried
+to read it. The diagnostic does not copy cell text, generated field names or binding
+IDs that were absent from the structural request.
+
+The model must reconsider its row role, column mapping, type or binding mode in the
+complete source context. The engine does not promote a row to a header, coerce a
+rejected value, evaluate a formula or change a field merely to make compilation pass.
+Unrelated errors retain their existing diagnostics. Failed diagnostics survive in the
+table-stage checkpoint and result; structural repair still has at most two automatic
+attempts within the document allowance. Table protocol v30 rejects older checkpoint
+identities; the compiler and public v1 contracts are unchanged.
+
+The motivating XLSX failure was reproduced offline from both original model responses:
+the leaf-header row was marked as data, then the compiler tried to read its text as a
+number. Source-local feedback has actual native-geometry and scripted repair tests.
+Those tests establish error delivery and bounded rejection, not that a model will
+correct its interpretation. Current actual-model results belong in `SUPPORT.md`.
+
 ### Prior table mapping context
 
 Region plan v22 uses the **compiled column definitions** when carrying a mapping
@@ -1534,7 +1558,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v40 / v23 / v36 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v29 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v30 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
