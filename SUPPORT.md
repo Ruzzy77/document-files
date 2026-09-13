@@ -289,53 +289,66 @@ and membership change), `table-read-feedback-64/` (source-local feedback), and
 (coordinate decisions and repair sizing), `table-neutral-rows-69/`
 (neutral row metadata and the initial layout-first draft), and `table-layout-first-70/`
 (previous layout/mapping failure), and `table-blank-review-71/`
-(current blank/source checks, HWPX whitespace/chunks, actual early-stage diagnostic and cleanup).
+(blank/source checks and HWPX whitespace/chunks), `table-thinking-72/`
+(exact-request reasoning comparison), and `table-thinking-full-73/`
+(full-path attempt stopped at the initial output limit).
 
-### Blank-row validation works; actual layout interpretation still fails
+### Reasoning can resolve the layout, but complete extraction remains unstable
 
-A deliberately bounded **two-call early-stage diagnostic** on the current source
-returned partial after **33.1 seconds**, with no accepted layout or data. Both replies
-still classify the leaf-header row as data and the nonempty explanatory note row as
-blank. The second request includes the exact offending row and original source ID,
-but the model repeats its decision. The new guard refuses both replies before any
-column mapping or meaning call. Schema validity is not source consistency or quality.
+All three comparisons below use source **52b15b9**, the same original XLSX and frozen,
+local-only expectations. Native source, all values and bindings are identical. No
+corrected layout or answer was injected into a subsequent run.
 
-All native source, values and bindings match the preceding run, and the complete
-input remains in one region. Actual requests are **12,288 / 12,460 characters**.
-The check used at most two calls, below the ordinary 12-call evaluation ceiling;
-context/output/time limits and the frozen expectations were unchanged. It is not a
-whole-document throughput measurement or a substitute for complete extraction.
-The standard planner's optional `discover` intent adds eight characters in an offline
-sizing check; the actual request has an empty optional intent. Expanded source content
-is otherwise identical, not missing from the actual request.
+| Comparison | Actual execution | Result |
+|---|---|---|
+| Non-thinking, two-call early diagnostic | 2 calls / 33.1 seconds | Both replies misread the leaf-header row as data and a nonempty note as blank. The source-consistency check rejects both. |
+| Thinking enabled, one-call diagnostic | 1 call / 79.0 seconds; 991 completion tokens | Correctly selects two header, two data and two note rows. One layout accepted; no column, value or meaning call was allowed. |
+| Same thinking setting, complete-path allowance | 1 call / 245.3 seconds; 3,072 completion tokens; `finish_reason:length` | No final content or accepted layout. The engine returns partial with `ai_response_incomplete` before mapping or meaning. |
 
-The preceding whole-path run used **6b0e82d** and stopped on duplicate column IDs after
-four calls. Replaying that failure under current code confirms that it remains a mapping
-error and cannot spend a layout review. The same replay now rejects its nonempty blank
-row. The program does not replace the role or delete source. Scripted tests preserve
-attempt counts, full feedback, accepted unrelated work and cancellation/resume.
+The last two runs have exactly equal initial public requests, HTTP payloads and model
+configuration identities. The first request differs from the non-thinking baseline only
+in `enable_thinking`. Source/model/runtime, temperature 0, seed 1, 8,192-token context,
+16,000-character input limit and 3,072-token output limit are unchanged. Requests are
+12,288 characters. Both thinking runs also report the same cached/prefilled token counts;
+the cause of different generations is not isolated. Greedy settings do not establish
+repeatability. The single correct layout is not a product-quality pass.
 
-Source checking also exposed and fixed a native HWPX defect: whitespace-only cell text
-was discarded before interpretation. HWPX cells now retain spaces, tabs and line breaks;
-long cell segments stay bounded and rejoin contiguous chunks without added paragraph
-breaks. Other paragraphs retain their existing display normalization. Direct native-file
-tests cover empty strings, whitespace, zero/false, formulas, notes and merged sources.
-The broader HWP/HWPX logical reading and nontext-object quality remain unapproved.
+The complete-path run retained the ordinary **12-call / 900-second** allowance. It
+stopped on one truncated response, not exhaustion of that document allowance. The
+returned reasoning and final content were recorded separately; completion usage includes
+both, with no separately captured token split. Do not label unexecuted column/meaning
+steps as new failures or infer final roles from unfinished reasoning.
 
-Nineteen evidence files were hash-checked; the owned engine returned and **3,819**
-temporary files plus both transfer archives were removed. Shared services and retained
-components are unchanged. Sampled available-memory minima were **13.76 GiB on A /
-26.12 GiB on B**, with no OOM increase. No whole-job memory or deployment qualification
-is implied.
+The unsuccessful response struggled to map packed cell tuples and metadata templates
+back to physical rows, even though explicit row candidates were present. That is an
+observed interpretation difficulty, not evidence of source loss or proof that encoding
+alone caused the failure. A future layout-specific view should expose original rows,
+cells, spans, text and references directly without selecting roles in program code.
 
-**Next:** a separately predeclared one-call diagnostic with the same frozen code and
-exact first layout request, changing only per-request `enable_thinking` from false to
-true. Preserve the model/runtime, sampling, source and existing context/output/timeout
-limits; verify the actual request difference and all reasoning/output usage. Do not add
-more role heuristics, hand-written expected-role hints or unchanged retries. A correct
-layout would still require a full bounded table/value/meaning/applicability comparison,
-then new independent HWP/HWPX/XLSX inputs. The current refusals are correct safeguards,
-not successful document understanding.
+Current guards reject nonempty/unclear source labelled blank and keep mapping-only ID
+errors out of layout review. HWPX cell whitespace and contiguous text chunks are preserved;
+unrelated paragraph display normalization is unchanged. The full 3,517-test, focused
+423-test and ARM 1,004-test results remain the source checks. The last two comparisons
+reuse the exact ARM source/library/Python evidence rather than claiming new test runs.
+
+Both thinking runs returned and their evidence was hash-checked before their owned
+temporary copies and transfer archives were removed. Shared services and original
+components are unchanged; neither host's OOM counter increased. No whole-job memory,
+swap-free, deployment or independent quality qualification is implied. A preliminary
+private-runner manifest-format mismatch used zero model calls and was separately
+retained and cleaned; it was not a product or model failure.
+
+**Next:** test a predeclared 1,536-token per-block reasoning limit while keeping total
+output at 3,072 and the ordinary document allowance unchanged. The matching runtime's
+[request parser](https://github.com/hebo1221/llama.cpp/blob/cc3f13b3f172978d7b3c215780d4cc98bb0e1c80/tools/server/server-common.cpp#L1261-L1273)
+contains this control; enforcement with the loaded model/template has not yet been tested.
+This is a diagnostic setting, not an adopted default or guaranteed final-output reserve.
+Verify actual termination and returned content before drawing a conclusion. Do not
+repeat unrestricted thinking, increase limits, change the shared service or inject roles.
+If tuple decoding still obstructs interpretation, first evaluate a layout-specific
+source view with preserved geometry, exact text and provenance. Complete native
+table/value/meaning/applicability checks and fresh independent HWP/HWPX/XLSX inputs
+remain necessary.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -408,7 +421,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Complete primary-format extraction is not approved.** HWP lacks complete occurrence-bound values and relationships. Current XLSX row decisions still fail source checking; the prior full run also had duplicate column IDs. Incorrect blank acceptance and unrelated layout review are fixed, not the model interpretation. The 50-row baseline still retains only 12/45 rows. | Compare per-request reasoning with the same exact layout request under a one-call cap, then require a full native table/meaning/applicability run. No more unchanged retries, forced roles, source deletion or approval by schema/counts. |
+| 1 | **Complete primary-format extraction is not approved.** HWP lacks complete occurrence-bound values and relationships. Thinking produced one correct XLSX layout, but the same request in the full-path attempt exhausted output with no final answer. The 50-row baseline still retains only 12/45 rows. | Verify a per-request reasoning limit within the existing output/document allowance; assess a clearer layout-only source view if needed. Then require full native table/meaning/applicability results and new independent inputs. No unrestricted retry, forced role, source deletion or approval by one correct layout. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |
