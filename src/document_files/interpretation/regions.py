@@ -12,7 +12,7 @@ from .document_outline import enabled as outline_enabled
 from .document_outline import role_context
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v25"
+REGION_PLAN_VERSION = "document-files.region-plan.v26"
 
 
 def _encoded(value):
