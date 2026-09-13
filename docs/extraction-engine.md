@@ -1068,10 +1068,11 @@ membership identities; missing or older application policy prevents resume.
 
 ## 3. Record tables, scalar forms and content review
 
-`table_protocol.py` classifies the structure first. Every observed non-fixed row
-needs one explicit role; unknown, duplicate or omitted row decisions fail validation.
-Only wholly native-declared header rows are fixed without a model decision. A record
-structure compiles before its meanings are interpreted. Missing cells are not shifted,
+`table_layout.py` first decides table kind and row roles, then column mapping runs
+against that saved layout. Every observed non-fixed row needs one explicit role;
+unknown roles or a wrong role count fail validation. Only wholly native-declared
+header rows are fixed without a model decision. A record structure compiles before
+its meanings are interpreted. Missing cells are not shifted,
 filled or invented. Decimal strings are validated lexically, without float conversion.
 Unsupported locale/unit-bearing text stays uncertain with its original spelling.
 
@@ -1081,7 +1082,8 @@ indices. A column definition cannot supply another coordinate or repeat an index
 the JSON parser rejects duplicate object keys, including on unconstrained backends.
 Selecting only some columns remains allowed. The domain retains the prior bounded
 grid range, including implicit gaps; geometry does not turn every slot into a field.
-Names, types, header references, binding modes and table kind remain model choices.
+Names, types, header references and binding modes remain model choices. Table kind
+and row roles are separate earlier model choices, not native facts.
 
 For rows, the request supplies `rowRoleOrder`: sorted observed row coordinates,
 expanded for spans, minus wholly declared header rows. The model returns exactly one
@@ -1099,18 +1101,18 @@ have no undecided row positions. General semantic requests use the same neutral
 list: a record covers its observed table range with explicit row roles, and only
 rows chosen as data are read as records. The program does not infer a header from
 the first row, numeric types or formatting, or change native header flags.
-Table protocol v35, region plan v24 and prompt v41 prevent incompatible checkpoint
-reuse. The structural instructions and output grammar are unchanged by this
-payload correction; it does not establish correct model interpretation.
+The neutral row positions remain in layout-first table protocol v36 / region plan
+v25 / prompt v41. Correct row metadata does not establish correct interpretation;
+the new layout response is checked separately before column definitions are requested.
 
-`structure_model_schema` is the model-facing contract; `structure_schema` and
-`structural_ir` retain the canonical record definition used by the compiler. Accepted
-records, meanings and checkpoints retain their existing arrays and original IDs,
-keys, labels, types and provenance. The inverse codec is for inspection and scripted
-fixtures, never a compatibility conversion for old model replies. Canonical-array
-model replies are rejected under table protocol v34. Its version change also prevents
-resuming old table checkpoints. Classification as a scalar form or unresolved table
-still returns `record:null`; no columns or values are manufactured for those paths.
+`table_layout.mapping_schema` derives the current model-facing column contract
+from `structure_model_schema`, fixes `tableKind: record_table` and removes row roles.
+`decode_mapping` rejects attempts to change the saved layout, then restores its row
+roles before the existing coordinate decoder and `structural_ir` compile the record.
+Canonical arrays, original IDs, keys, labels, types and provenance remain intact.
+The inverse codec is for inspection and scripted fixtures, not compatibility with
+old model replies. Scalar-form and unresolved choices are handled by the earlier
+layout response; neither manufactures a record. Older table checkpoints are rejected.
 
 Subtotal, note and unmapped value cells use a separate scalar child region with
 `parentRegionId` / `tableContextRef`. `valueRoutes` records each cell's owner; the
@@ -1163,8 +1165,10 @@ The model must reconsider its row role, column mapping, type or binding mode in 
 complete source context. The engine does not promote a row to a header, coerce a
 rejected value, evaluate a formula or change a field merely to make compilation pass.
 Unrelated errors retain their existing diagnostics. Failed diagnostics survive in the
-table-stage checkpoint and result; structural repair still has at most two automatic
-attempts within the document allowance. The compiler and public v1 contracts are unchanged.
+table-stage checkpoint and result. Column mapping has at most two automatic attempts;
+a failed mapping can request one review of the saved layout within its own two-call
+ceiling. Neither attempt count is reset by a changed layout. Public v1 contracts are
+unchanged; compiler v37 checks the full occupied span when recognizing a column header.
 
 `check_structure` blocks the same structural issue codes as before, but retains their
 column/source detail. Column errors group all distinct source references by zero-based
@@ -1190,8 +1194,8 @@ chosen type/mode, not an invented failing cell. The `source`, `text` and `cached
 mode/type choices are otherwise unchanged and still require actual source validation.
 No formula is evaluated; a saved cache is a separate explicit read. Older table
 checkpoints are incompatible rather than normalized into a different choice. The
-current table protocol is v35, including neutral row metadata, coordinate decisions,
-source-specific feedback and native text views.
+current table protocol is v36, including separate layout decisions, neutral row
+metadata, coordinate decisions, source-specific feedback and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
 the leaf-header row was marked as data, then the compiler tried to read its text as a
@@ -1201,8 +1205,10 @@ correct its interpretation. Current actual-model results belong in `SUPPORT.md`.
 
 #### Prior structure in a repair request: measured boundary, not implemented
 
-The repair request currently carries source and diagnostics, not the complete rejected
-proposal. Adding that proposal to the v31 contract would make the recorded XLSX repair
+The mapping repair carries source, diagnostics and the accepted layout, not the
+complete rejected column proposal. Layout review does carry the complete previous
+layout and its source-bound hash. Adding a full combined proposal to the former v31
+contract would make the recorded XLSX repair
 17,166 characters, beyond the unchanged 16,000-character allowance. Removing only
 program-owned scaffolding from a hypothetical wire still leaves 16,374 characters
 before new prompt instructions. That prototype is not an adopted product contract.
@@ -1216,36 +1222,68 @@ reproduction of the rejected compile on resume, and unchanged finite attempt lim
 The benefit of showing that proposal to the model remains unverified. Neither request
 sizing nor successful error delivery establishes correct table interpretation.
 
-### Layout before column decisions: proposed, not implemented
+### Layout before column decisions
 
-The current combined output grammar emits column definitions before row roles.
-A layout-first design would separate table kind and ordered row roles from names,
-keys, types and read modes. A schema-valid layout would still be a model proposal,
-not a verified reading or a native header declaration. Original observations stay
-unchanged. This is the next design to test, not the current execution path.
+`table_layout.py` implements table-layout v1. Its first response contains table kind,
+one role per `rowRoleOrder` position, and `baseRevision`. A record table requires roles;
+scalar forms and unresolved tables require `rowRoles: null`. Names, keys, value types,
+read modes and meanings are not requested in this stage. Acceptance means the contract
+and source identity were checked, not that the model understood the table correctly.
 
-For a checked record-table layout, column candidates would be calculated from the
-chosen header rows and actual cell spans. Candidate membership must retain the
-layout identity and source references and distinguish AI-selected roles from native
-header declarations. Mixed rows and cells spanning several roles cannot be promoted
-solely from their origin row. Scalar forms retain the scalar path; an unresolved
-choice does not manufacture a record.
+The saved layout records the original source hash, complete response and decision hash.
+The source hash covers the table, original nodes, bounded views and relevant native
+relationships. Ownership routing may move a source into context without changing that
+full source set. A review must name the previous layout hash. Replay reconstructs the
+complete history against the current source and verifies that an accepted mapping uses
+the latest completed layout and exactly its effective row roles. A completed mapping
+cannot carry a pending layout revision. Changed source, history, roles, association or
+internal contract versions prevent resume.
 
-Layout, mapping and repairs need separate saved attempted/returned/accepted states.
-A mapping failure may require an explicit bounded layout revision. A changed layout
-must invalidate only its dependent mapping and meanings; an unchanged layout cannot
-silently reset attempted calls. Cancellation, resume, source identity and incompatible
-checkpoint versions must be checked before running this path. Caller time, call,
-context and output limits remain unchanged, including complete feedback when a repair
-is too large. Already accepted unrelated regions must survive failure.
+The program derives column candidates from those saved roles and original cell spans.
+Each candidate retains source references, native text and separate `modelHeaderRefs`;
+a chosen role never rewrites native header flags. Shared `column_header` logic requires
+compatible roles over the **whole occupied row span**. Row/rowgroup labels are excluded;
+native header context wholly outside a sliced view keeps its declaration. A mixed or
+cross-role cell does not become a column header just because its origin row is one.
+The mapping request names the layout hash, includes its roles and preserves all source.
+It asks only for coordinate-keyed definitions, not another row-role decision.
 
-The offline short-XLSX draft retains all current source and uses the recorded wrong
-layout, not the expected answer. The layout-only request measures 10,808 characters;
-adding its exact prior layout and actual typed-read feedback measures 11,284. These
-are initial feasibility measurements, not a complete mapping contract, a guarantee
-for larger documents or a model-quality result. Mapping payloads, candidate paths,
-revision rules and finite scheduling still need implementation and tests before a
-new bounded actual-model comparison.
+Layout and mapping each allow at most **two calls** inside the caller's existing
+allowance. After a failed first mapping, one available layout review receives the full
+source, prior layout and source-local feedback. A retained or changed layout does not
+reset the failed mapping attempt. No mapping or meaning was accepted at this point;
+earlier unrelated accepted regions stay intact. Reclassification as a scalar form
+returns to the existing scalar path, preserving spent usage and removing stale current
+mapping issues. An unresolved layout remains explicit unfinished work.
+
+Requests save attempts before dispatch. An unavailable consumed layout response or a
+saved running attempt is not silently replayed. Cancellation or budget exhaustion before
+dispatch does not consume a new call. Resume reuses a completed layout; an explicit
+additional-budget grant can reopen unfinished work but retains cumulative costs and
+history. Source-invalid, malformed and oversized requests do not create accepted data.
+Meaning selection/detail/review keep their existing separate limits.
+
+Planning measures the layout request and reserves space for the later mapping **before
+roles are known**. The reservation contains all possible header candidates, the longest
+role spellings and a fixed-width decision hash. This is a sizing envelope only: it is
+never accepted, checkpointed or sent as a model decision. Each actual mapping and repair
+still passes full input preflight. Source, saved layout and complete diagnostics are
+not truncated to fit; an oversized indivisible request stays partial. Unstarted slices
+can be repacked under the existing source-preserving planner; attempted work is not
+replayed and caller limits are not increased.
+
+Direct tests cover native and model-selected multirow headers, mixed spans, scalar and
+record paths, checked revision, cancellation/resume, history tampering and failed-call
+accounting. Native 50-row HWPX/XLSX planning preserves all source and order, and exhaustive
+small-role combinations fit the conservative mapping reservation. These are scripted or
+offline checks, not quality approval. Legacy mapping/scope fixtures explicitly supply a
+layout response and the engine charges that call. Tests focused on scope partitioning
+use their known scripted layout to isolate scope scheduling; every actual request still
+passes the production input limit. Generic planning has separate native-file tests.
+
+Table protocol v36, region plan v25 and compiler v37 distinguish these states from the
+former combined path. General prompt v41 and public v1 interfaces remain unchanged.
+Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
 ### Prior table mapping context
 
@@ -1353,8 +1391,8 @@ sources cannot silently revert to unreviewed. `baseRevision` is supplied by the
 program; transition reasons and source inventories participate in revision hashes.
 Changed explanations alone are not progress. Uncertainty can be a valid correction.
 
-Structure permits two attempts. Meaning uses two initial dispatches, including
-selection and detail, plus one post-acceptance review. These are ceilings inside
+Layout permits two attempts and column mapping permits two. Meaning uses two initial
+dispatches, including selection and detail, plus one post-acceptance review. These are ceilings inside
 the cumulative document budget, not additional budgets. A failed first detail after
 selection may exhaust the stage. Explicit grants preserve already consumed usage.
 `phaseUsage`, attempts, revisions and `inputPreflight` make unfinished work visible.
@@ -1686,10 +1724,11 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v24 / v36 |
+| Semantic prompt / region plan / result compiler | v41 / v25 / v37 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v35 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v36 / v2 / v1 / v4 |
+| Table layout | v1 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
@@ -1704,7 +1743,7 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Symptom | Start with | Existing regression families |
 |---|---|---|
-| Lost/duplicated record or header | `compiler.py`, `table_protocol.py`, `regions.py` | `test_table_duplicates.py`, table compiler/protocol tests |
+| Lost/duplicated record or header | `compiler.py`, `table_layout.py`, `table_protocol.py`, `regions.py` | `test_table_layout.py`, `test_table_duplicates.py`, table compiler/protocol tests |
 | Wrong unit/condition or source trace | `integration.py`, `scope_protocol.py`, `scope_source_binding.py` | scope selection/binding and semantic integration tests |
 | Wrong blank/OCR/pixel interpretation | `document_model/recognition_*.py`, `interpretation/pdf_visual_*.py` | recognition observations, PDF review/application tests |
 | Stale resume or exhausted stage | `interpretation/engine.py`, `workflow.py`, `jobs.py` | checkpoint, budget and managed-job tests |
