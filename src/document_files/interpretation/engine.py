@@ -40,7 +40,7 @@ from .document_outline import preceding_headings, project_outline
 from .integration import (
     SCOPE_VERSION,
     apply_scope_decision,
-    build_scope_tasks,
+    build_scope_inventory,
     parse_scope_choices,
 )
 from .legacy_engine import _has_unread_visuals as _has_unread_visuals
@@ -64,6 +64,7 @@ from .scope_protocol import (
     replay_scope_record,
     scope_axis_batches,
     scope_policy,
+    scope_readiness,
     scope_request_identity,
 )
 from .scope_reference_wire import VERSION as SCOPE_REFERENCE_WIRE_VERSION
@@ -1198,26 +1199,22 @@ def extract_schema_from_stream(
         if item not in issues:
             issues.append(item)
 
+    readiness_cache = {}
+
+    def scope_request_readiness(task):
+        limit = min(
+            selected.contextChars, getattr(client, "input_budget_chars", selected.contextChars)
+        )
+        key = task.fingerprint, limit
+        if key not in readiness_cache:
+            readiness_cache[key] = scope_readiness(task, input_chars=limit)
+        return readiness_cache[key]
+
     def linked_regions(*, strict=False):
         linked, join_issues, links = join_continuations(
             list(compiled.values()), candidates, decisions
         )
-        scope_tasks = build_scope_tasks(
-            observation,
-            regions,
-            linked,
-            context_chars=min(
-                12000,
-                max(
-                    1024,
-                    min(
-                        selected.contextChars,
-                        getattr(client, "input_budget_chars", selected.contextChars),
-                    )
-                    - 4000,
-                ),
-            ),
-        )
+        scope_tasks = build_scope_inventory(observation, regions, linked)
         validated = set()
         for task in scope_tasks:
             stored = scope_decisions.get(task.id, {})
@@ -1344,6 +1341,12 @@ def extract_schema_from_stream(
                 "taskId": task.id,
                 "semanticId": task.semantic_id,
                 "candidateCoverage": task.payload["candidateCoverage"],
+                "inventory": copy.deepcopy(task.payload["inventory"]),
+                **(
+                    {"requestPlanning": copy.deepcopy(scope_request_readiness(task))}
+                    if task.id not in validated
+                    else {}
+                ),
                 "status": "interpreted"
                 if task.complete_candidates
                 and task.id in validated
@@ -1353,6 +1356,19 @@ def extract_schema_from_stream(
             }
             for task in scope_tasks
         ]
+        # Recompute these diagnostics from current source/task state rather than
+        # persisting an old overflow after a valid source/structure revision.
+        for task in scope_tasks:
+            if task.id not in validated:
+                readiness = scope_request_readiness(task)
+                if readiness["status"] != "ready":
+                    result["issues"].append(
+                        {
+                            "code": "scope_" + readiness["status"],
+                            "taskId": task.id,
+                            **copy.deepcopy(readiness),
+                        }
+                    )
         result["validation"].update(valid=bool(compiled) and not errors, errors=errors)
         usage["elapsedSeconds"] = prior_elapsed + max(0.0, time.monotonic() - started)
         result["extraction"].update(
@@ -2725,6 +2741,7 @@ def extract_schema_from_stream(
             and grant["maxModelCalls"] > 0
         )
     ]
+    pending_tasks = [t for t in pending_tasks if scope_request_readiness(t)["status"] == "ready"]
     # The managed context check reserves the applicability output allowance, and
     # Korean-heavy JSON runs near 2.3 characters per token: a batch sized to the full
     # input budget exceeded the model context in the fourteenth continued-table run.

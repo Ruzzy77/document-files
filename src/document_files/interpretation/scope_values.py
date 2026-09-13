@@ -52,7 +52,7 @@ class ScalarOriginCatalog:
                 if location not in entries:
                     entries.append(location)
 
-    def describe(self, evidence):
+    def describe(self, evidence, *, text_chars=500):
         origins, refs, complete = [], [], True
         for item in evidence:
             origin = {"observationStatus": item["status"], "valueSource": None}
@@ -63,11 +63,15 @@ class ScalarOriginCatalog:
                 text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
                 origin.update(
                     valueSource=copy.deepcopy(binding),
-                    valueText=text[:500],
-                    valueTextTruncated=len(text) > 500,
+                    valueText=text[:text_chars],
+                    valueTextTruncated=text_chars is not None and len(text) > text_chars,
                     tableLocations=copy.deepcopy(self.cells.get(ref, [])),
                 )
                 refs.append(ref)
-                complete = complete and ref in self.nodes and len(text) <= 500
+                complete = (
+                    complete
+                    and ref in self.nodes
+                    and (text_chars is None or len(text) <= text_chars)
+                )
             origins.append(origin)
         return origins, refs, complete

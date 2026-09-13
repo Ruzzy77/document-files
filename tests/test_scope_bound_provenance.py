@@ -361,7 +361,7 @@ class LongScopeModel:
         )
 
 
-def test_engine_persists_long_provenance_with_discovery_explicitly_isolated(monkeypatch):
+def test_engine_persists_long_provenance_with_complete_inventory():
     content = (
         "<p>Lengths use mm.</p><table><tr><th>Length</th><th>Width</th></tr>"
         + "".join(
@@ -375,29 +375,11 @@ def test_engine_persists_long_provenance_with_discovery_explicitly_isolated(monk
     )
     # Deliberately roomy scripted planning, not an actual inference budget change.
     options = ExtractionOptions(contextChars=120000, maxModelCalls=12, reconstructionContext=False)
-    baseline = extract_schema_from_stream(
-        job, io.BytesIO(content), options=options, model_client=LongScopeModel()
-    )
-    # Native HTML source IDs are longer than the compact fixture's IDs. The actual
-    # fixed discovery limit still drops this record; this implementation does not
-    # pretend to fix discovery or qualify a complete real-model product result.
-    assert baseline["extraction"]["status"] == "partial"
-    assert any(
-        s["candidateCoverage"] == "bounded" for s in baseline["coverage"]["scopeIntegration"]
-    )
-
-    def complete_test_inventory(*args, **kwargs):
-        return build_scope_tasks(*args, **(kwargs | {"context_chars": 120000}))
-
-    monkeypatch.setattr(
-        "document_files.interpretation.engine.build_scope_tasks", complete_test_inventory
-    )
     model, states = LongScopeModel(), []
     result = extract_schema_from_stream(
         job, io.BytesIO(content), options=options, model_client=model, checkpoint=states.append
     )
     assert result["extraction"]["status"] == "complete", result["issues"]
-    assert result["data"] == baseline["data"]
     assert len(result["data"]["rows"]) == 50 and len(result["semanticDetails"][0]["scope"]) == 100
     assert result["data"]["rows"][36]["width"] == ""
     assert all(r["length"] == "001.2300" for r in result["data"]["rows"])
