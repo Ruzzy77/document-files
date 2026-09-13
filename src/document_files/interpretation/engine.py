@@ -96,8 +96,8 @@ from .table_protocol import (
     TABLE_PROTOCOL_VERSION,
     meaning_payload,
     structural_ir,
+    structure_model_schema,
     structure_payload,
-    structure_schema,
 )
 from .table_protocol import (
     meaning_decision_ir as meaning_ir,
@@ -1712,7 +1712,7 @@ def extract_schema_from_stream(
                 return True
             system = STRUCTURE_SYSTEM if stage == "structure" else MEANING_SYSTEM
             contract = (
-                structure_schema(observation, region, catalog)
+                structure_model_schema(observation, region, catalog)
                 if stage == "structure"
                 else meaning_schema(observation, region, accepted[rid], catalog)
             )
@@ -1847,6 +1847,9 @@ def extract_schema_from_stream(
                         save("interpreting")
                         continue
                     if stage == "structure":
+                        from .table_structure_wire import decode as decode_structure
+
+                        value = decode_structure(value, observation, region)
                         decision, candidate = structural_ir(value, observation, region)
                         if candidate is None:
                             state["kind"] = decision.tableKind

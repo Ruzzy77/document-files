@@ -10,7 +10,7 @@ from .compiler import preferred_binding
 from .document_outline import enabled as outline_enabled
 from .document_outline import role_context
 from .legacy_engine import contract_messages
-from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
+from .table_protocol import STRUCTURE_SYSTEM, structure_model_schema, structure_payload
 from .text_views import split_text_region
 
 REGION_PLAN_VERSION = "document-files.region-plan.v23"
@@ -547,7 +547,7 @@ def prepare_regions(
         # response. Meaning/scalar requests are checked against the same hard
         # input limit when dispatched; failed meaning retains frozen structure.
         request = structure_payload({**payload(observation, region), **metadata})
-        contract = structure_schema(observation, region, metadata.get("targetHandles"))
+        contract = structure_model_schema(observation, region, metadata.get("targetHandles"))
         return sum(
             len(m["content"]) for m in contract_messages(STRUCTURE_SYSTEM, request, contract)
         )
@@ -838,7 +838,7 @@ def replan_table_region(observation, region, *, context_chars, request_metadata)
     the limit or discards mapping context to make a request fit.
     """
     request = structure_payload(region_payload(observation, region) | request_metadata)
-    contract = structure_schema(observation, region, request_metadata.get("targetHandles"))
+    contract = structure_model_schema(observation, region, request_metadata.get("targetHandles"))
     size = sum(len(m["content"]) for m in contract_messages(STRUCTURE_SYSTEM, request, contract))
     if size <= context_chars:
         return None

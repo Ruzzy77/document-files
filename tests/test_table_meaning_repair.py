@@ -6,6 +6,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from test_table_protocol import CoordinateFixture
 from test_table_selection import scripted_size_scope
 
 from document_files.analysis import AnalysisInput, AnalysisJob
@@ -226,7 +227,7 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
                 job_id="meaning-repair", input=AnalysisInput.from_bytes(content, format_id="html")
             ),
             io.BytesIO(content),
-            model_client=model,
+            model_client=CoordinateFixture(model),
             options=ExtractionOptions(reconstructionContext=False, **options),
             checkpoint=states.append if states is not None else None,
             restore=restore,

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from jsonschema import Draft202012Validator
-from test_table_protocol import HTML, record_response
+from test_table_protocol import HTML, CoordinateFixture, encode_structure, record_response
 
 from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.interpretation import engine
@@ -68,7 +68,9 @@ class SelectionModel:
         if "tableStage" not in payload:
             self.scope_requests.append(payload)
             value = scripted_size_scope(payload)
-            Draft202012Validator(request.output_schema).validate(value)
+            Draft202012Validator(request.output_schema).validate(
+                encode_structure(value) if payload.get("tableStage") == "structure" else value
+            )
             return InferenceResponse(
                 json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20}
             )
@@ -154,7 +156,9 @@ class SelectionModel:
             value = encode_selection(value)
         if not self.malicious_quote:
             Draft202012Validator.check_schema(request.output_schema)
-            Draft202012Validator(request.output_schema).validate(value)
+            Draft202012Validator(request.output_schema).validate(
+                encode_structure(value) if payload.get("tableStage") == "structure" else value
+            )
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
 
@@ -173,7 +177,7 @@ def run(
             job_id="selection-test", input=AnalysisInput.from_bytes(content, format_id="html")
         ),
         io.BytesIO(content),
-        model_client=model,
+        model_client=CoordinateFixture(model),
         options=ExtractionOptions(reconstructionContext=False, **options),
         checkpoint=states.append if states is not None else None,
         restore=restore,
@@ -558,7 +562,7 @@ def test_interruption_after_negative_selection_resumes_local_compile_without_any
                 job_id="selection-test", input=AnalysisInput.from_bytes(HTML, format_id="html")
             ),
             io.BytesIO(HTML),
-            model_client=model,
+            model_client=CoordinateFixture(model),
             options=ExtractionOptions(reconstructionContext=False, maxModelCalls=2),
             checkpoint=checkpoint,
         )

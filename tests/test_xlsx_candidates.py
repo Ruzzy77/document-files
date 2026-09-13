@@ -7,6 +7,7 @@ from datetime import datetime
 
 import pytest
 from openpyxl import Workbook
+from test_table_protocol import encode_structure
 
 from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.document_model.observe import observe_document
@@ -114,6 +115,8 @@ class PlainRegisterModel:
             }
         if "sourceDecisions" in value:
             value = encode_selection(value)
+        if payload.get("tableStage") == "structure":
+            value = encode_structure(value)
         return InferenceResponse(json.dumps(value), {})
 
 

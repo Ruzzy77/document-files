@@ -215,8 +215,8 @@ def test_planned_table_size_matches_actual_compact_payload():
     from document_files.interpretation.regions import region_payload
     from document_files.interpretation.table_protocol import (
         STRUCTURE_SYSTEM,
+        structure_model_schema,
         structure_payload,
-        structure_schema,
     )
 
     doc = observe_document(
@@ -232,7 +232,7 @@ def test_planned_table_size_matches_actual_compact_payload():
             continue
         request = {
             **structure_payload({**region_payload(doc, region), **metadata}),
-            "outputContract": structure_schema(doc, region, {}),
+            "outputContract": structure_model_schema(doc, region, {}),
         }
         actual = len(STRUCTURE_SYSTEM) + len(
             json.dumps(request, ensure_ascii=False, separators=(",", ":"))

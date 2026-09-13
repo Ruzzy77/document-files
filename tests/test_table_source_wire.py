@@ -27,8 +27,8 @@ from document_files.interpretation.table_protocol import (
     meaning_decision_schema,
     meaning_payload,
     structural_ir,
+    structure_model_schema,
     structure_payload,
-    structure_schema,
 )
 from document_files.interpretation.table_reference_wire import prepare_meaning_wire
 from document_files.interpretation.table_selection import SYSTEM as SELECTION_SYSTEM
@@ -171,12 +171,14 @@ def test_actual_native_table_requests_keep_every_cell_source_and_metadata(format
         assert [n["text"] for n in packed["nodes"].values()] == [
             n["text"] for n in restored["nodes"].values()
         ]
-        messages = contract_messages(STRUCTURE_SYSTEM, packed, structure_schema(doc, region))
+        messages = contract_messages(STRUCTURE_SYSTEM, packed, structure_model_schema(doc, region))
         # prepare_regions uses the same default metadata when sizing its request.
         planned = structure_payload(original | {"intent": "discover", "targetHandles": {}})
         measured = sum(
             len(m["content"])
-            for m in contract_messages(STRUCTURE_SYSTEM, planned, structure_schema(doc, region, {}))
+            for m in contract_messages(
+                STRUCTURE_SYSTEM, planned, structure_model_schema(doc, region, {})
+            )
         )
         assert region["requestChars"] == measured <= 16000
         assert sum(len(m["content"]) for m in messages) <= 16000
@@ -216,7 +218,9 @@ def test_dynamic_replanning_preserves_original_table_headers_rows_and_mapping():
         assert expand_table_sources(request)["sameTableMapping"] == metadata["sameTableMapping"]
         size = sum(
             len(m["content"])
-            for m in contract_messages(STRUCTURE_SYSTEM, request, structure_schema(doc, child, {}))
+            for m in contract_messages(
+                STRUCTURE_SYSTEM, request, structure_model_schema(doc, child, {})
+            )
         )
         assert size == child["requestChars"] <= 11000
     assert cells == original["cells"]

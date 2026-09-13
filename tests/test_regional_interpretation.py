@@ -1198,7 +1198,13 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
                         ],
                     },
                 }
-            return json.dumps(answer)
+            from document_files.interpretation.table_structure_wire import (
+                encode as encode_structure,
+            )
+
+            return json.dumps(
+                encode_structure(answer) if payload.get("tableStage") == "structure" else answer
+            )
 
     from document_files.interpretation.backends import InferenceResponse, ManagedPackClient
 

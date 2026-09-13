@@ -3,6 +3,7 @@
 import copy
 import io
 import json
+from dataclasses import replace
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -32,6 +33,7 @@ from document_files.interpretation.table_protocol import (
 )
 from document_files.interpretation.table_selection_wire import encode_selection
 from document_files.interpretation.table_sources import source_inventory
+from document_files.interpretation.table_structure_wire import encode as encode_structure
 
 HTML = (
     b"<table><tr><th>Code</th><th>Size</th></tr>"
@@ -143,6 +145,44 @@ class TableModel:
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
 
+class CoordinateFixture:
+    """Send canonical scripted table fixtures through the current response wire.
+
+    Production clients receive no compatibility conversion. Tests of malformed
+    model wire use the public engine directly, without this fixture adapter.
+    """
+
+    def __init__(self, model):
+        self.model = model
+
+    def __getattr__(self, name):
+        method = getattr(self.model, name)
+        if name not in {"infer", "complete"}:
+            return method
+
+        def call(request, **kwargs):
+            response = method(request, **kwargs)
+            messages = request.messages if name == "infer" else request
+            payload = json.loads(messages[-1]["content"])
+            if payload.get("tableStage") != "structure":
+                return response
+            text = response.text if name == "infer" else response
+            value = json.loads(text)
+            # Keep deliberately malformed non-record outputs for engine validation.
+            if (
+                isinstance(value, dict)
+                and isinstance(value.get("record"), dict)
+                and isinstance(value["record"].get("columns"), list)
+            ):
+                value = encode_structure(
+                    value, row_order=next(iter(payload["tables"].values()))["rowRoleOrder"]
+                )
+                text = json.dumps(value)
+            return replace(response, text=text) if name == "infer" else text
+
+        return call
+
+
 def execute(
     model,
     *,
@@ -158,7 +198,7 @@ def execute(
             job_id="table-stages", input=AnalysisInput.from_bytes(content, format_id="html")
         ),
         io.BytesIO(content),
-        model_client=model,
+        model_client=CoordinateFixture(model),
         options=ExtractionOptions(reconstructionContext=False, **options),
         checkpoint=states.append if states is not None else None,
         restore=restore,
@@ -243,6 +283,7 @@ def test_unrepaired_content_only_definitions_do_not_report_complete():
         ("tableProtocolVersion", "document-files.table-protocol.v30"),
         ("tableProtocolVersion", "document-files.table-protocol.v31"),
         ("tableProtocolVersion", "document-files.table-protocol.v32"),
+        ("tableProtocolVersion", "document-files.table-protocol.v33"),
         ("compilerVersion", "document-files.result-compiler.v26"),
         ("promptVersion", "document-files.semantic-prompts.v30"),
         ("regionPlanVersion", "document-files.region-plan.v15"),
@@ -917,7 +958,7 @@ def execute_nonrecord(model, states, *, restore=None, additional_budget=None, **
             job_id="nonrecord", input=AnalysisInput.from_bytes(NONRECORD_HTML, format_id="html")
         ),
         io.BytesIO(NONRECORD_HTML),
-        model_client=model,
+        model_client=CoordinateFixture(model),
         options=ExtractionOptions(reconstructionContext=False, **options),
         checkpoint=states.append,
         restore=restore,
@@ -967,7 +1008,7 @@ def test_proven_blank_cell_is_not_required_of_the_scalar_region():
             input=AnalysisInput.from_bytes(NONRECORD_BLANK_HTML, format_id="html"),
         ),
         io.BytesIO(NONRECORD_BLANK_HTML),
-        model_client=model,
+        model_client=CoordinateFixture(model),
         options=ExtractionOptions(reconstructionContext=False),
         checkpoint=states.append,
     )

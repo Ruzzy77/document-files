@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from jsonschema import Draft202012Validator
 from test_scope_context_wire import long_table
+from test_table_protocol import encode_structure
 
 from document_files.api import (
     AnalysisInput,
@@ -333,31 +334,33 @@ class LongScopeModel:
         headers = {c["col"]: c["sourceRef"] for c in cells if c["row"] == 0}
         end = max(c["row"] for c in cells)
         return json.dumps(
-            {
-                "regionId": p["regionId"],
-                "tableKind": "record_table",
-                "record": {
-                    "id": "rows",
-                    "key": "rows",
-                    "label": "Measurements",
-                    "tableRef": table_ref,
-                    "rowStart": 0,
-                    "rowEnd": end,
-                    "definitionRefs": list(headers.values()),
-                    "rowRoles": [{"row": r, "role": "data"} for r in range(1, end + 1)],
-                    "columns": [
-                        {
-                            "id": key,
-                            "key": key,
-                            "label": key,
-                            "valueType": "string",
-                            "column": i,
-                            "definitionRefs": [headers[i]],
-                        }
-                        for i, key in enumerate(("length", "width"))
-                    ],
-                },
-            }
+            encode_structure(
+                {
+                    "regionId": p["regionId"],
+                    "tableKind": "record_table",
+                    "record": {
+                        "id": "rows",
+                        "key": "rows",
+                        "label": "Measurements",
+                        "tableRef": table_ref,
+                        "rowStart": 0,
+                        "rowEnd": end,
+                        "definitionRefs": list(headers.values()),
+                        "rowRoles": [{"row": r, "role": "data"} for r in range(1, end + 1)],
+                        "columns": [
+                            {
+                                "id": key,
+                                "key": key,
+                                "label": key,
+                                "valueType": "string",
+                                "column": i,
+                                "definitionRefs": [headers[i]],
+                            }
+                            for i, key in enumerate(("length", "width"))
+                        ],
+                    },
+                }
+            )
         )
 
 
@@ -377,7 +380,11 @@ def test_engine_persists_long_provenance_with_complete_inventory():
     options = ExtractionOptions(contextChars=120000, maxModelCalls=12, reconstructionContext=False)
     model, states = LongScopeModel(), []
     result = extract_schema_from_stream(
-        job, io.BytesIO(content), options=options, model_client=model, checkpoint=states.append
+        job,
+        io.BytesIO(content),
+        options=options,
+        model_client=model,
+        checkpoint=states.append,
     )
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert len(result["data"]["rows"]) == 50 and len(result["semanticDetails"][0]["scope"]) == 100
@@ -389,7 +396,11 @@ def test_engine_persists_long_provenance_with_complete_inventory():
     assert len([b for b in stored["sourceBinding"]["bindings"] if "valueProofSHA256" in b]) == 100
     checkpoint, calls = json.loads(json.dumps(states[-1])), model.calls
     restored = extract_schema_from_stream(
-        job, io.BytesIO(content), options=options, model_client=model, restore=checkpoint
+        job,
+        io.BytesIO(content),
+        options=options,
+        model_client=model,
+        restore=checkpoint,
     )
     assert model.calls == calls
     for key in ("data", "semantics", "semanticDetails", "valueEvidence", "valueObservations"):
@@ -399,6 +410,10 @@ def test_engine_persists_long_provenance_with_complete_inventory():
     )
     with pytest.raises(ValueError, match="incompatible"):
         extract_schema_from_stream(
-            job, io.BytesIO(content), options=options, model_client=model, restore=checkpoint
+            job,
+            io.BytesIO(content),
+            options=options,
+            model_client=model,
+            restore=checkpoint,
         )
     assert model.calls == calls
