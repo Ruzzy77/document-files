@@ -37,7 +37,7 @@ from .table_source_decisions import (
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v30"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v31"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -201,6 +201,15 @@ def structure_schema(observation, region, catalog=None):
         schema["$defs"]["RowDecision"]["properties"]["row"] = {"type": "integer", "enum": choices}
     else:
         repeat["rowRoles"]["maxItems"] = 0
+    # Formula mode reads an expression, not its evaluated result or saved cache.
+    # Keep ordinary reads unchanged; only remove inherently contradictory pairs.
+    ordinary = copy.deepcopy(schema["$defs"]["ColumnLink"])
+    formula = copy.deepcopy(ordinary)
+    ordinary["properties"]["bindingMode"] = {"type": "string", "enum": ["source", "text", "cached"]}
+    formula["properties"]["bindingMode"] = {"type": "string", "const": "formula"}
+    formula["properties"]["valueType"] = {"type": "string", "enum": ["string", "native"]}
+    formula["required"].append("bindingMode")
+    schema["$defs"]["ColumnLink"] = {"anyOf": [ordinary, formula]}
     return _compact_contract(schema)
 
 
@@ -282,6 +291,17 @@ def structural_ir(value, observation, region):
     indices = [c.column for c in record.columns]
     if len(indices) != len(set(indices)):
         raise CompileError("table_structure_duplicate_column")
+    for column in record.columns:
+        if column.bindingMode == "formula" and column.valueType not in {"string", "native"}:
+            # Also enforce the wire contract for backends without schema decoding.
+            raise CompileError(
+                "table_structure_formula_requires_text",
+                selection={
+                    "column": column.column,
+                    "requestedType": column.valueType,
+                    "bindingMode": "formula",
+                },
+            )
     roles = {role.row: role for role in record.rowRoles}
     if len(roles) != len(record.rowRoles) or any(
         row < record.rowStart or row > record.rowEnd for row in roles

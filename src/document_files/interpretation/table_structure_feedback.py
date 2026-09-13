@@ -10,6 +10,14 @@ def structure_feedback(error, observation, region):
         return ["invalid_table_contract"]
     feedback = [str(error)]
     selection = error.selection
+    if str(error) == "table_structure_formula_requires_text" and selection:
+        # A column-level contract error precedes row expansion. Do not invent a
+        # particular failing cell or copy the model's column label/identifier.
+        feedback.append(
+            "invalid_table_column_read:"
+            + json.dumps(selection, ensure_ascii=False, separators=(",", ":"))
+        )
+        return feedback
     if str(error) != "binding_cannot_represent_requested_type" or not selection:
         return feedback
     binding_id = selection.get("bindingId")
