@@ -2022,6 +2022,7 @@ def extract_schema_from_stream(
         return False
 
     def interpret_native_structure(region, roles):
+        from .native_note_checks import OccurrenceError
         from .native_structure_wire import StructureContractError, validate
 
         rid = region["id"]
@@ -2050,7 +2051,7 @@ def extract_schema_from_stream(
                     if isinstance(client, ManagedPackClient)
                     else None,
                 )
-                validate(value, contract)
+                validate(value, contract, observation=observation, region=region)
                 structure = native_structure.decode_structure(value, observation, region)
                 stub = native_structure.interpretation(structure, roles, observation, region)
                 fragment = compile_region(
@@ -2092,7 +2093,9 @@ def extract_schema_from_stream(
                     else "invalid_native_structure_contract"
                 )
                 diagnostics = (
-                    exc.diagnostics if isinstance(exc, StructureContractError) else [feedback]
+                    exc.diagnostics
+                    if isinstance(exc, (StructureContractError, OccurrenceError))
+                    else [feedback]
                 )
                 state.update(status="failed", feedback=diagnostics)
                 issue("native_structure_invalid", regionId=rid, errors=diagnostics)
@@ -2100,6 +2103,8 @@ def extract_schema_from_stream(
         return None
 
     def interpret_native_revision(region):
+        from .native_note_checks import OccurrenceError
+
         rid = region["id"]
         current = document_states[rid]
         if "revision" not in current:
@@ -2216,8 +2221,9 @@ def extract_schema_from_stream(
                     )
                     else "native_revision_contract_invalid"
                 )
-                state.update(status="failed", feedback=[feedback])
-                issue("native_revision_invalid", regionId=rid, errors=[feedback])
+                diagnostics = exc.diagnostics if isinstance(exc, OccurrenceError) else [feedback]
+                state.update(status="failed", feedback=diagnostics)
+                issue("native_revision_invalid", regionId=rid, errors=diagnostics)
                 save("interpreting")
         return False
 

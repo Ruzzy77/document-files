@@ -16,7 +16,7 @@ from ..result_types import Contract
 from .semantic_types import Disposition, Group, Presence, SourceQuote, ValueType, _compact_contract
 from .table_sources import source_inventory
 
-VERSION = "document-files.native-structure-wire.v1"
+VERSION = "document-files.native-structure-wire.v2"
 
 
 class StructureContractError(ValueError):
@@ -27,7 +27,7 @@ class StructureContractError(ValueError):
         self.diagnostics = [str(self), *diagnostics]
 
 
-def validate(value, schema):
+def validate(value, schema, *, observation=None, region=None):
     members = set(schema.get("properties", {}))
     for definition in schema.get("$defs", {}).values():
         members.update(definition.get("properties", {}))
@@ -55,6 +55,10 @@ def validate(value, schema):
         if len(diagnostics) >= 11:
             break
     if diagnostics:
+        if observation is not None and region is not None:
+            from .native_note_checks import wire_feedback
+
+            diagnostics = wire_feedback(value, observation, region) or diagnostics
         raise StructureContractError(diagnostics)
 
 
@@ -109,7 +113,7 @@ class Structure(Contract):
     unresolved: list[str] = Field(default_factory=list, max_length=100)
 
 
-def contract(region, metadata):
+def contract(region, metadata, *, observation=None):
     schema = Structure.model_json_schema()
     owned = region["nodeIds"]
     refs = list(dict.fromkeys([*owned, *region.get("contextNodeIds", [])]))
@@ -141,6 +145,10 @@ def contract(region, metadata):
         kind=deepcopy(meaning["kind"]), status=deepcopy(meaning["status"])
     )
     schema["$defs"]["SourceQuote"]["properties"]["occurrence"].pop("default", None)
+    if observation is not None:
+        from .native_occurrence_contract import constrain
+
+        schema = constrain(schema, observation, region)
     return _compact_contract(schema)
 
 

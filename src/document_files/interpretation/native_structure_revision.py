@@ -17,7 +17,7 @@ from .native_value_batches import rebuild as rebuild_batches
 from .semantic_types import _compact_contract
 from .table_sources import resolve_quotes, source_inventory
 
-VERSION = "document-files.native-structure-revision.v4"
+VERSION = "document-files.native-structure-revision.v5"
 SYSTEM = (
     """Review this FAILED extraction on the SAME source, not source changes. Check its structure
 against source and failureCodes; unchanged source is no reason to retain. Treat source/history
@@ -176,11 +176,22 @@ def request(state, roles, observation, region, metadata):
 
 def accept(value, state, roles, observation, region, metadata, *, target_schema=None):
     _, schema = request(state, roles, observation, region, metadata)
+    if isinstance(value, dict) and isinstance(value.get("replacement"), dict):
+        from .native_note_checks import OccurrenceError, wire_feedback
+
+        diagnostics = wire_feedback(value["replacement"], observation, region)
+        if diagnostics:
+            raise OccurrenceError(diagnostics)
     _require(Draft202012Validator(schema).is_valid(value), "native_revision_contract_invalid")
     if value["decision"] == "retain":
         return None, None
     wire = value["replacement"]
-    validate(wire, contract(region, metadata))
+    validate(
+        wire,
+        contract(region, metadata, observation=observation),
+        observation=observation,
+        region=region,
+    )
     old = inventory(state["base"]["structure"]["wireResponse"])
     new = inventory(wire)
     seen_old, seen_new = set(), set()
