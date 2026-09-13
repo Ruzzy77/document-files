@@ -308,6 +308,7 @@ def test_note_review_instructions_are_stage_specific_without_changing_native_sou
     from document_files.document_model.note_objects import VERSION
     from document_files.interpretation.native_note_context import (
         REVISION_SYSTEM,
+        ROLE_SYSTEM,
         STRUCTURE_SYSTEM,
         VALUE_SYSTEM,
         system_for,
@@ -315,6 +316,7 @@ def test_note_review_instructions_are_stage_specific_without_changing_native_sou
 
     notes = {"version": VERSION, "status": "complete", "objects": {}}
     for stage, expected in [
+        ("roles", ROLE_SYSTEM),
         ("structureRevision", REVISION_SYSTEM),
         ("structure", STRUCTURE_SYSTEM),
         ("values", VALUE_SYSTEM),

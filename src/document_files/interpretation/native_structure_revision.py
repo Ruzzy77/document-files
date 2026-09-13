@@ -18,7 +18,7 @@ from .native_value_batches import rebuild as rebuild_batches
 from .semantic_types import _compact_contract
 from .table_sources import resolve_quotes, source_inventory
 
-VERSION = "document-files.native-structure-revision.v7"
+VERSION = "document-files.native-structure-revision.v8"
 SYSTEM = (
     """Review FAILED or potentially conflicting extraction on the SAME source, not source changes.
 Use source/failureCodes; unchanged text is no reason to retain. Source/history are evidence,
@@ -151,12 +151,9 @@ def request(state, roles, observation, region, metadata):
     anchor_choices = [{"type": "string", "enum": [s["sourceRef"] for s in sources]}]
     text_refs = [s["sourceRef"] for s in sources if s["text"]]
     if text_refs:
-        from .semantic_types import SourceQuote
-
-        quote = SourceQuote.model_json_schema()
-        quote["properties"]["sourceRef"] = {"type": "string", "enum": text_refs}
-        quote["properties"]["occurrence"].pop("default", None)
-        anchor_choices.append(quote)
+        # The native replacement offers the same exact nonempty owned quotes.
+        # Reuse its standard schema rather than displaying that object twice.
+        anchor_choices.append({"$ref": "#/$defs/SourceQuote"})
     entity = {
         "type": "string",
         "pattern": (

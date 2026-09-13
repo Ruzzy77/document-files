@@ -12,7 +12,7 @@ from .document_outline import DocumentElement, constrain_schema
 from .table_sources import SourceTextPath
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v35"
+COMPILER_VERSION = "document-files.result-compiler.v36"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 

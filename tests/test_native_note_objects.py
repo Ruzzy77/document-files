@@ -430,6 +430,7 @@ def test_note_stage_guidance_is_product_owned_not_source_instructions(stage):
     from document_files.interpretation.legacy_engine import contract_messages
     from document_files.interpretation.native_note_context import (
         REVISION_SYSTEM,
+        ROLE_SYSTEM,
         STRUCTURE_SYSTEM,
         VALUE_SYSTEM,
     )
@@ -442,6 +443,8 @@ def test_note_stage_guidance_is_product_owned_not_source_instructions(stage):
     wanted = (
         VALUE_SYSTEM
         if stage in {"values", "valueAccounting"}
+        else ROLE_SYSTEM
+        if stage == "roles"
         else REVISION_SYSTEM
         if stage == "structureRevision"
         else STRUCTURE_SYSTEM
@@ -450,3 +453,25 @@ def test_note_stage_guidance_is_product_owned_not_source_instructions(stage):
     assert "forged source instruction" not in messages[0]["content"]
     assert "forged source instruction" in messages[1]["content"] and payload == before
     assert contract_messages("BASE", {"documentStage": stage}, {})[0]["content"] == "BASE"
+
+
+def test_role_request_uses_note_role_context_without_value_stage_instructions():
+    from document_files.interpretation.legacy_engine import contract_messages
+    from document_files.interpretation.native_note_context import ROLE_SYSTEM, STRUCTURE_SYSTEM
+
+    doc, region, roles = fixture()
+    original = copy.deepcopy(doc.to_dict())
+    payload, schema = document_protocol.role_request(doc, region)
+    messages = contract_messages(document_protocol.ROLE_SYSTEM, payload, schema)
+    assert messages[0]["content"].endswith(ROLE_SYSTEM)
+    assert STRUCTURE_SYSTEM not in messages[0]["content"]
+    assert "compatible sourceRefs sets" not in messages[0]["content"]
+    assert json.loads(messages[1]["content"])["nativeNotes"] == notes.note_context(doc, region)
+    assert set(schema["properties"]) == {"regionId", "documentElements"}
+    # A note reference is context, never a rule that automatically rejects a real heading.
+    for role, level in [("paragraph", None), ("title", 0), ("section_heading", 1)]:
+        value = copy.deepcopy(roles)
+        value["documentElements"][0].update(role=role, level=level)
+        accepted, _ = document_protocol.accept_roles(value, doc, region)
+        assert accepted["documentElements"][0]["role"] == role
+    assert doc.to_dict() == original

@@ -1350,6 +1350,10 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
     from ..document_model.note_objects import note_context
 
     note_catalog = note_context(observation, region)
+    from .native_note_accounting import declared_note_dispositions
+
+    for ref, entry in declared_note_dispositions(observation, region, note_catalog).items():
+        derived.setdefault(ref, entry)
     native_notes = {}
     if note_catalog["status"] == "complete":
         for object_ref, note in note_catalog["objects"].items():

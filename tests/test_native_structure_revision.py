@@ -475,3 +475,33 @@ def test_change_can_cite_a_genuinely_empty_block_without_fabricating_quote_text(
     structure, fragment = revision.accept(value, state, roles, doc, region, {})
     assert structure.fields[0].status == "blank" and fragment.data == {"item": None}
     assert doc.nodes["n2"]["text"] == ""
+
+
+def test_revision_change_quotes_reuse_the_exact_owned_text_contract():
+    from test_native_note_objects import fixture
+
+    from document_files.interpretation.native_structure_wire import contract
+
+    doc, region, roles = fixture()
+    state = {
+        "base": {
+            "structure": {"structureHash": "hash", "wireResponse": {"regionId": region["id"]}},
+            "content": {},
+        },
+        "trigger": [],
+    }
+    _, schema = revision.request(state, roles, doc, region, {})
+    replacement = contract(region, {}, observation=doc)
+    # Evidence and replacement quotes accept the same source IDs, text limits
+    # and optional zero-based occurrence. Sharing a definition must not relax them.
+    left = Draft202012Validator({"$ref": "#/$defs/SourceQuote", "$defs": schema["$defs"]})
+    right = Draft202012Validator({"$ref": "#/$defs/SourceQuote", "$defs": replacement["$defs"]})
+    samples = [
+        {"sourceRef": ref, "text": text, **extra}
+        for ref in ["a_text", "a_control", "foreign"]
+        for text in ["Note content.", ""]
+        for extra in [{}, {"occurrence": 0}, {"occurrence": -1}, {"extra": True}]
+    ]
+    assert all(left.is_valid(v) == right.is_valid(v) for v in samples)
+    assert left.is_valid({"sourceRef": "a_text", "text": "Note content."})
+    assert not left.is_valid({"sourceRef": "a_control", "text": "invented"})
