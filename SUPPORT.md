@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,248 tests,
+The full local check including the native outline path passed **3,275 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -62,8 +62,8 @@ qualify a platform installer, a live agent session or a formal release.
 
 ## Current extraction behavior
 
-The current internal contracts are document protocol v9, native-structure v14,
-native-value-batches v4, structure-revision v4, scope-selection wire v3, prompt v40,
+The current internal contracts are document protocol v10, native-structure v15,
+structural wire v2, native-value-batches v4, structure-revision v5, scope-selection wire v3, prompt v40,
 region plan v23, table protocol v29 and compiler v35. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
@@ -260,7 +260,48 @@ See [the implementation](docs/extraction-engine.md#binary-hwp-notes-and-exact-bo
 
 ## Latest Spark-B verification
 
-### Current note-context source: structure still fails
+### Compatible source choices: no whole-result approval
+
+Source **150b48a55fd5a72ef3ce9fcef53adfac92af375d** processes the same original HWP
+with native structure v15 / structural wire v2 / document protocol v10 / revision v5.
+The response contract now offers only compatible present/blank source sets and separate
+note/unit/condition anchors; bounded repair identifies all conflicting sources and owners.
+Missing/uncertain evidence, shared definitions, multi-paragraph notes and genuine
+cross-object relationships remain available. These are constraints on accepted choices,
+not inferred fields or automatic values.
+
+The complete contract exceeds the old single region's input limit, so the existing
+planner uses two regions without dropping original nodes, bindings or note relationships.
+All actual requests fit **16,000 characters**. Under the unchanged **12-call / 900-second**
+budget, the 9B CUDA run returns **partial after 11 calls / 248.6 seconds**:
+
+- All four native note objects, stored numbers and body links remain exact. The six
+  body/note text roles also match the frozen expectations.
+- Four accepted value entries cover only **three of six distinct texts**. The first
+  body text appears twice, as a scalar and a one-row record. Separate one-row note
+  records coexist with an unnecessary uncertain combined field.
+- Both first-region revisions omit required change entries. Nontext controls and two
+  number bindings remain unaccounted. Added scopes target the null combined field and
+  note-text record rather than establish the native body relationship.
+- Both second-region structures invent text quotes on empty endnote control IDs;
+  exact-source checks reject them. No second-region values are accepted. Text-anchor
+  eligibility is the next concrete contract correction; typed value sources must remain.
+
+This is a **development quality failure**, not whole-budget exhaustion or independent
+approval. Structural grammar does not prevent wrong uncertain/absent states, redundant
+records or invented quote text. Do not forbid legitimate missing states to force a pass.
+After correcting text-anchor candidates, compare the full path with an already available
+stronger Spark model under the same declared budget, without changing the product default
+from service metadata alone.
+
+The source passed **3,275 local tests / 227 skips / 12 subtests** and **335 related
+ARM64 tests**. Raw evidence: `structural-kpi-20260913/native-source-choices-56/`.
+The owned server/container, input, 239 exported source/test files, two verified bytecode
+files and transfer archive were removed after hash-checked collection. Shared RPC,
+installed components and host OOM 0 remained unchanged. This is not CPU-only memory
+qualification. The earlier prepared independent set remains unapproved.
+
+### Earlier note-context source: structure still fails
 
 Source **13989dffe57a84747bab0ec42a3eaa2022d9a434** ran the original binary HWP
 through the public stream API on the retained Spark-B 9B CUDA runtime. Under the
@@ -594,7 +635,7 @@ platform-installer or independent quality qualification**.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** Current HWP source preserves four native note objects and correct text roles, but both structure proposals merge distinct occurrences and are rejected; no interpreted values survive. The preceding source accepted six values but failed accounting/applicability. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Make structural choices and bounded repair feedback respect exact source-object ownership; preserve multi-paragraph objects, shared definitions and genuine relationships. Separate native bookkeeping from additional attributes. Keep complete revision/source checks and compare the full product path under the unchanged, predeclared budget. Do not waive missing items or repeat the same failed prompt-only setup. |
+| 1 | **Native complete extraction is not approved.** Current HWP source constrains incompatible present/blank sources, but the actual model returns three of six distinct texts, redundant records and a combined uncertain field; endnote quotes on empty controls are rejected. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Separate nonempty text-anchor candidates from typed value sources, then compare an existing stronger Spark model through the full path under the same declared budget. Keep native bookkeeping distinct from additional attributes, strict old/new revision coverage and source/row preservation. Do not waive missing items, hide legitimate uncertainty or repeat the known failed setup. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |

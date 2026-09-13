@@ -116,39 +116,65 @@ merely to survive in the result: the exact text, typed numbers and relationships
 belong to the native document structure. Actual attributes inside notes still require
 field/value interpretation. The public native unit projection is unchanged. Checkpoint
 replay re-derives the object inventory and refuses changed numbers, owners or omitted
-inventory. Document protocol v9 / native structure v14 / native adapter v4 / compiler v35
+inventory. Document protocol v10 / native structure v15 / native adapter v4 / compiler v35
 invalidate older incompatible checkpoints. Structure-revision change-ledger defects remain
 separate work; malformed references are not accepted to make a failed run appear complete.
 
-#### Remaining structure-choice boundary
+#### Compatible source choices and complete conflict feedback
 
-The current structure wire uses one global source-reference enumeration. It still lets
-the model propose incompatible note/body sources together, which are rejected only after
-the response. Validation currently reports the first conflict's code and value handle;
-repair does not receive a complete account of the conflicting original references.
-Full context and system instructions have not prevented this on the actual HWP path.
-See [current verification](../SUPPORT.md#current-note-context-source-structure-still-fails).
+`native_occurrence_contract.py` specializes the standard JSON response contract using
+exact declared note/body ownership. A present/blank scalar or explicit record cell must
+choose sources from one compatible set. Note ownership and body-paragraph ownership
+are independent: a body and a note may coexist, but two distinct notes or two distinct
+body paragraphs cannot be interchangeable alternatives. Unmarked sources remain available;
+the program does not choose a field name, meaning, value or nearest owner.
 
-The next protocol change should make declared occurrence ownership part of a structural
-choice rather than leave it as advice. This is **planned, not implemented**:
+Interpreted note/unit/condition anchors likewise stay within one declared note; genuine
+cross-object definitions, references and relationships remain expressible. Shared field
+and column definitions are unchanged. Missing/unreadable/uncertain states may retain
+multi-object evidence. A note with several paragraphs is still one object, and different
+text segments of the same body paragraph retain their shared native owner. Context-only
+references never become owned value choices.
 
-- Derive allowed source-object memberships from the complete native inventory. Bind
-  present/blank value-source choices to those memberships without inventing field names,
-  splitting a multi-paragraph note, or conflating equal text/numbers. Shared definitions,
-  explicit uncertainty and genuine cross-object relationships must remain expressible.
-- Return bounded conflicts with the rejected field/meaning, exact source references and
-  their declared owners. Never silently split a proposed scalar or reuse the first note.
-  If the complete constraints or feedback cannot fit, preserve accepted work and expose
-  the limit; do not omit conflicting objects to reduce a request.
-- Keep exact native control/number bookkeeping separate from additional attributes and
-  applicability inside a note. The former cannot waive the latter. Revision mappings must
-  refer to the actual old/new entities and retain full coverage before atomic acceptance.
+For native note requests, present/blank record cells use explicit `{status, sourceRefs}`
+rather than inheriting all row anchors through a bare status. This preserves the same
+checked cell decisions while preventing inherited sources from bypassing the closed
+choices. Other documents retain their existing wire choices. Native structure v15 /
+structural wire v2 / document protocol v10 / revision v5 identify the changed contract.
+Both schema validation and the existing independent occurrence checks still apply.
 
-Test repeated numbers, equal text in distinct notes, one note with several paragraphs,
-multiple notes on one body paragraph, partial-region ownership and attributes inside
-notes before a new bounded model run. Recompute actual request costs, version changed
-contracts/checkpoint identities, and keep the existing document budget. This is not a
-requirement to turn ordinary prose into redundant business fields or a new fixed template.
+Compatible sets are bounded at 1,024 combinations, 2,000,000 source/set comparisons
+and 2 MiB of generated contract content before factoring. These are preparation limits,
+not process-memory certification. An incomplete native inventory or exhausted bound has
+no permissive response fallback. The planner can split source regions; it uses relaxed
+schema size only to estimate fixed overhead, never to approve or dispatch a response.
+An indivisible region remains explicitly incomplete with its original source preserved.
+
+Structure and revision repair now receive all bounded conflicts: a program-issued value
+or meaning handle, the actual known source references and their native owners. Model
+labels, explanation text and unknown source IDs are not quoted into feedback. The limits
+are 64 conflicts / 16,000 serialized feedback bytes; an overflow returns an explicit
+limit error, not a successful-looking prefix. Malformed responses retain schema-owned
+diagnostics. A correction never silently splits a scalar, reuses the first note or
+accepts an invalid replacement. Revision change mappings still require complete old/new
+coverage before atomic acceptance; improving source diagnostics does not fix their
+separate bookkeeping failures.
+
+The original six-text HWP request grows to 18,584 characters with these full constraints.
+The existing planner divides it into two complete native source regions; conservative
+structure estimates are 14,833 and 14,905 characters, within the unchanged 16,000-character
+limit. Original nodes, bindings and note relationships are not deleted or rewritten.
+This sizing result is not a model-quality approval or extra document call allowance.
+See [actual verification](../SUPPORT.md#latest-spark-b-verification).
+
+One response-contract defect remains: text quotes and row/meaning anchors can still
+offer empty nontext control IDs. Those controls retain real structural information,
+but do not supply literal text; the exact-source checker correctly rejects invented
+quotes on them. The next correction must derive text-anchor candidates from the actual
+nonempty owned source views, separately from native typed value sources and shared
+definitions. Do not remove controls/numbers from the document or fabricate their text.
+Compatible source sets do not establish sensible fields/records, correct missing states,
+source quotations or applicability; these still need whole-result model verification.
 
 ### Table metadata and evolving request context
 
@@ -403,7 +429,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v9 and native-structure v14 identify the three-stage execution;
+own configured reasoning behavior. Protocol v10 and native-structure v15 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 Native role, structure, value, batch-accounting and structure-review requests use the
@@ -794,7 +820,7 @@ their exact catalogue for source accounting; unused alternative IDs are not part
 frozen field definition. This delivery fallback never excludes document information or
 increases the call/time/input limits.
 
-Native-structure v14 / native-value-batches v4 keeps the existing single request when
+Native-structure v15 / native-value-batches v4 keeps the existing single request when
 it fits. An oversized request instead uses deterministic batches of at most 16 value
 handles, sized from the actual system, payload and closed output contract. Every batch
 retains **all original nodes, formatting and binding text**; relevant occurrence
@@ -1451,8 +1477,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v40 / v23 / v35 |
-| Document outline / native role-content protocol / native structure | v1 / v9 / v14 |
-| Native structural response wire / native value batches / structure revision | v1 / v4 / v4 |
+| Document outline / native role-content protocol / native structure | v1 / v10 / v15 |
+| Native structural response wire / native value batches / structure revision | v2 / v4 / v5 |
 | Table protocol / table reference wire / table source wire / selection wire | v29 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
