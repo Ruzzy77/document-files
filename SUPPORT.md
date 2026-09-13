@@ -137,15 +137,21 @@ Regression coverage verifies these mechanics, not the model's decisions. No rele
 filter, fixed business template, automatic deletion of legitimate fields or silent
 budget increase is used to manufacture a successful result.
 
-## Latest planning and request verification
+## Latest deterministic verification
 
-Source **89a88b83778960645c6b3114220cd3630206dd48** passed **304 directly related
+Source **0ba34d94bdcbb4f0a187534259bbf237f1de14be** passed **536 directly related
 Spark-B ARM tests** on the retained Python 3.12.3 dependencies, without a model call.
 The temporary source export was checked and removed; shared RPC and dependencies
 were unchanged. This does not qualify the new source's actual model behavior.
 
-The same saved HWPX detail choices now produce a **15,251-character** initial
-request rather than 16,899, within the existing 16,000 limit. All original source
+An offline comparison of stored development observations moved 158 XLSX cells from
+display text to their exact native source paths. Source order, original nodes and
+all HWPX text ranges were unchanged. Original failed model results were not resumed,
+rewritten or approved by this source-reading check.
+
+The earlier planning check at source **89a88b83778960645c6b3114220cd3630206dd48**
+produced a **15,251-character** initial HWPX detail request rather than 16,899,
+within the existing 16,000 limit. All original source
 texts, selections, frozen structure and compiler binding rules remain. This is
 request reconstruction, not resume or a new model answer.
 
