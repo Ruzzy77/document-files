@@ -27,7 +27,9 @@ ordinary value candidates. Context-only bindings cannot become values in a secon
 region. Unknown or conflicting observations remain visible.
 
 For each column, `columnCandidates` contains program-derived header references and
-text, while `dataRows` describes observed row positions. Header-group candidates
+text. The legacy-named `dataRows` is the range of cells not declared as headers,
+not confirmed data roles; it can include unknown headers and notes. Table structure
+also receives the exact unclassified positions in `rowRoleOrder`. Header-group candidates
 come from actual geometry and mapped child columns. Choosing a group expands to
 those existing columns; it neither invents a new data group nor infers a unit.
 Definitions receive their own provenance, separate from cell-value evidence.
@@ -1072,6 +1074,32 @@ structure compiles before its meanings are interpreted. Missing cells are not sh
 filled or invented. Decimal strings are validated lexically, without float conversion.
 Unsupported locale/unit-bearing text stays uncertain with its original spelling.
 
+`table_structure_wire.py` separates known coordinates from model decisions. The
+model's `record.columns` is a closed object keyed by allowed zero-based column
+indices. A column definition cannot supply another coordinate or repeat an index;
+the JSON parser rejects duplicate object keys, including on unconstrained backends.
+Selecting only some columns remains allowed. The domain retains the prior bounded
+grid range, including implicit gaps; geometry does not turn every slot into a field.
+Names, types, header references, binding modes and table kind remain model choices.
+
+For rows, the request supplies `rowRoleOrder`: sorted observed row coordinates,
+expanded for spans, minus wholly declared header rows. The model returns exactly one
+role string per entry, not row/role objects or a row-keyed schema. This avoids repeated
+per-row schema metadata while preserving each row's distinct position, including gaps
+and non-fixed header candidates. No text or source is removed to shorten the contract.
+The program rejects a wrong count or type and restores the original coordinates and
+source references before compilation. Declared headers are still program-derived;
+recognition predictions and mixed rows are not forced to be headers.
+
+`structure_model_schema` is the model-facing contract; `structure_schema` and
+`structural_ir` retain the canonical record definition used by the compiler. Accepted
+records, meanings and checkpoints retain their existing arrays and original IDs,
+keys, labels, types and provenance. The inverse codec is for inspection and scripted
+fixtures, never a compatibility conversion for old model replies. Canonical-array
+model replies are rejected under table protocol v34. Its version change also prevents
+resuming old table checkpoints. Classification as a scalar form or unresolved table
+still returns `record:null`; no columns or values are manufactured for those paths.
+
 Subtotal, note and unmapped value cells use a separate scalar child region with
 `parentRegionId` / `tableContextRef`. `valueRoutes` records each cell's owner; the
 child cannot regenerate records. Its context contains relevant headers and nearby
@@ -1135,10 +1163,11 @@ remove the blocking code. Model field IDs, labels and cell values are not copied
 Diagnostics are not truncated to make a repair fit: preflight retains them and returns
 a partial result without another model call if the complete request is too large.
 This grouping runs only after `compile_region` returns. An earlier typed-read exception
-uses its own source-local diagnostic; a duplicate column rejected in `structural_ir`
-does not produce compiled column findings. The current array-shaped response can be
-JSON-Schema-valid while repeating column indices. Runtime uniqueness validation remains
-mandatory, and rejected responses do not become accepted records.
+uses its own source-local diagnostic. Invalid coordinate-wire replies fail before
+compiled column findings exist. The old array-shaped response could be JSON-Schema-valid
+while repeating column indices; v34 no longer offers that model shape. Canonical
+runtime uniqueness validation remains mandatory, and rejected responses do not become
+accepted records.
 
 Table protocol v31 permits `bindingMode: formula` only with `valueType: string` or
 `native`: this operation reads the stored expression, not a computed result. The
@@ -1149,7 +1178,8 @@ chosen type/mode, not an invented failing cell. The `source`, `text` and `cached
 mode/type choices are otherwise unchanged and still require actual source validation.
 No formula is evaluated; a saved cache is a separate explicit read. Older table
 checkpoints are incompatible rather than normalized into a different choice. The
-current table protocol is v33, including source-specific feedback and native text views.
+current table protocol is v34, including coordinate decisions, source-specific feedback
+and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
 the leaf-header row was marked as data, then the compiler tried to read its text as a
@@ -1616,7 +1646,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v40 / v23 / v36 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v33 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v34 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
