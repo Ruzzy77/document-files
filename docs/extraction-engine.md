@@ -53,7 +53,7 @@ decoder for model output. The original observation and compiler inputs are uncha
 
 Savings include the decoding instruction. Planning and dispatch both measure the
 messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
-The public response contract is unchanged. Table protocol v24 and region plan v21
+The public response contract is unchanged. Table protocol v25 and region plan v21
 invalidate checkpoints made with the previous display and planning behavior.
 
 An earlier region's column mapping may not exist when the initial plan is made.
@@ -845,8 +845,10 @@ reasons into the existing per-source decisions in inventory order, then decodes
 reference aliases without translating literal explanations. Equal-valued records
 and their source links stay distinct. History, details and reselection use the same
 canonical decisions and existing revision rules. Selection wire v2 / table protocol
-v24 replace the v23 group-list transport, whose actual HWPX response repeated a source
-after covering the inventory. Older checkpoints are rejected before dispatch.
+v25 replace the v23 group-list transport, whose actual HWPX response repeated a source
+after covering the inventory. Older checkpoints are rejected before dispatch. The tuple keeps min/max length two
+and uses an empty object for its unused trailing-item schema: the pinned b10853
+runtime rejects a boolean `items: false`. The accepted two-slot values are unchanged.
 
 The source-selection output cap remains 1,536 tokens. Grouping reduces repeated
 explanations but does not guarantee that every response or input inventory fits.
@@ -998,7 +1000,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v39 / v21 / v32 |
 | Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
 | Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
-| Table protocol / table reference wire / table source wire / selection wire | v24 / v2 / v1 / v2 |
+| Table protocol / table reference wire / table source wire / selection wire | v25 / v2 / v1 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |

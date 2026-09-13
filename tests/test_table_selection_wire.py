@@ -135,6 +135,28 @@ def test_schema_keeps_existing_empty_and_bare_number_choice_restrictions():
     Draft202012Validator(schema).validate(encode_selection(value))
 
 
+def test_runtime_compatible_tuple_schema_keeps_the_same_closed_two_slot_contract():
+    schema = selection_schema(sources())
+    old = deepcopy(schema)
+    for name, definition in schema["$defs"].items():
+        assert definition["items"] == {} and definition["maxItems"] == 2
+        old["$defs"][name]["items"] = False
+    for pair in [
+        [],
+        ["has_meaning"],
+        ["has_meaning", 0],
+        ["has_meaning", 0, 0],
+        ["invalid", 0],
+        ["has_meaning", False],
+        ["has_meaning", -1],
+    ]:
+        value = encode_selection(decisions())
+        value["sourceDecisions"]["@s0"] = pair
+        assert Draft202012Validator(schema).is_valid(value) == Draft202012Validator(old).is_valid(
+            value
+        )
+
+
 def test_empty_inventory_requires_empty_reasons_and_choices_and_roundtrips():
     schema = selection_schema([])
     Draft202012Validator.check_schema(schema)

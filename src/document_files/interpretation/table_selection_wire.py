@@ -26,7 +26,9 @@ def selection_schema(sources):
             ],
             "minItems": 2,
             "maxItems": 2,
-            "items": False,
+            # maxItems=2 already closes this two-slot tuple. The pinned runtime
+            # rejects a boolean items schema while accepting this equivalent form.
+            "items": {},
         }
     properties = {
         s["sourceRef"]: {
