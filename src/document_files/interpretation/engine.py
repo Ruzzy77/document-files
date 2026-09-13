@@ -19,7 +19,13 @@ from ..document_model.model import OBSERVATION_VERSION, ObservationDocument
 from ..document_model.native import NATIVE_OBSERVATION_VERSION
 from ..document_model.observe import observe_document
 from ..structured_extraction import project_structured_extraction
-from . import document_protocol, native_structure, native_structure_revision, native_value_batches
+from . import (
+    document_protocol,
+    native_structure,
+    native_structure_revision,
+    native_value_batches,
+    scope_partition,
+)
 from .backends import (
     ChatCompletionsClient,
     InferenceRequest,
@@ -527,6 +533,7 @@ def extract_schema_from_stream(
     accepted, decisions, failures = {}, {}, {}
     repair_diagnostics = {}
     scope_decisions = {}
+    scope_partitions = {}
     table_states = {}
     document_states = {}
     native_structures = {}
@@ -584,6 +591,12 @@ def extract_schema_from_stream(
             }
             decisions = dict(restore["decisions"])
             scope_decisions = copy.deepcopy(restore["scopeDecisions"])
+            scope_partitions = copy.deepcopy(restore.get("scopePartitions", {}))
+            if not isinstance(scope_partitions, dict) or any(
+                not isinstance(key, str) or not isinstance(value, dict)
+                for key, value in scope_partitions.items()
+            ):
+                raise ValueError
             if not isinstance(scope_decisions, dict) or any(
                 not isinstance(key, str)
                 or not isinstance(record, dict)
@@ -1200,6 +1213,8 @@ def extract_schema_from_stream(
             issues.append(item)
 
     readiness_cache = {}
+    partition_cache = {}
+    partition_coverage = {}
 
     def scope_request_readiness(task):
         limit = min(
@@ -1210,13 +1225,45 @@ def extract_schema_from_stream(
             readiness_cache[key] = scope_readiness(task, input_chars=limit)
         return readiness_cache[key]
 
+    def scope_partition_plan(task):
+        limit = scope_request_readiness(task)["inputLimitChars"]
+        key = task.fingerprint, limit
+        if key not in partition_cache:
+            partition_cache[key] = scope_partition.plan_scope_partitions(
+                task, input_chars=limit, system=SCOPE_SYSTEM
+            )
+        return partition_cache[key]
+
     def linked_regions(*, strict=False):
+        partition_coverage.clear()
         linked, join_issues, links = join_continuations(
             list(compiled.values()), candidates, decisions
         )
         scope_tasks = build_scope_inventory(observation, regions, linked)
+        if strict and set(scope_partitions) - {t.id for t in scope_tasks}:
+            raise ValueError("checkpoint is incompatible with scope partition tasks")
         validated = set()
         for task in scope_tasks:
+            if task.id in scope_partitions:
+                try:
+                    if scope_request_readiness(task)["status"] != "requires_partition":
+                        raise CompileError("scope_partition_plan_stale")
+                    if task.id in scope_decisions:
+                        raise CompileError("scope_partition_duplicate_decision")
+                    plan = scope_partition_plan(task)
+                    linked, coverage = scope_partition.replay_partitions(
+                        scope_partitions[task.id], plan, task, linked
+                    )
+                    partition_coverage[task.id] = coverage
+                    if coverage["status"] == "reviewed":
+                        validated.add(task.id)
+                except (ValueError, TypeError):
+                    if strict:
+                        raise ValueError(
+                            "checkpoint is incompatible with scope partition provenance"
+                        ) from None
+                    issue("scope_partition_stale", taskId=task.id)
+                continue
             stored = scope_decisions.get(task.id, {})
             if stored.get("fingerprint") == task.fingerprint and "decision" in stored:
                 try:
@@ -1343,6 +1390,11 @@ def extract_schema_from_stream(
                 "candidateCoverage": task.payload["candidateCoverage"],
                 "inventory": copy.deepcopy(task.payload["inventory"]),
                 **(
+                    {"partition": copy.deepcopy(partition_coverage[task.id])}
+                    if task.id in partition_coverage
+                    else {}
+                ),
+                **(
                     {"requestPlanning": copy.deepcopy(scope_request_readiness(task))}
                     if task.id not in validated
                     else {}
@@ -1350,8 +1402,14 @@ def extract_schema_from_stream(
                 "status": "interpreted"
                 if task.complete_candidates
                 and task.id in validated
-                and scope_decisions.get(task.id, {}).get("fingerprint") == task.fingerprint
-                and scope_decisions.get(task.id, {}).get("decision", {}).get("decision") == "apply"
+                and (
+                    partition_coverage.get(task.id, {}).get("status") == "reviewed"
+                    or (
+                        scope_decisions.get(task.id, {}).get("fingerprint") == task.fingerprint
+                        and scope_decisions.get(task.id, {}).get("decision", {}).get("decision")
+                        == "apply"
+                    )
+                )
                 else "unresolved",
             }
             for task in scope_tasks
@@ -1360,6 +1418,11 @@ def extract_schema_from_stream(
         # persisting an old overflow after a valid source/structure revision.
         for task in scope_tasks:
             if task.id not in validated:
+                if task.id in partition_coverage:
+                    result["issues"].append(
+                        {"code": "scope_partition_unresolved", "taskId": task.id}
+                    )
+                    continue
                 readiness = scope_request_readiness(task)
                 if readiness["status"] != "ready":
                     result["issues"].append(
@@ -1421,6 +1484,7 @@ def extract_schema_from_stream(
                         "accepted": {key: value.model_dump() for key, value in accepted.items()},
                         "decisions": decisions,
                         "scopeDecisions": scope_decisions,
+                        "scopePartitions": scope_partitions,
                         "tableStages": table_states,
                         "documentStages": document_states,
                         "failures": failures,
@@ -2107,8 +2171,11 @@ def extract_schema_from_stream(
                     native_structures[rid], compiled[rid] = replacement, fragment
                     failures.pop(rid, None)
                     repair_diagnostics.pop(rid, None)
-                    state["invalidatedScopes"] = list(scope_decisions)
+                    state["invalidatedScopes"] = list(
+                        dict.fromkeys([*scope_decisions, *scope_partitions])
+                    )
                     scope_decisions.clear()  # Structural targets can affect cross-region scopes.
+                    scope_partitions.clear()
                     issues[:] = [
                         i
                         for i in issues
@@ -2785,6 +2852,7 @@ def extract_schema_from_stream(
                     "sourceBinding": traces[task.id],
                     "request": scope_request_identity(batch, wire, scope_execution),
                 }
+                scope_partitions.pop(task.id, None)
                 # A legitimate content revision may withdraw a former batch sibling.
                 # Only this freshly validated replacement clears its stale diagnostic;
                 # replay of incompatible stored provenance still fails above.
@@ -2799,5 +2867,67 @@ def extract_schema_from_stream(
                 scope_decisions[task.id] = {"fingerprint": task.fingerprint, "invalid": True}
                 issue("scope_decision_invalid", taskId=task.id)
         save("integrating")
+    # A window spends the same cumulative document allowance as every other
+    # phase. A saved negative/positive review is not rerun on ordinary resume.
+    linked, _, _, tasks, _ = linked_regions()
+    for task in tasks:
+        if scope_request_readiness(task)["status"] != "requires_partition":
+            continue
+        plan = scope_partition_plan(task)
+        state = scope_partitions.get(task.id)
+        if state is None or state.get("fingerprint") != task.fingerprint:
+            state = scope_partition.new_state(plan, task, linked)
+            scope_partitions[task.id] = state
+            scope_decisions.pop(task.id, None)
+            issues[:] = [
+                i
+                for i in issues
+                if not (i.get("code") == "scope_partition_stale" and i.get("taskId") == task.id)
+            ]
+        for entry in plan.windows:
+            identifier = entry["id"]
+            stored = state["windows"].get(identifier)
+            retry = (
+                additional_budget is not None
+                and grant["maxModelCalls"] > 0
+                and stored is not None
+                and (stored.get("status") == "invalid" or stored.get("outcome") == "unresolved")
+            )
+            if entry["status"] != "ready" or stored is not None and not retry:
+                continue
+            wire = plan.wires[identifier]
+            before = usage["modelCalls"]
+            try:
+                response = invoke(
+                    SCOPE_SYSTEM + scope_partition.SYSTEM_SUFFIX,
+                    wire.payload,
+                    wire.contract,
+                    scope_phase=True,
+                )
+                record, _ = scope_partition.bind_window_response(response, wire, task, linked)
+                state = scope_partition.record_window(state, identifier, record)
+            except ModelError as exc:
+                if usage["modelCalls"] > before:
+                    try:
+                        state = scope_partition.record_window(
+                            state, identifier, {"status": "invalid"}
+                        )
+                    except CompileError:
+                        issue("scope_partition_state_budget_exceeded", taskId=task.id)
+                scope_partitions[task.id] = state
+                issue(exc.code, taskId=task.id, windowId=identifier)
+                save("paused")
+                if exc.code == "region_context_budget_exceeded":
+                    continue
+                return result
+            except (ValueError, TypeError):
+                try:
+                    state = scope_partition.record_window(state, identifier, {"status": "invalid"})
+                except CompileError:
+                    issue("scope_partition_state_budget_exceeded", taskId=task.id)
+                    save("paused")
+                    return result
+            scope_partitions[task.id] = state
+            save("integrating")
     save("finished")
     return result

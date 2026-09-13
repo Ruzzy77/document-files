@@ -166,6 +166,16 @@ def _decode_part(part, handle, record):
     else:
         raise ValueError("invalid_axis_columns")
     if whole_rows and set(rows) == {"kind"}:
+        if record.get("windowed"):
+            # A window is an explicit row intersection, never a whole definition.
+            return [], [
+                {
+                    "targetHandle": handle,
+                    "rowStart": record["rowStart"],
+                    "rowEnd": record["rowEnd"],
+                    "columnIds": copy.deepcopy(column_ids),
+                }
+            ]
         return handles, []
     if row_kind == "rowRange" and set(rows) == {"kind", "rowStartRef", "rowEndRef"}:
         refs = [rows["rowStartRef"], rows["rowEndRef"]]

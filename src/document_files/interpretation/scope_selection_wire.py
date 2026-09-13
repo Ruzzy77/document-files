@@ -153,7 +153,11 @@ class ScopeSelectionWire:
 
 
 def prepare_scope_selection_wire(tasks):
-    base = prepare_scope_axis_wire(tasks)
+    return selection_wire_from_axis(tasks, prepare_scope_axis_wire(tasks))
+
+
+def selection_wire_from_axis(tasks, base):
+    """Encode a checked axis view; partition views retain canonical target mappings."""
     payload = copy.deepcopy(base.payload)
     if base.batched:
         items = base.contract["properties"]["decisions"]["items"]
