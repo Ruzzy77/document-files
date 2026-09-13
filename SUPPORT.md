@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,275 tests,
+The full local check including the native outline path passed **3,290 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -62,8 +62,8 @@ qualify a platform installer, a live agent session or a formal release.
 
 ## Current extraction behavior
 
-The current internal contracts are document protocol v10, native-structure v15,
-structural wire v2, native-value-batches v4, structure-revision v5, scope-selection wire v3, prompt v40,
+The current internal contracts are document protocol v11, native-structure v16,
+structural wire v3, native-value-batches v4, structure-revision v6, scope-selection wire v3, prompt v40,
 region plan v23, table protocol v29 and compiler v35. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
@@ -151,444 +151,92 @@ budget increase is used to manufacture a successful result.
 
 ## Latest deterministic verification
 
-Source **49e7609b25049be2cd6991c1db0a468448bd1b29** adds partitioned requests over the
-complete eligible scope inventory. Whole tasks that fit retain the existing selection
-path. Oversized tasks split related candidate families and, where possible, record
-rows. A window's “all rows” or direct column selection binds only that window's
-original rows, never a whole-table definition. Fields, header groups, source text,
-row order and compiled values are not inferred or rewritten by partitioning.
+Current product source: **7bdeaf1f036b28e80ecf352397389918e6c9a710**.
+The local full suite passed **3,290 tests / 227 skips / 12 subtests**. The identical
+exported source passed **350 directly related ARM64 tests** on Spark-A Python 3.12.3.
+Warnings were treated as errors. These checks are not real-model quality approval.
 
-The 96/200-row fixtures' whole requests remain **22,924 / 39,844 characters**. They now
-fit **4 / 8 windows**, each below the unchanged 16,000-character cap. Scripted reviews
-bind all 192 / 400 values and 194 / 402 references; JSON replay is exact. These are
-delivery/compiler checks, **not actual-model or native-format quality approval**.
-An HTML scheduling regression isolates a 12,000-character scope preflight while all
-invocations obey the configured 16,000 cap. It verifies explicit-budget resume,
-cancellation, invalid-window retry and preservation of a blank value and partial links.
+Text quote, logical-row and meaning anchors now offer only nonempty owned source
+views, separately from typed value sources, shared definitions and dispositions.
+Empty native note controls and stored number bindings remain in the document; no
+text is invented for them. Revision evidence may cite an actual empty owned block
+by its ID, but cannot quote nonexistent text. Native note/body ownership constraints,
+exact source checking and complete old/new replacement accounting remain strict.
+See [the implementation](docs/extraction-engine.md#text-anchors-are-not-typed-value-sources).
 
-Window responses distinguish `apply`, `no_target` and `unresolved`; missing windows
-remain unseen. Negative reviews do not invent a target or prove missing values absent.
-Oversized fixed context, indivisible overlapping families, and plan/state/provenance
-limits still leave explicit partial work. Positive reviews not admitted to the combined
-proof remain saved and visibly unapplied. The document call/time allowance is unchanged.
+Other directly tested preservation mechanisms include:
 
-The local full suite passed **3,197 tests / 227 skips / 12 subtests** with warnings as
-errors. The identical source passed **365 related Spark-B ARM tests** on the retained
-Python 3.12.3 dependencies. All 231 exported source/test files were verified and
-removed after evidence collection; shared RPC, dependencies and host OOM were unchanged.
-Evidence: `structural-kpi-20260913/scope-partitions-52/`. No actual model call or quality
-approval is claimed. The latest actual product run remains the one below.
+- Distinct native footnotes/endnotes, their stored numbers and body owners, including
+  multi-paragraph notes and the distinction between native objects and added meanings.
+- All mapped table rows, exact cell values and zero-record fragment provenance;
+  explicit blank cells remain different from implicit gaps and uncached formulas.
+- Lossless request factoring and bounded value/accounting requests. Accepted source,
+  structure and values survive rejected revisions, cancellation and explicit resume.
+- Complete applicability inventories, row-bounded partitioning and compiler-owned
+  provenance. The 96/200-row synthetic cases fit 4/8 requests below 16,000 characters
+  and retain 192/400 values plus 194/402 source references through JSON replay.
+  Those are scripted delivery/compiler checks, not actual-model interpretation.
 
-The preceding source **81c85df4e6b1a77517d84d7f02c4480e9c6c72c4** separated compiler-owned scope
-provenance from the legacy model citation limit. The compiler preserves full source
-lists under a 1 MiB combined serialized decision/trace limit; the existing 1,000
-trace-entry and 1,000,000 row/column work limits remain. Row-filtered values and scalar
-origins have exact value/binding proofs that replay recomputes. Model output schemas,
-document call/time budgets and public v1 contracts are unchanged.
+Raw checks remain in `structural-kpi-20260913/native-text-anchors-57/`,
+`scope-partitions-52/` and the preceding source-specific evidence folders. Historical
+counts and failed model responses are preserved there and in version history; they
+are not accumulated here as a substitute for current readiness.
 
-The existing 50-row/two-column fixture now retains all 102 references instead of
-failing at 100; the 200-row fixture retains 402. Data, exact row selections and
-source order are preserved. New regressions cover byte/trace/work exhaustion, JSON
-replay, altered value/binding/missingness, unchanged independent applicability links,
-and refusal to treat serialized tags as compiler authority. The local full suite
-passed 3,151 tests / 227 skips / 12 subtests. Evidence:
-`structural-kpi-20260913/scope-source-proofs-50/`.
-The identical source passed **319 related Spark-B ARM tests** on the retained
-Python 3.12.3 dependencies. All 227 exported source/test files were verified and
-removed after evidence collection; shared RPC, dependencies and host OOM were unchanged.
+## Latest Spark verification
 
-That change did not fix discovery or request sizing. Inventory v1 subsequently removed
-the premature candidate cutoff; the partition path above now handles divisible tasks.
+The current source ran the original binary HWP development fixture through the public
+stream API on Spark-A's existing **Motif-3-314B-Q4_K_M** service. The frozen allowance
+remained **12 calls / 900 seconds / 16,000 characters**, with exact input/output token
+reservation within the server's 8,192-token context. Expected answers stayed local.
 
-Source **b80b4c7c50b46a9c51f3d7c6213c8955407b0c04** passed **349 directly related
-Spark-B ARM tests** on the retained Python 3.12.3 dependencies, without a model call.
-The temporary source export was checked and removed; shared RPC and dependencies
-were unchanged. This does not qualify the new source's actual model behavior.
+It returned **partial after 12 calls / 617.6 seconds**, exhausting calls but not the
+time allowance. All 18 nodes, 28 bindings and four native note objects with their
+stored numbers and body links are unchanged. The two structures no longer quote empty
+control nodes, and do not invent one-row records. However:
 
-Recompiling unchanged saved HWPX proposals in an isolated fixture reproduced the
-whole-array blank claim. Comparing the old and new join logic preserved all four
-returned records, other evidence, schema, meanings, scopes and unresolved issues;
-only the stale active claim moved to its originating fragment on the relation.
-The fixture validates the historical inventory-v1 evidence rather than bypassing the
-current product's checkpoint rejection. This is not a model rerun or quality approval.
+- Both referring body paragraphs are interpreted as titles, then offered again as
+  scalar values. The compiler rejects `document_role_value_conflict` in both regions.
+- Raw value replies select all six correct source texts, but **zero values are
+  accepted**. Correct choices within a contradictory structure are not successful
+  extraction; the six data entries remain uncertain/null.
+- Three replacement proposals repeat the old structure and omit meanings from the
+  complete change ledger. The final reply retains the failed structure. Five added
+  note meanings and native control/number accounting remain unfinished; applicability
+  never receives a model call.
 
-The preceding source-path comparison moved 158 stored XLSX cells from
-display text to their exact native source paths. Source order, original nodes and
-all HWPX text ranges were unchanged. Original failed model results were not resumed,
-rewritten or approved by this source-reading check.
+This is a **development quality failure**, not independent approval. The comparison
+changes both the source contract and the model, so it does not isolate the cause of
+any model-behavior difference. Full model shard hashes were not verified, and the
+product default model is unchanged. Raw evidence and the whole-result review are in
+`structural-kpi-20260913/native-text-anchors-57/`.
 
-The earlier planning check at source **89a88b83778960645c6b3114220cd3630206dd48**
-produced a **15,251-character** initial HWPX detail request rather than 16,899,
-within the existing 16,000 limit. All original source
-texts, selections, frozen structure and compiler binding rules remain. This is
-request reconstruction, not resume or a new model answer.
+The concrete design gap is now clearer: role/value conflict is detected only after
+reading values, while the existing structure-only revision cannot revise a mistaken
+role. Next, check contradictions before value dispatch and provide an explicit,
+source-grounded joint role/structure correction. Keep complete replacement accounting,
+source preservation and finite budgets; do not force body roles from note membership
+or silently remove legitimate title metadata and attributes.
 
-Repacking the 50-row examples against the first accepted column mapping still
-needs 10 HWPX / 6 XLSX table regions. At two successful calls per record-table
-region, the optimistic table cost is **20 / 12 calls**, before other content and
-applicability. Packing alone cannot make their whole result fit the 12-call test.
-The prior failures are retained; no automatic allowance increase or new inference
-was performed. Complete-document evaluation needs a predeclared suitable budget;
-the existing long-document allowance is 64 calls / 3,600 seconds, not a result
-already verified here. Evidence: `structural-kpi-20260913/native-planning-46/`.
+### Outstanding 50-row HWPX / XLSX baseline
 
-An offline scope audit of the preceding product source separated discovery,
-request delivery and provenance limits. All 50 fixture rows fit a complete
-15,932-character scope request. The 96-row fixture loses its record candidate during
-discovery; retaining it for diagnosis produces 22,924 characters, above the unchanged
-16,000 limit. Independently, a 50-row/two-column explicit range exceeds the
-100-reference source-binding bound. Both preserve compiled data and remain failures,
-not permission to omit rows or increase model budgets. Whole-column selection after
-a checked join covers the current compiled definition, including continued rows.
-Evidence: `structural-kpi-20260913/scope-discovery-audit-49/` (32 scripted cases, no
-model calls). The implementation sequence is described in
-[long-table applicability](docs/extraction-engine.md#partitioned-applicability);
-The compiler-provenance and complete-inventory corrections above address those
-historical reference-count and candidate-loss failures. Partitioned delivery is now
-implemented for divisible candidate/row groups; actual model quality remains unapproved.
+The most recent actual full-path run of these two development files used source
+**e3452fba507a1f5dd1ddb1d87549d59c2fdf1295**, the 9B CUDA runtime and the frozen
+**12-call / 900-second / 16,000-character** limit:
 
-The latest native-note correction exposes stored object identity, body links and exact
-number sources in all native interpretation stages. The old structure request omitted
-nontext controls/number sources. A present value can no longer offer several declared
-notes or distinct body paragraphs as interchangeable choices, and separate notes cannot
-be combined into one note/unit/condition meaning. The result preserves typed native note
-objects independently of business fields. Structural note accounting can use a verified
-body reference without inventing a business field or resolving an additional unit/condition.
-The latter still needs its own semantic decision. Tests cover equal values, multi-paragraph
-notes, source ownership, missing links, conflicts, finite bounds and checkpoint replay.
-See [the implementation](docs/extraction-engine.md#binary-hwp-notes-and-exact-body-ownership).
-
-## Latest Spark-B verification
-
-### Compatible source choices: no whole-result approval
-
-Source **150b48a55fd5a72ef3ce9fcef53adfac92af375d** processes the same original HWP
-with native structure v15 / structural wire v2 / document protocol v10 / revision v5.
-The response contract now offers only compatible present/blank source sets and separate
-note/unit/condition anchors; bounded repair identifies all conflicting sources and owners.
-Missing/uncertain evidence, shared definitions, multi-paragraph notes and genuine
-cross-object relationships remain available. These are constraints on accepted choices,
-not inferred fields or automatic values.
-
-The complete contract exceeds the old single region's input limit, so the existing
-planner uses two regions without dropping original nodes, bindings or note relationships.
-All actual requests fit **16,000 characters**. Under the unchanged **12-call / 900-second**
-budget, the 9B CUDA run returns **partial after 11 calls / 248.6 seconds**:
-
-- All four native note objects, stored numbers and body links remain exact. The six
-  body/note text roles also match the frozen expectations.
-- Four accepted value entries cover only **three of six distinct texts**. The first
-  body text appears twice, as a scalar and a one-row record. Separate one-row note
-  records coexist with an unnecessary uncertain combined field.
-- Both first-region revisions omit required change entries. Nontext controls and two
-  number bindings remain unaccounted. Added scopes target the null combined field and
-  note-text record rather than establish the native body relationship.
-- Both second-region structures invent text quotes on empty endnote control IDs;
-  exact-source checks reject them. No second-region values are accepted. Text-anchor
-  eligibility is the next concrete contract correction; typed value sources must remain.
-
-This is a **development quality failure**, not whole-budget exhaustion or independent
-approval. Structural grammar does not prevent wrong uncertain/absent states, redundant
-records or invented quote text. Do not forbid legitimate missing states to force a pass.
-After correcting text-anchor candidates, compare the full path with an already available
-stronger Spark model under the same declared budget, without changing the product default
-from service metadata alone.
-
-The source passed **3,275 local tests / 227 skips / 12 subtests** and **335 related
-ARM64 tests**. Raw evidence: `structural-kpi-20260913/native-source-choices-56/`.
-The owned server/container, input, 239 exported source/test files, two verified bytecode
-files and transfer archive were removed after hash-checked collection. Shared RPC,
-installed components and host OOM 0 remained unchanged. This is not CPU-only memory
-qualification. The earlier prepared independent set remains unapproved.
-
-### Earlier note-context source: structure still fails
-
-Source **13989dffe57a84747bab0ec42a3eaa2022d9a434** ran the original binary HWP
-through the public stream API on the retained Spark-B 9B CUDA runtime. Under the
-unchanged **12-call / 900-second / 16,000-character** budget, it returned **partial
-after 3 calls / 45.2 seconds**. Expected answers stayed outside the model requests.
-
-The accepted roles now correctly distinguish two body paragraphs from four notes.
-All 18 original nodes, 28 bindings and four typed note objects, including exact
-numbers and body links, match the preceding source and frozen expectations. But the
-model again puts distinct body paragraphs and same-kind notes into shared scalar
-value sources. The first proposal and its repair are identical. The compiler rejects
-both with `native_structure_distinct_body_values:@value1`; **no interpreted values
-are accepted**, compared with six in the preceding run.
-
-This is a **development quality failure**, not a budget timeout. Complete note context
-and fixed system instructions reach all three requests. Value reading, accounting and
-applicability are not reached, so their new context delivery has regression coverage,
-not actual-model confirmation. The current response schema still permits incompatible
-source combinations, and repair receives only the first conflict's code/handle.
-The next work is source-object-aware structural choices and bounded, source-specific
-conflict feedback, not another prompt-only rerun or relaxed validation.
-
-The source passed **3,248 local tests / 227 skips / 12 subtests** and **532 related
-ARM64 tests**. The owned server/container, input copy, 237 exported source/test files,
-two bytecode files verified against their sources, and transfer archive were removed
-after hash-checked collection. Shared RPC and host OOM 0 remained unchanged. Evidence:
-`structural-kpi-20260913/native-note-batches-55/`. This is neither independent quality
-approval nor CPU-only memory qualification.
-
-### Preceding run: separate text values, incomplete interpretation
-
-Source **9ce4ad0** reran the same binary HWP file after exposing note-object context.
-It returned **partial after 12 calls / 163.9 seconds** under the unchanged short budget.
-Unlike the preceding two-value result, **all six source texts now have separate exact
-interpreted values and bindings**. All four declared note objects retain the correct
-kind, stored number, body owner and original content references. Original nodes,
-bindings and relationships are unchanged.
-
-The result is still a **development quality failure**. The model labels the two body
-references as notes, omits nontext control/container dispositions, and marks four stored
-numbers unresolved. Its two revisions omit all meaning entities from the required change
-ledger and are rejected. Three added note meanings self-target note-text fields; a fourth
-is pending when the 12-call limit is reached. Correct native links do not approve these
-additional interpretations. Evidence: `structural-kpi-20260913/native-note-context-54/`.
-
-That run exposed a further product defect: value-batch v3 rebuilt read/accounting requests
-without `nativeNotes`. The subsequent source **13989df** preserves the complete context in
-both stages and puts stage-specific, product-owned instructions in the system message,
-never promoting instructions from source metadata. Native structure v14 / value batches v4 /
-document protocol v9 identify that change. The current source's failed actual run is
-reported above; these implementation fixes must not be attributed to the earlier result.
-
-Rebuilding requests for the *same prior six-field structure* retains all source context
-but needs six one-value requests at 15,356–15,364 characters and one accounting request
-at 13,725. With roles, structure and four added meanings, even immediate success would
-need at least 13 calls. This is request-cost evidence, not permission to raise the short
-budget or a prediction that the new model must choose the same structure. Native structural
-bookkeeping and redundant interpreted fields/meanings need to be distinguished; invalid
-revision ledgers still cannot be waived.
-
-### Earlier binary HWP ownership check
-
-Source **aad6524f8da8da372cef6438805160bd7672d441** processed the original binary HWP
-note fixture through the public stream API on Spark-B's retained 9B CUDA runtime.
-The predeclared short budget remained **12 calls / 900 seconds / 16,000 characters**;
-no expected answers were sent. The result returned **partial after 8 calls / 151.3
-seconds**, not because it exhausted that whole-document allowance.
-
-All 18 original nodes, 28 bindings, six exact text contents and four declared
-body/note links survive in the result. However, the initial AI structure merges two
-body references into one scalar and four distinct notes into another. Only the first
-body text and first note become interpreted values. The four stored note-number
-bindings remain unaccounted. Later scope choices apply the merged descriptions to
-those two fields; they do not recover the missing occurrences.
-
-The two structure revisions are rejected for duplicate change mappings and an unknown
-replacement entity. Their proposed kind split still merges separate same-kind notes.
-No invalid revision is accepted and `partial` is not relabeled as success. This is a
-**development quality failure**, despite the corrected native graph. Next, distinguish
-separate source-declared objects from multiple paragraphs within one object, preserve
-that occurrence identity during field/record decisions, and constrain revision references
-to the actual replacement. Do not invent headings or new records from note wording.
-
-The exact source passed **397 related ARM64 tests** on Python 3.12.3, with warnings as
-errors. After hash-checked collection, the owned server, one input copy, 233 exported
-source/test files and two bytecode files proven to match those sources were removed.
-Shared RPC and host OOM 0 remained unchanged. There was no new dependency/model download.
-Evidence: `structural-kpi-20260913/native-note-audit-53/`, including the frozen-specification
-comparison, full request/response trace and cleanup receipt. This is not a CPU-only
-memory qualification or an independent quality pass.
-
-### Earlier 50-row HWPX / XLSX comparison
-
-Source **e3452fba507a1f5dd1ddb1d87549d59c2fdf1295** ran the unchanged 50-row
-native development files through the actual product path. The task-owned 9B runtime
-used 16,384 context tokens. Document limits stayed at **12 calls / 900 seconds /
-16,000 input characters**; selection kept its 1,536-token output cap. Expectations
-were frozen before the first run and stayed local, not in the extractor's input.
-
-| File | Actual processing | Remaining failure |
+| File | Returned result | Still missing |
 |---|---|---|
-| HWPX | Returned partial: 7 calls / 147.2 seconds; 12 of 50 rows | All 36 returned values, row order and original cells match. The second selection incorrectly marked five bare specimen IDs as additional meanings; its detail request measured 16,899 characters and was not sent. Native title/unit/caption structure also remains invalid. |
-| XLSX | Returned partial: 12 calls / 207.5 seconds; 45 of 50 rows | All 135 returned values, row order and original cells match, including the stored blank at row 37. No input overflow remained, but the call budget ran out before the remaining rows, nonrecord content and applicability. |
+| HWPX | Partial, 7 calls / 147.2 seconds; 12 of 50 rows | Remaining rows, correct title/caption/unit structure and applicability. A detail request was too large and was not sent. |
+| XLSX | Partial, 12 calls / 207.5 seconds; 45 of 50 rows | Remaining rows, nonrecord content and applicability; the call budget was exhausted. |
 
-Equal-valued rows 11 and 12 retain distinct IDs and source cells in both results.
-XLSX row 37's width retains its empty value and `stored_empty_cell` observation,
-not an absent value or an inferred zero. These checks cover the returned rows only.
-**Neither document passes whole-document quality**, and this run does not establish
-correct unit/condition/note applicability. Evidence:
-`structural-kpi-20260913/native-mapping-scope-45/`.
-
-The comparison follows three specific corrections:
-
-- **Scalar decoder limits.** An exact failed request, with only the disposition and
-  exclusion limits changed from 5,000/2,000 to its 7/4 unique candidates, started
-  sampling on the same pinned runtime. This one-token diagnostic is not a JSON or
-  quality pass (`native-scalar-grammar-43/`). The subsequent actual product run
-  returned a partial result normally, without the prior grammar initialization error.
-- **Effective mapping evidence.** The compiler already corrected improper data-cell
-  citations, but the engine replayed the raw proposal and whole-record provenance
-  as later column context. It now uses the compiled column definitions. No source
-  is discarded from the stored result and no new header heuristic is introduced.
-- **Parent-table applicability candidates.** The preceding XLSX product comparison
-  (`native-scalar-product-44/`, 6 calls / 138.4 seconds, 11 rows) misread unit wording
-  as scalar values, then applied the unit to one of those fields. Its scope request
-  could not see the actual parent columns because its routed child was nonadjacent
-  in execution order. Explicit routing now supplies those candidates. Saved-input
-  replay and regressions verify discovery, **not** the model's corrected choice;
-  the latest full run exhausted its budget before that stage.
-
-The source passed **73 directly selected ARM tests** on Python 3.12.3. Study 45's
-69 received files were checked by hash. Source/input hashes and shared RPC were
-unchanged; host OOM stayed zero. Owned servers, containers and keys, temporary source
-and input exports, remote collected copies and transfer archives for 43–45 were
-removed after verification. Existing model/runtime components and original failure
-evidence remain. Installed packs and consumers were not changed.
-
-Earlier request-format failures remain in `native-table-selection-38/` through
-`native-table-status-42/`; context/resume evidence is in `native-table-context-35/`,
-`native-table-runtime-36/` and `native-table-meaning-37/`. No malformed response or
-completed-looking prefix was salvaged. Successful token-count preflight alone is
-not proof that the pinned runtime can initialize its decoder or complete a request.
-
-### Earlier 50-row baseline
-
-Two newly authored 50-row Korean files, HWPX and XLSX, ran through the actual product
-path at source **eaefc54d9170da4178ab4d902cd19725fbb7f758**. Exact rows, empty states,
-units/conditions/notes and source expectations were frozen before extraction and were
-not sent to the model. Both failed; they are now development cases, not holdouts.
-
-| File | Actual processing | Whole-result failure |
-|---|---|---|
-| HWPX | 12 calls / 174.2 seconds; 53 regions, mostly single-row table slices | Only 4 of 50 rows returned. Those values and original cells match; title/unit structure failed, no meanings were retained, and 46 continuation decisions remain pending. An earlier empty fragment's blank evidence still targets the now-nonempty joined array. |
-| XLSX | 3 calls / 45.0 seconds; 14 initial regions plus a non-record child | Only 2 of 50 rows returned with correct values/cells. Meaning failed on a duplicate source quote; the next structure request grew from a planned 15,712 to an actual 16,384 characters after earlier schema context was included. The input guard stopped it without exhausting or increasing the 12-call allowance. |
-
-The existing Spark-B components passed 33 directly selected ARM tests. Source/input
-hashes stayed unchanged; the owned server/container was removed, shared RPC and host
-OOM were unchanged. Neither run reached applicability, so it does **not** validate
-the new long-scope display. Evidence: `structural-kpi-20260913/native-long-files-33/`.
-
-Source inspection also exposed collapsed merge widths and a missing stored XLSX blank.
-The subsequent source fix restores all 150 data-cell values/positions in each original
-file, including the blank and merged spans. Source **a21549b28cbcf98857254710194f5e7d11d18652**
-passed 46 selected Spark-B tests; both complete native observations exactly match the Mac
-check. This parser/observation comparison is not a new end-to-end model pass. Three-page continuity, binary HWP and independent
-varied-form quality remain unapproved.
-
-### Earlier prose-record product verification
-
-The actual product source **f277210db781d313b92b7a7cf31bdeec307e81e4** (native-structure
-v10 / revision v3) was tested with the existing Qwen3.5-9B Q4_K_M components and a
-separate, task-owned CUDA server. Python 3.12.3 passed **357 tests**, with eight
-fixture-authoring tests deselected; those are not deployment-environment passes.
-
-The unchanged eight-paragraph HWPX seed receipt returned **partial after 3 calls /
-72.2 seconds** under the fixed 12-call / 900-second document allowance, 16,000-character
-input limit and 3,072-token output cap. Typed decoding used `json_schema`, `strict=false`.
-Actual server token probes matched usage and preserved the configured output reservation.
-
-Both structure proposals contain two item rows, but the second item's requested count
-is incorrectly blank and its received count incorrectly absent. Their row-local states
-also cite a separate paragraph outside the allowed row anchors, so the compiler rejects
-both with `logical_value_evidence_outside_occurrence`. Extra title/unit/handling fields,
-per-item receipt dates and missing separate applicability remain. **No item values are
-accepted; neither value reading nor the new structure-review stage is reached.**
-
-All 24 displayed source views, original nodes/bindings, committed source and input hashes
-match. This source-preservation check does not excuse the semantic failure. The separate
-server/container and temporary source/input copies were removed after evidence collection;
-shared RPC settings and host OOM stayed unchanged. Evidence: private
-`structural-kpi-20260913/native-review-24/`.
-
-### What the targeted diagnostics establish
-
-Two four-call comparisons on the same source requests (`native-prompt-study-22/` and
-`native-schema-study-23/`) tested shorter instructions, record-first property ordering,
-exact value substrings and typed decoding. Neither wholesale prompt replacement nor
-property reordering passed structure quality; neither was adopted. Typed decoding fixed
-syntax/types, not missing row states or wrong organization. Explicit substring wording
-selected numeric literals, but both equal counts still cited the first occurrence.
-Accepted roles alone did not prevent a whole-title value choice.
-
-Lossless prior-decision tables reduced the previously blocked review request from
-18,819 to 15,878 characters, preserving every previous structure/role value. A separate
-one-call probe of that review returned `retain` in **6.4 seconds**, citing unchanged
-source text. It reached the model, but answered source-change detection instead of
-reviewing the failed extraction. It did not approve or replace the old partial result.
-This is a stage diagnostic, not checkpoint resume or complete-product qualification
-(`native-review-probe-25/`).
-
-Revision v4 now explicitly asks for correctness review on the **same** source. Its
-complete request measures **15,980 characters** at the same 16,000-character limit;
-source/history and acceptance rules remain unchanged. A one-call comparison returned a
-replacement in **56.4 seconds**, but it omitted both old and new meanings from its change
-ledger and was correctly rejected. Its 11 scalar fields, values used as labels and lack
-of item records also fail semantic review. The actual feedback would make the request
-16,102 characters, so there was no repair call or increased allowance. This is a targeted
-stage comparison, not a v11 full-product pass (`native-review-probe-26/`).
-
-### Native structure comparisons: no replacement adopted
-
-These are development design comparisons, not product executions or independent
-holdouts. Their free-structure designs were not adopted; the separate numeric source-choice
-aid below does not replace structure interpretation or change public contracts. Source text and formatting remain
-complete; preserving them and returning valid JSON do not establish semantic accuracy.
-
-Occurrence-first grouping failed on the original HWPX, an equivalent one-paragraph
-version and a scalar control. Five structured variants grouped words, paragraphs or the
-whole document rather than both real items. A readable prose summary did not fix the
-subsequent grouping. No value/applicability stage ran against the known-wrong groups.
-The six-call-per-document evidence remains in `native-occurrence-comparison-27/`.
-
-The subsequent item/attribute draft still made six paragraph-shaped items in the original
-and copied record/note paragraphs into metadata. Removing **only** constrained JSON
-decoding produced byte-identical generated content on all three files. In this matched
-comparison, decoder enforcement was not the cause; this is not a claim about all models
-or requests.
-
-A free-form JSON draft, without the prescribed item/evidence schema, described both
-ordered items and their main counts in both layouts. The scalar form linked its separate
-label/value paragraphs and preserved `0007` and `001.2300`. However, the drafts copied an
-internal region ID into document data, one copied formatting metadata, and null erased
-the distinction between blank and absent. Missing facts and applicability remained
-partly narrative and ungrounded. **This is a useful structural proposal, not extracted
-or approved data.**
-
-This latest comparison used **3 calls per document** (99.2, 83.8 and 42.4 seconds), within
-the predeclared 12-call / 900-second limit. All **63 complete source views**, original
-inputs and observation identities matched. Evidence and separate semantic reviews are
-in `structural-kpi-20260913/native-item-facts-28/`.
-
-The grounding comparison (`native-draft-grounding-29/`) then used three calls per file
-(38.6, 41.2 and 25.6 seconds). With a closed choice for each handle, both item layouts
-selected the correct, distinct occurrences of the equal counts and the actual empty
-received cell. But units/notes became ordinary values, an original handling note was
-wrongly excluded, and the scalar form's real blank was lost. A separate classification
-step recovered blank roles but still treated an internal ID as a field and left missing
-facts/conditions as undivided notes. All 63 source views and candidate identities matched.
-**Source-choice validation passed where semantic completeness still failed.** None of
-these replies approves the free-draft pipeline.
-
-### Numeral source selectors: implemented, occurrence reading still fails
-
-Native-structure v12 adds optional original numeral locations only after field types,
-statuses and item anchors are frozen. Each handle's closed choices exclude foreign rows,
-outside-view locations and incompatible scalar representations. The compiler regenerates
-and reads the original quote; it never copies draft values or a client-edited display.
-This does not fix wrong field definitions, missing records or qualifier classification.
-
-The aid is finite and reports when its source/candidate limit prevents enumeration.
-Native value batches v3 can omit the **entire optional aid** when it would consume repair
-headroom, while retaining every original source, field, binding and ordinary quote choice.
-The chosen delivery budget is checked on resume. This prevents the new display from
-breaking already-working long value batches; it is not permission to skip source facts.
-
-Direct regressions cover precision, signs/exponents, repeated source positions, row/view
-ownership, real blanks, tampering, budget fallback and an end-to-end scripted HWPX read
-and resume. The existing 32-field scripted case still completes in eight calls at 16,000
-characters. A three-call Spark-B comparison (30.7 seconds) used current requests over
-the unchanged previous real-model structure, not an old checkpoint resume or corrected
-expected structure. All 24 source views matched. The runtime batch omitted the aid to
-fit; its numeric reads included labels and failed type conversion. A matched smaller
-request with the aid compiled but still assigned the requested count's first `8` to the
-received-count field. The name also retained extra label text. **Exact source/type
-validation did not establish the correct attribute or occurrence.** This was a stage
-comparison, not a full product run. Structure, scope, long-table and independent native
-quality work remain open; do not prioritize or force selectors on this evidence alone.
+All returned values, row order and original cell bindings match the prior expectations.
+Equal-valued rows 11/12 keep distinct cells; XLSX row 37 retains its stored blank.
+These are checks of returned rows, **not whole-document passes**. Subsequent request,
+source and scope corrections have regression coverage but have not rerun these files.
+Using the 64-call / 3,600-second long-document allowance on these already-failed cases
+still requires the pending budget decision. No automatic increase or identical failed
+rerun is planned. The files do not establish three-page qualification.
+Evidence: `structural-kpi-20260913/native-mapping-scope-45/`; original frozen inputs
+and expectations: `native-long-files-33/`.
 
 ## Earlier evidence that still limits the claim
 
@@ -623,19 +271,24 @@ requests, not rewritten historical receipts.
 Spark-B retains verified copies of the existing model, CUDA runtime, licenses and core
 Python dependencies for the next bounded primary-format check. They are not a complete
 installed model pack or an always-running service. No external model download or global
-installation was added, and the shared RPC/model services were not reconfigured.
+installation was added, and the shared RPC/model services were not reconfigured. The current Spark-A comparison uses
+the existing shared model with per-request sampling, not a new task-owned server.
 
-Owned servers use loopback authentication, read-only components, four CPUs, a 16 GiB
+The earlier task-owned 9B servers use loopback authentication, read-only components, four CPUs, a 16 GiB
 cgroup limit with no cgroup swap allowance, and host-memory/OOM safeguards. The host has
 swap configured; GPU allocations are not fully represented by cgroup memory. These GPU
 development checks are **not CPU-only 16 GiB, whole-host no-swap, GPU-memory, managed-pack,
-platform-installer or independent quality qualification**.
+platform-installer or independent quality qualification**. The shared-model run instead
+limits the owned Python process, checks both hosts and leaves server settings intact.
+Host OOM counters remain unchanged from their pre-run baselines (A: 11, B: 0); this
+is no new OOM, not a claim that the hosts have never had one. The temporary source,
+library and input copies were hash-checked and removed after evidence collection.
 
 ## Unresolved defects and next implementation order
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** Current HWP source constrains incompatible present/blank sources, but the actual model returns three of six distinct texts, redundant records and a combined uncertain field; endnote quotes on empty controls are rejected. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Separate nonempty text-anchor candidates from typed value sources, then compare an existing stronger Spark model through the full path under the same declared budget. Keep native bookkeeping distinct from additional attributes, strict old/new revision coverage and source/row preservation. Do not waive missing items, hide legitimate uncertainty or repeat the known failed setup. |
+| 1 | **Native complete extraction is not approved.** The current 314B HWP run reads six texts in raw replies but accepts none because title roles conflict with scalar fields. Structure-only repair cannot change those roles. The last 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Detect contradictions before value calls, then add explicit joint role/structure correction with bounded source/entity diagnostics and atomic invalidation of dependent reads. Preserve genuine metadata, notes, uncertainty and complete change accounting; do not manufacture a pass by deleting fields or raising the budget. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |
@@ -646,18 +299,10 @@ affected examples within a predeclared budget; retain raw failures and do not
 increase that budget automatically. A result-to-file writer, visual editor and
 pixel-matched reproduction are not prerequisites for this work.
 
-Whole-cell XLSX meaning requests now use verified native strings and their exact
-paths/offsets, not generated coordinate labels. Display-only split views and missing
-native metadata remain explicit limitations. Separately, a merged title
-classified as a `header` is not necessarily a column definition. Distinguish title,
-caption and column-header roles without assigning them from row position alone.
-That role distinction is not resolved yet. Meaning-input packing also does not make
-every inventory fit: a larger synthetic HWPX inventory remains over 16,000
-characters with all sources retained and needs bounded processing. In the latest
-actual HWPX run, five selected identifiers produced a 16,899-character detail
-request and were correctly left unresolved. That saved request fits after the current
-stage-specific correction, but neither the selections nor their meaning quality
-have been rechecked by the model.
+Whole-cell XLSX meaning requests use native strings and exact paths, not generated
+coordinate labels. A merged title is not necessarily a column definition. That role
+choice and actual applicability remain quality checks, even when the corrected request
+fits its budget. Do not promote successful request preparation to correct interpretation.
 
 ## What finishes the primary formats
 

@@ -116,7 +116,7 @@ merely to survive in the result: the exact text, typed numbers and relationships
 belong to the native document structure. Actual attributes inside notes still require
 field/value interpretation. The public native unit projection is unchanged. Checkpoint
 replay re-derives the object inventory and refuses changed numbers, owners or omitted
-inventory. Document protocol v10 / native structure v15 / native adapter v4 / compiler v35
+inventory. Document protocol v11 / native structure v16 / native adapter v4 / compiler v35
 invalidate older incompatible checkpoints. Structure-revision change-ledger defects remain
 separate work; malformed references are not accepted to make a failed run appear complete.
 
@@ -139,8 +139,8 @@ references never become owned value choices.
 For native note requests, present/blank record cells use explicit `{status, sourceRefs}`
 rather than inheriting all row anchors through a bare status. This preserves the same
 checked cell decisions while preventing inherited sources from bypassing the closed
-choices. Other documents retain their existing wire choices. Native structure v15 /
-structural wire v2 / document protocol v10 / revision v5 identify the changed contract.
+choices. Other documents retain their existing wire choices. Native structure v16 /
+structural wire v3 / document protocol v11 / revision v6 identify the current contract.
 Both schema validation and the existing independent occurrence checks still apply.
 
 Compatible sets are bounded at 1,024 combinations, 2,000,000 source/set comparisons
@@ -160,21 +160,41 @@ accepts an invalid replacement. Revision change mappings still require complete 
 coverage before atomic acceptance; improving source diagnostics does not fix their
 separate bookkeeping failures.
 
-The original six-text HWP request grows to 18,584 characters with these full constraints.
-The existing planner divides it into two complete native source regions; conservative
-structure estimates are 14,833 and 14,905 characters, within the unchanged 16,000-character
-limit. Original nodes, bindings and note relationships are not deleted or rewritten.
-This sizing result is not a model-quality approval or extra document call allowance.
-See [actual verification](../SUPPORT.md#latest-spark-b-verification).
+#### Text anchors are not typed value sources
 
-One response-contract defect remains: text quotes and row/meaning anchors can still
-offer empty nontext control IDs. Those controls retain real structural information,
-but do not supply literal text; the exact-source checker correctly rejects invented
-quotes on them. The next correction must derive text-anchor candidates from the actual
-nonempty owned source views, separately from native typed value sources and shared
-definitions. Do not remove controls/numbers from the document or fabricate their text.
-Compatible source sets do not establish sensible fields/records, correct missing states,
-source quotations or applicability; these still need whole-result model verification.
+`native_structure_wire.contract` derives quote and logical-row/meaning anchor IDs from
+`source_inventory(observation, region)`, using only nonempty owned source views. It does
+not test the full node's display string. Bounded `nodeViews`, context-only nodes, archived
+`source_text` and native spreadsheet source paths retain their existing inventory rules.
+Whitespace is not normalized away. Literal quotes still require an exact source match;
+offering a text-bearing node does not authorize arbitrary text on it.
+
+A textless note control cannot be a literal quote, row anchor or interpreted meaning.
+It still retains its native kind, ownership and number bindings. Scalar/cell value
+sources, shared definitions and structural dispositions keep their separate eligibility
+rules; a stored numeric value does not need a display quotation to remain readable.
+The note-ownership restrictions intersect the nonempty anchor set rather than restoring
+empty controls. With no text anchors the wire contract offers no records or meanings,
+while retaining eligible typed scalar values and dispositions. Completely textless
+regions still follow the existing role-planning path; this contract change does not add
+a new extraction route for them.
+
+Revision v6 deliberately distinguishes whole-block evidence from literal quotations.
+A change can cite any actual owned inventory view by its bare ID, including a genuinely
+empty block. A `{sourceRef, text}` quote can cite only a nonempty view. Change evidence
+therefore does not inherit the narrower logical-row schema, nor permit invented text
+on an empty source. Complete old/new entity accounting, atomic acceptance and exact
+source checks remain enforced.
+
+Regressions cover empty HWP controls, typed numbers, owned/context/archived views,
+spreadsheet raw numeric spelling and generated displays, quote/row/meaning exclusions,
+and valid bare empty-block revision anchors. The planner still sizes the full resulting
+contract; it may split a region, never delete sources or dispatch a relaxed fallback.
+See [current model verification](../SUPPORT.md#latest-spark-verification).
+
+These structural constraints do not establish sensible fields/records, correct missing
+states, nonduplicated interpretations or applicability. Whole-result model verification
+is separate from schema validity and native graph preservation.
 
 ### Table metadata and evolving request context
 
@@ -429,7 +449,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v10 and native-structure v15 identify the three-stage execution;
+own configured reasoning behavior. Protocol v11 and native-structure v16 identify the current three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 Native role, structure, value, batch-accounting and structure-review requests use the
@@ -820,7 +840,7 @@ their exact catalogue for source accounting; unused alternative IDs are not part
 frozen field definition. This delivery fallback never excludes document information or
 increases the call/time/input limits.
 
-Native-structure v15 / native-value-batches v4 keeps the existing single request when
+Native-structure v16 / native-value-batches v4 keeps the existing single request when
 it fits. An oversized request instead uses deterministic batches of at most 16 value
 handles, sized from the actual system, payload and closed output contract. Every batch
 retains **all original nodes, formatting and binding text**; relevant occurrence
@@ -865,36 +885,36 @@ start, and the explicit existing-backend continuation failed at structural disco
 and blank-value reading. Its absence of an oversized dispatch is not evidence that
 actual-model batch extraction succeeds.
 
-### Next boundary: explicit structure correction
+### Remaining structure-quality boundary
 
-This is **not implemented**. A model can propose syntactically valid item-numbered
-fields and duplicate them as one-row records. Batching or compressing that proposal
-cannot establish correct item structure. The larger-backend comparison improved item
-structure but still failed values and complete applicability. Do not add a fixed
-business template or silently delete every scalar sharing a record's source.
+Source-grounded correction is implemented in `native_structure_revision.py`, including
+complete entity-change accounting, atomic replacement and invalidation of dependent
+reads. Type/presence filtering and compatible source choices are also implemented.
+They are not pending mechanisms, and their regression success is not semantic approval.
 
-The next source-choice correction must also distinguish a claimed state from readable
-source evidence. The v6 comparison offered nonempty bindings to a field frozen as
-blank, allowing a choice that compilation necessarily rejects. Filter such impossible
-binding choices using the same original-source/type/presence rules, without changing
-canonical observations or removing valid quote alternatives. A reported blank in a
-note is not itself an empty observed value. Structural diagnostics must identify the
-invalid contract member without echoing arbitrary source/model strings; null attribute
-labels must not be silently accepted or derived from the field's value.
+A model can still propose syntactically valid item-numbered fields, duplicate them as
+one-row records, choose a wrong missing state or fail the replacement's change ledger.
+Batching and lossless compression cannot establish the right organization. Review the
+actual source roles, whole field/record set, per-occurrence bindings and applicability;
+do not impose a business template, fabricate a missing-state answer or silently delete
+every scalar sharing a record source. Legitimate repeated fields and equal-valued items
+must survive.
 
-A structural correction must be an explicit transition from the accepted structure
-hash. It must describe each changed/removed field, column, occurrence and meaning,
-retain source coverage, and pass the same quote, ownership, state and overlap checks.
-Validate the replacement before committing it. Recompute affected value handles,
-batch plans, accounting and applicability; never reuse a value or scope decision
-merely because an ordinal ID or key stayed the same. Invalid or interrupted replacements
-preserve the preceding partial structure. No additional document budget is created.
+The current HWP comparison exposes a specific recovery gap. `document_outline.compile_elements`
+rejects a whole-paragraph scalar conflicting with a title/heading/caption only once
+value bindings are available. `native_structure_revision` displays the accepted roles
+but its replacement covers structure only. Repeating value reads or replacing the same
+fields cannot fix an incorrectly frozen role. A joint role/structure correction is
+**not yet implemented**. It needs early conflict detection, program-owned conflicting
+source/entity references, complete old/new role and structure coverage, and atomic
+revalidation of hierarchy, value plans, accounting and applicability. Preserve the
+preceding partial result on failure. Neither native note membership nor row position
+alone can decide that a title role is wrong.
 
-Test corrected titles versus genuine metadata, valid repeated scalars versus duplicate
-item attributes, equal values in distinct occurrences, explicit blanks/absence,
-failed replacement preservation and invalidated batches. Cross-region logical
-continuation also remains open. New varied HWP/HWPX/XLSX documents must independently
-pass the actual complete path; scripted transitions alone cannot approve the KPI.
+Cross-region logical continuation still requires source-bound earlier-record context
+and an explicit relation decision. Nearby text or equal keys cannot authorize merging.
+New varied HWP/HWPX/XLSX documents must pass the complete actual path independently;
+scripted correction transitions alone cannot approve the KPI.
 
 ## 2. PDF recognition and optional visual reading
 
@@ -1477,8 +1497,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v40 / v23 / v35 |
-| Document outline / native role-content protocol / native structure | v1 / v10 / v15 |
-| Native structural response wire / native value batches / structure revision | v2 / v4 / v5 |
+| Document outline / native role-content protocol / native structure | v1 / v11 / v16 |
+| Native structural response wire / native value batches / structure revision | v3 / v4 / v6 |
 | Table protocol / table reference wire / table source wire / selection wire | v29 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
