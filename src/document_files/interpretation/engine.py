@@ -1106,6 +1106,12 @@ def extract_schema_from_stream(
                         selected.targetSchema,
                         _restored_usage,
                     )
+                if "roleValueFailure" in content_state:
+                    from .native_revision_followup import validate_failure
+
+                    validate_failure(
+                        content_state, frozen, effective, observation, region, selected.targetSchema
+                    )
                 if rid in accepted:
                     replay = native_structure.accept_values(
                         content_state["response"], frozen, effective, observation, region
@@ -1142,7 +1148,8 @@ def extract_schema_from_stream(
                 record.update(attempts=0, reviewAttempts=0, halted=False, status="pending")
             revision_pending = "revision" in record and record["revision"]["status"] != "complete"
             if revision_pending:
-                record["revision"].update(attempts=0, halted=False, status="pending")
+                prior_attempts = record["revision"].get("priorReview", {}).get("attempts", 0)
+                record["revision"].update(attempts=prior_attempts, halted=False, status="pending")
             if record["content"]["status"] != "complete" and not revision_pending:
                 record["content"].update(attempts=0, halted=False, status="pending")
                 if "batches" in record["content"]:
@@ -2106,10 +2113,13 @@ def extract_schema_from_stream(
         return None
 
     def interpret_native_revision(region):
+        from . import native_revision_followup as followup
         from .native_note_checks import OccurrenceError
 
         rid = region["id"]
         current = document_states[rid]
+        if followup.can_reopen(current.get("revision"), current["content"]):
+            current["revision"] = followup.reopen(current, accepted.get(rid))
         if "revision" not in current:
             if not native_structure_revision.eligible(current["content"]):
                 return False
@@ -2122,7 +2132,7 @@ def extract_schema_from_stream(
             )
         state = current["revision"]
         if state["status"] == "complete":
-            return False  # One revision cycle per native region, not an open-ended loop.
+            return False  # No new cycle after a completed follow-up or replacement.
         if state.get("halted"):
             raise ModelError("native_revision_response_unavailable")
         metadata = {"intent": selected.intent, "targetHandles": catalog}
@@ -2229,7 +2239,7 @@ def extract_schema_from_stream(
                         )
                     ]
                 save("interpreting")
-                return replacement is not None
+                return replacement is not None or "priorReview" in state
             except ModelError:
                 if state["attempts"] > before:
                     state.update(status="failed", halted=True)
@@ -2261,6 +2271,7 @@ def extract_schema_from_stream(
         state = content_state["batches"]
 
         def publish(response, ir, fragment):
+            content_state.pop("roleValueFailure", None)
             content_state.update(response=response, hasAcceptedResponse=True, status="pending")
             accepted[rid], compiled[rid] = ir, fragment
 
@@ -2301,6 +2312,7 @@ def extract_schema_from_stream(
                             )
                             break
                         progress["lastResponseHash"] = response_hash
+                        native_value_batches.accept(value, request, kind, keys)
                         proposed = copy.deepcopy(state)
                         proposed[kind][index]["response"] = value
                         response, ir, fragment = native_value_batches.compile_aggregate(
@@ -2312,7 +2324,6 @@ def extract_schema_from_stream(
                             region,
                             selected.targetSchema,
                         )
-                        native_value_batches.accept(value, request, kind, keys)
                         new_resolved = native_value_batches.resolved(value, kind)
                         if "response" in progress:
                             old = progress["response"]
@@ -2370,6 +2381,27 @@ def extract_schema_from_stream(
                             else ["native_value_batch_contract_invalid"]
                         )
                         progress.update(status="failed", feedback=feedback)
+                        if (
+                            isinstance(exc, CompileError)
+                            and str(exc) == "document_role_value_conflict"
+                        ):
+                            from .native_revision_followup import failure_record
+
+                            content_state.update(
+                                status="failed",
+                                roleValueFailure=failure_record(
+                                    native_value_batches.aggregate(payload, proposed),
+                                    payload,
+                                    schema,
+                                    batch={
+                                        "phase": kind,
+                                        "index": index,
+                                        "response": value,
+                                        "requestHash": document_protocol.digest(list(request)),
+                                    },
+                                ),
+                            )
+                            native_value_batches.sync_usage(content_state)
                         issue(
                             "native_value_batch_invalid",
                             regionId=rid,
@@ -2377,9 +2409,15 @@ def extract_schema_from_stream(
                             errors=feedback,
                         )
                         save("interpreting")
+                        if content_state.get("roleValueFailure"):
+                            from .native_revision_followup import can_reopen
+
+                            if can_reopen(document_states[rid].get("revision"), content_state):
+                                return True
                 save("interpreting")
 
-        run_phase("values", state["valueKeys"])
+        if run_phase("values", state["valueKeys"]):
+            return
         if not native_value_batches.values_complete(state):
             return
         if "accountingKeys" not in state:
@@ -2394,7 +2432,8 @@ def extract_schema_from_stream(
                 limit,
                 response["selections"],
             )
-        run_phase("accounting", state["accountingKeys"])
+        if run_phase("accounting", state["accountingKeys"]):
+            return
         response, ir, fragment = native_value_batches.compile_aggregate(
             payload, state, structure, roles, observation, region, selected.targetSchema
         )
@@ -2587,6 +2626,7 @@ def extract_schema_from_stream(
                 structure = native_structures[rid]
                 frozen_roles = native_role_review.effective_roles(document_states[rid])
                 content_state = document_states[rid]["content"]
+                content_state.pop("roleSourceReview", None)
                 payload, candidate_schema = native_structure.value_request(
                     structure, frozen_roles, observation, region
                 )
@@ -2710,6 +2750,7 @@ def extract_schema_from_stream(
                     break
                 accepted[rid], compiled[rid] = candidate, fragment
                 if content_state is not None:
+                    content_state.pop("roleValueFailure", None)
                     content_state.update(
                         status="complete" if not local_issues(fragment) else "pending",
                         hasAcceptedResponse=True,
@@ -2752,6 +2793,12 @@ def extract_schema_from_stream(
                 feedback = exc.diagnostics
             except CompileError as exc:
                 feedback = [str(exc)]
+                if content_state is not None and str(exc) == "document_role_value_conflict":
+                    from .native_revision_followup import failure_record
+
+                    content_state["roleValueFailure"] = failure_record(
+                        raw_native_value, payload, candidate_schema
+                    )
                 # Native candidate text is already in the request. Identify the
                 # failed offered choice without logging raw source/model text.
                 if (
@@ -2771,6 +2818,11 @@ def extract_schema_from_stream(
             if content_state is not None:
                 content_state["status"] = "failed"
             save("interpreting")
+            if content_state is not None:
+                from .native_revision_followup import can_reopen
+
+                if can_reopen(document_states[rid].get("revision"), content_state):
+                    break
         if content_state is not None and content_state["status"] == "running":
             content_state["status"] = "failed"
         if content_state is not None:

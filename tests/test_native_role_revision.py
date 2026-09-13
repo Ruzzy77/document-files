@@ -48,9 +48,13 @@ class JointModel:
         elif stage == "structure":
             value = wire
         elif stage == "structureRevision":
-            assert p["roleSourceReview"] == [
-                {"valueHandle": "@value1", "sourceRoles": {"n1": "title"}}
-            ]
+            if "retainedReviewHash" in p:
+                assert p["roleSourceReview"] == []
+                assert p["failureCodes"] == ["document_role_value_conflict"]
+            else:
+                assert p["roleSourceReview"] == [
+                    {"valueHandle": "@value1", "sourceRoles": {"n1": "title"}}
+                ]
             assert expand(p["acceptedRoles"]) == [role]
             if self.mode == "transport":
                 raise ModelError("ai_test_joint_transport")
@@ -271,7 +275,7 @@ def test_retaining_a_role_does_not_approve_conflicting_whole_text_value():
     out = run(model, states=states)
     assert out["extraction"]["status"] == "partial"
     assert out["data"] == {"reference": None}
-    assert model.stages.count("structureRevision") == 1
+    assert model.stages.count("structureRevision") == 2
     assert any("document_role_value_conflict" in i.get("errors", []) for i in out["issues"])
     assert run(model, restore=states[-1])["data"] == out["data"]
 
