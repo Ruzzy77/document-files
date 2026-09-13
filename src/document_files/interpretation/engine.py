@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from ..analysis import AnalysisInput, AnalysisJob, AnalyzerBackend, analyze_document
 from ..document_model.capture import capture
 from ..document_model.model import OBSERVATION_VERSION, ObservationDocument
+from ..document_model.native import NATIVE_OBSERVATION_VERSION
 from ..document_model.observe import observe_document
 from ..structured_extraction import project_structured_extraction
 from . import document_protocol, native_structure, native_structure_revision, native_value_batches
@@ -261,7 +262,7 @@ def _node_read_coverage(regions, accepted):
 
 def observation_identity(backend):
     if backend is None:
-        return {"adapter": "native-observation", "version": OBSERVATION_VERSION}
+        return {"adapter": "native-observation", "version": NATIVE_OBSERVATION_VERSION}
     identity = getattr(backend, "identity", None)
     if not isinstance(identity, dict):
         raise ValueError("observation backend must provide a stable identity")

@@ -75,6 +75,12 @@ incomplete source extraction. `inspect` / `extract` expose dimensional coverage 
 `coverageProfile`; structured extraction uses `coverage` for that object. Markdown
 does not reproduce the source's page layout.
 
+XLSX explicitly stored empty cells expose a typed `kind: "blank"` with `raw: ""`;
+empty strings retain string type. Implicit grid gaps and empty positions covered by
+a merged anchor are not fabricated as independent cells. A missing formula cache
+remains unavailable, not blank or zero. Native cell geometry uses public `columnSpan`
+and preserves the original merged extent in the internal observation.
+
 For HWPX cell editing, use the `tableMap.tables` returned by `inspect` with verified `sectionPath`,
 `tableIndex`, `row` and `col`. The `selectorBasis` value
 `verified-section-xml-table-order` records alignment with the section XML and editor's

@@ -194,7 +194,7 @@ class BuiltinAdapterTest(unittest.TestCase):
             self.assertEqual(path.read_bytes(), before)
 
         self.assertEqual(result.completeness, "complete")
-        self.assertEqual(result.descriptor.adapter_version, "source-units-v9")
+        self.assertEqual(result.descriptor.adapter_version, "source-units-v10")
         self.assertEqual(
             [(unit.unit_type, unit.content) for unit in result.units],
             [("sheet", ""), ("sheet_cell", "A1=색인 대상")],

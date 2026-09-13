@@ -8,7 +8,7 @@ from copy import deepcopy
 from .html import observe_html
 from .markdown import observe_markdown
 from .model import OBSERVATION_VERSION, ObservationBudgetExceeded, ObservationDocument
-from .native import add_native_relationships, observe_lines
+from .native import NATIVE_OBSERVATION_VERSION, add_native_relationships, observe_lines
 from .pdf import observe_pdf
 
 
@@ -167,6 +167,7 @@ def observe_document(
         "format": format_id,
         "legacyNodeIds": list(legacy_nodes),
         "originalNodesPreserved": True,
+        "nativeAdapterVersion": NATIVE_OBSERVATION_VERSION,
     }
     preferred = list(legacy_nodes)
     if len(content) > 128 * 1024 * 1024:

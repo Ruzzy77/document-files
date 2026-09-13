@@ -28,13 +28,14 @@ except ModuleNotFoundError:  # OpenAI hosts may provide only the standard librar
     _DEFUSED_XML_AVAILABLE = False
 
 from .extraction_errors import ExtractionError
+from .xlsx_empty_cells import MergeCoverage, empty_typed_value, stored_empty_type
 
 EXTRACTOR_VERSION = "source-units-v4"
 EXTRACTOR_VERSION_OVERRIDES = {
     "docx": "source-units-v7",
     "pptx": "source-units-v8",
     "hwpx": "source-units-v10",
-    "xlsx": "source-units-v9",
+    "xlsx": "source-units-v10",
 }
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_EXPANDED_BYTES = 512 * 1024 * 1024
@@ -774,6 +775,8 @@ def _xlsx_sheet_structure(
                 "text": formula.text or "",
                 "attributes": dict(formula.attrib),
             }
+        if (empty_type := stored_empty_type(cell, _SPREADSHEETML_NAMESPACE)) is not None:
+            lexical["emptyCellType"] = empty_type
         if lexical:
             lexical_cells[coordinate] = lexical
         if len(lexical_cells) >= MAX_XLSX_UNITS:
@@ -982,6 +985,7 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                         (item["origin"]["row"], item["origin"]["col"]): item
                         for item in sheet_structure["merged_ranges"]
                     }
+                    merge_coverage = MergeCoverage(sheet_structure["merged_ranges"])
                     cached_rows = iter(cached_sheet.iter_rows())
                     for row_index, row in enumerate(sheet.iter_rows(), start=1):
                         if row_index > MAX_SHEET_ROWS:
@@ -1007,7 +1011,14 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                                 break
                             cells_seen += 1
                             value = getattr(cell, "value", None)
-                            if value is None:
+                            coordinate = getattr(cell, "coordinate", None)
+                            lexical = lexical_cells.get(coordinate, {})
+                            empty_type = lexical.get("emptyCellType")
+                            if (value is None and empty_type is None) or (
+                                value in (None, "") and merge_coverage.covered(row_index, col_index)
+                            ):
+                                # OpenPyXL also yields implicit grid gaps and merge
+                                # coverage. Neither is an independent empty cell.
                                 continue
                             cached_cell = (
                                 cached_row[col_index - 1] if col_index <= len(cached_row) else None
@@ -1030,22 +1041,22 @@ def extract_xlsx(path: Path) -> ExtractionResult:
                                             "style_id": style_metadata.get("style_id"),
                                         }
                                     )
-                            typed_value = _xlsx_typed_value(
-                                cell,
-                                cached_cell,
-                                number_format=style_metadata.get("number_format"),
+                            typed_value = (
+                                empty_typed_value(empty_type)
+                                if value is None
+                                else _xlsx_typed_value(
+                                    cell,
+                                    cached_cell,
+                                    number_format=style_metadata.get("number_format"),
+                                )
                             )
                             if (
                                 typed_value["kind"] == "formula"
                                 and not typed_value["cached_available"]
                             ):
                                 missing_formula_cache += 1
-                            coordinate = getattr(cell, "coordinate", None)
                             if not coordinate:
-                                raise ExtractionError(
-                                    "XLSX non-empty cell is missing its coordinate"
-                                )
-                            lexical = lexical_cells.get(coordinate, {})
+                                raise ExtractionError("XLSX stored cell is missing its coordinate")
                             if typed_value["kind"] == "formula":
                                 if "sourceFormula" in lexical:
                                     typed_value["sourceFormula"] = lexical["sourceFormula"]

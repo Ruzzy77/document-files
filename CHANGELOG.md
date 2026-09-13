@@ -4,6 +4,12 @@
 
 ### Document extraction
 
+- Preserve native merged-column geometry by mapping public `columnSpan` to internal
+  `colSpan` (native observation adapter v2). Reject prior native-geometry checkpoints.
+  Retain stored XLSX empty XML cells without inventing implicit gaps or covered merge
+  cells (XLSX extractor v10). Empty strings, whitespace and uncached formulas remain
+  distinct; original files, values and public v1 contracts are preserved.
+
 - Compact long applicability context and row-boundary lists without removing rows,
   exact source text, geometry or missing properties (scope-selection wire v3).
   Preserve original selection contracts and compiler-bound provenance; include the

@@ -42,6 +42,15 @@ are not native declarations.
 
 ### Native spreadsheet projections
 
+`extractors.py` (XLSX adapter v10) uses bounded worksheet XML observations to tell
+an explicitly stored empty cell from an implicit OpenPyXL grid gap. Bare empty cells
+retain `kind: blank` and exact empty `raw`; declared empty strings retain string type.
+No zero, null or the word `None` is substituted. A formula without a cached result is
+still a formula, and whitespace remains original text. `xlsx_empty_cells.py` indexes
+merged rectangles without expanding them; empty covered positions are not independent
+cell values. XML/cell/output limits remain in effect, and partial metadata is not proof
+of a missing or blank value. Original files are unchanged.
+
 The XLSX parser's readable node text includes a generated coordinate prefix, such
 as `A2=Alice`; its actual typed cell value is separately stored in `semantic.value`.
 `native.py::bind_spans` preserves the readable node, but derives label/value and
@@ -56,6 +65,14 @@ Region plan v16 invalidates checkpoints whose candidate IDs used the display-der
 boundaries. Required-candidate accounting is unchanged: real inner fields remain
 required, and missing values are not excused by this correction. Public observation
 nodes, exact numeric spellings, formulas and caches are not rewritten.
+
+Native observation adapter v2 maps public `semantic.cell.columnSpan` to internal
+`colSpan`; the earlier spelling mismatch collapsed HWP/HWPX/XLSX merged widths to one.
+The legacy `colSpan` key is only a fallback when the public property is absent.
+Row/column spans and all source-cell metadata remain separate from header-role guesses.
+Native node dictionaries are not rewritten, and the backend version is included in
+observation provenance and extraction checkpoint identity. Old native checkpoints cannot
+reuse geometry from the previous adapter; public observation/result schemas stay v1.
 
 ### Logical document outline (HWP/HWPX)
 

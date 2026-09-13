@@ -7,6 +7,8 @@ from copy import deepcopy
 
 from .model import ObservationDocument
 
+NATIVE_OBSERVATION_VERSION = "document-files.native-observation.v2"
+
 # Candidate boundaries only. Role, type and applicability are interpreted by the internal AI.
 _LEXEME = re.compile(r"[^\s;,:=]+")
 _FIELD = re.compile(r"(?:^|[;\n])\s*([^;\n:=]+?)\s*[:=]([^;\n]*)")
@@ -168,7 +170,9 @@ def add_native_relationships(doc: ObservationDocument, legacy_nodes: dict) -> No
                     "row": cell["row"] - base,
                     "col": cell["column"] - base,
                     "rowSpan": cell.get("rowSpan", 1),
-                    "colSpan": cell.get("colSpan", 1),
+                    # Public native cell geometry names this columnSpan. The
+                    # observation uses colSpan; do not silently collapse merges.
+                    "colSpan": cell.get("columnSpan", cell.get("colSpan", 1)),
                     "isHeader": cell.get("isHeader", False),
                     "sourceCell": deepcopy(cell),
                 }
