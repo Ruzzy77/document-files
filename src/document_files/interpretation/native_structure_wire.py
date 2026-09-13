@@ -16,7 +16,7 @@ from ..result_types import Contract
 from .semantic_types import Disposition, Group, Presence, SourceQuote, ValueType, _compact_contract
 from .table_sources import source_inventory
 
-VERSION = "document-files.native-structure-wire.v2"
+VERSION = "document-files.native-structure-wire.v3"
 
 
 class StructureContractError(ValueError):
@@ -116,9 +116,16 @@ class Structure(Contract):
 def contract(region, metadata, *, observation=None):
     schema = Structure.model_json_schema()
     owned = region["nodeIds"]
+    # Quote/row anchors require actual nonempty owned views. Typed value sources,
+    # definitions and structural dispositions have different eligibility rules.
+    anchors = (
+        [s["sourceRef"] for s in source_inventory(observation, region)["sources"] if s["text"]]
+        if observation is not None
+        else owned
+    )
     refs = list(dict.fromkeys([*owned, *region.get("contextNodeIds", [])]))
     schema["properties"]["regionId"] = {"type": "string", "const": region["id"]}
-    for definition in schema["$defs"].values():
+    for name, definition in schema["$defs"].items():
         for key, prop in definition.get("properties", {}).items():
             if key in {"sourceRefs", "definitionRefs"}:
                 target = prop
@@ -129,9 +136,9 @@ def contract(region, metadata, *, observation=None):
                     "enum": refs if key == "definitionRefs" else owned,
                 }
             elif key == "sourceRef":
-                prop.update(type="string", enum=owned)
+                prop.update(type="string", enum=anchors if name == "SourceQuote" else owned)
             elif key in {"anchors", "emptyAnchors"}:
-                prop["items"]["anyOf"][0] = {"type": "string", "enum": owned}
+                prop["items"]["anyOf"][0] = {"type": "string", "enum": anchors}
             elif key == "targetHandle":
                 offered = list(metadata.get("targetHandles", {}))
                 prop["anyOf"] = ([{"type": "string", "enum": offered}] if offered else []) + [
@@ -145,10 +152,15 @@ def contract(region, metadata, *, observation=None):
         kind=deepcopy(meaning["kind"]), status=deepcopy(meaning["status"])
     )
     schema["$defs"]["SourceQuote"]["properties"]["occurrence"].pop("default", None)
+    if not anchors:
+        # No nonempty quote is possible. Keep native scalar values/definitions and
+        # dispositions; compacting prunes unreachable row/meaning quote contracts.
+        schema["properties"]["records"]["maxItems"] = 0
+        schema["properties"]["meanings"]["maxItems"] = 0
     if observation is not None:
         from .native_occurrence_contract import constrain
 
-        schema = constrain(schema, observation, region)
+        schema = constrain(schema, observation, region, anchor_refs=anchors)
     return _compact_contract(schema)
 
 

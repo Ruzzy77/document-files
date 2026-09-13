@@ -174,7 +174,12 @@ def test_contract_bounds_stop_before_dispatch_without_dropping_objects(monkeypat
 def test_non_note_document_keeps_its_existing_wire_choices():
     doc, region, _ = fixture()
     doc.provenance["format"] = "hwpx"
-    assert wire.contract(region, {}, observation=doc) == wire.contract(region, {})
+    # Text-anchor eligibility is now separate on every native format. Non-note
+    # fields still have no additional declared-note occurrence restriction.
+    schema = wire.contract(region, {}, observation=doc)
+    assert Draft202012Validator(schema).is_valid(
+        {"regionId": "r", "fields": [field(["a_text", "b_text"])]}
+    )
 
 
 def test_contract_limit_is_reported_without_losing_original_source(monkeypatch):

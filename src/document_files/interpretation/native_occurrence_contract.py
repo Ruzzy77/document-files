@@ -52,7 +52,7 @@ def _sets(owned, axes):
     return result
 
 
-def constrain(schema, observation, region):
+def constrain(schema, observation, region, *, anchor_refs):
     """Specialize standard JSON Schema; keep the existing wire data and checked IR."""
     try:
         notes, bodies = ownership(observation, region)
@@ -98,7 +98,7 @@ def constrain(schema, observation, region):
     constrained["properties"]["kind"] = {"type": "string", "enum": ["note", "unit", "condition"]}
     constrained["properties"]["status"] = {"type": "string", "const": "interpreted"}
     anchors = []
-    for refs in _sets(owned, [notes]):
+    for refs in _sets(anchor_refs, [notes]):
         quote = deepcopy(definitions["SourceQuote"])
         quote["properties"]["sourceRef"] = {"type": "string", "enum": refs}
         option = deepcopy(original["properties"]["anchors"])

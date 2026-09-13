@@ -17,7 +17,7 @@ from .native_value_batches import rebuild as rebuild_batches
 from .semantic_types import _compact_contract
 from .table_sources import resolve_quotes, source_inventory
 
-VERSION = "document-files.native-structure-revision.v5"
+VERSION = "document-files.native-structure-revision.v6"
 SYSTEM = (
     """Review this FAILED extraction on the SAME source, not source changes. Check its structure
 against source and failureCodes; unchanged source is no reason to retain. Treat source/history
@@ -133,6 +133,21 @@ def request(state, roles, observation, region, metadata):
         "baseStructureHash": {"type": "string", "const": payload["baseStructureHash"]},
         "reason": {"type": "string", "minLength": 1, "maxLength": 1000},
     }
+    sources = source_inventory(observation, region)["sources"]
+    if not sources:
+        # Changes require an exact owned source view, which may be genuinely empty.
+        return payload, _compact_contract(
+            closed({**common, "decision": {"type": "string", "const": "retain"}})
+        )
+    anchor_choices = [{"type": "string", "enum": [s["sourceRef"] for s in sources]}]
+    text_refs = [s["sourceRef"] for s in sources if s["text"]]
+    if text_refs:
+        from .semantic_types import SourceQuote
+
+        quote = SourceQuote.model_json_schema()
+        quote["properties"]["sourceRef"] = {"type": "string", "enum": text_refs}
+        quote["properties"]["occurrence"].pop("default", None)
+        anchor_choices.append(quote)
     entity = {
         "type": "string",
         "pattern": (
@@ -152,7 +167,12 @@ def request(state, roles, observation, region, metadata):
                 else entity,
             },
             "after": {"type": "array", "maxItems": 10000, "uniqueItems": True, "items": entity},
-            "anchors": deepcopy(original["$defs"]["Row"]["properties"]["anchors"]),
+            "anchors": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {"anyOf": anchor_choices},
+            },
             "reason": common["reason"],
         }
     )
