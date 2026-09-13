@@ -1876,8 +1876,11 @@ def join_continuations(compiled, candidates, decisions):
     same rows and adds only provenance; both fold statements repeated on the joined
     page into the earlier fields and meanings.
     """
+    from .record_fragment_evidence import ZeroRecordFragments
+
     result = copy.deepcopy(compiled)
     regions = {r.id: r for r in result}
+    zero_fragments = ZeroRecordFragments(regions)
     issues, relations = [], []
     roots = {}
     for candidate in candidates:
@@ -1955,6 +1958,9 @@ def join_continuations(compiled, candidates, decisions):
         else:
             offset = len(rows_a)
             rows_a.extend(rows_b)
+        fragment_evidence = zero_fragments.joined(
+            left_id, candidate["rightRegion"], a["path"], b["path"]
+        )
         if candidate["confirmed"]:
             a["rowEnd"] = b["rowEnd"]
 
@@ -2036,6 +2042,8 @@ def join_continuations(compiled, candidates, decisions):
                 "sourceRefs": candidate["sourceRefs"],
                 "basis": candidate["basis"] if candidate["confirmed"] else "ai_interpreted",
                 "target": {"space": "data", "path": a["path"]},
+                **({"zeroRecordFragments": fragment_evidence} if fragment_evidence else {}),
             }
         )
+    zero_fragments.reconcile()
     return result, issues, relations

@@ -236,6 +236,7 @@ def test_unrepaired_content_only_definitions_do_not_report_complete():
 @pytest.mark.parametrize(
     "key, version",
     [
+        ("compilerVersion", "document-files.result-compiler.v33"),
         ("compilerVersion", "document-files.result-compiler.v32"),
         ("tableProtocolVersion", "document-files.table-protocol.v28"),
         ("compilerVersion", "document-files.result-compiler.v26"),

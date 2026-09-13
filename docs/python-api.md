@@ -204,6 +204,14 @@ not only `/text`. Unicode offsets address the exact string at that path on the s
 node. Read the recorded path rather than applying every range to the coordinate-prefixed
 display text. Original nodes, formula caches and value bindings remain available unchanged.
 
+Accepted table relations in `document.semanticRelations` may include
+`zeroRecordFragments`. Each entry retains a fragment's region/repeat/table identity,
+native row bounds and `originalEvidence` from before the join. Those original targets
+refer to the local fragment, not the current combined data. A zero compiled record
+count does not establish that the source was empty: inspect the retained status and
+issues. `valueEvidence` describes the current data, so an empty fragment no longer
+labels an array containing later records as blank. Explicit blank-cell evidence stays.
+
 For an installed recognition pack, use an administrator profile with
 `packRoot`, `runtimeId`, `modelId`, `recognitionPackId`. The optional recognition
 backend is resolved by `document_files.profiles.profile_clients(config, name)`:

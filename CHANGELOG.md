@@ -4,6 +4,12 @@
 
 ### Document extraction
 
+- Preserve zero-record fragment provenance on accepted table relations without
+  labeling a joined nonempty array as blank (compiler v34). Keep original fragment
+  evidence, explicit blank cells, unrelated repeats and equal-valued records; retain
+  uncertainty when every joined fragment still has zero compiled records. Rebuild
+  relation provenance on resume and reject incompatible older checkpoints.
+
 - Read whole native spreadsheet cells from their stored string, lexical scalar or
   formula path during table meaning review, not the normalized coordinate-prefixed
   display (source inventory v2, table protocol v29, compiler v33). Preserve exact

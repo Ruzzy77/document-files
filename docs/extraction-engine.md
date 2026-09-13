@@ -1062,6 +1062,23 @@ identity stays unresolved. `duplicate` still requires equal compiled rows before
 folding, and continuation retains each appended row's own value binding. Earlier
 prompt checkpoints cannot silently resume under this policy.
 
+`record_fragment_evidence.py` separates zero-record fragments from the joined
+array's value (compiler v34). An accepted continuation/duplicate relation can carry
+`zeroRecordFragments`: each entry identifies the originating region, repeat, table,
+inclusive native row bounds and its unchanged `originalEvidence`. These are local,
+pre-join evidence snapshots; their old data targets are not assertions about the
+current combined result. `compiledRecordCount: 0` means no records were compiled in
+that fragment, not that missing or unresolved source rows were proven absent.
+
+Once the joined array contains records, empty-fragment claims are removed from
+active `valueEvidence` but remain on the relation. If the joined array still has zero
+records, its aggregate evidence keeps all contributing sources and any uncertainty.
+Explicit blank cells, separate equal-valued rows and unrelated repeats remain intact.
+Pending, separate or rejected relations do not relocate evidence. Chained relations
+record each origin once, and checkpoint resume rebuilds this information from accepted
+proposals rather than trusting a stored result projection. Older compiler checkpoints
+cannot resume under the new policy. This corrects provenance, not the model's row roles.
+
 After pointer remapping, `integration.py` prepares unresolved applicability tasks.
 Targets are existing standalone fields, records, row/column intersections and
 geometry-derived header groups. `scope_selection_wire.py` presents one selection
@@ -1134,10 +1151,11 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v40 / v22 / v32 |
+| Semantic prompt / region plan / result compiler | v40 / v23 / v34 |
 | Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
 | Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
-| Table protocol / table reference wire / table source wire / selection wire | v27 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v29 / v2 / v1 / v4 |
+| Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v15 / v7 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |
