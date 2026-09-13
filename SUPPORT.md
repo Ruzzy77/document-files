@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,290 tests,
+The full local check including the native outline path passed **3,313 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -62,8 +62,8 @@ qualify a platform installer, a live agent session or a formal release.
 
 ## Current extraction behavior
 
-The current internal contracts are document protocol v11, native-structure v16,
-structural wire v3, native-value-batches v4, structure-revision v6, scope-selection wire v3, prompt v40,
+The current internal contracts are document protocol v12, native-structure v17,
+structural wire v3, native-value-batches v4, structure-revision v7, scope-selection wire v3, prompt v40,
 region plan v23, table protocol v29 and compiler v35. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
@@ -151,10 +151,33 @@ budget increase is used to manufacture a successful result.
 
 ## Latest deterministic verification
 
-Current product source: **7bdeaf1f036b28e80ecf352397389918e6c9a710**.
-The local full suite passed **3,290 tests / 227 skips / 12 subtests**. The identical
-exported source passed **350 directly related ARM64 tests** on Spark-A Python 3.12.3.
+Current product source: **59f10a40149b54649463f6e6b40361df0c53beac**.
+The local full suite passed **3,313 tests / 227 skips / 12 subtests**. The identical
+exported source passed **373 directly related ARM64 tests** on Spark-B Python 3.12.3.
 Warnings were treated as errors. These checks are not real-model quality approval.
+
+Joint role/structure revision is implemented for native HWP/HWPX regions. Before
+reading values, a present/blank attribute whose sources are all title/heading/caption
+blocks with no known inner-value binding receives one bounded review. This is a
+potential disagreement, not an inferred error. A reviewer can preserve a real title
+and later select an exact inner value, revise roles with the full structure, or remove
+an invented field. It cannot silently change source metadata or drop real content.
+
+Role changes require every owned role and complete old/new role and structure accounting.
+A checked replacement rebuilds hierarchy and invalidates dependent values, accounting
+and applicability; the original role response and prior reads/costs remain. Rejected,
+interrupted and retained decisions preserve their preceding partial result. A role edit
+that would stale another already-saved region's role context is explicitly rejected;
+cross-region role-history replacement is not yet implemented.
+
+The scripted public-path checks cover role-only replacement before any value call,
+valid title/inner-value retention, source/ledger errors, finite budgets, transport stops
+and exact checkpoint replay. Saved HWP proposals produce review requests of
+**15,927 / 15,940 characters** under the unchanged 16,000-character limit. These are
+request-preparation checks, not new model decisions; larger proposals or repair feedback
+may still exceed the limit. No actual model call was made on this source. At the latest
+read-only check, Spark-A had **14.34 GiB** available, below the existing **16 GiB** start
+requirement, so the shared-model comparison was not started. No service settings changed.
 
 Text quote, logical-row and meaning anchors now offer only nonempty owned source
 views, separately from typed value sources, shared definitions and dispositions.
@@ -177,14 +200,15 @@ Other directly tested preservation mechanisms include:
   and retain 192/400 values plus 194/402 source references through JSON replay.
   Those are scripted delivery/compiler checks, not actual-model interpretation.
 
-Raw checks remain in `structural-kpi-20260913/native-text-anchors-57/`,
-`scope-partitions-52/` and the preceding source-specific evidence folders. Historical
+Raw checks remain in `structural-kpi-20260913/native-role-revision-58/`,
+`native-text-anchors-57/` and `scope-partitions-52/` and the preceding source-specific evidence folders. Historical
 counts and failed model responses are preserved there and in version history; they
 are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-The current source ran the original binary HWP development fixture through the public
+The preceding source **7bdeaf1f036b28e80ecf352397389918e6c9a710** ran the original
+binary HWP development fixture through the public
 stream API on Spark-A's existing **Motif-3-314B-Q4_K_M** service. The frozen allowance
 remained **12 calls / 900 seconds / 16,000 characters**, with exact input/output token
 reservation within the server's 8,192-token context. Expected answers stayed local.
@@ -210,12 +234,10 @@ any model-behavior difference. Full model shard hashes were not verified, and th
 product default model is unchanged. Raw evidence and the whole-result review are in
 `structural-kpi-20260913/native-text-anchors-57/`.
 
-The concrete design gap is now clearer: role/value conflict is detected only after
-reading values, while the existing structure-only revision cannot revise a mistaken
-role. Next, check contradictions before value dispatch and provide an explicit,
-source-grounded joint role/structure correction. Keep complete replacement accounting,
-source preservation and finite budgets; do not force body roles from note membership
-or silently remove legitimate title metadata and attributes.
+The current implementation addresses this recovery limitation mechanically, as described
+above. Its actual-model outcome remains unverified. The earlier failure is not rewritten
+as a success, and native source preservation alone still does not approve added fields,
+roles or meanings.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -271,7 +293,7 @@ requests, not rewritten historical receipts.
 Spark-B retains verified copies of the existing model, CUDA runtime, licenses and core
 Python dependencies for the next bounded primary-format check. They are not a complete
 installed model pack or an always-running service. No external model download or global
-installation was added, and the shared RPC/model services were not reconfigured. The current Spark-A comparison uses
+installation was added, and the shared RPC/model services were not reconfigured. The latest completed Spark-A comparison uses
 the existing shared model with per-request sampling, not a new task-owned server.
 
 The earlier task-owned 9B servers use loopback authentication, read-only components, four CPUs, a 16 GiB
@@ -288,7 +310,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The current 314B HWP run reads six texts in raw replies but accepts none because title roles conflict with scalar fields. Structure-only repair cannot change those roles. The last 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Detect contradictions before value calls, then add explicit joint role/structure correction with bounded source/entity diagnostics and atomic invalidation of dependent reads. Preserve genuine metadata, notes, uncertainty and complete change accounting; do not manufacture a pass by deleting fields or raising the budget. |
+| 1 | **Native complete extraction is not approved.** The preceding 314B HWP run accepted no values after title/field conflicts. Joint role/structure revision now has direct regression and ARM coverage but no new actual-model result. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Verify the new review on the actual bounded Spark path once resource admission passes. Compare all roles, fields, notes and source bindings. Keep strict change accounting and preserve legitimate metadata; separately handle already-saved downstream role dependencies and oversized reviews, without deleting content or raising budgets. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |

@@ -116,7 +116,7 @@ merely to survive in the result: the exact text, typed numbers and relationships
 belong to the native document structure. Actual attributes inside notes still require
 field/value interpretation. The public native unit projection is unchanged. Checkpoint
 replay re-derives the object inventory and refuses changed numbers, owners or omitted
-inventory. Document protocol v11 / native structure v16 / native adapter v4 / compiler v35
+inventory. Document protocol v12 / native structure v17 / native adapter v4 / compiler v35
 invalidate older incompatible checkpoints. Structure-revision change-ledger defects remain
 separate work; malformed references are not accepted to make a failed run appear complete.
 
@@ -139,8 +139,8 @@ references never become owned value choices.
 For native note requests, present/blank record cells use explicit `{status, sourceRefs}`
 rather than inheriting all row anchors through a bare status. This preserves the same
 checked cell decisions while preventing inherited sources from bypassing the closed
-choices. Other documents retain their existing wire choices. Native structure v16 /
-structural wire v3 / document protocol v11 / revision v6 identify the current contract.
+choices. Other documents retain their existing wire choices. Native structure v17 /
+structural wire v3 / document protocol v12 / revision v7 identify the current contract.
 Both schema validation and the existing independent occurrence checks still apply.
 
 Compatible sets are bounded at 1,024 combinations, 2,000,000 source/set comparisons
@@ -449,7 +449,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v11 and native-structure v16 identify the current three-stage execution;
+own configured reasoning behavior. Protocol v12 and native-structure v17 identify the current three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 Native role, structure, value, batch-accounting and structure-review requests use the
@@ -675,11 +675,45 @@ work, never a new independent holdout.
 
 #### Source-grounded structure revision
 
-`native_structure_revision.py` implements one revision cycle for a native region after
-its single-value or batch-local two-attempt allowance is exhausted without complete
-reading. Unknown/in-flight value exchanges are not reasons to launch another model
-request. Successful value stages are unchanged: this is not a universal semantic review
-or independent approval of otherwise `complete` outputs.
+`native_structure_revision.py` implements one revision cycle per native HWP/HWPX region.
+It can follow an exhausted two-attempt value/batch stage, or precede the first value
+request when `native_role_review.overlaps` finds a potential role/attribute disagreement.
+For that early review, a present/blank field or cell must refer only to title/heading/
+caption sources without a known owned inner-value binding. Absent, uncertain and unreadable
+entries are not treated as read values. This is not proof of an incorrect role: an exact
+inner quotation can remain valid even without a pre-existing binding candidate.
+
+The early review reports only program-issued value handles and source-role references,
+not field labels or arbitrary source prose in diagnostics. It preserves all source data.
+The bounds are 64 overlap entries and 16,000 serialized bytes; exceeding either leaves
+an explicit preparation failure rather than a truncated successful-looking list.
+Unknown/in-flight exchanges do not authorize another call. The review's at most two
+attempts use the original document allowance. It is not universal review of otherwise
+`complete` outputs or independent quality approval.
+
+Revision v7 permits an optional complete `documentElements` array beside the full
+structural replacement. Omission explicitly retains all original roles. If supplied,
+it must contain every owned role exactly once in source order, satisfy the normal
+role/level/caption rules, and account for every old and new `role:N` in the same checked
+change ledger as fields, groups, records, rows, columns and meanings. Role-only edits
+are allowed even when the structural wire is unchanged. `retain` can proceed to value
+reading after an early review, but never permits a whole-title value that the compiler
+would otherwise reject. A genuine inner value or explicit missing state is not deleted
+to force a successful result.
+
+The original role response stays unchanged in the checkpoint. `effective_roles` derives
+a replacement only from the completed checked revision. On commit, the engine rebuilds
+the role fragment and current structural request identity, invalidates current values,
+batches, accounting and applicability, and preserves the prior reads and costs in the
+revision base. Replay verifies both original and effective roles, the overlap record,
+source/structure identities and exhaustive changes before trusting new values. A failed
+replacement leaves the old partial data and roles intact.
+
+Before committing edited roles, the engine recomputes all other saved role-request
+fingerprints with the prospective heading context. A changed fingerprint rejects the
+replacement with `native_revision_role_context_dependency`; it does not silently stale
+or erase another region's interpretation. Replacing dependent cross-region role history
+is a remaining limitation, not an implemented automatic cascade.
 
 The review request includes accepted roles, the previous complete structural response,
 program-issued entity references, the prior content-state hash and failure codes.
@@ -700,7 +734,7 @@ property, including text, formatting and XML references. This is lossless factor
 not a summary or permission to drop source context. The actual request and any repair
 still pass the original character/time/call limits; indivisible context stays unfinished.
 
-The model either retains the old structure or proposes a full replacement. `retain`
+The model either retains the current decisions or proposes a full replacement. `retain`
 does not approve unread values. A replacement includes an exhaustive change ledger:
 every old and new field, group, record, column, row and meaning appears exactly once
 in a keep/replace/remove/add change, with exact source anchors and a reason. Positional
@@ -840,7 +874,7 @@ their exact catalogue for source accounting; unused alternative IDs are not part
 frozen field definition. This delivery fallback never excludes document information or
 increases the call/time/input limits.
 
-Native-structure v16 / native-value-batches v4 keeps the existing single request when
+Native-structure v17 / native-value-batches v4 keeps the existing single request when
 it fits. An oversized request instead uses deterministic batches of at most 16 value
 handles, sized from the actual system, payload and closed output contract. Every batch
 retains **all original nodes, formatting and binding text**; relevant occurrence
@@ -900,16 +934,14 @@ do not impose a business template, fabricate a missing-state answer or silently 
 every scalar sharing a record source. Legitimate repeated fields and equal-valued items
 must survive.
 
-The current HWP comparison exposes a specific recovery gap. `document_outline.compile_elements`
-rejects a whole-paragraph scalar conflicting with a title/heading/caption only once
-value bindings are available. `native_structure_revision` displays the accepted roles
-but its replacement covers structure only. Repeating value reads or replacing the same
-fields cannot fix an incorrectly frozen role. A joint role/structure correction is
-**not yet implemented**. It needs early conflict detection, program-owned conflicting
-source/entity references, complete old/new role and structure coverage, and atomic
-revalidation of hierarchy, value plans, accounting and applicability. Preserve the
-preceding partial result on failure. Neither native note membership nor row position
-alone can decide that a title role is wrong.
+The earlier HWP comparison froze titles that later conflicted with whole-paragraph
+scalar values. Joint role/structure revision now addresses the inability to edit those
+roles, with direct parser/controller and ARM regressions. Its actual-model quality is
+still unverified. Large fixed context or repair feedback can remain oversized; known
+inner-binding paths can still fail at actual value choice rather than the early overlap
+review. Complete interpretation needs source-grounded model decisions, not just a
+successful state transition. Neither native note membership nor row position alone
+decides the right document role.
 
 Cross-region logical continuation still requires source-bound earlier-record context
 and an explicit relation decision. Nearby text or equal keys cannot authorize merging.
@@ -1497,8 +1529,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v40 / v23 / v35 |
-| Document outline / native role-content protocol / native structure | v1 / v11 / v16 |
-| Native structural response wire / native value batches / structure revision | v3 / v4 / v6 |
+| Document outline / native role-content protocol / native structure | v1 / v12 / v17 |
+| Native structural response wire / native value batches / structure revision | v3 / v4 / v7 |
 | Table protocol / table reference wire / table source wire / selection wire | v29 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
