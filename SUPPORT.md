@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,981 tests,
+The full local check including the native outline path passed **2,989 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -63,7 +63,8 @@ qualify a platform installer, a live agent session or a formal release.
 ## Current extraction behavior
 
 The current internal contracts are document protocol v7, native-structure v12,
-native-value-batches v3, structure-revision v4, prompt v39, region plan v20 and compiler v32. Public v1 result
+native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v39,
+region plan v20 and compiler v32. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 
 - **Document roles and hierarchy:** source text, native markers, direct formatting
@@ -191,7 +192,7 @@ facts/conditions as undivided notes. All 63 source views and candidate identitie
 **Source-choice validation passed where semantic completeness still failed.** None of
 these replies approves the free-draft pipeline.
 
-### Numeral source selectors: implemented, Spark comparison pending
+### Numeral source selectors: implemented, occurrence reading still fails
 
 Native-structure v12 adds optional original numeral locations only after field types,
 statuses and item anchors are frozen. Each handle's closed choices exclude foreign rows,
@@ -208,10 +209,15 @@ breaking already-working long value batches; it is not permission to skip source
 Direct regressions cover precision, signs/exponents, repeated source positions, row/view
 ownership, real blanks, tampering, budget fallback and an end-to-end scripted HWPX read
 and resume. The existing 32-field scripted case still completes in eight calls at 16,000
-characters. The full Mac suite above passed, but **this v12 implementation has not yet
-been compared with a real model on Spark**. Next run its actual requests with unchanged
-source expectations, then continue the unresolved whole-document structure, scope and
-long-table work. Independent HWP/HWPX/XLSX quality remains unapproved.
+characters. A three-call Spark-B comparison (30.7 seconds) used current requests over
+the unchanged previous real-model structure, not an old checkpoint resume or corrected
+expected structure. All 24 source views matched. The runtime batch omitted the aid to
+fit; its numeric reads included labels and failed type conversion. A matched smaller
+request with the aid compiled but still assigned the requested count's first `8` to the
+received-count field. The name also retained extra label text. **Exact source/type
+validation did not establish the correct attribute or occurrence.** This was a stage
+comparison, not a full product run. Structure, scope, long-table and independent native
+quality work remain open; do not prioritize or force selectors on this evidence alone.
 
 ## Earlier evidence that still limits the claim
 
@@ -261,7 +267,7 @@ platform-installer or independent quality qualification**.
 | 1 | **Native complete extraction is not approved.** The latest Spark-B product proposes two rows but mislabels the second item's counts and cites missing-state evidence outside the row's allowed anchors. Neither structure attempt compiles. Other runs retain per-item scalars, title copies and wrong equal-valued source occurrences. | Reassess the structure-decision and repair representation before another broad run. Distinguish values inside an item from separate metadata/missing-state evidence; do not relax row ownership as a shortcut. Confirm logical rows, all statuses and distinct source positions together. The smaller review request now fits, but a callable review is not a correct replacement. Preserve atomic transitions and finite budgets, then implement genuine cross-region continuation. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in the latest continued/form outputs. Existing review checks can accept original node text instead of the actual bound substring and do not fully check duplicate folding. | Review actual values, binding ranges, field set, order and applicability. Remove redundancy only when source/role/representation prove it; preserve legitimate repeated values and explicit empty cells. |
-| 4 | Long-table requests and scope provenance still hit fixed limits. A 50-row request measured 23,624 characters against a 16,000-character limit; larger cases reach candidate/source limits. | Compact repeated geometry and verify every selected binding through a bounded representation. Preserve all rows, order, page links and missingness. Do not simply raise caps, trim the tail or turn partial into success. |
+| 4 | Long-table scope delivery is partly improved. The reproduced 50-row request now fits at 15,858 characters instead of 24,557, with all 51 observed rows and 102 source texts retained. A 96-row fixture still loses the record candidate at the unchanged discovery limit; provenance limits also remain. | Verify the new display with an actual model, then address bounded discovery and source binding without dropping rows or raising caps. This scripted request/selection check is not a full document or long-table quality pass. |
 | 5 | New HWP/HWPX and XLSX documents have not passed independent end-to-end structural and semantic review. | Freeze unseen native inputs with prior expected structure, values, relationships and provenance; run the actual product path on Spark. Review the full result independently of execution. A failed holdout used for a fix becomes a development case. |
 
 Fix reproduced preservation defects before another broad inference run. Run only

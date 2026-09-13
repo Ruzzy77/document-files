@@ -12,8 +12,10 @@ import json
 from dataclasses import dataclass
 
 from .scope_axis_wire import MAX_SELECTIONS, ScopeAxisWire, prepare_scope_axis_wire
+from .scope_context_wire import SYSTEM as CONTEXT_SYSTEM
+from .scope_context_wire import compact_scope_context
 
-VERSION = "document-files.scope-selection-wire.v2"
+VERSION = "document-files.scope-selection-wire.v3"
 
 
 def _column_schema(schema, aliases):
@@ -242,6 +244,7 @@ def prepare_scope_selection_wire(tasks):
             "required": ["decisions"],
             "additionalProperties": False,
         }
+    payload = compact_scope_context(payload)
     fingerprint = hashlib.sha256(
         json.dumps(
             {
@@ -250,6 +253,7 @@ def prepare_scope_selection_wire(tasks):
                 "payload": payload,
                 "contract": contract,
                 "inverseColumns": inverse,
+                "contextSystem": CONTEXT_SYSTEM if "scopeContextEncoding" in payload else None,
             },
             sort_keys=True,
             ensure_ascii=False,

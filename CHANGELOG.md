@@ -4,6 +4,13 @@
 
 ### Document extraction
 
+- Compact long applicability context and row-boundary lists without removing rows,
+  exact source text, geometry or missing properties (scope-selection wire v3).
+  Preserve original selection contracts and compiler-bound provenance; include the
+  decoding instruction in request sizing and checkpoint identity. The 50-row
+  delivery regression now fits the existing input limit. Larger candidate/source
+  bounds and actual-model long-document quality remain open.
+
 - Add optional program-issued numeral locations for frozen native numeric fields
   (native-structure v12 / native-value-batches v3). Show exact original context for
   repeated equal values; regenerate selectors through unchanged quote, type and row

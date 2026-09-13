@@ -42,6 +42,10 @@ def contract_messages(system, payload, contract, feedback=None):
         from .native_literal_choices import SOURCE_SYSTEM as LITERAL_SYSTEM
 
         system += LITERAL_SYSTEM
+    if "scopeContextEncoding" in payload:
+        from .scope_context_wire import SYSTEM as SCOPE_CONTEXT_SYSTEM
+
+        system += SCOPE_CONTEXT_SYSTEM
     content = {**payload, "outputContract": contract}
     if feedback is not None:
         content["repairFeedback"] = feedback

@@ -545,6 +545,15 @@ exact quotes remain available over unchanged source. The common message serializ
 its decoding instruction only when a catalogue is present and counts that instruction in
 the actual request. Native-structure v12 invalidates older stage checkpoints.
 
+The bounded Spark comparison over the previous uncorrected real-model structure
+still fails semantic reading. The runtime batch drops the optional aid to fit; its
+numeric quotations include labels and fail type reading. A matched smaller request
+with the aid compiles, but the received count selects the requested count's equal
+`8` at the wrong original position. The selector is a valid location, not proof of
+attribute ownership. This stage comparison is neither checkpoint resume nor a new
+whole-product pass; it does not justify forcing numeric enums or changing partition
+priorities. Evidence is in `native-literal-model-31/` under the private comparison root.
+
 ### Bounded native value requests
 
 Value-batches v3 sizes each request with the actual source catalogue. If the optional aid
@@ -846,6 +855,22 @@ The model selects targets, never data or destination pointers. A meaning's own t
 is not a target. Meanings from the same source are decided separately so a caption's
 unit and condition do not inherit one another's scope.
 
+Scope selection wire v3 optionally packs long `context` and `rowBoundaryCandidates`
+lists through `scope_context_wire.py`. Contiguous records with identical property
+keys share constant properties and use explicit `columns` and `rows`. Blocks and
+rows retain their original order; omitted properties, null and exact JSON types
+remain distinct. Shared-only records still have one empty row each. This operates
+only on typed display positions, never text resembling encoding instructions.
+
+The full decoding instruction is added only when total savings exceed its cost.
+The packed payload and instruction are part of the wire fingerprint; selection
+contracts, canonical tasks, row/column mappings and source binding are unchanged.
+The 50-data-row regression retains all 51 observed rows and 102 complete texts,
+reducing the actual request from 24,557 to 15,858 characters at the unchanged 16,000
+limit. The same scripted 49-row subset resolves identical values and source traces.
+This checks delivery and compiler behavior, not actual model or independent quality.
+Earlier scope-selection checkpoints are incompatible with the new wire.
+
 `scope_source_binding.py` independently verifies every selected target's bindings.
 The fingerprint includes source quotes/context, target mapping, header membership,
 execution policy and source trace. Resume recomputes that trace against current
@@ -859,8 +884,10 @@ output tokens, or a smaller compatible client ceiling). Table-relation requests 
 but does not promise bit-identical output across floating-point execution orders.
 
 Current long-source limits remain 100 source references, 1,000 trace entries and
-1,000,000 row/column work units. They can prevent long-table completion. Planned
-compaction must still check every binding, preserve public evidence and detect row/
+1,000,000 row/column work units. They can prevent long-table completion. Candidate
+discovery is also unchanged: the 96-row fixture still reports bounded coverage and
+does not offer its record candidate. Further work must check every binding,
+preserve public evidence and detect row/
 column/value changes on resume; raising limits or dropping the tail is not the fix.
 
 ## 6. Request sizing, checkpoints and result validation
@@ -898,7 +925,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
-| Scope selection wire / source binding / regional checkpoint | v2 / v2 / v3 |
+| Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |
 | Recognition adapter | 29 |
 | PDF review / unit display / visual application | v16 / v2 / v4 |
 | PDF image reading / review images / line sheet | v5 / v2 / v1 |
