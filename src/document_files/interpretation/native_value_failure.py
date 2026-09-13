@@ -1,11 +1,11 @@
-"""One remaining review after an early retain meets a real role/value conflict."""
+"""Evidence for a concrete failed native value read before structural review."""
 
 from copy import deepcopy
 
 from . import native_structure as native
 from . import native_value_batches as batches
 from .compiler import CompileError, compile_region
-from .document_protocol import MAX_CALLS, digest
+from .document_protocol import digest
 
 CODE = "document_role_value_conflict"
 
@@ -22,41 +22,19 @@ def failure_record(response, payload, schema, *, batch=None):
     return result
 
 
-def can_reopen(review, content):
-    if not isinstance(review, dict) or not isinstance(content, dict):
+def can_start(review, content):
+    """A real rejected read can start the sole review, never reopen a decision."""
+    if review is not None or not isinstance(content, dict):
         return False
-    base = review.get("base")
-    early = base.get("content") if isinstance(base, dict) else None
     failure = content.get("roleValueFailure")
-    if not isinstance(early, dict) or not isinstance(failure, dict):
-        return False
     return bool(
-        "priorReview" not in review
-        and review["status"] == "complete"
-        and review.get("decision") == "retain"
-        and type(review["attempts"]) is int
-        and 0 < review["attempts"] < MAX_CALLS
-        and review["base"]["content"].get("roleSourceReview")
-        and review["base"]["content"]["attempts"] == 0
-        and content["status"] == "failed"
-        and type(content["attempts"]) is int
+        isinstance(failure, dict)
+        and failure.get("code") == CODE
+        and content.get("status") == "failed"
+        and type(content.get("attempts")) is int
         and content["attempts"] > 0
         and not content.get("halted")
-        and failure.get("code") == CODE
     )
-
-
-def reopen(current, accepted):
-    from .native_structure_revision import initial
-
-    prior = current["revision"]
-    if not can_reopen(prior, current["content"]):
-        raise ValueError("native_revision_followup_not_eligible")
-    # The early snapshot remains immutable; the later base contains actual reads.
-    current["content"].pop("roleSourceReview", None)
-    result = initial(current, accepted, [CODE], deepcopy(prior["usage"]))
-    result.update(attempts=prior["attempts"], priorReview=deepcopy(prior))
-    return result
 
 
 def validate_failure(content, structure, roles, observation, region, target_schema):

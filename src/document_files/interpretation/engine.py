@@ -1107,7 +1107,7 @@ def extract_schema_from_stream(
                         _restored_usage,
                     )
                 if "roleValueFailure" in content_state:
-                    from .native_revision_followup import validate_failure
+                    from .native_value_failure import validate_failure
 
                     validate_failure(
                         content_state, frozen, effective, observation, region, selected.targetSchema
@@ -1148,8 +1148,7 @@ def extract_schema_from_stream(
                 record.update(attempts=0, reviewAttempts=0, halted=False, status="pending")
             revision_pending = "revision" in record and record["revision"]["status"] != "complete"
             if revision_pending:
-                prior_attempts = record["revision"].get("priorReview", {}).get("attempts", 0)
-                record["revision"].update(attempts=prior_attempts, halted=False, status="pending")
+                record["revision"].update(attempts=0, halted=False, status="pending")
             if record["content"]["status"] != "complete" and not revision_pending:
                 record["content"].update(attempts=0, halted=False, status="pending")
                 if "batches" in record["content"]:
@@ -2107,23 +2106,26 @@ def extract_schema_from_stream(
                     if isinstance(exc, (StructureContractError, OccurrenceError))
                     else [feedback]
                 )
+                if isinstance(exc, CompileError) and str(exc).startswith("duplicate_data_property"):
+                    from .native_structure_feedback import property_collisions
+
+                    diagnostics = property_collisions(value, catalog)
                 state.update(status="failed", feedback=diagnostics)
                 issue("native_structure_invalid", regionId=rid, errors=diagnostics)
                 save("interpreting")
         return None
 
     def interpret_native_revision(region):
-        from . import native_revision_followup as followup
         from .native_note_checks import OccurrenceError
 
         rid = region["id"]
         current = document_states[rid]
-        if followup.can_reopen(current.get("revision"), current["content"]):
-            current["revision"] = followup.reopen(current, accepted.get(rid))
         if "revision" not in current:
             if not native_structure_revision.eligible(current["content"]):
                 return False
+            failure = current["content"].get("roleValueFailure")
             trigger = [
+                *([failure["code"]] if failure else []),
                 *repair_diagnostics.get(rid, []),
                 *[i["code"] for i in compiled[rid].issues],
             ]
@@ -2239,7 +2241,9 @@ def extract_schema_from_stream(
                         )
                     ]
                 save("interpreting")
-                return replacement is not None or "priorReview" in state
+                return replacement is not None or bool(
+                    state["base"]["content"].get("roleValueFailure")
+                )
             except ModelError:
                 if state["attempts"] > before:
                     state.update(status="failed", halted=True)
@@ -2385,7 +2389,7 @@ def extract_schema_from_stream(
                             isinstance(exc, CompileError)
                             and str(exc) == "document_role_value_conflict"
                         ):
-                            from .native_revision_followup import failure_record
+                            from .native_value_failure import failure_record
 
                             content_state.update(
                                 status="failed",
@@ -2410,9 +2414,9 @@ def extract_schema_from_stream(
                         )
                         save("interpreting")
                         if content_state.get("roleValueFailure"):
-                            from .native_revision_followup import can_reopen
+                            from .native_value_failure import can_start
 
-                            if can_reopen(document_states[rid].get("revision"), content_state):
+                            if can_start(document_states[rid].get("revision"), content_state):
                                 return True
                 save("interpreting")
 
@@ -2609,13 +2613,6 @@ def extract_schema_from_stream(
                 structure = interpret_native_structure(region, frozen_roles)
                 if structure is None:
                     continue
-                if "revision" not in document_states[rid] and not content_state["attempts"]:
-                    review = native_role_review.overlaps(
-                        structure, frozen_roles, observation, region
-                    )
-                    if review:
-                        content_state["roleSourceReview"] = review
-                        interpret_native_revision(region)
                 if (
                     "revision" in document_states[rid]
                     and document_states[rid]["revision"]["status"] != "complete"
@@ -2626,7 +2623,6 @@ def extract_schema_from_stream(
                 structure = native_structures[rid]
                 frozen_roles = native_role_review.effective_roles(document_states[rid])
                 content_state = document_states[rid]["content"]
-                content_state.pop("roleSourceReview", None)
                 payload, candidate_schema = native_structure.value_request(
                     structure, frozen_roles, observation, region
                 )
@@ -2794,7 +2790,7 @@ def extract_schema_from_stream(
             except CompileError as exc:
                 feedback = [str(exc)]
                 if content_state is not None and str(exc) == "document_role_value_conflict":
-                    from .native_revision_followup import failure_record
+                    from .native_value_failure import failure_record
 
                     content_state["roleValueFailure"] = failure_record(
                         raw_native_value, payload, candidate_schema
@@ -2819,9 +2815,9 @@ def extract_schema_from_stream(
                 content_state["status"] = "failed"
             save("interpreting")
             if content_state is not None:
-                from .native_revision_followup import can_reopen
+                from .native_value_failure import can_start
 
-                if can_reopen(document_states[rid].get("revision"), content_state):
+                if can_start(document_states[rid].get("revision"), content_state):
                     break
         if content_state is not None and content_state["status"] == "running":
             content_state["status"] = "failed"

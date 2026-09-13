@@ -19,7 +19,7 @@ from .document_outline import (
 )
 from .source_dictionary import compact_sources
 
-VERSION = "document-files.document-protocol.v14"
+VERSION = "document-files.document-protocol.v15"
 MAX_CALLS = 2
 REASONING_BUDGET = 1024
 

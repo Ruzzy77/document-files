@@ -48,13 +48,8 @@ class JointModel:
         elif stage == "structure":
             value = wire
         elif stage == "structureRevision":
-            if "retainedReviewHash" in p:
-                assert p["roleSourceReview"] == []
-                assert p["failureCodes"] == ["document_role_value_conflict"]
-            else:
-                assert p["roleSourceReview"] == [
-                    {"valueHandle": "@value1", "sourceRoles": {"n1": "title"}}
-                ]
+            assert "roleSourceReview" not in p and "retainedReviewHash" not in p
+            assert "document_role_value_conflict" in p["failureCodes"]
             assert expand(p["acceptedRoles"]) == [role]
             if self.mode == "transport":
                 raise ModelError("ai_test_joint_transport")
@@ -135,16 +130,16 @@ def run(model, **kwargs):
     return execute(model, raw=RAW, **kwargs)
 
 
-def test_joint_role_only_change_precedes_values_and_rebuilds_outline_atomically():
+def test_joint_role_only_change_follows_failed_values_and_rebuilds_outline_atomically():
     model, states = JointModel(), []
     result = run(model, states=states)
     assert result["extraction"]["status"] == "complete", result["issues"]
-    assert model.stages == ["roles", "structure", "structureRevision", "values"]
+    assert model.stages == ["roles", "structure", "values", "structureRevision", "values"]
     assert result["data"] == {"reference": "REF-007"}
     assert result["document"]["outline"]["elements"][0]["role"] == "field_group"
     state = saved_region(states[-1])
     assert state["response"]["documentElements"][0]["role"] == "title"
-    assert state["revision"]["base"]["content"]["usage"]["modelCalls"] == 0
+    assert state["revision"]["base"]["content"]["usage"]["modelCalls"] == 1
     assert (
         state["revision"]["response"]["replacement"]
         == state["revision"]["base"]["structure"]["wireResponse"]
@@ -155,7 +150,7 @@ def test_joint_role_only_change_precedes_values_and_rebuilds_outline_atomically(
         for s in states
     )
     again = run(model, restore=states[-1])
-    assert again["data"] == result["data"] and model.calls == 4
+    assert again["data"] == result["data"] and model.calls == 5
     assert again["document"]["outline"] == result["document"]["outline"]
 
 
@@ -165,13 +160,13 @@ def test_joint_role_only_change_precedes_values_and_rebuilds_outline_atomically(
 def test_invalid_joint_replacement_keeps_original_roles_structure_and_no_values(mode):
     model, states = JointModel(mode), []
     out = run(model, states=states)
-    assert out["extraction"]["status"] == "partial" and model.calls == 4
-    assert "values" not in model.stages
+    assert out["extraction"]["status"] == "partial" and model.calls == 5
+    assert model.stages.count("values") == 1
     assert out["data"] == {"reference": None}
     assert out["document"]["outline"]["elements"][0]["role"] == "title"
     state = saved_region(states[-1])
     assert state["structure"] == state["revision"]["base"]["structure"]
-    assert run(model, restore=states[-1])["data"] == out["data"] and model.calls == 4
+    assert run(model, restore=states[-1])["data"] == out["data"] and model.calls == 5
 
 
 @pytest.mark.parametrize("mode,expected", [("inner", {"reference": "007"}), ("structure_only", {})])
@@ -191,12 +186,12 @@ def test_pause_and_explicit_resume_preserve_original_and_revised_roles(budget):
     assert out["extraction"]["status"] == "partial" and model.calls == budget
     assert run(model, restore=states[-1], budget=budget)["data"] == out["data"]
     assert model.calls == budget
-    final = run(model, restore=states[-1], budget=budget, grant={"maxModelCalls": 4 - budget})
-    assert final["extraction"]["status"] == "complete" and model.calls == 4
+    final = run(model, restore=states[-1], budget=budget, grant={"maxModelCalls": 5 - budget})
+    assert final["extraction"]["status"] == "complete" and model.calls == 5
     assert final["data"] == {"reference": "REF-007"}
 
 
-@pytest.mark.parametrize("damage", ["original_role", "revised_role", "role_ledger", "overlap"])
+@pytest.mark.parametrize("damage", ["original_role", "revised_role", "role_ledger", "failure"])
 def test_checkpoint_rechecks_original_roles_role_change_coverage_and_source_review(damage):
     model, states = JointModel(), []
     run(model, states=states)
@@ -212,72 +207,35 @@ def test_checkpoint_rechecks_original_roles_role_change_coverage_and_source_revi
         record["response"]["changes"].pop()
         record["responseHash"] = digest(record["response"])
     else:
-        record["base"]["content"]["roleSourceReview"][0]["sourceRoles"] = {}
+        record["base"]["content"]["roleValueFailure"]["responseHash"] = "foreign"
     with pytest.raises(ValueError, match="checkpoint"):
         run(model, restore=checkpoint)
-    assert model.calls == 4
+    assert model.calls == 5
 
 
 def test_unknown_joint_exchange_requires_explicit_grant_and_keeps_no_false_values():
     model, states = JointModel("transport"), []
     out = run(model, states=states)
-    assert model.calls == 3 and out["data"] == {"reference": None}
+    assert model.calls == 4 and out["data"] == {"reference": None}
     model.mode = "roles"
-    assert run(model, restore=states[-1])["data"] == out["data"] and model.calls == 3
+    assert run(model, restore=states[-1])["data"] == out["data"] and model.calls == 4
     final = run(model, restore=states[-1], grant={"maxModelCalls": 2})
-    assert final["data"] == {"reference": "REF-007"} and model.calls == 5
+    assert final["data"] == {"reference": "REF-007"} and model.calls == 6
 
 
-def test_overlap_review_is_bounded_and_does_not_infer_fields_from_native_note_ownership():
-    from test_native_structure import prepared
+def test_unread_skeleton_is_not_evidence_for_structural_review():
+    from document_files.interpretation.native_structure_revision import eligible
 
-    from document_files.interpretation.native_role_review import overlaps
-
-    doc, region, roles, structure, _ = prepared()
-    original = copy.deepcopy((doc, region, structure))
-    roles["documentElements"][0].update(role="title", level=0)
-    review = overlaps(structure, roles, doc, region)
-    assert review == [{"valueHandle": "@value1", "sourceRoles": {"meta": "title"}}]
-    assert "Reference" not in json.dumps(review) and "0007" not in json.dumps(review)
-    # An owned actual inner binding can coexist with the heading without this review.
-    bid = doc.bind("meta", start=13, end=17, candidateRole="value")
-    region["bindingIds"].append(bid)
-    assert overlaps(structure, roles, doc, region) == []
-    assert structure == original[2]
+    state = {"status": "pending", "attempts": 0, "usage": {"modelCalls": 0}}
+    assert not eligible(state)
 
 
-@pytest.mark.parametrize("state", ["absent", "uncertain", "unreadable"])
-def test_missing_state_does_not_trigger_early_review_as_if_a_value_were_read(state):
-    from test_native_structure import prepared
-
-    from document_files.interpretation.native_role_review import overlaps
-
-    doc, region, roles, structure, _ = prepared()
-    roles["documentElements"][0].update(role="title", level=0)
-    structure.fields[0].status = state
-    assert overlaps(structure, roles, doc, region) == []
-
-
-def test_large_overlap_set_is_not_silently_truncated():
-    from test_native_structure import prepared
-
-    from document_files.interpretation.native_role_review import overlaps
-
-    doc, region, roles, structure, _ = prepared()
-    roles["documentElements"][0].update(role="title", level=0)
-    structure.fields = [structure.fields[0].model_copy(update={"id": f"f{i}"}) for i in range(65)]
-    with pytest.raises(ValueError, match="native_role_review_budget_exceeded"):
-        overlaps(structure, roles, doc, region)
-
-
-def test_retaining_a_role_does_not_approve_conflicting_whole_text_value():
-    model, states = JointModel("retain"), []
-    out = run(model, states=states)
-    assert out["extraction"]["status"] == "partial"
-    assert out["data"] == {"reference": None}
-    assert model.stages.count("structureRevision") == 2
-    assert any("document_role_value_conflict" in i.get("errors", []) for i in out["issues"])
-    assert run(model, restore=states[-1])["data"] == out["data"]
+def test_genuine_title_inner_attribute_needs_no_review():
+    model, states = JointModel("inner"), []
+    result = run(model, states=states)
+    assert result["data"] == {"reference": "007"}
+    assert model.stages == ["roles", "structure", "values"]
+    assert "revision" not in saved_region(states[-1])
 
 
 def test_role_change_cannot_silently_stale_a_later_saved_heading_context():
