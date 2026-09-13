@@ -89,6 +89,16 @@ preserved in the AI result's `document.structure`; the native structured project
 unit response is unchanged. An observed link does not approve an AI-generated role
 or mean that all note content was interpreted. See [note ownership](extraction-engine.md#binary-hwp-notes-and-exact-body-ownership).
 
+The schema-extraction envelope adds `document.structure.nativeNotes` for declared
+binary HWP note objects. Entries are keyed by the source control ID and retain `kind`,
+`status`, `bodyRefs`, `contentRefs`, `memberRefs` and `numberSources`. Each number source
+has an original `sourceRef`, source path and typed stored value; content references point
+to the exact original node text. This is not an AI-generated business-data record.
+A document containing only prose/notes can have an empty business `data` object while
+retaining its document content and relationships. Always check extraction status,
+source coverage and interpreted roles; native facts do not approve other AI decisions.
+The inventory has explicit incomplete status on conflicts or resource exhaustion.
+
 For HWPX cell editing, use the `tableMap.tables` returned by `inspect` with verified `sectionPath`,
 `tableIndex`, `row` and `col`. The `selectorBasis` value
 `verified-section-xml-table-order` records alignment with the section XML and editor's

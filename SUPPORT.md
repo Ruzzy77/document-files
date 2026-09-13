@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,217 tests,
+The full local check including the native outline path passed **3,248 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -62,9 +62,9 @@ qualify a platform installer, a live agent session or a formal release.
 
 ## Current extraction behavior
 
-The current internal contracts are document protocol v7, native-structure v12,
-native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v40,
-region plan v23, table protocol v29 and compiler v34. Public v1 result
+The current internal contracts are document protocol v9, native-structure v14,
+native-value-batches v4, structure-revision v4, scope-selection wire v3, prompt v40,
+region plan v23, table protocol v29 and compiler v35. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -99,7 +99,7 @@ the program does not fabricate reasons. Detail quotes, meanings, remainder revie
 the overall correction reason remain required. Source inventories, values and fixed
 document/output budgets are unchanged. Actual Spark results are described below.
 
-Native observation adapter v3 preserves the public cell's `columnSpan` when
+Native observation adapter v4 preserves the public cell's `columnSpan` when
 building internal geometry. XLSX extractor v10 retains explicitly stored empty XML
 cells, distinguishing them from implicit gaps, empty strings, formulas without caches
 and covered merge positions. These source fixes have direct native-file regressions;
@@ -247,9 +247,81 @@ The compiler-provenance and complete-inventory corrections above address those
 historical reference-count and candidate-loss failures. Partitioned delivery is now
 implemented for divisible candidate/row groups; actual model quality remains unapproved.
 
+The latest native-note correction exposes stored object identity, body links and exact
+number sources in all native interpretation stages. The old structure request omitted
+nontext controls/number sources. A present value can no longer offer several declared
+notes or distinct body paragraphs as interchangeable choices, and separate notes cannot
+be combined into one note/unit/condition meaning. The result preserves typed native note
+objects independently of business fields. Structural note accounting can use a verified
+body reference without inventing a business field or resolving an additional unit/condition.
+The latter still needs its own semantic decision. Tests cover equal values, multi-paragraph
+notes, source ownership, missing links, conflicts, finite bounds and checkpoint replay.
+See [the implementation](docs/extraction-engine.md#binary-hwp-notes-and-exact-body-ownership).
+
 ## Latest Spark-B verification
 
-### Binary HWP note ownership and interpretation
+### Current note-context source: structure still fails
+
+Source **13989dffe57a84747bab0ec42a3eaa2022d9a434** ran the original binary HWP
+through the public stream API on the retained Spark-B 9B CUDA runtime. Under the
+unchanged **12-call / 900-second / 16,000-character** budget, it returned **partial
+after 3 calls / 45.2 seconds**. Expected answers stayed outside the model requests.
+
+The accepted roles now correctly distinguish two body paragraphs from four notes.
+All 18 original nodes, 28 bindings and four typed note objects, including exact
+numbers and body links, match the preceding source and frozen expectations. But the
+model again puts distinct body paragraphs and same-kind notes into shared scalar
+value sources. The first proposal and its repair are identical. The compiler rejects
+both with `native_structure_distinct_body_values:@value1`; **no interpreted values
+are accepted**, compared with six in the preceding run.
+
+This is a **development quality failure**, not a budget timeout. Complete note context
+and fixed system instructions reach all three requests. Value reading, accounting and
+applicability are not reached, so their new context delivery has regression coverage,
+not actual-model confirmation. The current response schema still permits incompatible
+source combinations, and repair receives only the first conflict's code/handle.
+The next work is source-object-aware structural choices and bounded, source-specific
+conflict feedback, not another prompt-only rerun or relaxed validation.
+
+The source passed **3,248 local tests / 227 skips / 12 subtests** and **532 related
+ARM64 tests**. The owned server/container, input copy, 237 exported source/test files,
+two bytecode files verified against their sources, and transfer archive were removed
+after hash-checked collection. Shared RPC and host OOM 0 remained unchanged. Evidence:
+`structural-kpi-20260913/native-note-batches-55/`. This is neither independent quality
+approval nor CPU-only memory qualification.
+
+### Preceding run: separate text values, incomplete interpretation
+
+Source **9ce4ad0** reran the same binary HWP file after exposing note-object context.
+It returned **partial after 12 calls / 163.9 seconds** under the unchanged short budget.
+Unlike the preceding two-value result, **all six source texts now have separate exact
+interpreted values and bindings**. All four declared note objects retain the correct
+kind, stored number, body owner and original content references. Original nodes,
+bindings and relationships are unchanged.
+
+The result is still a **development quality failure**. The model labels the two body
+references as notes, omits nontext control/container dispositions, and marks four stored
+numbers unresolved. Its two revisions omit all meaning entities from the required change
+ledger and are rejected. Three added note meanings self-target note-text fields; a fourth
+is pending when the 12-call limit is reached. Correct native links do not approve these
+additional interpretations. Evidence: `structural-kpi-20260913/native-note-context-54/`.
+
+That run exposed a further product defect: value-batch v3 rebuilt read/accounting requests
+without `nativeNotes`. The subsequent source **13989df** preserves the complete context in
+both stages and puts stage-specific, product-owned instructions in the system message,
+never promoting instructions from source metadata. Native structure v14 / value batches v4 /
+document protocol v9 identify that change. The current source's failed actual run is
+reported above; these implementation fixes must not be attributed to the earlier result.
+
+Rebuilding requests for the *same prior six-field structure* retains all source context
+but needs six one-value requests at 15,356–15,364 characters and one accounting request
+at 13,725. With roles, structure and four added meanings, even immediate success would
+need at least 13 calls. This is request-cost evidence, not permission to raise the short
+budget or a prediction that the new model must choose the same structure. Native structural
+bookkeeping and redundant interpreted fields/meanings need to be distinguished; invalid
+revision ledgers still cannot be waived.
+
+### Earlier binary HWP ownership check
 
 Source **aad6524f8da8da372cef6438805160bd7672d441** processed the original binary HWP
 note fixture through the public stream API on Spark-B's retained 9B CUDA runtime.
@@ -522,7 +594,7 @@ platform-installer or independent quality qualification**.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** Binary HWP preserves exact native note links but collapses separate body/note objects into two interpreted values; invalid structure revisions cannot repair it. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Preserve distinct source-object occurrences during structure/value decisions; distinguish multiple paragraphs of one note from separate notes. Make revision references valid without weakening source/change checks. Then compare the full product path under a predeclared budget; do not waive missing items or silently extend a run. |
+| 1 | **Native complete extraction is not approved.** Current HWP source preserves four native note objects and correct text roles, but both structure proposals merge distinct occurrences and are rejected; no interpreted values survive. The preceding source accepted six values but failed accounting/applicability. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Make structural choices and bounded repair feedback respect exact source-object ownership; preserve multi-paragraph objects, shared definitions and genuine relationships. Separate native bookkeeping from additional attributes. Keep complete revision/source checks and compare the full product path under the unchanged, predeclared budget. Do not waive missing items or repeat the same failed prompt-only setup. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |

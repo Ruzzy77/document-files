@@ -42,7 +42,7 @@ are not native declarations.
 
 ### Binary HWP notes and exact body ownership
 
-Native observation adapter v3 adds relationships from stored HWP controls in
+Native observation adapter v4 preserves relationships from stored HWP controls in
 `document_model/hwp_notes.py`. A note is keyed by section number, section stream,
 control kind (`fn  ` or `en  `) and native note ID. IDs from different section
 streams, footnotes and endnotes cannot alias one another. The control's
@@ -71,15 +71,84 @@ shape. The AI result retains the observed relationships under `document.structur
 Public v1 contracts are unchanged. The adapter version participates in observation
 identity, so checkpoints with the old observation cannot silently resume as the new one.
 
-The binary HWP development run confirms these links survive through the public AI
-stream API. It also exposes a later boundary failure: distinct native note controls
-can still be grouped into one interpreted scalar. All text remaining in the observation
-is not equivalent to reading each occurrence into the interpreted structure. Before
-relaxing any completeness check, verify source-object identity (including multi-paragraph
-and nested content) across structure choices and value bindings. Revision change mappings
-must reference entities that actually exist in the replacement; accepting malformed
-mappings is not a remedy for an incomplete structure. These are remaining interpretation
-work, not capabilities supplied by the note adapter.
+`document_model/note_objects.py` derives the bounded `nativeNotes` inventory from
+that control graph. Each source control ID owns its kind, body references, content
+paragraphs, all member references and typed stored-number sources. Repeated numbers
+or equal text do not identify an object. A note with several paragraphs remains one
+object. Unlinked/ambiguous controls remain unresolved; graph or number conflicts return
+an incomplete inventory, never a successful prefix. The limits are 1,000 objects,
+200,000 inspected relationships and 2 MiB of serialized inventory, not a process-memory
+qualification. Original nodes, bindings and relationships are unchanged.
+
+Role, structure, revision and value requests include this inventory when relevant.
+Previously the role-derived structure request only showed text-bearing paragraphs:
+empty controls and stored note-number values were absent even though their IDs could
+be offered by the response contract. Context now exposes their exact declared meaning
+without copying irrelevant formatting. `ownedRefs` distinguishes values owned by the
+current region from whole-object context; it never grants access to a different
+region's values. Source text and value bindings remain separately available.
+
+`native_note_checks.py` rejects a present/blank scalar or record cell that offers
+several declared notes, or several distinct referring body paragraphs, as interchangeable
+value sources. Shared definition references and explicit uncertainty remain allowed.
+Interpreted note/unit/condition meanings cannot combine separate notes; genuine reference
+and relationship proposals can still cite multiple objects. No values, new records,
+headings or note counts are inferred by these checks. Multiple text segments belonging
+to the same source object are not rejected merely for having different node IDs.
+
+The result also retains `document.structure.nativeNotes`. Compiler v35 can account for
+a structural note disposition through its declared body link, recording `nativeNoteObjects`
+and `nativeNoteBasis` in the source-use ledger. This does **not** resolve an additional
+unit/condition's applicability or approve its interpretation. Unlinked notes and undecided
+additional meanings retain their existing issues. Controls and automatic numbers still
+need explicit source/binding accounting; the compiler does not waive all note content.
+
+`native_value_batches._request` keeps the same note facts in both value and accounting
+requests. The earlier v3 reconstruction omitted them. Batch v4 sizes each request with
+all that context and fails explicitly if it cannot fit; it never strips the inventory to
+make a batch pass. `native_note_context.py` owns the role/structure versus value/accounting
+instructions. `contract_messages` appends those fixed instructions to the system message
+only for this product-generated inventory. No source-provided guidance is promoted into
+instructions. Documents without that inventory keep their previous message content.
+
+Ordinary note text and structural numbering need not be invented as business fields
+merely to survive in the result: the exact text, typed numbers and relationships already
+belong to the native document structure. Actual attributes inside notes still require
+field/value interpretation. The public native unit projection is unchanged. Checkpoint
+replay re-derives the object inventory and refuses changed numbers, owners or omitted
+inventory. Document protocol v9 / native structure v14 / native adapter v4 / compiler v35
+invalidate older incompatible checkpoints. Structure-revision change-ledger defects remain
+separate work; malformed references are not accepted to make a failed run appear complete.
+
+#### Remaining structure-choice boundary
+
+The current structure wire uses one global source-reference enumeration. It still lets
+the model propose incompatible note/body sources together, which are rejected only after
+the response. Validation currently reports the first conflict's code and value handle;
+repair does not receive a complete account of the conflicting original references.
+Full context and system instructions have not prevented this on the actual HWP path.
+See [current verification](../SUPPORT.md#current-note-context-source-structure-still-fails).
+
+The next protocol change should make declared occurrence ownership part of a structural
+choice rather than leave it as advice. This is **planned, not implemented**:
+
+- Derive allowed source-object memberships from the complete native inventory. Bind
+  present/blank value-source choices to those memberships without inventing field names,
+  splitting a multi-paragraph note, or conflating equal text/numbers. Shared definitions,
+  explicit uncertainty and genuine cross-object relationships must remain expressible.
+- Return bounded conflicts with the rejected field/meaning, exact source references and
+  their declared owners. Never silently split a proposed scalar or reuse the first note.
+  If the complete constraints or feedback cannot fit, preserve accepted work and expose
+  the limit; do not omit conflicting objects to reduce a request.
+- Keep exact native control/number bookkeeping separate from additional attributes and
+  applicability inside a note. The former cannot waive the latter. Revision mappings must
+  refer to the actual old/new entities and retain full coverage before atomic acceptance.
+
+Test repeated numbers, equal text in distinct notes, one note with several paragraphs,
+multiple notes on one body paragraph, partial-region ownership and attributes inside
+notes before a new bounded model run. Recompute actual request costs, version changed
+contracts/checkpoint identities, and keep the existing document budget. This is not a
+requirement to turn ordinary prose into redundant business fields or a new fixed template.
 
 ### Table metadata and evolving request context
 
@@ -334,7 +403,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v7 and native-structure v12 identify the three-stage execution;
+own configured reasoning behavior. Protocol v9 and native-structure v14 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 Native role, structure, value, batch-accounting and structure-review requests use the
@@ -715,7 +784,7 @@ priorities. Evidence is in `native-literal-model-31/` under the private comparis
 
 ### Bounded native value requests
 
-Value-batches v3 sizes each request with the actual source catalogue. If the optional aid
+Value-batches v4 retains the v3 source-catalogue sizing policy. If the optional aid
 would consume the fixed repair reserve, a batch drops the whole aid and its selector
 branch, reports `context_limit`, and retains all original sources, bindings, handles and
 ordinary quote choices. This decision is deterministic from the stored integer
@@ -725,7 +794,7 @@ their exact catalogue for source accounting; unused alternative IDs are not part
 frozen field definition. This delivery fallback never excludes document information or
 increases the call/time/input limits.
 
-Native-structure v12 / native-value-batches v3 keeps the existing single request when
+Native-structure v14 / native-value-batches v4 keeps the existing single request when
 it fits. An oversized request instead uses deterministic batches of at most 16 value
 handles, sized from the actual system, payload and closed output contract. Every batch
 retains **all original nodes, formatting and binding text**; relevant occurrence
@@ -1381,12 +1450,14 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v40 / v23 / v34 |
-| Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
-| Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
+| Semantic prompt / region plan / result compiler | v40 / v23 / v35 |
+| Document outline / native role-content protocol / native structure | v1 / v9 / v14 |
+| Native structural response wire / native value batches / structure revision | v1 / v4 / v4 |
 | Table protocol / table reference wire / table source wire / selection wire | v29 / v2 / v1 / v4 |
 | Table source inventory | v2 |
-| Scope integration / scope-axis protocol | v16 / v8 |
+| Scope integration / scope-axis protocol | v18 / v10 |
+| Scope inventory / scope partition | v1 / v1 |
+| Native observation / native note objects | v4 / v1 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v3 / v3 |
 | Recognition adapter | 29 |
