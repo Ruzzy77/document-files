@@ -6,6 +6,7 @@ import hashlib
 from copy import deepcopy
 
 from .html import observe_html
+from .hwp_notes import add_hwp_note_relationships
 from .markdown import observe_markdown
 from .model import OBSERVATION_VERSION, ObservationBudgetExceeded, ObservationDocument
 from .native import NATIVE_OBSERVATION_VERSION, add_native_relationships, observe_lines
@@ -176,6 +177,8 @@ def observe_document(
         return doc
     try:
         add_native_relationships(doc, legacy_nodes)
+        if format_id == "hwp":
+            add_hwp_note_relationships(doc, legacy_nodes)
         if format_id in {"txt", "md", "html"}:
             try:
                 text = content.decode("utf-8-sig")

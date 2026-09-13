@@ -7,7 +7,7 @@ from copy import deepcopy
 
 from .model import ObservationDocument
 
-NATIVE_OBSERVATION_VERSION = "document-files.native-observation.v2"
+NATIVE_OBSERVATION_VERSION = "document-files.native-observation.v3"
 
 # Candidate boundaries only. Role, type and applicability are interpreted by the internal AI.
 _LEXEME = re.compile(r"[^\s;,:=]+")
