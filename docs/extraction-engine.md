@@ -1101,17 +1101,22 @@ have no undecided row positions. General semantic requests use the same neutral
 list: a record covers its observed table range with explicit row roles, and only
 rows chosen as data are read as records. The program does not infer a header from
 the first row, numeric types or formatting, or change native header flags.
-The neutral row positions remain in layout-first table protocol v39 / region plan
-v27 / prompt v41. Correct row metadata does not establish correct interpretation;
+The neutral row positions remain in layout-first table protocol v40 / region plan
+v28 / prompt v41. Correct row metadata does not establish correct interpretation;
 the new layout response is checked separately before column definitions are requested.
 
 `table_layout.mapping_schema` derives the current model-facing column contract
 from `structure_model_schema`, fixes `tableKind: record_table` and removes row roles.
+With a saved layout it additionally supplies the source-derived column read contract
+described below. Each coordinate contains `definition` and a permitted `read` pair;
+the code restores the same canonical column definition, type and mode.
 `decode_mapping` rejects attempts to change the saved layout, then restores its row
 roles before the existing coordinate decoder and `structural_ir` compile the record.
 Canonical arrays, original IDs, keys, labels, types and provenance remain intact.
-The inverse codec is for inspection and scripted fixtures, not compatibility with
-old model replies. Scalar-form and unresolved choices are handled by the earlier
+The inverse codec is for inspection and scripted fixtures. Explicit inner
+`valueType`/`bindingMode` columns from an in-process client still pass canonical read
+checks; they do not bypass precision or structural rejection. Legacy coordinate
+arrays remain invalid model wire. Scalar-form and unresolved choices use the earlier
 layout response; neither manufactures a record. Older table checkpoints are rejected.
 
 Subtotal, note and unmapped value cells use a separate scalar child region with
@@ -1249,7 +1254,7 @@ chosen type/mode, not an invented failing cell. The `source`, `text` and `cached
 mode/type choices are otherwise unchanged and still require actual source validation.
 No formula is evaluated; a saved cache is a separate explicit read. Older table
 checkpoints are incompatible rather than normalized into a different choice. The
-current table protocol is v39, including separate layout decisions, neutral row
+current table protocol is v40, including source-derived reads, layout decisions, neutral row
 metadata, coordinate decisions, source-specific feedback and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
@@ -1298,8 +1303,8 @@ relations, types, formatting and source references are retained in the existing
 lossless source encoding. Column mapping keeps its compact view. Neither display order
 nor a style/merge flag declares a header; only source-declared `fixedRole` does so.
 Tests restore the old row tuples exactly and compare all remaining source metadata.
-Full-page 50/96-row HWPX and XLSX sizing retains the prior 6/12 and 4/7 region counts
-at 16,000 characters, respectively. This differs from expanding every physical cell's
+With the current read-domain reservation, full-page 50/96-row HWPX and XLSX
+sizing uses 6/11 and 4/7 regions at 16,000 characters, respectively. This differs from expanding every physical cell's
 metadata, which increased region counts and was not adopted. These capacity checks do
 not establish model-quality improvement.
 
@@ -1337,6 +1342,43 @@ cross-role cell does not become a column header just because its origin row is o
 The mapping request names the layout hash, includes its roles and preserves all source.
 It asks only for coordinate-keyed definitions, not another row-role decision.
 
+`table_read_domains.py` derives permitted reads for the saved data rows. It uses
+`compiler.table_cell_grid`, `table_value_selection` and `_read`, the same cell-span,
+binding preference and scalar conversion functions used for final compilation. Every
+selected row is checked; repeated references to one spanning cell can reuse a read,
+but distinct cells with equal values are never folded. Regional binding paths and
+start/end offsets are retained. Original native kinds are evidence, not automatically
+chosen output types.
+
+A column response separates its `definition` (ID, key, label, header provenance and
+optional target handle) from `read`, such as `source:decimal` or `formula:string`.
+The schema offers only mode/type pairs without a hard source-read failure in those
+rows. `decimal`, text and native reads can remain available together; the program
+never chooses a replacement type, copies an expected answer or rewrites a value.
+Formula expressions and stored caches remain separate. The decoder rejects mixed or
+unknown read/definition channels, restores ordinary canonical fields and lets the
+existing compiler validate the actual read again. A changed layout rebuilds the
+schema before another mapping call.
+
+Blank cells, absent bindings, observation conflicts and decimal-format uncertainty
+do not prove a representation impossible. Overlapping geometry remains ambiguous;
+the planner does not pick one cell, and the compiler still rejects that selected
+overlap. An offered pair therefore is not proof of a present value, correct role,
+field meaning or full document extraction. Missing caches are not computed values.
+These distinctions remain in value evidence and unresolved issues.
+
+The mapping request omits only `rowCandidates`, the duplicate display already used
+for layout. It retains row order and saved roles, the original cells/nodes/text,
+geometry, metadata, relationships and header candidates. Layout requests retain
+their named row view. Full source still spans every planned region; a stricter
+reservation can create another region rather than silently shorten a source.
+
+`readDomainsSHA256` binds the choices to read-domain v1, the saved layout hash and
+the exact regional candidates belonging to its data cells. Pending mapping reuse
+checks this identity before dispatch; accepted records check it on restore. Native
+source/layout checks and canonical checkpoint records remain in force. The new
+contract does not authorize resuming an incompatible older checkpoint.
+
 Layout and mapping each allow at most **two calls** inside the caller's existing
 allowance. A failed first mapping can spend a layout review only for a located typed
 read without a verified representation-only cause, a checked header/content conflict
@@ -1358,7 +1400,11 @@ Meaning selection/detail/review keep their existing separate limits.
 
 Planning measures the layout request and reserves space for the later mapping **before
 roles are known**. The reservation contains all possible header candidates, the longest
-role spellings and a fixed-width decision hash. This is a sizing envelope only: it is
+role spellings and a fixed-width decision hash. For nonempty data it unions the
+readable pairs of every potentially selected row, keeping one unfactored column body
+per coordinate as an upper bound. Actual intersections, shorter enums and identical
+body sharing can only shrink it. A separate all-pairs shared schema covers zero-data
+layouts. This is a sizing envelope only: it is
 never accepted, checkpointed or sent as a model decision. Each actual mapping and repair
 still passes full input preflight. Source, saved layout and complete diagnostics are
 not truncated to fit; an oversized indivisible request stays partial. Unstarted slices
@@ -1374,7 +1420,7 @@ layout response and the engine charges that call. Tests focused on scope partiti
 use their known scripted layout to isolate scope scheduling; every actual request still
 passes the production input limit. Generic planning has separate native-file tests.
 
-Table protocol v39, layout v3, region plan v27 and compiler v40 distinguish these
+Table protocol v40, layout v3, region plan v28 and compiler v41 distinguish these
 states from earlier layouts and the former combined path. General prompt v41 and public v1 interfaces remain unchanged.
 Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
@@ -1817,11 +1863,11 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v27 / v40 |
+| Semantic prompt / region plan / result compiler | v41 / v28 / v41 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v39 / v2 / v1 / v4 |
-| Table layout | v3 |
+| Table protocol / table reference wire / table source wire / selection wire | v40 / v2 / v1 / v4 |
+| Table layout / source-derived read domains | v3 / v1 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
