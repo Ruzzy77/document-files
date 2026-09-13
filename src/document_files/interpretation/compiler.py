@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from jsonschema import Draft202012Validator
 from referencing import Registry
 
+from ..document_model.table_headers import column_header as _column_header
 from ..document_model.table_headers import declared_header, fixed_header_rows, observed_rows
 from ..result_types import Assertion, Evidence, SourceBinding, Target
 from .accounting import bound_node_dispositions, observed_heading
@@ -127,17 +128,6 @@ def preferred_binding(bindings, source_ref, mode="source"):
             ):
                 return key
     return None
-
-
-def _column_header(cell, table, roles):
-    if cell.get("headerScope") in {"row", "rowgroup"}:
-        return False
-    role = roles.get(cell["row"])
-    if role == "header":
-        return True
-    # Native labels in subtotal/note/mixed rows are not automatically column
-    # headings. Header context outside a bounded data view keeps its declaration.
-    return declared_header(cell, table) and role is None
 
 
 @dataclass

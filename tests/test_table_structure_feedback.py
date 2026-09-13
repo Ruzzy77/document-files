@@ -100,7 +100,7 @@ class WrongTypeModel(TableModel):
 def test_actual_failed_read_reaches_bounded_repair_and_persists_if_unrepaired(repair):
     model = WrongTypeModel(repair=repair)
     states = []
-    result = execute(model, content=TEXT_RECORDS, states=states, maxModelCalls=3)
+    result = execute(model, content=TEXT_RECORDS, states=states, maxModelCalls=5)
     payload = json.loads(model.requests[1].messages[-1]["content"])
     feedback = payload["repairFeedback"]
     detail = json.loads(feedback[1].split(":", 1)[1])

@@ -26,6 +26,7 @@ from . import (
     native_structure_revision,
     native_value_batches,
     scope_partition,
+    table_layout,
 )
 from .backends import (
     ChatCompletionsClient,
@@ -92,12 +93,9 @@ from .table_protocol import (
     MEANING_SYSTEM,
     STAGE_INITIAL_MAX_CALLS,
     STAGE_MAX_OUTPUT_TOKENS,
-    STRUCTURE_SYSTEM,
     TABLE_PROTOCOL_VERSION,
     meaning_payload,
     structural_ir,
-    structure_model_schema,
-    structure_payload,
 )
 from .table_protocol import (
     meaning_decision_ir as meaning_ir,
@@ -633,7 +631,7 @@ def extract_schema_from_stream(
                     raise ValueError
                 if state.get("kind") not in {None, "record_table", "scalar_form", "unresolved"}:
                     raise ValueError
-                for stage in ("structure", "meaning"):
+                for stage in ("layout", "structure", "meaning"):
                     record = state.get(stage, {})
                     if not isinstance(record, dict):
                         raise ValueError
@@ -671,8 +669,35 @@ def extract_schema_from_stream(
                         or (reviews and (stage != "meaning" or not record.get("acceptedResponse")))
                     ):
                         raise ValueError
+                region = next(r for r in regions if r["id"] == rid)
+                latest_layout = table_layout.validate_history(state["layout"], observation, region)
+                structural = state["structure"]
+                if type(structural.get("layoutRevisionPending", False)) is not bool:
+                    raise ValueError
+                if structural.get("status") == "complete":
+                    if state["layout"]["status"] != "complete" or structural.get(
+                        "layoutRevisionPending"
+                    ):
+                        raise ValueError
+                    if (
+                        latest_layout is None
+                        or state.get("kind") != latest_layout["response"]["tableKind"]
+                    ):
+                        raise ValueError
+                    if structural.get("layoutSHA256") != latest_layout["sha256"]:
+                        raise ValueError
                 if state.get("kind") == "record_table" and rid not in accepted:
                     raise ValueError
+                if state.get("kind") == "record_table":
+                    expected_roles = table_layout.effective_roles(
+                        latest_layout, observation, region
+                    )
+                    if (
+                        len(accepted[rid].repeats) != 1
+                        or {role.row: role.role for role in accepted[rid].repeats[0].rowRoles}
+                        != expected_roles
+                    ):
+                        raise ValueError
                 meaning = state.get("meaning", {})
                 if (
                     meaning.get("attempts")
@@ -703,7 +728,7 @@ def extract_schema_from_stream(
                 total = sum(
                     state[stage]["usage"][key]
                     for state in table_states.values()
-                    for stage in ("structure", "meaning")
+                    for stage in ("layout", "structure", "meaning")
                 )
                 total += sum(
                     _restored_usage(state["usage"])[key] for state in document_states.values()
@@ -957,11 +982,13 @@ def extract_schema_from_stream(
         ]
     if additional_budget is not None and grant["maxModelCalls"] > 0:
         for state in table_states.values():
-            for stage in ("structure", "meaning"):
+            for stage in ("layout", "structure", "meaning"):
                 record = state.get(stage, {})
                 if record.get("status") != "complete":
                     record["attempts"] = 0
                     record["reviewAttempts"] = 0
+                    if stage == "layout":
+                        record["halted"] = False
     prior_elapsed = usage["elapsedSeconds"]
     max_calls = selected.maxModelCalls + sum(g["maxModelCalls"] for g in grants)
     max_seconds = selected.completionSeconds + sum(g["completionSeconds"] for g in grants)
@@ -1677,10 +1704,60 @@ def extract_schema_from_stream(
             not in {"semantic_scope_unresolved", "semantic_interpretation_uncertain"}
         ]
 
+    def interpret_table_layout(region, payload, state):
+        progress = state["layout"]
+        previous = table_layout.validate_history(progress, observation, region)
+        if progress["status"] == "complete":
+            return previous
+        if progress.get("halted") or progress["status"] == "running":
+            progress.update(halted=True, status="failed")
+            issue("table_layout_response_unavailable", regionId=region["id"])
+            return None
+        while progress["attempts"] < table_layout.MAX_CALLS:
+            before = progress["usage"]["modelCalls"]
+            try:
+                value = invoke(
+                    table_layout.SYSTEM,
+                    table_layout.request(payload, previous),
+                    table_layout.schema(observation, region, previous),
+                    progress.get("feedback"),
+                    table_stage=progress,
+                )
+                current = table_layout.accept(value, observation, region, previous)
+                progress.setdefault("history", []).append(current)
+                progress.update(status="complete")
+                progress.pop("feedback", None)
+                issues[:] = [
+                    i
+                    for i in issues
+                    if not (
+                        i.get("code") == "table_stage_invalid"
+                        and i.get("regionId") == region["id"]
+                        and i.get("tableStage") == "layout"
+                    )
+                ]
+                save("interpreting")
+                return current
+            except ModelError:
+                progress.update(status="failed")
+                if progress["usage"]["modelCalls"] > before:
+                    progress["halted"] = True
+                raise
+            except (ValidationError, CompileError, ValueError, TypeError, KeyError) as exc:
+                code = (
+                    str(exc) if isinstance(exc, CompileError) else "table_layout_invalid_contract"
+                )
+                progress.update(status="failed", feedback=[code])
+                issue(
+                    "table_stage_invalid", regionId=region["id"], tableStage="layout", errors=[code]
+                )
+                save("interpreting")
+        return None
+
     def interpret_table(region, payload):
         rid = region["id"]
         state = table_states.setdefault(rid, {})
-        for stage in ("structure", "meaning"):
+        for stage in ("layout", "structure", "meaning"):
             progress = state.setdefault(
                 stage,
                 {
@@ -1700,6 +1777,30 @@ def extract_schema_from_stream(
                 progress.setdefault(
                     "phaseUsage", {phase: _stage_usage() for phase in ("selection", "details")}
                 )
+
+        def nonrecord_result(layout):
+            state["kind"] = layout["response"]["tableKind"]
+            state["structure"].pop("layoutRevisionPending", None)
+            state["structure"].update(status="complete", layoutSHA256=layout["sha256"])
+            issues[:] = [
+                i
+                for i in issues
+                if not (
+                    i.get("code") == "table_stage_invalid"
+                    and i.get("regionId") == rid
+                    and i.get("tableStage") == "structure"
+                )
+            ]
+            if state["kind"] == "unresolved":
+                issue("table_kind_unresolved", regionId=rid)
+            save("interpreting")
+            return state["kind"] != "scalar_form"
+
+        layout = interpret_table_layout(region, payload, state)
+        if layout is None:
+            return True
+        if layout["response"]["tableKind"] != "record_table":
+            return nonrecord_result(layout)
         for stage in ("structure", "meaning"):
             progress = state[stage]
             if progress["status"] == "complete":
@@ -1710,9 +1811,9 @@ def extract_schema_from_stream(
                 continue
             if stage == "meaning" and state.get("kind") != "record_table":
                 return True
-            system = STRUCTURE_SYSTEM if stage == "structure" else MEANING_SYSTEM
+            system = table_layout.MAPPING_SYSTEM if stage == "structure" else MEANING_SYSTEM
             contract = (
-                structure_model_schema(observation, region, catalog)
+                table_layout.mapping_schema(observation, region, catalog)
                 if stage == "structure"
                 else meaning_schema(observation, region, accepted[rid], catalog)
             )
@@ -1729,7 +1830,7 @@ def extract_schema_from_stream(
             }
             inventory = source_inventory(observation, region) if stage == "meaning" else None
             request = (
-                structure_payload(payload)
+                table_layout.mapping_request(payload, layout, observation, region)
                 if stage == "structure"
                 else meaning_payload(payload, accepted[rid], compiled[rid], inventory)
             )
@@ -1737,6 +1838,18 @@ def extract_schema_from_stream(
                 stage == "meaning" and _negative_selection_ready(progress)
             ):
                 local_selection = stage == "meaning" and _negative_selection_ready(progress)
+                if stage == "structure":
+                    if progress.get("layoutRevisionPending"):
+                        layout = interpret_table_layout(region, payload, state)
+                        if layout is None:
+                            return True
+                        progress.pop("layoutRevisionPending", None)
+                        # No structure or meaning was accepted. Failed mapping
+                        # attempts remain spent even when this layout changes.
+                        if layout["response"]["tableKind"] != "record_table":
+                            return nonrecord_result(layout)
+                        request = table_layout.mapping_request(payload, layout, observation, region)
+                    progress["layoutSHA256"] = layout["sha256"]
                 try:
                     try:
                         wire = (
@@ -1847,17 +1960,10 @@ def extract_schema_from_stream(
                         save("interpreting")
                         continue
                     if stage == "structure":
-                        from .table_structure_wire import decode as decode_structure
-
-                        value = decode_structure(value, observation, region)
+                        value = table_layout.decode_mapping(value, layout, observation, region)
                         decision, candidate = structural_ir(value, observation, region)
                         if candidate is None:
-                            state["kind"] = decision.tableKind
-                            progress["status"] = "complete"
-                            if decision.tableKind == "unresolved":
-                                issue("table_kind_unresolved", regionId=rid)
-                            save("interpreting")
-                            return decision.tableKind != "scalar_form"
+                            raise CompileError("table_mapping_cannot_change_layout")
                     else:
                         if not local_selection:
                             value = complete_selected_meaning(value, selection)
@@ -1945,6 +2051,14 @@ def extract_schema_from_stream(
                     )
                     if stage == "structure":
                         repair = structure_feedback(exc, observation, region)
+                        row_progress = state["layout"]
+                        if (
+                            progress["attempts"] < STAGE_INITIAL_MAX_CALLS
+                            and row_progress["attempts"] < table_layout.MAX_CALLS
+                            and not row_progress.get("halted")
+                        ):
+                            row_progress.update(status="pending", feedback=copy.deepcopy(repair))
+                            progress["layoutRevisionPending"] = True
                     progress.update(status="failed", feedback=repair)
                     issue(
                         "table_stage_invalid",

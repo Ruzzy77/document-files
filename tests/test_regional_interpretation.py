@@ -1089,6 +1089,10 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
         def complete(self, messages, **kwargs):
             self.calls += 1
             payload = json.loads(messages[-1]["content"])
+            if payload.get("tableStage") == "layout":
+                from test_table_protocol import layout_fixture
+
+                return json.dumps(layout_fixture(payload))
             if "taskId" in payload:
                 record = next(c for c in payload["candidates"] if "rowOptions" in c)
                 row = next(r for r in payload["rowBoundaryCandidates"] if r["role"] == "data")
@@ -1198,9 +1202,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
                         ],
                     },
                 }
-            from document_files.interpretation.table_structure_wire import (
-                encode as encode_structure,
-            )
+            from test_table_protocol import mapping_fixture as encode_structure
 
             return json.dumps(
                 encode_structure(answer) if payload.get("tableStage") == "structure" else answer
@@ -1232,7 +1234,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
     )
     kwargs = {
         "options": ExtractionOptions(
-            reconstructionContext=False, maxModelCalls=3 if scope_mode == "rows" else 12
+            reconstructionContext=False, maxModelCalls=4 if scope_mode == "rows" else 12
         ),
         "model_client": model,
     }
@@ -1240,7 +1242,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
         job, io.BytesIO(content), checkpoint=states.append, **kwargs
     )
     if scope_mode == "rows":
-        assert model.calls == 3 and result["extraction"]["status"] == "partial"
+        assert model.calls == 4 and result["extraction"]["status"] == "partial"
         result = extract_schema_from_stream(
             job,
             io.BytesIO(content),
@@ -1264,7 +1266,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
     assert result["semanticDetails"][0]["scope"] == [
         {"space": "data", "path": "/measurements/0/length"}
     ]
-    assert model.calls == 4
+    assert model.calls == 5
     before = model.calls
     resumed = extract_schema_from_stream(job, io.BytesIO(content), restore=states[-1], **kwargs)
     assert model.calls == before
@@ -2080,7 +2082,7 @@ class TripleFieldModel(ReferenceModel):
 def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     from document_files.interpretation.semantic_types import COMPILER_VERSION
 
-    assert COMPILER_VERSION == "document-files.result-compiler.v36"
+    assert COMPILER_VERSION == "document-files.result-compiler.v37"
     model = TripleFieldModel()
     result = run(b"cond: do not ship\n", model)
     assert result["data"] == {"cond": "do not ship"}

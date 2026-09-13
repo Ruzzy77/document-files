@@ -238,7 +238,7 @@ def test_actual_hwpx_preserves_equal_title_and_caption_as_distinct_roles(tmp_pat
         )
         # The native default remains an ordinary paragraph; no observation rewriting.
         assert result["document"]["nodes"][element["sourceRef"]]["semanticRole"] == "paragraph"
-    assert model.calls == 4
+    assert model.calls == 5
     assert all(
         e["binding"]["sourceRef"] not in {title["sourceRef"], caption["sourceRef"]}
         for e in result["valueEvidence"]
@@ -419,7 +419,7 @@ def test_checkpoint_rebuilds_outline_and_rejects_old_policies_or_invalid_role_re
     checkpoint["result"]["document"]["outline"]["elements"][0]["role"] = "invented"
     restored = run(raw, model, restore=checkpoint)
     assert restored["document"]["outline"] == result["document"]["outline"]
-    assert model.calls == 4
+    assert model.calls == 5
     for key, old in [
         ("compilerVersion", "document-files.result-compiler.v28"),
         ("promptVersion", "document-files.semantic-prompts.v33"),

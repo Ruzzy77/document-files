@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from jsonschema import Draft202012Validator
 from test_scope_context_wire import long_table
-from test_table_protocol import encode_structure
+from test_table_protocol import mapping_fixture
 
 from document_files.api import (
     AnalysisInput,
@@ -283,6 +283,10 @@ class LongScopeModel:
     def complete(self, messages, **kwargs):
         self.calls += 1
         p = json.loads(messages[-1]["content"])
+        if p.get("tableStage") == "layout":
+            from test_table_protocol import layout_fixture
+
+            return json.dumps(layout_fixture(p))
         if "taskId" in p:
             if not any("rowOptions" in c for c in p["candidates"]):
                 return json.dumps(
@@ -334,7 +338,7 @@ class LongScopeModel:
         headers = {c["col"]: c["sourceRef"] for c in cells if c["row"] == 0}
         end = max(c["row"] for c in cells)
         return json.dumps(
-            encode_structure(
+            mapping_fixture(
                 {
                     "regionId": p["regionId"],
                     "tableKind": "record_table",

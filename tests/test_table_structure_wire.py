@@ -160,11 +160,19 @@ class WireModel(TableModel):
         self.damage = damage
 
     def infer(self, request):
-        response = super().infer(request)
         payload = json.loads(request.messages[-1]["content"])
+        if payload["tableStage"] == "layout":
+            from test_table_protocol import layout_fixture
+
+            from document_files.interpretation.backends import InferenceResponse
+
+            self.requests.append(request)
+            return InferenceResponse(json.dumps(layout_fixture(payload)), {})
+        response = super().infer(request)
         if payload["tableStage"] != "structure":
             return response
         wire = encode(json.loads(response.text))
+        wire["record"].pop("rowRoles")
         Draft202012Validator(request.output_schema).validate(wire)
         text = json.dumps(wire)
         if self.damage == "legacy":
@@ -174,7 +182,7 @@ class WireModel(TableModel):
         return replace(response, text=text)
 
 
-def run(model, *, states=None, restore=None, additional_budget=None, max_calls=2):
+def run(model, *, states=None, restore=None, additional_budget=None, max_calls=4):
     # Intentionally no canonical fixture wrapper: the public path must decode
     # only the current model wire, preserve accepted state and reject raw damage.
     return extract_schema_from_stream(
@@ -195,7 +203,7 @@ def test_unconstrained_backend_cannot_bypass_wire_and_never_publishes_failed_rec
     model, states = WireModel(damage), []
     result = run(model, states=states)
     assert result["data"] is None and result["extraction"]["status"] == "partial"
-    assert result["extraction"]["modelCalls"] == len(model.requests) == 2
+    assert result["extraction"]["modelCalls"] == len(model.requests) == 4
     assert states[-1]["accepted"] == {}
     assert states[-1]["tableStages"]["semantic-region:1"]["meaning"]["attempts"] == 0
     if damage == "duplicate_key":
@@ -205,7 +213,7 @@ def test_unconstrained_backend_cannot_bypass_wire_and_never_publishes_failed_rec
 
 def test_partial_and_completed_checkpoint_keep_canonical_structure_without_replaying_rows():
     model, states = WireModel(), []
-    partial = run(model, states=states, max_calls=1)
+    partial = run(model, states=states, max_calls=2)
     expected = partial["data"]
     assert len(expected["records"]) == 2
     assert partial["extraction"]["status"] == "partial"
@@ -215,10 +223,10 @@ def test_partial_and_completed_checkpoint_keep_canonical_structure_without_repla
         model,
         states=states,
         restore=states[-1],
-        max_calls=1,
+        max_calls=2,
         additional_budget={"maxModelCalls": 1},
     )
     assert completed["data"] == expected and completed["extraction"]["status"] == "complete"
-    assert len(model.requests) == 2
-    assert run(model, restore=states[-1], max_calls=1)["data"] == expected
-    assert len(model.requests) == 2
+    assert len(model.requests) == 3
+    assert run(model, restore=states[-1], max_calls=2)["data"] == expected
+    assert len(model.requests) == 3

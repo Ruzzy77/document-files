@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 from jsonschema import Draft202012Validator
-from test_table_protocol import HTML, CoordinateFixture, encode_structure, record_response
+from test_table_protocol import HTML, CoordinateFixture, record_response
+from test_table_protocol import mapping_fixture as encode_structure
 
 from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.interpretation import engine
@@ -321,15 +322,15 @@ def test_negative_selection_compiles_explicit_reviews_without_detail_call():
 
 def test_global_pause_after_selection_resumes_details_without_reselecting():
     model, states = SelectionModel(), []
-    partial = run(model, states=states, maxModelCalls=2)
+    partial = run(model, states=states, maxModelCalls=3)
     assert partial["extraction"]["status"] == "partial" and len(model.requests) == 2
     saved = copy.deepcopy(progress(states[-1])["sourceSelections"])
-    run(model, restore=states[-1], maxModelCalls=2)
+    run(model, restore=states[-1], maxModelCalls=3)
     assert len(model.requests) == 2
     result = run(
         model,
         restore=states[-1],
-        maxModelCalls=2,
+        maxModelCalls=3,
         additional_budget={"maxModelCalls": 2},
         states=states,
     )
@@ -370,13 +371,13 @@ def test_document_usage_cannot_be_lowered_below_cumulative_table_stages(
 
     monkeypatch.setattr(model, "infer", timed_infer)
     states = []
-    max_calls = 3 if model.fail_details else 2
+    max_calls = 4 if model.fail_details else 3
     run(model, states=states, maxModelCalls=max_calls)
     checkpoint = copy.deepcopy(states[-1])
     total = sum(
         state[stage]["usage"][counter]
         for state in checkpoint["tableStages"].values()
-        for stage in ("structure", "meaning")
+        for stage in ("layout", "structure", "meaning")
     )
     assert total > 0
     checkpoint["usage"][counter] = 0 if counter == "elapsedSeconds" else total - 1
@@ -389,15 +390,15 @@ def test_document_usage_cannot_be_lowered_below_cumulative_table_stages(
 def test_zero_duration_scripted_calls_can_resume_without_inventing_elapsed_usage(monkeypatch):
     monkeypatch.setattr(engine, "time", SimpleNamespace(monotonic=lambda: 100.0))
     model, states = SelectionModel(), []
-    partial = run(model, states=states, maxModelCalls=2)
+    partial = run(model, states=states, maxModelCalls=3)
     assert partial["extraction"]["status"] == "partial"
     assert states[-1]["usage"]["elapsedSeconds"] == 0
     assert all(
         state[stage]["usage"]["elapsedSeconds"] == 0
         for state in states[-1]["tableStages"].values()
-        for stage in ("structure", "meaning")
+        for stage in ("layout", "structure", "meaning")
     )
-    result = run(model, restore=states[-1], maxModelCalls=2, additional_budget={"maxModelCalls": 2})
+    result = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 2})
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["extraction"]["usage"]["elapsedSeconds"] == 0
     assert len(model.requests) == 3
@@ -418,7 +419,7 @@ def test_failed_detail_consumes_shared_initial_allowance_and_needs_explicit_gran
 
 def test_explicit_selection_revision_is_durable_and_shares_the_same_allowance():
     model, states = SelectionModel(wrong_choice=True), []
-    partial = run(model, states=states, maxModelCalls=3)
+    partial = run(model, states=states, maxModelCalls=4)
     state = progress(states[-1])
     assert partial["extraction"]["status"] == "partial"
     assert len(state["sourceSelections"]) == 2 and state["attempts"] == 2
@@ -427,13 +428,13 @@ def test_explicit_selection_revision_is_durable_and_shares_the_same_allowance():
         == state["sourceSelections"][0]["sha256"]
     )
     assert not state.get("acceptedResponse") and len(model.requests) == 3
-    run(model, restore=states[-1], maxModelCalls=3)
+    run(model, restore=states[-1], maxModelCalls=4)
     assert len(model.requests) == 3
     done = run(
         model,
         states=states,
         restore=states[-1],
-        maxModelCalls=3,
+        maxModelCalls=4,
         additional_budget={"maxModelCalls": 2},
     )
     assert done["extraction"]["status"] == "complete", done["issues"]
@@ -563,11 +564,11 @@ def test_interruption_after_negative_selection_resumes_local_compile_without_any
             ),
             io.BytesIO(HTML),
             model_client=CoordinateFixture(model),
-            options=ExtractionOptions(reconstructionContext=False, maxModelCalls=2),
+            options=ExtractionOptions(reconstructionContext=False, maxModelCalls=3),
             checkpoint=checkpoint,
         )
     assert len(model.requests) == 2
-    result = run(model, content=HTML, restore=states[-1], maxModelCalls=2)
+    result = run(model, content=HTML, restore=states[-1], maxModelCalls=3)
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert len(model.requests) == 2
 

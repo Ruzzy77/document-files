@@ -108,7 +108,7 @@ def test_attempted_pending_structure_keeps_its_identity_and_completed_rows_on_re
     checkpoint = deepcopy(states[-1])
     assert checkpoint["tableStages"][model.pending_id]["structure"]["attempts"] == 1
     old_id = next(iter(checkpoint["accepted"]))
-    used = checkpoint["usage"]["modelCalls"]
+    used = len(model.requests)  # Layout calls are recorded separately.
     result = execute(
         model, content=long_html(), contextChars=11000, maxModelCalls=60, restore=checkpoint
     )

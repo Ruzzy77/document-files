@@ -140,7 +140,7 @@ def test_oversized_repair_keeps_complete_feedback_without_dispatch_or_attempt_co
 
     model, states = Limited(only_content=True), []
     result = execute(model, content=TEXT_RECORDS, states=states, contextChars=16000)
-    state = states[-1]["tableStages"]["semantic-region:1"]["structure"]
+    state = states[-1]["tableStages"]["semantic-region:1"]["layout"]
     assert result["data"] is None and len(model.requests) == 1
     assert state["attempts"] == state["usage"]["modelCalls"] == 1
     assert state["inputPreflight"]["phase"] == "repair"

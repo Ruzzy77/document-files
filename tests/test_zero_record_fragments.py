@@ -164,6 +164,15 @@ def test_engine_rebuilds_fragment_provenance_on_resume_without_reusing_forged_pr
     class UnresolvedFirstView(LongMappingModel):
         first_region = None
 
+        def layout_response(self, payload):
+            from test_table_protocol import layout_fixture
+
+            if self.first_region is None:
+                self.first_region = payload["regionId"]
+            table = next(iter(payload["tables"].values()))
+            role = "unresolved" if payload["regionId"] == self.first_region else "data"
+            return layout_fixture(payload, roles=[role] * len(table["rowRoleOrder"]))
+
         def infer(self, request):
             response = super().infer(request)
             payload = json.loads(request.messages[-1]["content"])

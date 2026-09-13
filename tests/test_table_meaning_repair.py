@@ -336,24 +336,24 @@ class InvalidThenReview(CaptionModel):
 
 def test_selection_and_invalid_detail_share_initial_budget_until_explicit_grant():
     model, states = InvalidThenReview(invalid_calls=1), []
-    partial = run(model, states=states, maxModelCalls=3, completionSeconds=900)
+    partial = run(model, states=states, maxModelCalls=4, completionSeconds=900)
     assert partial["extraction"]["status"] == "partial" and len(model.requests) == 3
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
     assert progress["attempts"] == 2 and not progress.get("acceptedResponse")
-    run(model, restore=states[-1], maxModelCalls=3, completionSeconds=900)
+    run(model, restore=states[-1], maxModelCalls=4, completionSeconds=900)
     assert len(model.requests) == 3  # Neither stage nor document budget is reset.
     result = run(
         model,
         states=states,
         restore=states[-1],
-        maxModelCalls=3,
+        maxModelCalls=4,
         completionSeconds=900,
         additional_budget={"maxModelCalls": 3},
     )
     assert result["extraction"]["status"] == "complete", result["issues"]
-    assert result["extraction"]["budget"] == {"maxModelCalls": 6, "completionSeconds": 900}
+    assert result["extraction"]["budget"] == {"maxModelCalls": 7, "completionSeconds": 900}
     assert len(model.requests) == 5 and model.meaning_calls == 3
-    assert len(model.scope_requests) == 1 and result["extraction"]["modelCalls"] == 6
+    assert len(model.scope_requests) == 1 and result["extraction"]["modelCalls"] == 7
     assert model.requests[3]["repairFeedback"] == ["quote_occurrence_required_or_invalid"]
     assert (
         model.requests[4]["repairFeedback"]["remainingSourceRanges"][0]["text"] == "Measurements; "
@@ -366,44 +366,44 @@ def test_selection_and_invalid_detail_share_initial_budget_until_explicit_grant(
     assert progress["attempts"] == 2 and progress["reviewAttempts"] == 1
     assert progress["usage"]["modelCalls"] == 4 and len(progress["revisions"]) == 2
     assert progress["phaseUsage"]["selection"]["modelCalls"] == 1
-    run(model, restore=states[-1], maxModelCalls=3, completionSeconds=900)
+    run(model, restore=states[-1], maxModelCalls=4, completionSeconds=900)
     assert len(model.requests) == 5
 
 
 def test_selection_plus_invalid_detail_does_not_receive_a_content_review_or_automatic_retry():
     model, states = InvalidThenReview(invalid_calls=2), []
-    result = run(model, states=states, maxModelCalls=5)
+    result = run(model, states=states, maxModelCalls=6)
     assert result["extraction"]["status"] == "partial"
     assert len(model.requests) == 3
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
     assert progress["attempts"] == 2 and progress["reviewAttempts"] == 0
     assert not progress.get("acceptedResponse")
-    run(model, restore=states[-1], maxModelCalls=5)
+    run(model, restore=states[-1], maxModelCalls=6)
     assert len(model.requests) == 3
 
 
 @pytest.mark.parametrize("review_mode", ["same", "invalid", "timeout", "cancel"])
 def test_one_post_acceptance_review_stops_on_failure_or_no_progress(review_mode):
     model, states = InvalidThenReview(review_mode=review_mode), []
-    result = run(model, states=states, maxModelCalls=5)
+    result = run(model, states=states, maxModelCalls=6)
     assert result["extraction"]["status"] == "partial"
     assert len(model.requests) == 4
     assert result["data"] == {"rows": [{"size": "001.2300"}]}
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
     assert progress["reviewAttempts"] == 1 and len(progress["revisions"]) == 1
-    run(model, restore=states[-1], maxModelCalls=5)
+    run(model, restore=states[-1], maxModelCalls=6)
     assert len(model.requests) == 4
 
 
 def test_content_review_never_exceeds_global_calls_and_grant_is_explicit():
     model, states = InvalidThenReview(), []
-    result = run(model, states=states, maxModelCalls=3)
+    result = run(model, states=states, maxModelCalls=4)
     assert len(model.requests) == 3 and result["extraction"]["status"] == "partial"
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
     assert progress["reviewAttempts"] == 0 and progress["acceptedResponse"]
-    run(model, restore=states[-1], maxModelCalls=3)
+    run(model, restore=states[-1], maxModelCalls=4)
     assert len(model.requests) == 3
-    fixed = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 2})
+    fixed = run(model, restore=states[-1], maxModelCalls=4, additional_budget={"maxModelCalls": 2})
     assert fixed["extraction"]["status"] == "complete" and len(model.requests) == 4
 
 
@@ -419,7 +419,7 @@ def test_elapsed_budget_stops_content_review_before_dispatch(monkeypatch):
             return response
 
     model, states = Slow(), []
-    result = run(model, states=states, maxModelCalls=5, completionSeconds=900)
+    result = run(model, states=states, maxModelCalls=6, completionSeconds=900)
     assert len(model.requests) == 3 and result["extraction"]["status"] == "partial"
     assert any(i["code"] == "completion_budget_exceeded" for i in result["issues"])
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
@@ -430,12 +430,12 @@ def test_elapsed_budget_stops_content_review_before_dispatch(monkeypatch):
 @pytest.mark.parametrize("attempts,reviews", [(4, 1), (3, 0), (3, 2), (2, True), (-1, 0), (0, 1)])
 def test_invalid_stage_allowance_counters_are_rejected_on_restore(attempts, reviews):
     model, states = InvalidThenReview(), []
-    run(model, states=states, maxModelCalls=5)
+    run(model, states=states, maxModelCalls=6)
     forged = copy.deepcopy(states[-1])
     progress = next(iter(forged["tableStages"].values()))["meaning"]
     progress.update(attempts=attempts, reviewAttempts=reviews)
     with pytest.raises(ValueError, match="checkpoint is incompatible"):
-        run(model, restore=forged, maxModelCalls=5)
+        run(model, restore=forged, maxModelCalls=6)
     assert len(model.requests) == 4
 
 
@@ -463,10 +463,10 @@ def test_unexplained_change_cannot_replace_the_previous_source_bound_meaning(mod
 
 def test_global_budget_pause_resumes_only_accounting_repair_with_accepted_statements():
     model, states = CaptionModel(), []
-    result = run(model, states=states, maxModelCalls=3)
+    result = run(model, states=states, maxModelCalls=4)
     assert len(model.requests) == 3 and result["extraction"]["status"] == "partial"
     assert next(iter(states[-1]["tableStages"].values()))["meaning"]["acceptedResponse"] is True
-    fixed = run(model, restore=states[-1], maxModelCalls=3, additional_budget={"maxModelCalls": 2})
+    fixed = run(model, restore=states[-1], maxModelCalls=4, additional_budget={"maxModelCalls": 2})
     assert fixed["extraction"]["status"] == "complete", fixed["issues"]
     assert len(model.requests) == 4
     assert flat_accepted_feedback(model.requests[-1])["meanings"]

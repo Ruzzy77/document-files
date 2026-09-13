@@ -210,14 +210,8 @@ def test_columnar_cell_prompt_is_lossless_and_does_not_mutate_observation():
 
 
 def test_planned_table_size_matches_actual_compact_payload():
-    import json
-
+    from document_files.interpretation import table_layout
     from document_files.interpretation.regions import region_payload
-    from document_files.interpretation.table_protocol import (
-        STRUCTURE_SYSTEM,
-        structure_model_schema,
-        structure_payload,
-    )
 
     doc = observe_document(
         b"<table><tr><th>ID</th><th>Amount</th></tr>"
@@ -230,15 +224,11 @@ def test_planned_table_size_matches_actual_compact_payload():
     for region in prepare_regions(doc, context_chars=16000, request_metadata=metadata):
         if not region.get("tableRef"):
             continue
-        request = {
-            **structure_payload({**region_payload(doc, region), **metadata}),
-            "outputContract": structure_model_schema(doc, region, {}),
-        }
-        actual = len(STRUCTURE_SYSTEM) + len(
-            json.dumps(request, ensure_ascii=False, separators=(",", ":"))
+        sizes = table_layout.planned_request_sizes(
+            region_payload(doc, region) | metadata, doc, region, {}
         )
-        assert region["requestChars"] == actual
-        assert region["withinContextBudget"] == (actual <= 16000)
+        assert region["requestChars"] == max(sizes.values())
+        assert region["withinContextBudget"] == (max(sizes.values()) <= 16000)
 
 
 MERGED_HEADER_FORM = (

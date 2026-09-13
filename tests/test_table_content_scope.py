@@ -41,7 +41,7 @@ class Capture(SelectionModel):
 )
 def test_content_scope_is_rejected_by_schema_and_grammar_independent_decoder(extra):
     model, states = Capture(), []
-    result = run(model, states=states, maxModelCalls=3)
+    result = run(model, states=states, maxModelCalls=4)
     assert result["extraction"]["status"] == "partial"
     assert not model.scope_requests
     selection = progress(states[-1])["sourceSelections"][-1]
@@ -64,24 +64,24 @@ def test_content_scope_is_rejected_by_schema_and_grammar_independent_decoder(ext
 
 def test_content_exhaustion_does_not_claim_complete_or_implicitly_fund_scope():
     model, states = Capture(), []
-    partial = run(model, states=states, maxModelCalls=3)
+    partial = run(model, states=states, maxModelCalls=4)
     ir = next(iter(states[-1]["accepted"].values()))
     assert ir["meanings"][0]["fieldIds"] == ir["meanings"][0]["repeatIds"] == []
     assert partial["semanticDetails"][0]["scope"] == []
-    assert partial["extraction"]["modelCalls"] == 3 and not states[-1]["scopeDecisions"]
+    assert partial["extraction"]["modelCalls"] == 4 and not states[-1]["scopeDecisions"]
     assert "scope" not in model.content["meanings"][0]
     assert any(i["code"] == "model_call_budget_exceeded" for i in partial["issues"])
-    run(model, restore=states[-1], maxModelCalls=3)
+    run(model, restore=states[-1], maxModelCalls=4)
     assert len(model.requests) == 3 and not model.scope_requests
     done = run(
         model,
         states=states,
         restore=states[-1],
-        maxModelCalls=3,
+        maxModelCalls=4,
         additional_budget={"maxModelCalls": 1},
     )
     assert done["extraction"]["status"] == "complete"
-    assert done["extraction"]["modelCalls"] == 4
+    assert done["extraction"]["modelCalls"] == 5
     assert len(model.requests) == 3 and len(model.scope_requests) == 1
     assert done["data"] == partial["data"] and done["dataSchema"] == partial["dataSchema"]
     unit = done["semanticDetails"][0]
@@ -89,7 +89,7 @@ def test_content_exhaustion_does_not_claim_complete_or_implicitly_fund_scope():
     for item in done["valueEvidence"]:
         assert (unit["id"] in item["semanticIds"]) == item["target"]["path"].endswith("/size")
     fresh = Capture()
-    resumed = run(fresh, restore=states[-1], maxModelCalls=3)
+    resumed = run(fresh, restore=states[-1], maxModelCalls=4)
     assert not fresh.requests and not fresh.scope_requests
     for key in ["data", "dataSchema", "semanticDetails", "valueEvidence", "schemaEvidence"]:
         assert resumed[key] == done[key]

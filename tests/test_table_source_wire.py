@@ -11,6 +11,7 @@ from test_native_merged_geometry import observe
 from test_table_protocol import TableModel, execute, record_response
 
 from document_files.document_model.observe import observe_document
+from document_files.interpretation import table_layout
 from document_files.interpretation.backends import InferenceResponse
 from document_files.interpretation.compiler import compile_region
 from document_files.interpretation.legacy_engine import contract_messages
@@ -27,7 +28,6 @@ from document_files.interpretation.table_protocol import (
     meaning_decision_schema,
     meaning_payload,
     structural_ir,
-    structure_model_schema,
     structure_payload,
 )
 from document_files.interpretation.table_reference_wire import prepare_meaning_wire
@@ -171,17 +171,15 @@ def test_actual_native_table_requests_keep_every_cell_source_and_metadata(format
         assert [n["text"] for n in packed["nodes"].values()] == [
             n["text"] for n in restored["nodes"].values()
         ]
-        messages = contract_messages(STRUCTURE_SYSTEM, packed, structure_model_schema(doc, region))
-        # prepare_regions uses the same default metadata when sizing its request.
-        planned = structure_payload(original | {"intent": "discover", "targetHandles": {}})
-        measured = sum(
-            len(m["content"])
-            for m in contract_messages(
-                STRUCTURE_SYSTEM, planned, structure_model_schema(doc, region, {})
-            )
+        # Capacity covers layout plus any valid initial mapping, rather than
+        # equating a combined legacy structural request with the current stage.
+        planned = original | {"intent": "discover", "targetHandles": {}}
+        sizes = table_layout.planned_request_sizes(planned, doc, region, {})
+        assert region["requestChars"] == max(sizes.values()) <= 16000
+        messages = contract_messages(
+            table_layout.SYSTEM, table_layout.request(planned), table_layout.schema(doc, region)
         )
-        assert region["requestChars"] == measured <= 16000
-        assert sum(len(m["content"]) for m in messages) <= 16000
+        assert sum(len(m["content"]) for m in messages) == sizes["layout"]
     original_refs = [c["sourceRef"] for table in before.tables.values() for c in table["cells"]]
     assert seen == original_refs and len(seen) == len(set(seen))
     assert doc.nodes == before.nodes and doc.bindings == before.bindings
@@ -216,11 +214,10 @@ def test_dynamic_replanning_preserves_original_table_headers_rows_and_mapping():
         cells.extend(table["cells"])
         request = structure_payload(region_payload(doc, child) | metadata)
         assert expand_table_sources(request)["sameTableMapping"] == metadata["sameTableMapping"]
-        size = sum(
-            len(m["content"])
-            for m in contract_messages(
-                STRUCTURE_SYSTEM, request, structure_model_schema(doc, child, {})
-            )
+        size = max(
+            table_layout.planned_request_sizes(
+                region_payload(doc, child) | metadata, doc, child, {}
+            ).values()
         )
         assert size == child["requestChars"] <= 11000
     assert cells == original["cells"]
@@ -307,7 +304,7 @@ def test_engine_replans_before_call_and_checkpoint_resume_never_replays_accepted
 def test_partial_checkpoint_keeps_new_slices_without_replaying_the_first_structure():
     model, states = LongMappingModel(), []
     content = long_html()
-    result = execute(model, content=content, states=states, contextChars=11000, maxModelCalls=2)
+    result = execute(model, content=content, states=states, contextChars=11000, maxModelCalls=3)
     assert result["extraction"]["status"] == "partial"
     assert len(model.requests) == 2 and len(states[-1]["accepted"]) == 1
     assert any(
@@ -319,8 +316,8 @@ def test_partial_checkpoint_keeps_new_slices_without_replaying_the_first_structu
         content=content,
         restore=states[-1],
         contextChars=11000,
-        maxModelCalls=2,
-        additional_budget={"maxModelCalls": 58},
+        maxModelCalls=3,
+        additional_budget={"maxModelCalls": 57},
     )
     assert resumed["data"]["records"] == [{"code": f"{i:04}", "size": "1.2300"} for i in range(50)]
     assert all(

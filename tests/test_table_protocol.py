@@ -145,9 +145,32 @@ class TableModel:
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
 
+def layout_fixture(payload, *, roles=None):
+    """Known scripted record rows, not a production header inference rule."""
+    table = next(iter(payload["tables"].values()))
+    return {
+        "regionId": payload["regionId"],
+        "tableKind": "record_table",
+        "rowRoles": roles if roles is not None else ["data"] * len(table["rowRoleOrder"]),
+        "baseRevision": payload.get("baseLayoutSHA256"),
+    }
+
+
+def mapping_fixture(value):
+    """Explicit test-only column-stage codec; layout is sent in its own response."""
+    result = encode_structure(value)
+    if isinstance(result, dict) and isinstance(result.get("record"), dict):
+        result["record"].pop("rowRoles")
+    return result
+
+
 class CoordinateFixture:
     """Send canonical scripted table fixtures through the current response wire.
 
+    Existing column/meaning fixtures use explicit scripted layout answers in a
+    separately recorded layout_requests list, just as scope requests are recorded
+    separately in the scope fixtures. These calls are fully charged by the engine.
+    A fixture may supply layout_response(payload) for non-data rows/scalar forms.
     Production clients receive no compatibility conversion. Tests of malformed
     model wire use the public engine directly, without this fixture adapter.
     """
@@ -161,9 +184,34 @@ class CoordinateFixture:
             return method
 
         def call(request, **kwargs):
-            response = method(request, **kwargs)
             messages = request.messages if name == "infer" else request
             payload = json.loads(messages[-1]["content"])
+            if payload.get("tableStage") == "layout":
+                if not hasattr(self.model, "layout_requests"):
+                    self.model.layout_requests = []
+                self.model.layout_requests.append(request)
+                if hasattr(self.model, "layout_response"):
+                    value = self.model.layout_response(payload)
+                else:
+                    # These fixtures declare headers in HTML. Their remaining
+                    # rows are known test records, not a production role heuristic.
+                    table = next(iter(payload["tables"].values()))
+                    value = {
+                        "regionId": payload["regionId"],
+                        "tableKind": "record_table",
+                        "rowRoles": ["data"] * len(table["rowRoleOrder"]),
+                        "baseRevision": payload.get("baseLayoutSHA256"),
+                    }
+                Draft202012Validator(
+                    request.output_schema if name == "infer" else payload["outputContract"]
+                ).validate(value)
+                text = json.dumps(value)
+                return (
+                    InferenceResponse(text, {"prompt_tokens": 10, "completion_tokens": 20})
+                    if name == "infer"
+                    else text
+                )
+            response = method(request, **kwargs)
             if payload.get("tableStage") != "structure":
                 return response
             text = response.text if name == "infer" else response
@@ -176,6 +224,9 @@ class CoordinateFixture:
             ):
                 value = encode_structure(
                     value, row_order=next(iter(payload["tables"].values()))["rowRoleOrder"]
+                )
+                assert value["record"].pop("rowRoles") == payload["tableLayout"]["rowRoles"], (
+                    "Fixture must declare its layout_response separately from column mapping"
                 )
                 text = json.dumps(value)
             return replace(response, text=text) if name == "infer" else text
@@ -250,7 +301,7 @@ class ContentCitationModel(TableModel):
 @pytest.mark.parametrize("only_content", [False, True])
 def test_table_path_preserves_text_records_and_repairs_content_only_definitions(only_content):
     model = ContentCitationModel(only_content=only_content)
-    result = execute(model, content=TEXT_RECORDS, maxModelCalls=3)
+    result = execute(model, content=TEXT_RECORDS, maxModelCalls=5)
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["data"] == {
         "records": [{"code": "Alice", "size": "active"}, {"code": "Bob", "size": "paused"}]
@@ -267,7 +318,7 @@ def test_table_path_preserves_text_records_and_repairs_content_only_definitions(
 
 def test_unrepaired_content_only_definitions_do_not_report_complete():
     model = ContentCitationModel(only_content=True)
-    result = execute(model, content=TEXT_RECORDS, maxModelCalls=1)
+    result = execute(model, content=TEXT_RECORDS, maxModelCalls=2)
     assert result["extraction"]["status"] == "partial"
     assert len(model.requests) == 1
     assert "column_definition_conflicts_with_content" in json.dumps(result["issues"])
@@ -285,6 +336,9 @@ def test_unrepaired_content_only_definitions_do_not_report_complete():
         ("tableProtocolVersion", "document-files.table-protocol.v32"),
         ("tableProtocolVersion", "document-files.table-protocol.v33"),
         ("tableProtocolVersion", "document-files.table-protocol.v34"),
+        ("tableProtocolVersion", "document-files.table-protocol.v35"),
+        ("compilerVersion", "document-files.result-compiler.v36"),
+        ("regionPlanVersion", "document-files.region-plan.v24"),
         ("promptVersion", "document-files.semantic-prompts.v40"),
         ("regionPlanVersion", "document-files.region-plan.v23"),
         ("compilerVersion", "document-files.result-compiler.v26"),
@@ -338,7 +392,7 @@ def test_structural_checks_apply_even_when_client_ignores_wire_schema(mutation):
         structural_ir(value, doc, region)
 
 
-def test_two_stages_preserve_exact_values_and_account_usage_without_duplicate_outputs():
+def test_layout_mapping_meaning_preserve_exact_values_and_account_all_stage_usage():
     model, states = TableModel(), []
     result = execute(model, states=states)
     assert len(model.requests) == 2
@@ -352,7 +406,7 @@ def test_two_stages_preserve_exact_values_and_account_usage_without_duplicate_ou
     }
     assert [r.max_output_tokens for r in model.requests] == [STAGE_MAX_OUTPUT_TOKENS, 1536]
     stages = next(iter(result["coverage"]["tableInterpretation"].values()))
-    for name in ("structure", "meaning"):
+    for name in ("layout", "structure", "meaning"):
         assert stages[name]["status"] == "complete"
         assert stages[name]["usage"]["modelCalls"] == 1
         assert stages[name]["usage"]["promptTokens"] == 10
@@ -455,13 +509,13 @@ def test_meaning_failure_preserves_structure_and_resumes_only_meaning(error):
 
 def test_global_budget_and_pre_dispatch_cancellation_keep_committed_structure():
     model, states = TableModel(), []
-    result = execute(model, maxModelCalls=1, states=states)
+    result = execute(model, maxModelCalls=2, states=states)
     assert len(model.requests) == 1
     assert result["data"]["records"]
     assert result["extraction"]["status"] == "partial"
     assert any(i["code"] == "model_call_budget_exceeded" for i in result["issues"])
     resumed = execute(
-        model, maxModelCalls=1, restore=states[-1], additional_budget={"maxModelCalls": 1}
+        model, maxModelCalls=2, restore=states[-1], additional_budget={"maxModelCalls": 1}
     )
     assert resumed["extraction"]["status"] == "complete"
     model, states = TableModel(), []
@@ -555,9 +609,14 @@ def test_scalar_forms_keep_binding_path_and_ambiguous_tables_do_not_expand(kind)
         def complete(self, messages, *, timeout):
             self.calls += 1
             payload = json.loads(messages[-1]["content"])
-            if payload.get("tableStage") == "structure":
+            if payload.get("tableStage") == "layout":
                 return json.dumps(
-                    {"regionId": payload["regionId"], "tableKind": kind, "record": None}
+                    {
+                        "regionId": payload["regionId"],
+                        "tableKind": kind,
+                        "rowRoles": None,
+                        "baseRevision": None,
+                    }
                 )
             assert "tableStage" not in payload
             assert payload["tableKind"] == "scalar_form"
@@ -913,6 +972,18 @@ NONRECORD_HTML = (
 
 
 class NonrecordModel(TableModel):
+    def layout_response(self, payload):
+        table = next(iter(payload["tables"].values()))
+        return {
+            "regionId": payload["regionId"],
+            "tableKind": "record_table",
+            "rowRoles": [
+                "data" if row < 3 else "subtotal" if row == 3 else "note"
+                for row in table["rowRoleOrder"]
+            ],
+            "baseRevision": payload.get("baseLayoutSHA256"),
+        }
+
     def infer(self, request):
         payload = json.loads(request.messages[-1]["content"])
         if payload.get("tableKind") == "nonrecord_values":
@@ -1027,7 +1098,7 @@ def test_proven_blank_cell_is_not_required_of_the_scalar_region():
 
 def test_nonrecord_pending_budget_and_resume_do_not_repeat_or_erase_table_structure():
     model, states = NonrecordModel(), []
-    partial = execute_nonrecord(model, states, maxModelCalls=2)
+    partial = execute_nonrecord(model, states, maxModelCalls=3)
     assert partial["extraction"]["status"] == "partial"
     assert len(partial["data"]["records"]) == 2 and len(model.requests) == 2
     assert partial["coverage"]["unprocessedRegions"] == [states[-1]["regions"][1]["id"]]
@@ -1035,7 +1106,7 @@ def test_nonrecord_pending_budget_and_resume_do_not_repeat_or_erase_table_struct
         model,
         [],
         restore=states[-1],
-        maxModelCalls=2,
+        maxModelCalls=3,
         additional_budget={"maxModelCalls": 1, "completionSeconds": 60},
     )
     assert result["extraction"]["status"] == "complete", result["issues"]

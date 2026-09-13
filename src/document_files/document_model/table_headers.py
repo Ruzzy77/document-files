@@ -33,3 +33,15 @@ def fixed_header_rows(table):
 def row_role_order(table):
     """Observed rows not wholly declared as headers, not predicted data rows."""
     return sorted(set(observed_rows(table["cells"])) - fixed_header_rows(table))
+
+
+def column_header(cell, table, roles):
+    """Column definitions require compatible roles over the whole occupied span."""
+    if cell.get("headerScope") in {"row", "rowgroup"}:
+        return False
+    occupied = [roles.get(row) for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1))]
+    if all(role == "header" for role in occupied):
+        return True
+    # Declared header context outside a sliced view retains its declaration.
+    # Native labels in mixed/content rows cannot become column headers by flag.
+    return declared_header(cell, table) and all(role is None for role in occupied)

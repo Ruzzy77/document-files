@@ -385,8 +385,37 @@ def engine_fixture(monkeypatch):
     # Isolate scope scheduling from native region packing. All actual scripted
     # requests still obey the configured 16k cap; only scope preflight uses 12k.
     # This is not evidence of a native-format/real-model long-document run.
-    from document_files.interpretation import engine
+    from test_table_protocol import layout_fixture
 
+    from document_files.interpretation import engine, table_layout
+    from document_files.interpretation.legacy_engine import contract_messages
+
+    def scripted_layout_capacity(payload, observation, region, catalog=None):
+        # The scope fixture explicitly supplies data roles for every non-fixed
+        # row. Isolate scope-window scheduling from the conservative reserve for
+        # OTHER possible layouts. Actual requests still pass the engine's 16k
+        # preflight; native packing/reservation is tested in test_table_layout.
+        chosen = table_layout.accept(layout_fixture(payload), observation, region)
+        return {
+            "layout": sum(
+                len(m["content"])
+                for m in contract_messages(
+                    table_layout.SYSTEM,
+                    table_layout.request(payload),
+                    table_layout.schema(observation, region),
+                )
+            ),
+            "mappingReserve": sum(
+                len(m["content"])
+                for m in contract_messages(
+                    table_layout.MAPPING_SYSTEM,
+                    table_layout.mapping_request(payload, chosen, observation, region),
+                    table_layout.mapping_schema(observation, region, catalog),
+                )
+            ),
+        }
+
+    monkeypatch.setattr(table_layout, "planned_request_sizes", scripted_layout_capacity)
     readiness = engine.scope_readiness
     monkeypatch.setattr(
         engine, "scope_readiness", lambda task, *, input_chars: readiness(task, input_chars=12000)
@@ -407,12 +436,12 @@ def engine_fixture(monkeypatch):
 
 def test_engine_preserves_partial_links_and_only_resumes_unseen_windows(monkeypatch):
     content, job = engine_fixture(monkeypatch)
-    options = ExtractionOptions(contextChars=16000, maxModelCalls=4, reconstructionContext=False)
+    options = ExtractionOptions(contextChars=16000, maxModelCalls=5, reconstructionContext=False)
     model, states = LongScopeModel(), []
     result = extract_schema_from_stream(
         job, io.BytesIO(content), options=options, model_client=model, checkpoint=states.append
     )
-    assert result["extraction"]["status"] == "partial" and model.calls == 4
+    assert result["extraction"]["status"] == "partial" and model.calls == 5
     assert len(result["data"]["rows"]) == 28 and result["data"]["rows"][16]["width"] == ""
     coverage = result["coverage"]["scopeIntegration"][0]["partition"]
     assert coverage["windows"][0]["outcome"] == "apply"
@@ -478,7 +507,7 @@ def test_cancelled_window_loop_retains_completed_work_and_can_resume_without_new
         checkpoint=states.append,
         cancelled=lambda: stopped[0],
     )
-    assert result["extraction"]["status"] == "partial" and model.calls == 4
+    assert result["extraction"]["status"] == "partial" and model.calls == 5
     assert any(i["code"] == "ai_cancelled" for i in result["issues"])
     assert len(result["data"]["rows"]) == 28 and result["semanticDetails"][0]["scope"]
     # No new allowance: cancellation did not consume all 12 authorized scripted calls.

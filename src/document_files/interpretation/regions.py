@@ -6,14 +6,13 @@ import copy
 import json
 
 from ..document_model.table_headers import declared_header, row_role_order
+from . import table_layout
 from .compiler import preferred_binding
 from .document_outline import enabled as outline_enabled
 from .document_outline import role_context
-from .legacy_engine import contract_messages
-from .table_protocol import STRUCTURE_SYSTEM, structure_model_schema, structure_payload
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v24"
+REGION_PLAN_VERSION = "document-files.region-plan.v25"
 
 
 def _encoded(value):
@@ -534,13 +533,15 @@ def prepare_regions(
     metadata = request_metadata or {"intent": "discover", "targetHandles": {}}
 
     def table_request_chars(region):
-        # Plan the actual structure decision, not the retired all-in-one record
-        # response. Meaning/scalar requests are checked against the same hard
-        # input limit when dispatched; failed meaning retains frozen structure.
-        request = structure_payload({**payload(observation, region), **metadata})
-        contract = structure_model_schema(observation, region, metadata.get("targetHandles"))
-        return sum(
-            len(m["content"]) for m in contract_messages(STRUCTURE_SYSTEM, request, contract)
+        # Reserve capacity for any later header choice; the sizing envelope is
+        # never a role decision or a model payload. Actual repair is preflighted.
+        return max(
+            table_layout.planned_request_sizes(
+                {**payload(observation, region), **metadata},
+                observation,
+                region,
+                metadata.get("targetHandles"),
+            ).values()
         )
 
     def table_fits(region):
@@ -828,9 +829,14 @@ def replan_table_region(observation, region, *, context_chars, request_metadata)
     Existing rows/headers, source identities and bounds survive; this never raises
     the limit or discards mapping context to make a request fit.
     """
-    request = structure_payload(region_payload(observation, region) | request_metadata)
-    contract = structure_model_schema(observation, region, request_metadata.get("targetHandles"))
-    size = sum(len(m["content"]) for m in contract_messages(STRUCTURE_SYSTEM, request, contract))
+    size = max(
+        table_layout.planned_request_sizes(
+            region_payload(observation, region) | request_metadata,
+            observation,
+            region,
+            request_metadata.get("targetHandles"),
+        ).values()
+    )
     if size <= context_chars:
         return None
     original_tables = set(observation.tables)

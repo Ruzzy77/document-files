@@ -64,6 +64,14 @@ class PlainRegisterModel:
     def infer(self, request):
         self.calls += 1
         payload = json.loads(request.messages[-1]["content"])
+        if payload.get("tableStage") == "layout":
+            from test_table_protocol import layout_fixture
+
+            table = next(iter(payload["tables"].values()))
+            value = layout_fixture(
+                payload, roles=["header" if r == 0 else "data" for r in table["rowRoleOrder"]]
+            )
+            return InferenceResponse(json.dumps(value), {})
         if payload.get("tableStage") == "structure":
             from document_files.interpretation.table_source_wire import expand_table_sources
 
@@ -117,6 +125,7 @@ class PlainRegisterModel:
             value = encode_selection(value)
         if payload.get("tableStage") == "structure":
             value = encode_structure(value)
+            value["record"].pop("rowRoles")
         return InferenceResponse(json.dumps(value), {})
 
 
@@ -135,14 +144,14 @@ def test_plain_native_xlsx_completes_without_coordinate_value_aliases(tmp_path):
         ),
         io.BytesIO(raw),
         model_client=model,
-        options=ExtractionOptions(maxModelCalls=2, reconstructionContext=False),
+        options=ExtractionOptions(maxModelCalls=3, reconstructionContext=False),
     )
     assert result["extraction"]["status"] == "complete", result["issues"]
     assert result["validation"]["valid"]
     assert result["data"] == {
         "staff": [{"name": "Alice", "state": "active"}, {"name": "Bob", "state": "paused"}]
     }
-    assert model.calls == 2
+    assert model.calls == 3
     assert len(result["valueEvidence"]) == 4
     for item in result["valueEvidence"]:
         binding = SourceBinding.model_validate(item["binding"])
