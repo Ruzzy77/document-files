@@ -145,12 +145,19 @@ budget increase is used to manufacture a successful result.
 
 ## Latest deterministic verification
 
-Source **0ba34d94bdcbb4f0a187534259bbf237f1de14be** passed **536 directly related
+Source **b80b4c7c50b46a9c51f3d7c6213c8955407b0c04** passed **349 directly related
 Spark-B ARM tests** on the retained Python 3.12.3 dependencies, without a model call.
 The temporary source export was checked and removed; shared RPC and dependencies
 were unchanged. This does not qualify the new source's actual model behavior.
 
-An offline comparison of stored development observations moved 158 XLSX cells from
+Recompiling unchanged saved HWPX proposals in an isolated fixture reproduced the
+whole-array blank claim. Comparing the old and new join logic preserved all four
+returned records, other evidence, schema, meanings, scopes and unresolved issues;
+only the stale active claim moved to its originating fragment on the relation.
+The fixture validates the historical inventory-v1 evidence rather than bypassing the
+current product's checkpoint rejection. This is not a model rerun or quality approval.
+
+The preceding source-path comparison moved 158 stored XLSX cells from
 display text to their exact native source paths. Source order, original nodes and
 all HWPX text ranges were unchanged. Original failed model results were not resumed,
 rewritten or approved by this source-reading check.
