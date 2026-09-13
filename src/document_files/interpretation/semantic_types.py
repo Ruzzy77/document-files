@@ -203,6 +203,16 @@ def region_output_schema(observation, region, target_handles=None, *, compact=Tr
     schema["properties"]["regionId"] = {"type": "string", "const": region["id"]}
     refs = list(dict.fromkeys([*region["nodeIds"], *region.get("contextNodeIds", [])]))
     bindings = region["bindingIds"]
+    # The compiler already requires unique, issued source/binding IDs for these
+    # two lists. Their inventory cardinalities are exact upper bounds, not a
+    # heuristic limit on document fields or meanings. Avoid expanding thousands
+    # of impossible repetitions in a small region's decoder grammar.
+    for name, count in (
+        ("dispositions", len(refs)),
+        ("excludedBindings", len(set(bindings))),
+    ):
+        prop = schema["properties"][name]
+        prop["maxItems"] = min(prop["maxItems"], count)
     for definition in schema["$defs"].values():
         for name, value in definition.get("properties", {}).items():
             if name in {"sourceRefs", "definitionRefs"}:

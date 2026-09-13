@@ -4,6 +4,11 @@
 
 ### Document extraction
 
+- Bound scalar disposition/exclusion arrays by their unique issued source/binding
+  inventories (semantic prompt v40). This mirrors existing compiler rejection of
+  duplicate or unknown references; it does not cap fields or meanings by source
+  count, change the typed IR, or remove global limits.
+
 - Bound table source classification to one explicit status per owned source, without
   requesting per-source explanation prose (table protocol v27 / selection wire v4).
   Preserve every source, choice and value; canonical selection record v2 hashes the
