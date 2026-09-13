@@ -4,6 +4,14 @@
 
 ### Document extraction
 
+- Add optional program-issued numeral locations for frozen native numeric fields
+  (native-structure v12 / native-value-batches v3). Show exact original context for
+  repeated equal values; regenerate selectors through unchanged quote, type and row
+  checks. Preserve original precision, blank bindings and source accounting. Under
+  delivery pressure, drop only the whole optional aid and retain ordinary choices,
+  all source and the fixed budget; validate that delivery limit on checkpoint resume.
+  Scripted regression coverage is not real-model or independent quality approval.
+
 - Fit explicit native structure review by sharing property names in prior object
   arrays (native-structure v11 / revision v4). Preserve all previous decisions and
   source context, keep the canonical checkpoint unmodified, and retain complete

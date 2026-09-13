@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **2,953 tests,
+The full local check including the native outline path passed **2,981 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -62,8 +62,8 @@ qualify a platform installer, a live agent session or a formal release.
 
 ## Current extraction behavior
 
-The current internal contracts are document protocol v7, native-structure v11,
-structure-revision v4, prompt v39, region plan v20 and compiler v32. Public v1 result
+The current internal contracts are document protocol v7, native-structure v12,
+native-value-batches v3, structure-revision v4, prompt v39, region plan v20 and compiler v32. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 
 - **Document roles and hierarchy:** source text, native markers, direct formatting
@@ -74,6 +74,8 @@ and API contracts are unchanged. Old incompatible checkpoints cannot resume.
   Structure defines attributes, types, ordered occurrences, missing states and exact
   meanings before value choices. Value reading cannot silently rename or remove them.
 - **Values and provenance:** code reads original bindings or exact quoted substrings.
+  Frozen numeric fields can also select program-issued numeral locations with original
+  surrounding text; the code resolves them through the same quote/compiler checks.
   Impossible type/state/row choices are excluded, but an offered choice is not proof
   that it belongs to the right attribute. Two equal values require their own correct
   source positions. Blank, absent, unreadable and uncertain remain distinct.
@@ -150,7 +152,8 @@ stage comparison, not a v11 full-product pass (`native-review-probe-26/`).
 ### Native structure comparisons: no replacement adopted
 
 These are development design comparisons, not product executions or independent
-holdouts. No product code or public contract changed. Source text and formatting remain
+holdouts. Their free-structure designs were not adopted; the separate numeric source-choice
+aid below does not replace structure interpretation or change public contracts. Source text and formatting remain
 complete; preserving them and returning valid JSON do not establish semantic accuracy.
 
 Occurrence-first grouping failed on the original HWPX, an equivalent one-paragraph
@@ -178,12 +181,37 @@ the predeclared 12-call / 900-second limit. All **63 complete source views**, or
 inputs and observation identities matched. Evidence and separate semantic reviews are
 in `structural-kpi-20260913/native-item-facts-28/`.
 
-The next bounded design check is to ground a model-chosen data tree separately: assign
-program-owned handles, classify actual fields versus qualifiers and unsupported wrapper
-metadata, and select exact original evidence for values, missing states and item ranges.
-Do not copy draft values, infer scope from nesting or hardcode business field names.
-Distinct equal-valued source occurrences and explicit blanks must survive. This is not
-an adopted pipeline; complete-product and independent varied-format approval remain open.
+The grounding comparison (`native-draft-grounding-29/`) then used three calls per file
+(38.6, 41.2 and 25.6 seconds). With a closed choice for each handle, both item layouts
+selected the correct, distinct occurrences of the equal counts and the actual empty
+received cell. But units/notes became ordinary values, an original handling note was
+wrongly excluded, and the scalar form's real blank was lost. A separate classification
+step recovered blank roles but still treated an internal ID as a field and left missing
+facts/conditions as undivided notes. All 63 source views and candidate identities matched.
+**Source-choice validation passed where semantic completeness still failed.** None of
+these replies approves the free-draft pipeline.
+
+### Numeral source selectors: implemented, Spark comparison pending
+
+Native-structure v12 adds optional original numeral locations only after field types,
+statuses and item anchors are frozen. Each handle's closed choices exclude foreign rows,
+outside-view locations and incompatible scalar representations. The compiler regenerates
+and reads the original quote; it never copies draft values or a client-edited display.
+This does not fix wrong field definitions, missing records or qualifier classification.
+
+The aid is finite and reports when its source/candidate limit prevents enumeration.
+Native value batches v3 can omit the **entire optional aid** when it would consume repair
+headroom, while retaining every original source, field, binding and ordinary quote choice.
+The chosen delivery budget is checked on resume. This prevents the new display from
+breaking already-working long value batches; it is not permission to skip source facts.
+
+Direct regressions cover precision, signs/exponents, repeated source positions, row/view
+ownership, real blanks, tampering, budget fallback and an end-to-end scripted HWPX read
+and resume. The existing 32-field scripted case still completes in eight calls at 16,000
+characters. The full Mac suite above passed, but **this v12 implementation has not yet
+been compared with a real model on Spark**. Next run its actual requests with unchanged
+source expectations, then continue the unresolved whole-document structure, scope and
+long-table work. Independent HWP/HWPX/XLSX quality remains unapproved.
 
 ## Earlier evidence that still limits the claim
 

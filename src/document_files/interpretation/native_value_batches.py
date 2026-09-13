@@ -15,7 +15,7 @@ from .legacy_engine import contract_messages
 from .semantic_types import _compact_contract
 from .source_dictionary import factor_reads
 
-VERSION = "document-files.native-value-batches.v2"
+VERSION = "document-files.native-value-batches.v3"
 MAX_KEYS = 16
 REPAIR_RESERVE = 1024
 VALUE_SYSTEM = (
@@ -55,7 +55,36 @@ def is_needed(payload, schema, limit):
     )
 
 
-def _request(payload, schema, kind, keys, selections=None):
+def _without_literal_aid(payload, schema):
+    """Remove an optional selector spelling, never a source, binding or field.
+
+    Ordinary exact quotes remain legal. Removing the entire aid, rather than a
+    prefix of its candidates, avoids presenting an incomplete numeral inventory.
+    """
+
+    def strip(value):
+        if isinstance(value, list):
+            return [strip(v) for v in value]
+        if not isinstance(value, dict):
+            return value
+        result = {k: strip(v) for k, v in value.items()}
+        if "anyOf" in result:
+            result["anyOf"] = [
+                v
+                for v in result["anyOf"]
+                if v.get("properties", {}).get("kind", {}).get("const") != "literal"
+            ]
+        return result
+
+    p = {**payload, "literals": {}, "literalChoicesStatus": "context_limit"}
+    p["handles"] = {
+        h: {k: v for k, v in entry.items() if k != "literalIds"}
+        for h, entry in payload["handles"].items()
+    }
+    return p, _compact_contract(strip(schema))
+
+
+def _request(payload, schema, kind, keys, selections=None, *, limit=None):
     batch_id = digest([VERSION, kind, keys])
     p = {
         "documentStage": "values" if kind == "values" else "valueAccounting",
@@ -68,6 +97,7 @@ def _request(payload, schema, kind, keys, selections=None):
     }
     if "sourceTemplate" in payload:
         p["sourceTemplate"] = payload["sourceTemplate"]
+    p["literalChoicesStatus"] = payload.get("literalChoicesStatus", "not_applicable")
     s = {
         "type": "object",
         "properties": {
@@ -79,6 +109,12 @@ def _request(payload, schema, kind, keys, selections=None):
     }
     if kind == "values":
         p["handles"] = {h: payload["handles"][h] for h in keys}
+        literal_ids = {
+            lid for entry in p["handles"].values() for lid in entry.get("literalIds", [])
+        }
+        p["literals"] = {
+            lid: v for lid, v in payload.get("literals", {}).items() if lid in literal_ids
+        }
         refs = {v.get("occurrenceRef") for v in p["handles"].values()}
         p["occurrences"] = {k: v for k, v in payload["occurrences"].items() if k in refs}
         p["requiredBindingIds"] = []
@@ -95,18 +131,42 @@ def _request(payload, schema, kind, keys, selections=None):
         sources = {payload["bindings"][b]["sourceRef"] for b in keys}
         p["verifiedReads"] = factor_reads(
             {
-                h: {"definition": payload["handles"][h], "selection": v}
+                h: {
+                    # Alternative selector IDs are display choices, not part of
+                    # the frozen definition or the actual accepted read.
+                    "definition": {
+                        k: x for k, x in payload["handles"][h].items() if k != "literalIds"
+                    },
+                    "selection": v,
+                }
                 for h, v in selections.items()
                 if sources.intersection(payload["handles"][h]["sourceRefs"])
             }
         )
+        selected_literals = {
+            value["literalId"]
+            for h, value in selections.items()
+            if value.get("kind") == "literal"
+            and sources.intersection(payload["handles"][h]["sourceRefs"])
+        }
+        p["literals"] = {
+            lid: v for lid, v in payload.get("literals", {}).items() if lid in selected_literals
+        }
         s["properties"]["excludedBindings"] = deepcopy(schema["properties"]["excludedBindings"])
         # Exact membership and one disposition per key are checked independently
         # below; the existing closed per-disposition contract is unchanged.
         s["properties"]["excludedBindings"].update(minItems=len(keys), maxItems=len(keys))
         system = ACCOUNT_SYSTEM
     s["required"] = list(s["properties"])
-    return system, p, _compact_contract(s)
+    s = _compact_contract(s)
+    if (
+        kind == "values"
+        and limit is not None
+        and p["literals"]
+        and size(system, p, s) + REPAIR_RESERVE > limit
+    ):
+        p, s = _without_literal_aid(p, s)
+    return system, p, s
 
 
 def partition(payload, schema, kind, keys, limit, selections=None):
@@ -117,7 +177,7 @@ def partition(payload, schema, kind, keys, limit, selections=None):
         chosen = None
         target = limit
         for end in range(offset + 1, min(len(keys), offset + MAX_KEYS) + 1):
-            request = _request(payload, schema, kind, keys[offset:end], selections)
+            request = _request(payload, schema, kind, keys[offset:end], selections, limit=limit)
             chars = size(*request)
             if end == offset + 1 and chars + REPAIR_RESERVE <= limit:
                 target = limit - REPAIR_RESERVE
@@ -152,6 +212,7 @@ def initial(payload, schema, structure_hash, limit):
     return {
         "version": VERSION,
         "identity": identity(payload, schema, structure_hash, limit),
+        "contextLimit": limit,
         "valueKeys": groups,
         "values": [],
         "accounting": [],
@@ -193,7 +254,14 @@ def accounting_keys(fragment, payload):
 
 
 def request_for(payload, schema, kind, keys, state):
-    return _request(payload, schema, kind, keys, aggregate(payload, state)["selections"])
+    return _request(
+        payload,
+        schema,
+        kind,
+        keys,
+        aggregate(payload, state)["selections"],
+        limit=state.get("contextLimit"),
+    )
 
 
 def accept(response, request, kind, keys):
@@ -255,7 +323,9 @@ def rebuild(
     """Recreate every saved request and response before trusting merged values."""
     state = content["batches"]
     expected = initial(payload, schema, digest(structure.model_dump(exclude_unset=True)), limit)
-    if any(state[k] != expected[k] for k in ("version", "identity", "valueKeys")):
+    if type(state.get("contextLimit")) is not int or any(
+        state[k] != expected[k] for k in ("version", "identity", "contextLimit", "valueKeys")
+    ):
         raise BatchError("native_value_batch_context_changed")
     if not isinstance(state["values"], list) or len(state["values"]) > len(state["valueKeys"]):
         raise BatchError("native_value_batch_progress_invalid")

@@ -175,7 +175,7 @@ actual value links and meaning scopes remain distinct checks.
 Managed native stages use the existing bounded-thinking transport with a 1,024-token
 per-think-block allowance. The complete role response is capped at 2,048 output
 tokens; semantic structure and values retain the managed client output cap. Other clients retain their
-own configured reasoning behavior. Protocol v7 and native-structure v11 identify the three-stage execution;
+own configured reasoning behavior. Protocol v7 and native-structure v12 identify the three-stage execution;
 previous checkpoints cannot resume. The policy does not certify model accuracy.
 
 Native role, structure, value, batch-accounting and structure-review requests use the
@@ -506,28 +506,58 @@ formatting in one case, used null instead of explicit missing states, and left q
 and metadata scope insufficiently specified. These are untrusted hypotheses, not values
 or source evidence. Neither draft design has been integrated or approved.
 
-The next bounded comparison is **free structure proposal followed by separate source
-grounding**, not direct acceptance of model JSON. Program handles can identify draft
-nodes without supplying a business template. A subsequent decision must distinguish
-actual data, qualifiers and unsupported wrapper metadata, and select original definition,
-value, item-range and missing-state evidence. It must not use draft nesting to infer
-applicability, silently coerce null into blank/absent, or copy draft literals into results.
-Equal-valued attributes still require distinct correct source occurrences. Scalar forms,
-standalone metadata and all separate meanings remain in scope. Original observations and
-prior independent expectations, never the draft, remain the comparison basis.
+Separate draft grounding confirmed that handle-keyed source choices can distinguish the
+same numeral in different attributes and read a genuine blank. It did not validate the
+whole draft: notes/units became values, a real note and a scalar blank were excluded, and
+role-only classification still misread internal identifiers and missing facts. These
+prototypes remain unadopted. The production numeral-location aid below is a separate
+source-choice mechanism for already frozen canonical definitions, not the draft-dependent
+matcher or a replacement for semantic structure decisions.
 
-Only a bounded prototype should be tested first; do not add an unused module to the
-product. Any adopted path needs explicit stage/checkpoint identity, complete accounting,
-repair headroom and failure/resume semantics within the original document budget.
+The free-tree design still needs reliable field definitions, item ownership, missing
+facts, qualifiers and full source coverage. Exact matching alone cannot supply them.
 Existing atomic replacement, complete history, exhaustive change checks and public v1
-contracts remain in force. It must pass the complete actual Spark path before independent
-varied-format tests. Cross-region continuation remains separately unfinished. Current
-evidence is in private `native-occurrence-comparison-27/` and `native-item-facts-28/` under
-`structural-kpi-20260913/`; failed proposals remain preserved.
+contracts remain in force. Cross-region continuation remains separately unfinished.
+Private comparison evidence is under `structural-kpi-20260913/native-occurrence-comparison-27/`,
+`native-item-facts-28/` and `native-draft-grounding-29/`; rejected replies remain preserved.
+
+#### Program-issued numeral locations
+
+`native_literal_choices.py` offers optional `literalIds` to frozen present integer,
+number and decimal handles. It scans complete original nodes, then applies owned views,
+field source references and record anchors. A view cut through a numeral cannot create
+an interior value. Canonical scalar reading filters incompatible spellings without
+normalizing them; known conflicting binding sources are not offered by this aid.
+This limited lexical recognizer is not semantic classification or a complete number parser.
+
+A catalogue entry contains exact source text, its source reference and match occurrence,
+plus bounded before/after context. Occurrence counts every exact substring match in the
+owned view, including matches inside other numerals; it is not the scanner's index or an
+item number. `accept_values` regenerates the catalogue and validates the closed per-handle
+choice, converts the selection to an ordinary original-source quote, and uses the existing
+compiler. Neither catalogue text supplied by a client nor a model's draft value is read.
+Identifiers/other types, actual blank bindings and explicit unresolved choices retain
+their existing paths. Source observations and required candidate accounting do not change.
+
+The optional aid has a 256-location and 100,000-original-source-character bound. If either
+is exceeded, it offers no partial prefix and reports the reason; ordinary bindings and
+exact quotes remain available over unchanged source. The common message serializer adds
+its decoding instruction only when a catalogue is present and counts that instruction in
+the actual request. Native-structure v12 invalidates older stage checkpoints.
 
 ### Bounded native value requests
 
-Native-structure v11 / native-value-batches v2 keeps the existing single request when
+Value-batches v3 sizes each request with the actual source catalogue. If the optional aid
+would consume the fixed repair reserve, a batch drops the whole aid and its selector
+branch, reports `context_limit`, and retains all original sources, bindings, handles and
+ordinary quote choices. This decision is deterministic from the stored integer
+`contextLimit`, which is rechecked with the request and response on resume. A response
+cannot select a literal not offered by its actual batch. Completed literal reads retain
+their exact catalogue for source accounting; unused alternative IDs are not part of the
+frozen field definition. This delivery fallback never excludes document information or
+increases the call/time/input limits.
+
+Native-structure v12 / native-value-batches v3 keeps the existing single request when
 it fits. An oversized request instead uses deterministic batches of at most 16 value
 handles, sized from the actual system, payload and closed output contract. Every batch
 retains **all original nodes, formatting and binding text**; relevant occurrence
@@ -863,8 +893,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v39 / v20 / v32 |
-| Document outline / native role-content protocol / native structure | v1 / v7 / v11 |
-| Native structural response wire / native value batches / structure revision | v1 / v2 / v4 |
+| Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
+| Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
 | Table protocol / table reference wire | v20 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
