@@ -1846,9 +1846,31 @@ repeating stored per-node geometry. Canonical observations/provenance are unchan
 
 Preflight measures the serialized system, payload and output contract; tokenizer
 context checks are separate. Overflow preserves compiled work without a model call.
-The llama.cpp grammar adapter omits only large array cardinality bounds from sampler
-grammar to avoid a pinned upstream expansion failure. Full contracts and post-response
+The llama.cpp grammar adapter v2 omits array `maxItems >= 2000` and string
+`maxLength == 2000` from the local sampler schema to avoid a pinned upstream
+repetition-expansion failure. It retains other string limits, minima, types, object
+closure and source enums. This deliberately relaxes those generation-only upper
+bounds, not the accepted product contract. Full contracts and post-response
 checks still enforce those bounds. This is not arbitrary JSON Schema support.
+
+The projection walks schema-bearing keywords only; literal `const`, `enum`, defaults,
+examples and extension metadata are deep-copied unchanged. The original request is
+not mutated. Managed context preparation and inference use the same projection, and
+`grammarAdapter` in the managed model identity distinguishes v2 checkpoints. Generic
+Chat Completions clients do not automatically receive this llama.cpp-specific policy.
+Explicit shared-runtime development clients may use the same projection and must
+record its identity; that does not qualify a managed-pack installation.
+
+The reproduced string failure occurs at the exact 2,000 repetition boundary. A larger
+maximum is not a safe workaround: the pinned runtime already turns it into an
+unbounded repetition. A lossless split rule initializes, but using it through the
+current HTTP schema path would require a new grammar conversion or response encoding.
+This adapter instead uses the existing post-validation policy for large arrays, keeps
+the complete canonical schema in the prompt and retains output token/byte limits.
+Regression checks accept a 2,000-character canonical description, reject 2,001 and
+preserve compiled records when a grammar-admissible oversized meaning is rejected.
+Backend grammar initialization is not semantic approval or acceptance of an oversized
+result; the canonical description bound remains 2,000.
 
 Saved identity includes input bytes, observations, program versions, active packs,
 profile policy, reference mapping, revisions and selected source traces. Incompatible
@@ -1868,6 +1890,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
 | Table protocol / table reference wire / table source wire / selection wire | v40 / v2 / v1 / v4 |
 | Table layout / source-derived read domains | v3 / v1 |
+| Local llama.cpp generation grammar projection | v2 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
