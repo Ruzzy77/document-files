@@ -28,6 +28,7 @@ from document_files.interpretation.table_protocol import (
     structure_payload,
     structure_schema,
 )
+from document_files.interpretation.table_selection_wire import encode_selection
 from document_files.interpretation.table_sources import source_inventory
 
 HTML = (
@@ -135,6 +136,8 @@ class TableModel:
         elif payload["tableStage"] == "meaning":
             value.pop("sourceReviews")
             value["remainderReviews"] = []
+        if "sourceDecisions" in value:
+            value = encode_selection(value)
         return InferenceResponse(json.dumps(value), {"prompt_tokens": 10, "completion_tokens": 20})
 
 

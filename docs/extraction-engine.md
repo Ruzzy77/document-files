@@ -53,7 +53,7 @@ decoder for model output. The original observation and compiler inputs are uncha
 
 Savings include the decoding instruction. Planning and dispatch both measure the
 messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
-The public response contract is unchanged. Table protocol v22 and region plan v21
+The public response contract is unchanged. Table protocol v23 and region plan v21
 invalidate checkpoints made with the previous display and planning behavior.
 
 An earlier region's column mapping may not exist when the initial plan is made.
@@ -76,8 +76,8 @@ accepted rows. This does not fix the remaining model, applicability or empty-fra
 evidence errors.
 
 Meaning selection and details share cell/relation metadata **after** reference-wire
-translation. Source choice inventories, literal quotes, the selection/detail output
-contracts and the frozen structure are unchanged. Checkpoint reference dictionaries
+translation. Source choice inventories, literal quotes and the frozen structure
+are unchanged by this display codec. Checkpoint reference dictionaries
 still use canonical sources, not display templates. Exact expansion is tested for
 both native HWPX and XLSX. Larger meaning inventories or repair feedback can still
 exceed the limit; sharing is not permission to omit them or expand the budget.
@@ -835,6 +835,21 @@ as meanings; this is a model decision, not a blanket rule that numeric text has 
 Validated `sourceSelections` bind source inventory, frozen structure, model identity,
 reference dictionary and revision. A stopped detail call reuses the saved selection.
 
+`table_selection_wire.py` lets the model group sources with the same decision and
+the same literal reason into `sourceChoices`. Every group lists its source IDs
+explicitly; there is no default, wildcard or range. The decoder rejects missing,
+unknown, duplicate and malformed choices, then expands the groups into the existing
+per-source `sourceDecisions` in inventory order. Grouping cannot merge equal-valued
+records or change their provenance. Reference aliases are decoded only after this
+expansion; literal reasons are not translated. Saved history and revision checks
+remain per-source. The details request shares only exactly equal saved choices and
+reasons; a reselection response uses the same grouped wire and existing revision
+rules. Table protocol v23 rejects older checkpoints before dispatch.
+
+The source-selection output cap remains 1,536 tokens. Grouping reduces repeated
+explanations but does not guarantee that every response or input inventory fits.
+Truncated JSON is not accepted; compiled structure remains a partial result.
+
 Detail replies contain meanings, exact owned-source quotes, status and remainder
 reviews, **not applicability**. `scope`, target IDs and row bounds are rejected in
 this active response contract. The compiler inserts unresolved applicability, and
@@ -981,7 +996,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v39 / v21 / v32 |
 | Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
 | Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
-| Table protocol / table reference wire / table source wire | v22 / v2 / v1 |
+| Table protocol / table reference wire / table source wire / selection wire | v23 / v2 / v1 / v1 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |

@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,035 tests,
+The full local check including the native outline path passed **3,058 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v39,
-region plan v21, table protocol v22 and compiler v32. Public v1 result
+region plan v21, table protocol v23 and compiler v32. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 
 Native observation adapter v2 now preserves the public cell's `columnSpan` when
@@ -331,7 +331,7 @@ platform-installer or independent quality qualification**.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The latest 50-row runs stop at 7 HWPX / 11 XLSX rows because source-selection output truncates. Prose-record runs separately retain per-item scalars, title copies, wrong missing states and equal-valued source occurrences. | Make source choices compact or separately bounded while retaining exact coverage, decisions and reasons; do not raise the output cap or omit sources to pass. Then check every row/value/meaning in the complete path. |
+| 1 | **Native complete extraction is not approved.** The latest 50-row runs stop at 7 HWPX / 11 XLSX rows because source-selection output truncates. Prose-record runs separately retain per-item scalars, title copies, wrong missing states and equal-valued source occurrences. | Grouped choices now retain exact coverage, decisions and reasons in the model wire; verify them with the actual Spark model and separately bound larger work if needed; do not raise the output cap or omit sources to pass. Then check every row/value/meaning in the complete path. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. The 50-row HWPX also retains empty-fragment evidence against a joined nonempty array. | Review actual values, bindings, field set, order and applicability. Correct evidence remapping across continuation; retain explicit blank cells and distinct equal-valued records. Do not delete evidence just to satisfy the reviewer or infer correctness from text elsewhere in a node. |
 | 4 | Long-table scope delivery is partly improved. The reproduced 50-row request now fits at 15,858 characters instead of 24,557, with all 51 observed rows and 102 source texts retained. A 96-row fixture still loses the record candidate at the unchanged discovery limit; provenance limits also remain. | Verify the new display with an actual model, then address bounded discovery and source binding without dropping rows or raising caps. This scripted request/selection check is not a full document or long-table quality pass. |

@@ -16,6 +16,7 @@ from document_files.document_model.observe import observe_document
 from document_files.interpretation.compiler import CompileError, combine_regions, compile_region
 from document_files.interpretation.regions import prepare_regions
 from document_files.interpretation.semantic_types import RegionInterpretation, region_output_schema
+from document_files.interpretation.table_selection_wire import encode_selection
 
 
 @pytest.mark.parametrize("feedback", [None, {}, {"issues": ["unresolved"]}])
@@ -1124,15 +1125,17 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
                 )
             if payload.get("meaningPhase") == "selection":
                 return json.dumps(
-                    {
-                        "sourceDecisions": {
-                            s["sourceRef"]: {
-                                "decision": "no_additional_meaning",
-                                "explanation": "Scripted plain values",
+                    encode_selection(
+                        {
+                            "sourceDecisions": {
+                                s["sourceRef"]: {
+                                    "decision": "no_additional_meaning",
+                                    "explanation": "Scripted plain values",
+                                }
+                                for s in payload["meaningSources"]
                             }
-                            for s in payload["meaningSources"]
                         }
-                    }
+                    )
                 )
             if payload.get("tableStage") == "meaning":
                 return json.dumps(

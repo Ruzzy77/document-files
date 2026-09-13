@@ -12,6 +12,7 @@ from document_files.analysis import AnalysisInput, AnalysisJob
 from document_files.interpretation import engine
 from document_files.interpretation.backends import InferenceResponse, ModelError
 from document_files.interpretation.contracts import ExtractionOptions
+from document_files.interpretation.table_selection_wire import decode_selection, encode_selection
 from document_files.interpretation.table_source_decisions import (
     source_decisions_from_flat,
     source_decisions_to_flat,
@@ -150,7 +151,7 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
                     "explanation": "Explicit scripted selection",
                 }
             return InferenceResponse(
-                json.dumps({"sourceDecisions": decisions}),
+                json.dumps(encode_selection({"sourceDecisions": decisions})),
                 {"prompt_tokens": 10, "completion_tokens": 20},
             )
         if (
@@ -159,7 +160,11 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
             and model.meaning_calls
         ):
             data = next(s for s in payload["meaningSources"] if s["text"] == "001.2300")
-            decisions = copy.deepcopy(payload["sourceSelection"]["sourceDecisions"])
+            decisions = copy.deepcopy(
+                decode_selection(payload["sourceSelection"], payload["meaningSources"])[
+                    "sourceDecisions"
+                ]
+            )
             if decisions[data["sourceRef"]]["decision"] == "has_meaning":
                 model.requests.append(payload)
                 decisions[data["sourceRef"]] = {
@@ -168,12 +173,16 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
                 }
                 return InferenceResponse(
                     json.dumps(
-                        {
-                            "action": "revise_selection",
-                            "baseSelectionSHA256": payload["selectionSHA256"],
-                            "reason": "Correct the source choice before withdrawing its false unit",
-                            "sourceDecisions": decisions,
-                        }
+                        encode_selection(
+                            {
+                                "action": "revise_selection",
+                                "baseSelectionSHA256": payload["selectionSHA256"],
+                                "reason": (
+                                    "Correct the source choice before withdrawing its false unit"
+                                ),
+                                "sourceDecisions": decisions,
+                            }
+                        )
                     ),
                     {"prompt_tokens": 10, "completion_tokens": 20},
                 )
@@ -191,7 +200,9 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
                     meaning.pop("scope", None)
             positive = {
                 ref
-                for ref, choice in payload["sourceSelection"]["sourceDecisions"].items()
+                for ref, choice in decode_selection(
+                    payload["sourceSelection"], payload["meaningSources"]
+                )["sourceDecisions"].items()
                 if choice["decision"] == "has_meaning"
             }
             value["remainderReviews"] = [

@@ -37,7 +37,7 @@ from .table_source_decisions import (
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v22"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v23"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -77,6 +77,7 @@ for units, conditions, qualifications, annotations, references and relationships
 Restating only a field name or ordinary value adds no meaning.
 sourceSelection identifies text needing interpretation; it has NOT yet extracted
 any units, conditions or other meanings. Now produce those details in meanings.
+Its sourceChoices groups share the saved choice and reason for each listed sourceRef.
 Do not repeat sourceDecisions or reviews of unselected sources: the program retains
 the saved model choices and reasons. Use sourceQuotes with the smallest exact
 phrases and their owned sourceRefs. Every has_meaning source must have a direct

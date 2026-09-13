@@ -29,6 +29,11 @@ source, including headers and values; do not exclude a category automatically.
 referenceContext can clarify a source but cannot supply missing direct evidence.
 Do not produce interpretations, quotations, scopes or definitions in this selection
 response. Do not rewrite records or values. Review all sources in the given order.
+Return sourceChoices groups. Each group lists explicit sourceRefs with one decision
+and one short reason that applies to every member. Combine sources only when you
+choose the same decision AND reason for each; otherwise use separate groups.
+Every offered sourceRef must appear exactly once across all groups. There is no
+default, range, omitted-source choice or wildcard. Grouping does not merge sources.
 """
 
 
@@ -199,6 +204,8 @@ def wire_selection(record, inventory, wire_sources):
 
 def selected_meaning_schema(schema, selection, sources, revision, *, base_revision=None):
     """Only selected sources can be quoted; an explicit reselection is a separate reply."""
+    from .table_selection_wire import selection_schema as wire_selection_schema
+
     schema = deepcopy(schema)
     decisions = selection["sourceDecisions"]
     # The details response extracts content; only the later scope protocol
@@ -234,7 +241,7 @@ def selected_meaning_schema(schema, selection, sources, revision, *, base_revisi
     else:
         schema["properties"]["meanings"]["maxItems"] = 0
     schema["properties"]["remainderReviews"]["maxItems"] = len(positive)
-    revision_schema = selection_schema(sources)
+    revision_schema = wire_selection_schema(sources)
     revision_schema["properties"] = {
         "action": {"type": "string", "const": "revise_selection"},
         "baseSelectionSHA256": {"type": "string", "const": revision},

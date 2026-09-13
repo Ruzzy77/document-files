@@ -32,7 +32,7 @@ from document_files.interpretation.table_protocol import (
 )
 from document_files.interpretation.table_reference_wire import prepare_meaning_wire
 from document_files.interpretation.table_selection import SYSTEM as SELECTION_SYSTEM
-from document_files.interpretation.table_selection import selection_schema
+from document_files.interpretation.table_selection_wire import selection_schema
 from document_files.interpretation.table_source_wire import (
     SYSTEM,
     compact_table_sources,

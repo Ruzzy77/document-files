@@ -118,10 +118,11 @@ from .table_selection import (
     selected_meaning_feedback,
     selected_meaning_schema,
     selection_record,
-    selection_schema,
     validate_selection_history,
     wire_selection,
 )
+from .table_selection_wire import decode_selection, encode_selection
+from .table_selection_wire import selection_schema as wire_selection_schema
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, source_inventory
 
@@ -1529,6 +1530,11 @@ def extract_schema_from_stream(
                 value = decode(response.text)
             else:
                 value = decode(client.complete(messages, timeout=timeout))
+            if meaning_wire is not None and (
+                table_phase == "selection"
+                or (isinstance(value, dict) and value.get("action") == "revise_selection")
+            ):
+                value = decode_selection(value, meaning_wire.payload["meaningSources"])
             return meaning_wire.decode(value) if meaning_wire is not None else value
         finally:
             if stage_record is not None:
@@ -1659,13 +1665,13 @@ def extract_schema_from_stream(
                         call_payload["meaningPhase"] = phase
                         if phase == "selection":
                             call_system = SELECTION_SYSTEM
-                            call_contract = selection_schema(wire.payload["meaningSources"])
+                            call_contract = wire_selection_schema(wire.payload["meaningSources"])
                         else:
                             selection = selections[-1]
                             offered = wire_selection(
                                 selection, inventory, wire.payload["meaningSources"]
                             )
-                            call_payload["sourceSelection"] = offered
+                            call_payload["sourceSelection"] = encode_selection(offered)
                             call_payload["selectionSHA256"] = selection["sha256"]
                             call_contract = selected_meaning_schema(
                                 wire.contract,

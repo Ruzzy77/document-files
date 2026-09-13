@@ -20,6 +20,7 @@ from document_files.interpretation.table_selection import (
     complete_selected_meaning,
     selection_schema,
 )
+from document_files.interpretation.table_selection_wire import decode_selection, encode_selection
 
 CAPTION = HTML.replace(b"<table>", b"<table><caption>Size uses mm.</caption>")
 
@@ -91,7 +92,9 @@ class SelectionModel:
         else:
             if self.fail_details:
                 raise ModelError("ai_cancelled")
-            selection = payload["sourceSelection"]["sourceDecisions"]
+            selection = decode_selection(payload["sourceSelection"], payload["meaningSources"])[
+                "sourceDecisions"
+            ]
             if self.wrong_choice:
                 self.wrong_choice = False
                 value = {
@@ -147,6 +150,8 @@ class SelectionModel:
                             "text": "1.2300",
                         }
                     ]
+        if "sourceDecisions" in value:
+            value = encode_selection(value)
         if not self.malicious_quote:
             Draft202012Validator.check_schema(request.output_schema)
             Draft202012Validator(request.output_schema).validate(value)
@@ -564,11 +569,14 @@ def test_invalid_selection_revisions_are_rejected_with_structure_and_history_pre
             value = json.loads(response.text)
             if value.get("action") != "revise_selection":
                 return response
+            value = decode_selection(value, self.requests[-1]["meaningSources"])
             payload = self.requests[-1]
             if mutation == "stale":
                 value["baseSelectionSHA256"] = "0" * 64
             elif mutation == "unchanged":
-                value["sourceDecisions"] = payload["sourceSelection"]["sourceDecisions"]
+                value["sourceDecisions"] = decode_selection(
+                    payload["sourceSelection"], payload["meaningSources"]
+                )["sourceDecisions"]
             elif mutation == "missing":
                 value["sourceDecisions"].pop(next(iter(value["sourceDecisions"])))
             elif mutation == "no_reason":
@@ -580,7 +588,7 @@ def test_invalid_selection_revisions_are_rejected_with_structure_and_history_pre
                     if d["decision"] == "no_additional_meaning"
                 )
                 value["sourceDecisions"][key]["decision"] = "unreviewed"
-            return InferenceResponse(json.dumps(value), response.usage)
+            return InferenceResponse(json.dumps(encode_selection(value)), response.usage)
 
     model, states = BrokenRevision(wrong_choice=True), []
     result = run(model, states=states)
@@ -602,9 +610,11 @@ def test_negative_selection_does_not_turn_unknown_or_deferred_sources_into_compl
         def infer(self, request):
             response = super().infer(request)
             if self.requests[-1].get("meaningPhase") == "selection":
-                value = json.loads(response.text)
+                value = decode_selection(
+                    json.loads(response.text), self.requests[-1]["meaningSources"]
+                )
                 next(iter(value["sourceDecisions"].values()))["decision"] = role
-                return InferenceResponse(json.dumps(value), response.usage)
+                return InferenceResponse(json.dumps(encode_selection(value)), response.usage)
             return response
 
     model, states = Uncertain(), []

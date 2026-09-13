@@ -17,6 +17,7 @@ from document_files.interpretation.compiler import preferred_binding
 from document_files.interpretation.contracts import ExtractionOptions, SourceBinding
 from document_files.interpretation.engine import extract_schema_from_stream
 from document_files.interpretation.regions import prepare_regions
+from document_files.interpretation.table_selection_wire import encode_selection
 
 
 def sheet(tmp_path, rows):
@@ -111,6 +112,8 @@ class PlainRegisterModel:
                     for s in payload["meaningSources"]
                 }
             }
+        if "sourceDecisions" in value:
+            value = encode_selection(value)
         return InferenceResponse(json.dumps(value), {})
 
 
