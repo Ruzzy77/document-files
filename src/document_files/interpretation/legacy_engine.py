@@ -38,6 +38,10 @@ def contract_messages(system, payload, contract, feedback=None):
         from .source_dictionary import SOURCE_SYSTEM
 
         system += SOURCE_SYSTEM
+    if "tableSourceEncoding" in payload:
+        from .table_source_wire import SYSTEM as TABLE_SOURCE_SYSTEM
+
+        system += TABLE_SOURCE_SYSTEM
     if payload.get("literals"):
         from .native_literal_choices import SOURCE_SYSTEM as LITERAL_SYSTEM
 

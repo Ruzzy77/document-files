@@ -9,10 +9,11 @@ from ..document_model.table_headers import declared_header
 from .compiler import preferred_binding
 from .document_outline import enabled as outline_enabled
 from .document_outline import role_context
+from .legacy_engine import contract_messages
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v20"
+REGION_PLAN_VERSION = "document-files.region-plan.v21"
 
 
 def _encoded(value):
@@ -380,9 +381,18 @@ def route_table_values(observation, region, frozen, compiled, *, context_chars, 
     return child, record
 
 
-def prepare_regions(observation, *, context_chars, request_metadata=None):
+def prepare_regions(
+    observation,
+    *,
+    context_chars,
+    request_metadata=None,
+    source_regions=None,
+    id_prefix="semantic-region",
+):
     """Pack text, split exact source windows and preserve observed table row boundaries."""
-    source_regions = copy.deepcopy(observation.regions)
+    source_regions = copy.deepcopy(
+        observation.regions if source_regions is None else source_regions
+    )
     listing = {}
     for region in source_regions:
         if region.get("tableRef"):
@@ -536,11 +546,11 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
         # Plan the actual structure decision, not the retired all-in-one record
         # response. Meaning/scalar requests are checked against the same hard
         # input limit when dispatched; failed meaning retains frozen structure.
-        request = {
-            **structure_payload({**payload(observation, region), **metadata}),
-            "outputContract": structure_schema(observation, region, metadata.get("targetHandles")),
-        }
-        return len(STRUCTURE_SYSTEM) + len(_encoded(request))
+        request = structure_payload({**payload(observation, region), **metadata})
+        contract = structure_schema(observation, region, metadata.get("targetHandles"))
+        return sum(
+            len(m["content"]) for m in contract_messages(STRUCTURE_SYSTEM, request, contract)
+        )
 
     def table_fits(region):
         # Final generated region IDs can differ from source IDs.
@@ -592,10 +602,15 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
                 result.append(region)
                 continue
             # Headers and linked notes remain context, even on later row slices.
-            header_nodes = [c["sourceRef"] for c in table["cells"] if declared_header(c, table)]
+            headers = {
+                c["sourceRef"]: c
+                for c in [*table["cells"], *table.get("headerCells", [])]
+                if declared_header(c, table)
+            }
+            header_nodes = list(headers)
             # With undeclared OCR headers, keep the observed first row as
             # unclassified context, not as an invented header or new value owner.
-            leading_cells = (
+            leading_cells = table.get("leadingCells") or (
                 [table["cells"][i] for i in row_cells[rows[0]]] if not header_nodes else []
             )
             cell_nodes = {n for c in table["cells"] for n in c.get("sourceRefs", [c["sourceRef"]])}
@@ -624,6 +639,7 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
                 row_cells=row_cells,
                 owned_context=owned_context,
                 emitted=emitted,
+                headers=headers,
             ):
                 cells = [
                     table["cells"][index]
@@ -636,11 +652,9 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
                     **table,
                     "id": view_ref,
                     "cells": cells,
-                    "headerCells": [
-                        copy.deepcopy(c) for c in table["cells"] if declared_header(c, table)
-                    ],
+                    "headerCells": copy.deepcopy(list(headers.values())),
                     "leadingCells": copy.deepcopy(leading_context),
-                    "sourceTableRef": table_ref,
+                    "sourceTableRef": table.get("sourceTableRef", table_ref),
                     "viewRowStart": row_ids[0],
                     "viewRowEnd": row_ids[-1],
                     "derivation": "bounded_row_view",
@@ -738,7 +752,7 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
             bounded.append(region)
     result = bounded
     for index, region in enumerate(result, 1):
-        region["id"] = f"semantic-region:{index}"
+        region["id"] = f"{id_prefix}:{index}"
         region["inputChars"] = len(_encoded(payload(observation, region)))
         if region.get("tableRef"):
             region["requestChars"] = table_request_chars(region)
@@ -754,6 +768,78 @@ def prepare_regions(observation, *, context_chars, request_metadata=None):
         if not region["withinContextBudget"] and not region.get("tableRef"):
             region.setdefault("budgetReason", "atomic_candidate_or_context_exceeds_budget")
     return result
+
+
+def add_table_definition_context(observation, region, definition_refs):
+    """Retain a prior accepted mapping's actual sources, not guessed headers.
+
+    Native header flags stay unchanged. These are context-only sources and cell
+    geometry; they neither acquire value ownership nor become declared headers.
+    """
+    table = observation.tables[region["tableRef"]]
+    source = observation.tables[table.get("sourceTableRef", region["tableRef"])]
+    refs = set(definition_refs) & observation.nodes.keys()
+    shown_cells = {c["sourceRef"] for c in table["cells"]}
+    context_cells = {c["sourceRef"]: c for c in table.get("leadingCells", [])}
+    for cell in source["cells"]:
+        cell_refs = cell.get("sourceRefs", [cell["sourceRef"]])
+        if refs.intersection(cell_refs):
+            refs.update(cell_refs)
+            if cell["sourceRef"] not in shown_cells:
+                context_cells[cell["sourceRef"]] = cell
+    refs.difference_update(region["nodeIds"])
+    new_refs = refs - set(region.get("contextNodeIds", []))
+    region["contextNodeIds"] = list(
+        dict.fromkeys(
+            [
+                *region.get("contextNodeIds", []),
+                *(ref for ref in observation.nodes if ref in new_refs),
+            ]
+        )
+    )
+    if "relationIds" in region and new_refs:
+        region["relationIds"] = sorted(
+            set(region["relationIds"])
+            | {
+                i
+                for i, relation in enumerate(observation.relations)
+                if relation.get("sourceRef") in new_refs or relation.get("targetRef") in new_refs
+            }
+        )
+    if context_cells:
+        observation.tables[region["tableRef"]] = {
+            **table,
+            "leadingCells": copy.deepcopy(list(context_cells.values())),
+        }
+
+
+def replan_table_region(observation, region, *, context_chars, request_metadata):
+    """Split unstarted table work against its actual current mapping context.
+
+    The caller must not replace work that has model calls or accepted structure.
+    Existing rows/headers, source identities and bounds survive; this never raises
+    the limit or discards mapping context to make a request fit.
+    """
+    request = structure_payload(region_payload(observation, region) | request_metadata)
+    contract = structure_schema(observation, region, request_metadata.get("targetHandles"))
+    size = sum(len(m["content"]) for m in contract_messages(STRUCTURE_SYSTEM, request, contract))
+    if size <= context_chars:
+        return None
+    original_tables = set(observation.tables)
+    planned = prepare_regions(
+        observation,
+        context_chars=context_chars,
+        request_metadata=request_metadata,
+        source_regions=[region],
+        id_prefix=region["id"] + ":part",
+    )
+    # An indivisible source row remains an explicit partial failure, not an
+    # endless sequence of renamed regions or an invented smaller source window.
+    if len(planned) > 1:
+        return planned
+    for ref in set(observation.tables) - original_tables:
+        del observation.tables[ref]
+    return None
 
 
 def _norm_text(value):

@@ -34,9 +34,10 @@ from .table_source_decisions import (
     source_decisions_schema,
     source_decisions_to_flat,
 )
+from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v20"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v21"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -424,7 +425,7 @@ def structure_payload(payload):
             ],
         }
         result["tables"][ref] = {**table, "rowCandidates": candidates}
-    return result
+    return compact_table_sources(result)
 
 
 def _meaning_context_node(node):

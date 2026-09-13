@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,010 tests,
+The full local check including the native outline path passed **3,030 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v39,
-region plan v20 and compiler v32. Public v1 result
+region plan v21, table protocol v21 and compiler v32. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 
 Native observation adapter v2 now preserves the public cell's `columnSpan` when
@@ -90,6 +90,12 @@ they do not fix the long-table request/understanding failures below.
   formatting and native references. Oversized value work can be divided into checked
   batches without discarding context or replaying completed batches. Real cross-region
   logical continuation is still missing.
+- **Table request context:** table source wire v1 retains every source ID/text and
+  shares only repeated metadata, cells and relations. Unstarted table slices are
+  re-sized against the actual prior column mapping and its original definition
+  sources; previously accepted rows are not replayed. Native header flags and value
+  ownership are unchanged. The original 50-row development files initially plan as
+  11 HWPX / 5 XLSX regions instead of 53 / 14; actual model quality still needs checking.
 - **Explicit review:** failed value reading may trigger one bounded correctness review
   of the structure on the same source. It is not source-change detection. Full prior
   decisions are displayed through lossless property-name sharing, while canonical
@@ -294,7 +300,7 @@ platform-installer or independent quality qualification**.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** Actual 50-row files return only 4 HWPX / 2 XLSX rows. Prose-record runs separately retain per-item scalars, title copies, wrong missing states and equal-valued source occurrences. | Reduce repeated native table context without trimming sources; size requests after evolving schema context and preserve column definitions across slices. Then check every row/value/meaning in the complete path. Continue correcting native structure and provenance rather than relaxing row ownership or forcing a template. |
+| 1 | **Native complete extraction is not approved.** The previous actual 50-row run returned only 4 HWPX / 2 XLSX rows. Prose-record runs separately retain per-item scalars, title copies, wrong missing states and equal-valued source occurrences. | Run the new lossless table display, current-context sizing and definition-context preservation through Spark. Check every row/value/meaning in the complete path. Continue correcting native structure and provenance rather than relaxing row ownership or forcing a template. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. The 50-row HWPX also retains empty-fragment evidence against a joined nonempty array. | Review actual values, bindings, field set, order and applicability. Correct evidence remapping across continuation; retain explicit blank cells and distinct equal-valued records. Do not delete evidence just to satisfy the reviewer or infer correctness from text elsewhere in a node. |
 | 4 | Long-table scope delivery is partly improved. The reproduced 50-row request now fits at 15,858 characters instead of 24,557, with all 51 observed rows and 102 source texts retained. A 96-row fixture still loses the record candidate at the unchanged discovery limit; provenance limits also remain. | Verify the new display with an actual model, then address bounded discovery and source binding without dropping rows or raising caps. This scripted request/selection check is not a full document or long-table quality pass. |

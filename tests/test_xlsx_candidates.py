@@ -63,6 +63,11 @@ class PlainRegisterModel:
         self.calls += 1
         payload = json.loads(request.messages[-1]["content"])
         if payload.get("tableStage") == "structure":
+            from document_files.interpretation.table_source_wire import expand_table_sources
+
+            # Decode the product's lossless request view; scripted answers and
+            # exact value/provenance assertions remain unchanged.
+            payload = expand_table_sources(payload)
             table_ref, table = next(iter(payload["tables"].items()))
             cells = table["cells"]
             if isinstance(cells, dict):

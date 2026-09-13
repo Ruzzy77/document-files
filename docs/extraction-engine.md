@@ -40,6 +40,40 @@ pending, not truncated. Table slices keep declared leading headers as context;
 headers do not become a fabricated standalone data region. OCR header predictions
 are not native declarations.
 
+### Table metadata and evolving request context
+
+`interpretation/table_source_wire.py` shares repeated properties in table structure
+requests. Every node ID and its text remain explicit and in order. Same-shaped native
+metadata uses shared properties and nested-key columns; equal columns can share one
+exact value without merging source nodes. Cell and relation lists use the same typed
+record encoding when it saves space. Missing keys, null, empty strings, whitespace,
+numeric types, arrays, formatting and source-cell geometry survive exact expansion.
+`expand_table_sources` is an inspection helper for product-created requests, not a
+decoder for model output. The original observation and compiler inputs are unchanged.
+
+Savings include the decoding instruction. Planning and dispatch both measure the
+messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
+The public response contract is unchanged. Table protocol v21 and region plan v21
+invalidate checkpoints made with the previous display and planning behavior.
+
+The first region's column mapping may not exist when the initial plan is made.
+Before later **unstarted** table work, `add_table_definition_context` retains that
+accepted mapping's actual definition nodes and cell geometry as context. It does not
+guess which physical row is a header, set native header flags or add value owners.
+This keeps a header below a title available in later slices without treating the
+title as that header. `sameTableMapping` remains a prior model decision, not a native
+declaration or proof of semantic correctness.
+
+`replan_table_region` measures this current context and splits complete observed rows
+again if needed. Child regions keep the original table identity and inherited header
+and leading context. The engine saves the replacement plan, rebuilds continuation
+candidates and leaves earlier accepted regions untouched. Work with model attempts or
+accepted structure is not silently replaced. An indivisible row/context remains an
+explicit partial failure; there is no source truncation or automatic budget increase.
+Both partial and completed checkpoints have regression coverage for no replay of
+accepted rows. This does not fix the remaining model, applicability or empty-fragment
+evidence errors.
+
 ### Native spreadsheet projections
 
 `extractors.py` (XLSX adapter v10) uses bounded worksheet XML observations to tell
@@ -936,10 +970,10 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v39 / v20 / v32 |
+| Semantic prompt / region plan / result compiler | v39 / v21 / v32 |
 | Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
 | Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
-| Table protocol / table reference wire | v20 / v2 |
+| Table protocol / table reference wire / table source wire | v21 / v2 / v1 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |

@@ -49,10 +49,12 @@ from .pdf_image_read import candidate_summary
 from .pdf_visual_runner import review_identity, review_pdf_pages
 from .regions import (
     REGION_PLAN_VERSION,
+    add_table_definition_context,
     continuation_candidates,
     prepare_regions,
     region_payload,
     relation_node,
+    replan_table_region,
     route_table_values,
 )
 from .scope_protocol import SYSTEM as SCOPE_SYSTEM
@@ -2261,10 +2263,14 @@ def extract_schema_from_stream(
             content_state["status"] = "complete"
         save("interpreting")
 
-    region_iterator = iter(regions)  # Table compilation may append owned child regions.
+    region_index = 0  # Table work may split in place or append owned scalar children.
     revised_regions = []
     while True:
-        region = revised_regions.pop() if revised_regions else next(region_iterator, None)
+        if revised_regions:
+            region = revised_regions.pop()
+        else:
+            region = regions[region_index] if region_index < len(regions) else None
+            region_index += 1
         if region is None:
             break
         rid = region["id"]
@@ -2324,6 +2330,18 @@ def extract_schema_from_stream(
                     None,
                 )
                 if prior is not None:
+                    add_table_definition_context(
+                        observation,
+                        region,
+                        [
+                            *prior.definitionRefs,
+                            *(ref for col in prior.columns for ref in col.definitionRefs),
+                        ],
+                    )
+                    payload = region_payload(observation, region) | {
+                        "intent": selected.intent,
+                        "targetHandles": catalog,
+                    }
                     payload["sameTableMapping"] = {
                         "key": prior.key,
                         "label": prior.label,
@@ -2337,6 +2355,26 @@ def extract_schema_from_stream(
                     break
         if region.get("tableRef"):
             try:
+                if rid not in table_states and rid not in accepted:
+                    replacements = replan_table_region(
+                        observation,
+                        region,
+                        context_chars=min(
+                            selected.contextChars,
+                            getattr(client, "input_budget_chars", selected.contextChars),
+                        ),
+                        request_metadata={
+                            key: payload[key]
+                            for key in ("intent", "targetHandles", "sameTableMapping")
+                            if key in payload
+                        },
+                    )
+                    if replacements:
+                        regions[region_index - 1 : region_index] = replacements
+                        region_index -= 1
+                        candidates = continuation_candidates(observation, regions)
+                        save("interpreting")
+                        continue
                 if interpret_table(region, payload):
                     continue
                 payload["tableKind"] = "scalar_form"

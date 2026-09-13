@@ -4,6 +4,15 @@
 
 ### Document extraction
 
+- Share repeated table source metadata and relation/cell properties losslessly
+  (table protocol v21 / table source wire v1 / region plan v21). Keep every source
+  ID, explicit text, ordered cell/relationship and exact JSON value. Plan and send
+  the same decoding instructions. Before an unstarted table call, retain the prior
+  accepted mapping's actual definition sources as unclassified context and re-split
+  rows if that current context exceeds the limit. Preserve completed work, source
+  table identity, inherited context and bounded partial outcomes on checkpoint resume.
+  This request-delivery change is not a document-understanding quality approval.
+
 - Preserve native merged-column geometry by mapping public `columnSpan` to internal
   `colSpan` (native observation adapter v2). Reject prior native-geometry checkpoints.
   Retain stored XLSX empty XML cells without inventing implicit gaps or covered merge
