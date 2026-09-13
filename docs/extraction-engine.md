@@ -1101,8 +1101,8 @@ have no undecided row positions. General semantic requests use the same neutral
 list: a record covers its observed table range with explicit row roles, and only
 rows chosen as data are read as records. The program does not infer a header from
 the first row, numeric types or formatting, or change native header flags.
-The neutral row positions remain in layout-first table protocol v37 / region plan
-v25 / prompt v41. Correct row metadata does not establish correct interpretation;
+The neutral row positions remain in layout-first table protocol v38 / region plan
+v26 / prompt v41. Correct row metadata does not establish correct interpretation;
 the new layout response is checked separately before column definitions are requested.
 
 `table_layout.mapping_schema` derives the current model-facing column contract
@@ -1263,11 +1263,29 @@ sizing nor successful error delivery establishes correct table interpretation.
 
 ### Layout before column decisions
 
-`table_layout.py` implements table-layout v2. Its first response contains table kind,
+`table_layout.py` implements table-layout v3. Its first response contains table kind,
 one role per `rowRoleOrder` position, and `baseRevision`. A record table requires roles;
 scalar forms and unresolved tables require `rowRoles: null`. Names, keys, value types,
 read modes and meanings are not requested in this stage. Acceptance means the contract
 and source identity were checked, not that the model understood the table correctly.
+
+The layout request presents its tables before native node metadata. Each table starts
+with `rowRoleOrder` and `rowCandidates`: cells directly name `column`, `sourceRef` and
+exact `text`, rather than requiring positional tuple decoding. Row and column indices
+are the original zero-based positions, not array positions. Omitted `columnSpan` means
+one. Vertically merged cells also name `originRow` and `rowSpan`; their appearance in
+several occupied rows does not create another physical cell or value. Missing positions
+stay missing, and distinct cells with equal text retain separate references.
+
+This replaces the existing derived row view only. The full native cells, nodes,
+relations, types, formatting and source references are retained in the existing
+lossless source encoding. Column mapping keeps its compact view. Neither display order
+nor a style/merge flag declares a header; only source-declared `fixedRole` does so.
+Tests restore the old row tuples exactly and compare all remaining source metadata.
+Full-page 50/96-row HWPX and XLSX sizing retains the prior 6/12 and 4/7 region counts
+at 16,000 characters, respectively. This differs from expanding every physical cell's
+metadata, which increased region counts and was not adopted. These capacity checks do
+not establish model-quality improvement.
 
 `table_row_checks.py` rejects a proposed blank row when any occupied source contains
 nonempty text or has unresolved/missing text evidence. Layout validation and the
@@ -1339,7 +1357,7 @@ layout response and the engine charges that call. Tests focused on scope partiti
 use their known scripted layout to isolate scope scheduling; every actual request still
 passes the production input limit. Generic planning has separate native-file tests.
 
-Table protocol v37, layout v2, region plan v25 and compiler v39 distinguish these
+Table protocol v38, layout v3, region plan v26 and compiler v39 distinguish these
 states from earlier layouts and the former combined path. General prompt v41 and public v1 interfaces remain unchanged.
 Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
@@ -1782,11 +1800,11 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v25 / v39 |
+| Semantic prompt / region plan / result compiler | v41 / v26 / v39 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v37 / v2 / v1 / v4 |
-| Table layout | v2 |
+| Table protocol / table reference wire / table source wire / selection wire | v38 / v2 / v1 / v4 |
+| Table layout | v3 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
