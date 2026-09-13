@@ -123,6 +123,24 @@ def test_output_contract_is_built_after_preceding_table_context_is_added(monkeyp
                 rid = payload["regionId"]
                 relevant = [kind for key, kind in events if key == rid]
                 assert "context" in relevant and relevant[-1] == "schema"
+            if payload.get("tableStage") == "structure":
+                from document_files.interpretation.backends import InferenceResponse
+
+                self.requests.append(request)
+                restored = expand_table_sources(payload)
+                table = next(iter(restored["tables"].values()))
+                cells = table["cells"]
+                if isinstance(cells, dict):
+                    cells = [dict(zip(cells["columns"], r, strict=True)) for r in cells["rows"]]
+                headers = table.get("headerCells", [])
+                if isinstance(headers, dict):
+                    headers = [
+                        dict(zip(headers["columns"], r, strict=True)) for r in headers["rows"]
+                    ]
+                table["cells"] = [*cells, *headers]
+                value = record_response(restored)
+                value["record"]["rowStart"] = min(c["row"] for c in cells)
+                return InferenceResponse(json.dumps(value), {})
             return super().infer(request)
 
     monkeypatch.setattr(engine, "add_table_definition_context", add)
