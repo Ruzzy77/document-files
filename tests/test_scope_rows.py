@@ -89,6 +89,14 @@ def test_row_range_never_creates_records_for_nondata_or_unknown_rows(role):
         ir.repeats[0].rowRoles = [r for r in ir.repeats[0].rowRoles if r.row != 2]
     else:
         ir.repeats[0].rowRoles[2].role = role
+    if role == "blank":
+        # A blank-row scope fixture needs genuinely empty observed cells. The
+        # source-contradiction tests separately reject blank roles over values.
+        for ref in ir.repeats[0].rowRoles[2].sourceRefs:
+            doc.nodes[ref]["text"] = ""
+            for binding in doc.bindings.values():
+                if binding["sourceRef"] == ref and binding.get("start") is not None:
+                    binding.update(start=0, end=0)
     compiled = compile_region(ir, doc, region)
     task = task_for(doc, [region], [compiled])
     result, changed = apply_scope_decision(

@@ -7,11 +7,28 @@ from copy import deepcopy
 
 from .model import ObservationDocument
 
-NATIVE_OBSERVATION_VERSION = "document-files.native-observation.v4"
+NATIVE_OBSERVATION_VERSION = "document-files.native-observation.v5"
 
 # Candidate boundaries only. Role, type and applicability are interpreted by the internal AI.
 _LEXEME = re.compile(r"[^\s;,:=]+")
 _FIELD = re.compile(r"(?:^|[;\n])\s*([^;\n:=]+?)\s*[:=]([^;\n]*)")
+
+
+def _cell_segment_separator(previous, current):
+    """Adjacent chunks of one original unit add no paragraph separator."""
+    a, b = (node.get("sourceStructure", {}) for node in (previous, current))
+    first, second = a.get("chunk"), b.get("chunk")
+    if (
+        any(key in a for key in ("element", "record", "paragraph"))
+        and type(first) is int
+        and first >= 1
+        and type(second) is int
+        and second == first + 1
+        and {k: v for k, v in a.items() if k != "chunk"}
+        == {k: v for k, v in b.items() if k != "chunk"}
+    ):
+        return ""
+    return "\n"
 
 
 def bind_spans(doc: ObservationDocument, node_id: str) -> list[str]:
@@ -237,10 +254,17 @@ def add_native_relationships(doc: ObservationDocument, legacy_nodes: dict) -> No
         for cell in cells:
             segments = [ref for ref in cell["sourceRefs"] if doc.nodes[ref].get("text")]
             if len(segments) > 1:
-                source_segments = []
-                offset = 0
+                source_segments, parts = [], []
+                offset, previous = 0, None
                 for ref in segments:
                     text = doc.nodes[ref]["text"]
+                    separator = (
+                        _cell_segment_separator(doc.nodes[previous], doc.nodes[ref])
+                        if previous is not None
+                        else ""
+                    )
+                    parts.extend([separator, text])
+                    offset += len(separator)
                     source_segments.append(
                         {
                             "sourceRef": ref,
@@ -250,14 +274,15 @@ def add_native_relationships(doc: ObservationDocument, legacy_nodes: dict) -> No
                             "end": offset + len(text),
                         }
                     )
-                    offset += len(text) + 1
+                    offset += len(text)
+                    previous = ref
                 composite = doc.node(
                     f"{table_ref}/cell/{cell['row']}/{cell['col']}",
-                    "\n".join(doc.nodes[ref]["text"] for ref in segments),
+                    "".join(parts),
                     role="table_cell",
                     locator={"tableRef": table_ref, "row": cell["row"], "col": cell["col"]},
                     observationBasis="program_normalized",
-                    normalization="join_native_cell_segments_with_newline",
+                    normalization="join_native_cell_segments_preserving_chunks",
                     sourceSegments=source_segments,
                 )
                 bind_spans(doc, composite)

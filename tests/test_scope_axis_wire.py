@@ -220,6 +220,14 @@ def test_row_gaps_and_nondata_never_become_new_observations(role):
         ir.repeats[0].rowRoles = [r for r in ir.repeats[0].rowRoles if r.row != 2]
     else:
         ir.repeats[0].rowRoles[2].role = role
+    if role == "blank":
+        # A blank-row scope fixture needs genuinely empty observed cells. The
+        # source-contradiction tests separately reject blank roles over values.
+        for ref in ir.repeats[0].rowRoles[2].sourceRefs:
+            observation.nodes[ref]["text"] = ""
+            for binding in observation.bindings.values():
+                if binding["sourceRef"] == ref and binding.get("start") is not None:
+                    binding.update(start=0, end=0)
     compiled = compile_region(ir, observation, region)
     task = build_scope_tasks(observation, [region], [compiled])[0]
     wire = prepare_scope_axis_wire([task])

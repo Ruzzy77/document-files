@@ -425,7 +425,9 @@ def test_mapping_reservation_bounds_every_role_combination_without_native_mutati
     before = copy.deepcopy(doc)
     bound = layout.planned_request_sizes(payload, doc, region)["mappingReserve"]
     for roles in product(layout.ROLES, repeat=3):
-        current = layout.accept(response(doc, region, list(roles)), doc, region)
+        # Size every possible response shape, including roles rejected by source
+        # validation. This envelope is not an accepted or checkpointed layout.
+        current = {"sha256": "0" * 64, "response": response(doc, region, list(roles))}
         messages = contract_messages(
             layout.MAPPING_SYSTEM,
             layout.mapping_request(payload, current, doc, region),

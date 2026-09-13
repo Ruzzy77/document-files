@@ -34,7 +34,7 @@ EXTRACTOR_VERSION = "source-units-v4"
 EXTRACTOR_VERSION_OVERRIDES = {
     "docx": "source-units-v7",
     "pptx": "source-units-v8",
-    "hwpx": "source-units-v10",
+    "hwpx": "source-units-v11",
     "xlsx": "source-units-v10",
 }
 MAX_ARCHIVE_MEMBERS = 20_000
@@ -68,8 +68,8 @@ def normalize_text(value: str) -> str:
     return value.strip()
 
 
-def _bounded_unit(draft: UnitDraft) -> Iterable[UnitDraft]:
-    text = normalize_text(draft.content)
+def _bounded_unit(draft: UnitDraft, *, normalize: bool = True) -> Iterable[UnitDraft]:
+    text = normalize_text(draft.content) if normalize else draft.content
     if not text:
         return
     if len(text) <= MAX_UNIT_CHARS:

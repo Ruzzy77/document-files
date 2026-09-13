@@ -203,7 +203,8 @@ def test_unconstrained_backend_cannot_bypass_wire_and_never_publishes_failed_rec
     model, states = WireModel(damage), []
     result = run(model, states=states)
     assert result["data"] is None and result["extraction"]["status"] == "partial"
-    assert result["extraction"]["modelCalls"] == len(model.requests) == 4
+    assert result["extraction"]["modelCalls"] == len(model.requests) == 3
+    assert states[-1]["tableStages"]["semantic-region:1"]["layout"]["attempts"] == 1
     assert states[-1]["accepted"] == {}
     assert states[-1]["tableStages"]["semantic-region:1"]["meaning"]["attempts"] == 0
     if damage == "duplicate_key":

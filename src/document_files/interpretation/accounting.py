@@ -107,7 +107,10 @@ def bound_node_dispositions(observation, region, fields, consumed, header_source
         # a segment only when that exact complete original is present in the
         # selected composite, not merely because it shares a container.
         node = nodes[ref]
-        if node.get("normalization") != "join_native_cell_segments_with_newline":
+        if node.get("normalization") not in {
+            "join_native_cell_segments_with_newline",
+            "join_native_cell_segments_preserving_chunks",
+        }:
             continue
         for segment in node.get("sourceSegments", []):
             original = segment.get("sourceRef")

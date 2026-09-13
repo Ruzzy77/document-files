@@ -134,7 +134,7 @@ from .table_selection_wire import decode_selection, encode_selection
 from .table_selection_wire import selection_schema as wire_selection_schema
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, source_inventory
-from .table_structure_feedback import check_structure, structure_feedback
+from .table_structure_feedback import check_structure, needs_layout_review, structure_feedback
 
 CHECKPOINT_VERSION = "document-files.regional-checkpoint.v3"
 
@@ -1747,9 +1747,17 @@ def extract_schema_from_stream(
                 code = (
                     str(exc) if isinstance(exc, CompileError) else "table_layout_invalid_contract"
                 )
-                progress.update(status="failed", feedback=[code])
+                feedback = (
+                    structure_feedback(exc, observation, region)
+                    if isinstance(exc, CompileError)
+                    else [code]
+                )
+                progress.update(status="failed", feedback=feedback)
                 issue(
-                    "table_stage_invalid", regionId=region["id"], tableStage="layout", errors=[code]
+                    "table_stage_invalid",
+                    regionId=region["id"],
+                    tableStage="layout",
+                    errors=feedback,
                 )
                 save("interpreting")
         return None
@@ -2053,7 +2061,8 @@ def extract_schema_from_stream(
                         repair = structure_feedback(exc, observation, region)
                         row_progress = state["layout"]
                         if (
-                            progress["attempts"] < STAGE_INITIAL_MAX_CALLS
+                            needs_layout_review(exc, observation, region)
+                            and progress["attempts"] < STAGE_INITIAL_MAX_CALLS
                             and row_progress["attempts"] < table_layout.MAX_CALLS
                             and not row_progress.get("halted")
                         ):

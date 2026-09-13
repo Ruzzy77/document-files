@@ -3,6 +3,7 @@
 import json
 
 from .compiler import CompileError
+from .table_row_checks import BLANK_ROW_ERROR, blank_row_conflicts
 
 _COLUMN_ERRORS = {
     "column_definition_not_above_column",
@@ -96,6 +97,22 @@ def structure_feedback(error, observation, region):
         return ["invalid_table_contract"]
     feedback = [str(error)]
     selection = error.selection
+    if str(error) == BLANK_ROW_ERROR and isinstance(selection, dict):
+        rows = selection.get("rows")
+        if isinstance(rows, list):
+            roles = {
+                item["row"]: "blank"
+                for item in rows
+                if isinstance(item, dict) and type(item.get("row")) is int
+            }
+            table = observation.tables.get(region.get("tableRef"))
+            details = blank_row_conflicts(observation, table, roles) if table else []
+            if details:
+                feedback.append(
+                    "invalid_table_blank_rows:"
+                    + json.dumps({"rows": details}, ensure_ascii=False, separators=(",", ":"))
+                )
+        return feedback
     if str(error) == "table_structure_formula_requires_text" and selection:
         # A column-level contract error precedes row expansion. Do not invent a
         # particular failing cell or copy the model's column label/identifier.
@@ -136,3 +153,25 @@ def structure_feedback(error, observation, region):
         + json.dumps(detail, ensure_ascii=False, separators=(",", ":"))
     )
     return feedback
+
+
+def needs_layout_review(error, observation, region):
+    """Only a source-local row/content conflict can spend a layout review.
+
+    IDs, keys, wire shape, range and formula-mode errors belong to mapping. A
+    diagnostic without verified source detail cannot justify changing row roles.
+    """
+    if not isinstance(error, CompileError):
+        return False
+    feedback = structure_feedback(error, observation, region)
+    if str(error) in {"binding_cannot_represent_requested_type", BLANK_ROW_ERROR}:
+        return len(feedback) > 1
+    return isinstance(error, _StructureIssues) and any(
+        item.startswith(
+            (
+                "column_definition_conflicts_with_content:",
+                "header_cell_bound_as_value:",
+            )
+        )
+        for item in feedback
+    )

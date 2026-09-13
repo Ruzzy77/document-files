@@ -259,6 +259,14 @@ def test_windows_preserve_nondata_roles_missingness_and_reference_context(role):
         ir.repeats[0].rowRoles = [r for r in ir.repeats[0].rowRoles if r.row != 30]
     else:
         ir.repeats[0].rowRoles[30].role = role
+    if role == "blank":
+        # A blank-row scope fixture needs genuinely empty observed cells. The
+        # source-contradiction tests separately reject blank roles over values.
+        for ref in ir.repeats[0].rowRoles[30].sourceRefs:
+            doc.nodes[ref]["text"] = ""
+            for binding in doc.bindings.values():
+                if binding["sourceRef"] == ref and binding.get("start") is not None:
+                    binding.update(start=0, end=0)
     compiled = compile_region(ir, doc, region)
     task = build_scope_inventory(doc, [region], [compiled])[0]
     plan = partition.plan_scope_partitions(task, input_chars=16000, system=SYSTEM)

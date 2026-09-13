@@ -250,12 +250,19 @@ class _Reader:
         location = dict(location)
         if kind != "list_item":
             location.pop("computed_list_marker", None)
-        text = normalize_text(text)
+        # Cell text is a value source, not a trimmed display paragraph. In
+        # particular, a stored space must not become a structurally empty cell.
+        preserve_cell_text = "cell" in location and "segment" in location
+        if not preserve_cell_text:
+            text = normalize_text(text)
         self.characters += len(text)
         if self.characters > 50_000_000 or len(self.units) >= 200_000:
             raise ExtractionError("HWPX structure exceeds its output budget")
         draft = UnitDraft(kind, {**self.base, **location}, text)
-        self.units.extend(_bounded_unit(draft) if text else [draft])
+        for unit in _bounded_unit(draft, normalize=not preserve_cell_text) if text else [draft]:
+            if len(self.units) >= 200_000:
+                raise ExtractionError("HWPX structure exceeds its output budget")
+            self.units.append(unit)
 
     def geometry(self, value: str | None) -> int | None:
         try:
@@ -322,7 +329,8 @@ class _Reader:
 
             def flush():
                 nonlocal segment
-                if normalize_text("".join(chunks)):
+                text = "".join(chunks)
+                if text and ("cell" in context or normalize_text(text)):
                     segment += 1
                     self.emit(
                         kind,

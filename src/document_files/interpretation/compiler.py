@@ -22,6 +22,7 @@ from .document_outline import compile_elements
 from .field_identity import exact_field_identity
 from .semantic_types import RegionInterpretation
 from .table_revisions import meaning_revision
+from .table_row_checks import BLANK_ROW_ERROR, blank_row_conflicts
 from .table_sources import SourceReviewError, review_ranges, source_inventory
 from .validation import check_schema, escape, leaves, pointer, schema_definitions
 
@@ -707,6 +708,11 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             actual_refs = {cell["sourceRef"] for cell in observed[role.row]}
             if set(role.sourceRefs) != actual_refs:
                 raise CompileError("repeat_row_role_sources_disagree_with_geometry")
+        conflicts = blank_row_conflicts(
+            observation, table, {row: role.role for row, role in roles.items()}
+        )
+        if conflicts:
+            raise CompileError(BLANK_ROW_ERROR, selection={"rows": conflicts})
         # Only source-declared header-only rows have a program-owned role. Column
         # citations cannot override content roles: text records, subtotals and notes
         # are not headers merely because the model used them to define a column.
