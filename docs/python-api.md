@@ -298,6 +298,13 @@ An unresolved statement retains empty detailed scope and an uncertain assertion
 anchored to the document, without discarding other source-bound values. Cross-region
 resolution adds `scopeEvidence`; it never makes a natural-language condition executable.
 
+`scopeEvidence.sourceRefs` contains the compiler's complete bound source list, not a
+model citation quota. A long row selection can therefore contain more than 100
+references. Source binding still has explicit byte, trace and work limits; exhaustion
+leaves applicability unresolved rather than returning a truncated successful list.
+Exact value/binding proofs belong to internal checkpoints and are recomputed on
+resume. They do not change the public v1 evidence contract or certify semantic accuracy.
+
 `extract_schema(..., request_id="stable")` returns the existing result for identical
 inputs; changing the input/options/model/observation/prompt/compiler identity conflicts.
 `resume_extraction` is explicit. Existing result-only v1 databases remain readable;

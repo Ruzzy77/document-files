@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,128 tests,
+The full local check including the native outline path passed **3,151 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -66,7 +66,7 @@ The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v40,
 region plan v23, table protocol v29 and compiler v34. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
-Scope integration v15 / scope protocol v7 now discover the explicit parent table
+Scope integration v16 / scope protocol v8 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
 The next-row guide uses effective compiled column definitions, not rejected citations
 from the original model response. Whole-record provenance remains stored, not replayed
@@ -145,6 +145,29 @@ budget increase is used to manufacture a successful result.
 
 ## Latest deterministic verification
 
+Source **81c85df4e6b1a77517d84d7f02c4480e9c6c72c4** separates compiler-owned scope
+provenance from the legacy model citation limit. The compiler preserves full source
+lists under a 1 MiB combined serialized decision/trace limit; the existing 1,000
+trace-entry and 1,000,000 row/column work limits remain. Row-filtered values and scalar
+origins have exact value/binding proofs that replay recomputes. Model output schemas,
+document call/time budgets and public v1 contracts are unchanged.
+
+The existing 50-row/two-column fixture now retains all 102 references instead of
+failing at 100; the 200-row fixture retains 402. Data, exact row selections and
+source order are preserved. New regressions cover byte/trace/work exhaustion, JSON
+replay, altered value/binding/missingness, unchanged independent applicability links,
+and refusal to treat serialized tags as compiler authority. The local full suite
+passed 3,151 tests / 227 skips / 12 subtests. Evidence:
+`structural-kpi-20260913/scope-source-proofs-50/`.
+The identical source passed **319 related Spark-B ARM tests** on the retained
+Python 3.12.3 dependencies. All 227 exported source/test files were verified and
+removed after evidence collection; shared RPC, dependencies and host OOM were unchanged.
+
+Discovery and actual request sizing are **not fixed by this change**. The scripted
+50-row HTML engine example remains partial under normal discovery; its large-source
+persistence test explicitly isolates that boundary. No new real model call or native
+quality approval is claimed. The latest actual product run remains the one below.
+
 Source **b80b4c7c50b46a9c51f3d7c6213c8955407b0c04** passed **349 directly related
 Spark-B ARM tests** on the retained Python 3.12.3 dependencies, without a model call.
 The temporary source export was checked and removed; shared RPC and dependencies
@@ -177,7 +200,7 @@ was performed. Complete-document evaluation needs a predeclared suitable budget;
 the existing long-document allowance is 64 calls / 3,600 seconds, not a result
 already verified here. Evidence: `structural-kpi-20260913/native-planning-46/`.
 
-An offline scope audit of the unchanged current product source separated discovery,
+An offline scope audit of the preceding product source separated discovery,
 request delivery and provenance limits. All 50 fixture rows fit a complete
 15,932-character scope request. The 96-row fixture loses its record candidate during
 discovery; retaining it for diagnosis produces 22,924 characters, above the unchanged
@@ -188,7 +211,8 @@ a checked join covers the current compiled definition, including continued rows.
 Evidence: `structural-kpi-20260913/scope-discovery-audit-49/` (32 scripted cases, no
 model calls). The implementation sequence is described in
 [long-table applicability](docs/extraction-engine.md#next-scope-implementation--not-implemented);
-it is not implemented or a new quality approval.
+The v3 compiler-provenance correction above addresses that historical source-count
+failure; partitioned discovery is still not implemented, and neither is quality approval.
 
 ## Latest Spark-B verification
 
@@ -435,7 +459,7 @@ platform-installer or independent quality qualification**.
 | 1 | **Native complete extraction is not approved.** The latest actual run retains 12/50 HWPX and 45/50 XLSX rows. Repacking and the reproduced detail overflow are corrected in code, but the optimistic table-only cost remains 20 / 12 calls. | Verify the complete product path under a budget fixed before evaluation, distinguishing it from the failed 12-call runs. Review every row and meaning, including wrong bare-identifier selection. Larger detail work must still remain explicitly partial if it cannot fit; do not waive missing sources or silently extend a run. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
-| 4 | Larger scope discovery, actual request size and provenance are separate blockers. The 96-row fixture loses its record candidate or requires 22,924 characters; a 50-row/two-column explicit range exceeds 100 source references. | First separate compiler-owned provenance from model citation limits, then plan complete candidate/row coverage against the actual request size. Preserve reviewed, unresolved and unseen work separately. Check actual-model applicability after the complete table path is fixed; the detailed design is not implemented. |
+| 4 | Larger scope discovery and actual request size remain blockers. The 96-row fixture loses its record candidate or requires 22,924 characters. Compiler provenance no longer reuses the model's 100-reference count, but explicit byte/trace/work limits remain. | Plan complete candidate/row coverage against the actual request size. Preserve reviewed, unresolved and unseen work separately and retain full source proofs. Check actual-model applicability after the complete table path is fixed; partitioned discovery is not implemented. |
 | 5 | HWP/HWPX and XLSX lack independent end-to-end approval across varied forms. Prose records still have wrong per-item states and occurrence bindings. | Freeze new expectations for hierarchy, label/value and prose records, merged/nested/continued tables, subtotal/note rows and three-page content. Compare equivalent content in different layouts and genuinely different forms, not a fixed template. A failed holdout used for a fix becomes development evidence. |
 
 Fix reproduced preservation defects before another broad inference run. Run only
