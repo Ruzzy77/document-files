@@ -123,8 +123,9 @@ the new long-scope display. Evidence: `structural-kpi-20260913/native-long-files
 
 Source inspection also exposed collapsed merge widths and a missing stored XLSX blank.
 The subsequent source fix restores all 150 data-cell values/positions in each original
-file, including the blank and merged spans. This local parser/observation comparison is
-not a new end-to-end model pass. Three-page continuity, binary HWP and independent
+file, including the blank and merged spans. Source **a21549b28cbcf98857254710194f5e7d11d18652**
+passed 46 selected Spark-B tests; both complete native observations exactly match the Mac
+check. This parser/observation comparison is not a new end-to-end model pass. Three-page continuity, binary HWP and independent
 varied-form quality remain unapproved.
 
 ### Earlier prose-record product verification
