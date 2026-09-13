@@ -15,7 +15,7 @@ from .legacy_engine import contract_messages
 from .semantic_types import _compact_contract
 from .source_dictionary import factor_reads
 
-VERSION = "document-files.native-value-batches.v3"
+VERSION = "document-files.native-value-batches.v4"
 MAX_KEYS = 16
 REPAIR_RESERVE = 1024
 VALUE_SYSTEM = (
@@ -95,8 +95,9 @@ def _request(payload, schema, kind, keys, selections=None, *, limit=None):
         "nodes": payload["nodes"],
         "bindings": payload["bindings"],
     }
-    if "sourceTemplate" in payload:
-        p["sourceTemplate"] = payload["sourceTemplate"]
+    for key in ("sourceTemplate", "nativeNotes"):
+        if key in payload:
+            p[key] = payload[key]
     p["literalChoicesStatus"] = payload.get("literalChoicesStatus", "not_applicable")
     s = {
         "type": "object",

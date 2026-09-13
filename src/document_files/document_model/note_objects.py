@@ -124,18 +124,4 @@ def note_context(observation, region):
         for ref, obj in value["objects"].items()
         if visible.intersection([ref, *obj["memberRefs"], *obj["bodyRefs"]])
     }
-    if value["objects"]:
-        value["use"] = (
-            "Stored note objects, not inferred fields. bodyRefs are referring body paragraphs; "
-            "contentRefs are paragraphs inside one note. Different object IDs stay distinct, "
-            "even with equal text/numbers. Several paragraphs in one object are not several notes. "
-            "ownedRefs grants value ownership; other refs are context only. Preserve actual "
-            "attributes and applicability, not generic body/note-text fields just to copy content. "
-            "Do not offer different notes or different body paragraphs as one scalar's alternative "
-            "value sources; definition references can be shared. Keep separate note/unit/condition "
-            "meanings for separate notes. Empty controls/containers and stored automatic note "
-            "numbers are structural, not missing business values: account for their owned refs "
-            "in dispositions and unread number bindings as structural in excludedBindings. "
-            "A note type does not imply a heading."
-        )
     return value

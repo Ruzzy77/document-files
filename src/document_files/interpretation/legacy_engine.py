@@ -50,6 +50,9 @@ def contract_messages(system, payload, contract, feedback=None):
         from .scope_context_wire import SYSTEM as SCOPE_CONTEXT_SYSTEM
 
         system += SCOPE_CONTEXT_SYSTEM
+    from .native_note_context import system_for as native_note_system
+
+    system += native_note_system(payload)
     content = {**payload, "outputContract": contract}
     if feedback is not None:
         content["repairFeedback"] = feedback

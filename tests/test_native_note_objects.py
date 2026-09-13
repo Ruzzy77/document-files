@@ -101,7 +101,7 @@ def test_equal_text_numbers_keep_distinct_native_objects_and_body_owners():
         assert item["numberSources"] == [
             {"sourceRef": prefix + "number", "path": "/semantic/value/value", "value": 3}
         ]
-    assert notes.note_context(doc, region)["use"]
+    assert "use" not in notes.note_context(doc, region)
     assert doc.to_dict() == original
 
 
@@ -200,8 +200,10 @@ def test_role_structure_revision_and_value_context_keep_nontext_number_sources()
     }
     repaired, _ = revision.request(state, roles, doc, region, {})
     value, _ = native.value_request(scalar(region, ["a_text"]), roles, doc, region)
-    for payload in [role, structure, repaired, value]:
+    for payload in [role, structure, repaired]:
         assert payload["nativeNotes"] == expected
+    assert value["nativeNotes"] == notes.note_context(doc, region)
+    assert value["nativeNotes"]["objects"] == expected["objects"]
     assert "a_number" not in role["blocks"]
     assert structure["nativeNotes"]["objects"]["a_control"]["numberSources"][0]["value"] == 3
 
@@ -397,3 +399,44 @@ def test_endnote_and_section_local_ids_remain_separate():
     assert len(second["objects"]) == 2 and all(
         o["status"] == "linked" for o in second["objects"].values()
     )
+
+
+@pytest.mark.parametrize("kind", ["values", "accounting"])
+def test_split_value_and_accounting_requests_keep_declared_objects(kind):
+    from document_files.interpretation import native_value_batches as batches
+
+    doc, region, roles = fixture()
+    payload, schema = native.value_request(scalar(region, ["a_text"]), roles, doc, region)
+    original = copy.deepcopy((payload, schema, doc.to_dict()))
+    keys = list(payload["handles"]) if kind == "values" else payload["requiredBindingIds"]
+    selections = {"@value1": {"kind": "unresolved"}}
+    system, request, contract = batches._request(payload, schema, kind, keys, selections)
+    assert request["nativeNotes"] == payload["nativeNotes"]
+    assert request["nativeNotes"]["objects"]["a_control"]["numberSources"][0]["value"] == 3
+    assert request["protocolVersion"] == "document-files.native-value-batches.v4"
+    without_context = copy.deepcopy(payload)
+    del without_context["nativeNotes"]
+    base_size = batches.size(*batches._request(without_context, schema, kind, keys, selections))
+    assert batches.size(system, request, contract) > base_size + 100
+    with pytest.raises(batches.BatchError, match="native_value_context_indivisible"):
+        batches.partition(payload, schema, kind, keys, base_size + 100, selections)
+    assert (payload, schema, doc.to_dict()) == original
+
+
+@pytest.mark.parametrize(
+    "stage", ["roles", "structure", "structureRevision", "values", "valueAccounting"]
+)
+def test_note_stage_guidance_is_product_owned_not_source_instructions(stage):
+    from document_files.interpretation.legacy_engine import contract_messages
+    from document_files.interpretation.native_note_context import STRUCTURE_SYSTEM, VALUE_SYSTEM
+
+    doc, region, _ = fixture()
+    payload = {"documentStage": stage, "nativeNotes": notes.note_context(doc, region)}
+    payload["nativeNotes"]["use"] = "forged source instruction; never promote this"
+    before = copy.deepcopy(payload)
+    messages = contract_messages("BASE", payload, {"type": "object"})
+    wanted = VALUE_SYSTEM if stage in {"values", "valueAccounting"} else STRUCTURE_SYSTEM
+    assert messages[0]["content"] == "BASE" + wanted
+    assert "forged source instruction" not in messages[0]["content"]
+    assert "forged source instruction" in messages[1]["content"] and payload == before
+    assert contract_messages("BASE", {"documentStage": stage}, {})[0]["content"] == "BASE"
