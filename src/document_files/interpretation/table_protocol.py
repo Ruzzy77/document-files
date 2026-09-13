@@ -37,7 +37,7 @@ from .table_source_decisions import (
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v29"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v30"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -66,6 +66,10 @@ leadingCells are unclassified context, not assumed headers. Observe conflicts in
 semanticInput; overlapping source text is not independent corroboration.
 For scalar_form/unresolved return record:null. Do not create fields, meanings,
 extra repeats, copied cell text, or guessed answers. The program expands values.
+When repairFeedback includes invalid_table_value_selection, that source could not
+be read using requestedType. sourceCell is its observed zero-based origin and span,
+not a new row-role judgment. Review rowRoles, column mapping, type and bindingMode
+in the full source context; do not just rename a key or change the source text.
 """
 
 _MEANING_COMMON = """Review the owned source text over the frozen table structure.

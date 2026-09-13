@@ -1955,8 +1955,17 @@ def extract_schema_from_stream(
                         if stage == "meaning" and progress.get("acceptedResponse")
                         else [feedback]
                     )
+                    if stage == "structure":
+                        from .table_structure_feedback import structure_feedback
+
+                        repair = structure_feedback(exc, observation, region)
                     progress.update(status="failed", feedback=repair)
-                    issue("table_stage_invalid", regionId=rid, tableStage=stage, errors=[feedback])
+                    issue(
+                        "table_stage_invalid",
+                        regionId=rid,
+                        tableStage=stage,
+                        errors=repair if stage == "structure" else [feedback],
+                    )
                     if local_selection:
                         # Deterministic compilation is not a new model attempt;
                         # do not retry it forever or manufacture another selection.
