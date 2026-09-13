@@ -1101,7 +1101,7 @@ have no undecided row positions. General semantic requests use the same neutral
 list: a record covers its observed table range with explicit row roles, and only
 rows chosen as data are read as records. The program does not infer a header from
 the first row, numeric types or formatting, or change native header flags.
-The neutral row positions remain in layout-first table protocol v36 / region plan
+The neutral row positions remain in layout-first table protocol v37 / region plan
 v25 / prompt v41. Correct row metadata does not establish correct interpretation;
 the new layout response is checked separately before column definitions are requested.
 
@@ -1151,6 +1151,30 @@ original offsets rather than applying them to the native value. Other formats re
 their existing source text. Lossless request factoring happens after this source
 selection and planning measures the same request that is sent.
 
+### Native HWPX cell whitespace and bounded text
+
+HWPX extractor v11 preserves the decoded text of cell segments instead of passing it
+through display trimming. Leading/trailing spaces, whitespace-only segments, tabs and
+line breaks therefore remain actual cell values rather than disappearing into an empty
+structural cell. Non-cell paragraph display behavior is unchanged. The source XML is
+not rewritten; cell/paragraph/run references and formatting metadata remain attached.
+This does not claim byte-identical XML text or preservation of every nontext object.
+
+The existing bounded-unit helper can preserve cell text without normalization. Long
+cell segments still split into bounded chunks; the native total-character and unit
+limits apply to the preserved output, including each emitted chunk. Native observation
+v5 rejoins only adjacent numbered chunks with the same identified source unit without
+inserting a newline. Separate paragraphs, nonadjacent chunks or insufficient source
+identity retain the existing explicit paragraph separator. Composite source ranges
+match each original chunk exactly, and accounting checks those ranges before covering
+original sources. No chunk is treated as a separate record or silently discarded.
+
+Actual native-file regressions cover HWPX/XLSX emptiness, whitespace, zero/false,
+formulas, notes, merged spans and bounded HWPX cell chunks. Scope fixtures that test
+blank rows now contain genuinely empty source cells; separate contradiction tests
+reject a blank role over content. These are source-preservation and compiler checks,
+not independent model-quality approval.
+
 ### Failed table reads and structural repair
 
 `table_structure_feedback.py` locates a compiler-rejected typed read using the
@@ -1166,8 +1190,8 @@ complete source context. The engine does not promote a row to a header, coerce a
 rejected value, evaluate a formula or change a field merely to make compilation pass.
 Unrelated errors retain their existing diagnostics. Failed diagnostics survive in the
 table-stage checkpoint and result. Column mapping has at most two automatic attempts;
-a failed mapping can request one review of the saved layout within its own two-call
-ceiling. Neither attempt count is reset by a changed layout. Public v1 contracts are
+a source-local row-relevant mapping failure can request one review of the saved layout
+within its own two-call ceiling. Neither attempt count is reset by a changed layout. Public v1 contracts are
 unchanged; compiler v37 checks the full occupied span when recognizing a column header.
 
 `check_structure` blocks the same structural issue codes as before, but retains their
@@ -1194,7 +1218,7 @@ chosen type/mode, not an invented failing cell. The `source`, `text` and `cached
 mode/type choices are otherwise unchanged and still require actual source validation.
 No formula is evaluated; a saved cache is a separate explicit read. Older table
 checkpoints are incompatible rather than normalized into a different choice. The
-current table protocol is v36, including separate layout decisions, neutral row
+current table protocol is v37, including separate layout decisions, neutral row
 metadata, coordinate decisions, source-specific feedback and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
@@ -1224,11 +1248,27 @@ sizing nor successful error delivery establishes correct table interpretation.
 
 ### Layout before column decisions
 
-`table_layout.py` implements table-layout v1. Its first response contains table kind,
+`table_layout.py` implements table-layout v2. Its first response contains table kind,
 one role per `rowRoleOrder` position, and `baseRevision`. A record table requires roles;
 scalar forms and unresolved tables require `rowRoles: null`. Names, keys, value types,
 read modes and meanings are not requested in this stage. Acceptance means the contract
 and source identity were checked, not that the model understood the table correctly.
+
+`table_row_checks.py` rejects a proposed blank row when any occupied source contains
+nonempty text or has unresolved/missing text evidence. Layout validation and the
+canonical compiler share the check, so bypassing the layout response cannot erase
+content by declaring it blank. Whole cell spans and all original paragraph sources
+are inspected; an empty excerpt cannot stand in for an entire cell. Whitespace,
+zero/false spellings and formula expressions are not empty strings. An implicit grid
+gap is not an observed cell or a new row role.
+
+The diagnostic names original row coordinates and separates `nonemptySourceRefs` from
+`unverifiedSourceRefs`. Feedback recomputes those facts from the source rather than
+trusting IDs copied into an exception. It does not quote private values, choose a
+replacement role, rewrite observations or certify that every apparently empty area
+is visually blank. The full source and complete feedback remain available for finite
+repair. Failed layouts spend calls but do not enter accepted history. Cancellation,
+resume and an oversized repair retain that failure and its costs.
 
 The saved layout records the original source hash, complete response and decision hash.
 The source hash covers the table, original nodes, bounded views and relevant native
@@ -1249,8 +1289,11 @@ The mapping request names the layout hash, includes its roles and preserves all 
 It asks only for coordinate-keyed definitions, not another row-role decision.
 
 Layout and mapping each allow at most **two calls** inside the caller's existing
-allowance. After a failed first mapping, one available layout review receives the full
-source, prior layout and source-local feedback. A retained or changed layout does not
+allowance. A failed first mapping can spend a layout review only for a located typed
+read, a checked header/content conflict or a blank/content contradiction. ID/key,
+wire-shape, range and formula-mode errors stay in mapping repair. Unlocated diagnostic
+codes do not justify revisiting rows. An eligible review receives the full source,
+prior layout and source-local feedback. A retained or changed layout does not
 reset the failed mapping attempt. No mapping or meaning was accepted at this point;
 earlier unrelated accepted regions stay intact. Reclassification as a scalar form
 returns to the existing scalar path, preserving spent usage and removing stale current
@@ -1281,8 +1324,8 @@ layout response and the engine charges that call. Tests focused on scope partiti
 use their known scripted layout to isolate scope scheduling; every actual request still
 passes the production input limit. Generic planning has separate native-file tests.
 
-Table protocol v36, region plan v25 and compiler v37 distinguish these states from the
-former combined path. General prompt v41 and public v1 interfaces remain unchanged.
+Table protocol v37, layout v2, region plan v25 and compiler v38 distinguish these
+states from earlier layouts and the former combined path. General prompt v41 and public v1 interfaces remain unchanged.
 Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
 ### Prior table mapping context
@@ -1724,15 +1767,16 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v25 / v37 |
+| Semantic prompt / region plan / result compiler | v41 / v25 / v38 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v36 / v2 / v1 / v4 |
-| Table layout | v1 |
+| Table protocol / table reference wire / table source wire / selection wire | v37 / v2 / v1 / v4 |
+| Table layout | v2 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
-| Native observation / native note objects | v4 / v1 |
+| Native observation / native note objects | v5 / v1 |
+| HWPX native extractor | source-units-v11 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v3 / v3 |
 | Recognition adapter | 29 |

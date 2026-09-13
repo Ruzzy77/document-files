@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,483 tests,
+The full local check including the native outline path passed **3,517 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v15, native-structure v20,
 structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v41,
-region plan v25, table protocol v36, table layout v1 and compiler v37. Public v1 result
+region plan v25, table protocol v37, table layout v2 and compiler v38. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -216,14 +216,15 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-Current implementation source is **6b0e82d235db93101f899087aa4f4e69ff673a6f**.
-Table protocol v36 / layout v1 / region plan v25 separate table kind and row roles
-from column definitions. Header candidates use the saved roles and original geometry,
-without rewriting native header flags. Compiler v37 checks the complete occupied span
-rather than only the origin row. General prompt v41 and public v1 contracts remain.
-Local checks passed **3,483 tests / 227 skips / 12 subtests**; the related checks
-passed **574 tests with warnings treated as errors**. The same source passed
-**850 related tests on Spark-A Python 3.12.3**. These are not model-quality results.
+Current implementation source is **52b15b98f76f084355a880891437e3b4f75385be**.
+Table protocol v37 / layout v2 / compiler v38 reject a blank-row choice contradicted
+by nonempty or unresolved source evidence. Mapping-only errors no longer consume a
+layout review. Native observation v5 / HWPX extractor v11 preserve cell whitespace
+and rejoin adjacent chunks without inserting a newline inside one source unit.
+Region plan v25, general prompt v41 and public v1 contracts remain unchanged.
+Local checks passed **3,517 tests / 227 skips / 12 subtests**; related checks passed
+**423 tests / 12 subtests with warnings treated as errors**. The same source passed
+**1,004 related tests on Spark-A Python 3.12.3**. These are not model-quality results.
 
 ### Same-source HWP backend comparison
 
@@ -287,52 +288,54 @@ and membership change), `table-read-feedback-64/` (source-local feedback), and
 `table-native-view-67/` (native source delivery), `table-coordinate-wire-68/`
 (coordinate decisions and repair sizing), `table-neutral-rows-69/`
 (neutral row metadata and the initial layout-first draft), and `table-layout-first-70/`
-(current implementation, actual layout/mapping failure, source replay and cleanup).
+(previous layout/mapping failure), and `table-blank-review-71/`
+(current blank/source checks, HWPX whitespace/chunks, actual early-stage diagnostic and cleanup).
 
-### Layout-first execution: implemented, quality still failed
+### Blank-row validation works; actual layout interpretation still fails
 
-The current source returned **partial after 4 calls / 178.9 seconds**, with no
-accepted data. The two layout responses still classify the leaf-header row as data
-and the nonempty explanatory note row as blank. Both mapping responses choose each
-physical column once, but reuse the group header's ID/key for three distinct columns.
-The compiler rejects `duplicate_component_id` before reading values or checking later
-structural issues. No unit, restriction or formula interpretation was accepted.
+A deliberately bounded **two-call early-stage diagnostic** on the current source
+returned partial after **33.1 seconds**, with no accepted layout or data. Both replies
+still classify the leaf-header row as data and the nonempty explanatory note row as
+blank. The second request includes the exact offending row and original source ID,
+but the model repeats its decision. The new guard refuses both replies before any
+column mapping or meaning call. Schema validity is not source consistency or quality.
 
-The actual sequence is layout → mapping → layout review → mapping repair. Saved source
-and layout hashes match; the review retains the same roles and does not reset mapping
-attempts. All input stays in one region and the native document is unchanged from the
-preceding run. Request sizes are **12,042 / 14,533 / 12,389 / 14,577 characters**.
-The 12-call / 900-second document allowance was neither exhausted nor increased.
-Two layout and two mapping attempts were spent. Complete row text and coordinates
-were already present in `rowCandidates`; this is not a missing-source demonstration.
+All native source, values and bindings match the preceding run, and the complete
+input remains in one region. Actual requests are **12,288 / 12,460 characters**.
+The check used at most two calls, below the ordinary 12-call evaluation ceiling;
+context/output/time limits and the frozen expectations were unchanged. It is not a
+whole-document throughput measurement or a substitute for complete extraction.
+The standard planner's optional `discover` intent adds eight characters in an offline
+sizing check; the actual request has an empty optional intent. Expanded source content
+is otherwise identical, not missing from the actual request.
 
-Two control gaps are now reproduced:
+The preceding whole-path run used **6b0e82d** and stopped on duplicate column IDs after
+four calls. Replaying that failure under current code confirms that it remains a mapping
+error and cannot spend a layout review. The same replay now rejects its nonempty blank
+row. The program does not replace the role or delete source. Scripted tests preserve
+attempt counts, full feedback, accepted unrelated work and cancellation/resume.
 
-- Layout validation accepts `blank` for a row with observed nonempty text. It validates
-  the contract and source identity, not this source-content contradiction.
-- An ID collision in column definitions triggers a layout review even though the
-  diagnostic does not identify a row-role problem. That review consumed a call without
-  changing the row choices; both mapping attempts still failed on the same collision.
+Source checking also exposed and fixed a native HWPX defect: whitespace-only cell text
+was discarded before interpretation. HWPX cells now retain spaces, tabs and line breaks;
+long cell segments stay bounded and rejoin contiguous chunks without added paragraph
+breaks. Other paragraphs retain their existing display normalization. Direct native-file
+tests cover empty strings, whitespace, zero/false, formulas, notes and merged sources.
+The broader HWP/HWPX logical reading and nontext-object quality remain unapproved.
 
-The geometry rule itself follows the saved decisions: the two vertically merged
-headers are excluded from candidates because their spans cross a row marked as data.
-This is not a correct model interpretation. A valid schema, source-bound history or
-successful geometry calculation does not approve the layout.
-
-Twenty-five evidence files were hash-checked; the owned engine returned and **3,823**
+Nineteen evidence files were hash-checked; the owned engine returned and **3,819**
 temporary files plus both transfer archives were removed. Shared services and retained
-components are unchanged. Sampled available-memory minima were **13.66 GiB on A /
-26.01 GiB on B**, with no OOM counter increase. These are not peak-memory, swap-free
-or deployment qualifications.
+components are unchanged. Sampled available-memory minima were **13.76 GiB on A /
+26.12 GiB on B**, with no OOM increase. No whole-job memory or deployment qualification
+is implied.
 
-**Next:** reject a blank-row choice contradicted by actual nonempty source without
-choosing its replacement role, and restrict mapping-to-layout review to source-local
-errors that can concern row roles. ID/key and other mapping-only failures must remain
-mapping repair; spent calls and complete feedback must survive. Tests must distinguish
-stored emptiness, whitespace, zero, formulas, merged spans and unclear observations.
-Then use a separately fixed diagnostic to distinguish row-evidence/response association
-from model reasoning behavior before another whole-path comparison. Do not replay the
-same four calls, force headers, delete source or increase the document allowance.
+**Next:** a separately predeclared one-call diagnostic with the same frozen code and
+exact first layout request, changing only per-request `enable_thinking` from false to
+true. Preserve the model/runtime, sampling, source and existing context/output/timeout
+limits; verify the actual request difference and all reasoning/output usage. Do not add
+more role heuristics, hand-written expected-role hints or unchanged retries. A correct
+layout would still require a full bounded table/value/meaning/applicability comparison,
+then new independent HWP/HWPX/XLSX inputs. The current refusals are correct safeguards,
+not successful document understanding.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -405,7 +408,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Complete primary-format extraction is not approved.** HWP lacks complete occurrence-bound values and relationships. Layout-first XLSX still has wrong header/blank roles and duplicate column IDs; a mapping-only error consumes layout review. The 50-row baseline still retains only 12/45 rows. | Reject blank roles contradicted by observed content; restrict layout review to relevant source-local errors while preserving all spent calls. Diagnose remaining row interpretation before another whole-path comparison. No unchanged retry, forced role, source deletion or approval by labels/counts. |
+| 1 | **Complete primary-format extraction is not approved.** HWP lacks complete occurrence-bound values and relationships. Current XLSX row decisions still fail source checking; the prior full run also had duplicate column IDs. Incorrect blank acceptance and unrelated layout review are fixed, not the model interpretation. The 50-row baseline still retains only 12/45 rows. | Compare per-request reasoning with the same exact layout request under a one-call cap, then require a full native table/meaning/applicability run. No more unchanged retries, forced roles, source deletion or approval by schema/counts. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |
