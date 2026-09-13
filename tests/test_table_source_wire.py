@@ -154,13 +154,22 @@ def test_actual_native_table_requests_keep_every_cell_source_and_metadata(format
         original = region_payload(doc, region)
         packed = structure_payload(original)
         restored = expand_table_sources(packed)
-        assert _same(original["nodes"], restored["nodes"])
+        original_view = deepcopy(restored["nodes"])
+        for ref, node in original_view.items():
+            view = node.get("textRange", {})
+            if view.get("path", "").startswith("/semantic/value/"):
+                key = view["path"].rsplit("/", 1)[-1]
+                assert node["text"] == original["nodes"][ref]["semantic"]["value"][key]
+                assert (view["start"], view["end"]) == (0, len(node["text"]))
+                node["text"] = original["nodes"][ref]["text"]
+                node.pop("textRange")
+        assert _same(original["nodes"], original_view)
         assert _same(original["relations"], restored["relations"])
         for ref, table in original["tables"].items():
             assert _same(table["cells"], restored["tables"][ref]["cells"])
             seen.extend(cell["sourceRef"] for cell in doc.tables[ref]["cells"])
         assert [n["text"] for n in packed["nodes"].values()] == [
-            n["text"] for n in original["nodes"].values()
+            n["text"] for n in restored["nodes"].values()
         ]
         messages = contract_messages(STRUCTURE_SYSTEM, packed, structure_schema(doc, region))
         # prepare_regions uses the same default metadata when sizing its request.
@@ -237,7 +246,10 @@ def test_prior_mapping_keeps_real_xlsx_headers_after_title_without_declaring_the
     assert doc.tables[root_ref] == root and doc.nodes == before_nodes
     packed = structure_payload(region_payload(doc, region))
     restored = expand_table_sources(packed)
-    assert all(restored["nodes"][ref]["text"] == doc.nodes[ref]["text"] for ref in refs)
+    assert [restored["nodes"][ref]["text"] for ref in refs] == ["ID", "Length", "Width"]
+    assert all(
+        restored["nodes"][ref]["textRange"]["path"] == "/semantic/value/value" for ref in refs
+    )
     state = deepcopy(doc), deepcopy(region)
     add_table_definition_context(doc, region, refs)
     assert (doc, region) == state

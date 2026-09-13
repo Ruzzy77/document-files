@@ -35,9 +35,9 @@ from .table_source_decisions import (
     source_decisions_to_flat,
 )
 from .table_source_wire import compact_table_sources
-from .table_sources import SourceReviewError, resolve_quotes, source_inventory
+from .table_sources import SourceReviewError, _source_text, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v32"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v33"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -434,6 +434,18 @@ def structure_payload(payload):
     # Compact, model-only row grouping. Original cells/nodes and holes stay intact;
     # a source spanning rows appears in each actual row it intersects, not by ID.
     result = _stage_payload(payload)
+    # XLSX display text adds addresses and can round numbers. Structure decisions
+    # must see the same original scalar/expression as the meaning source reader.
+    # Retain the native metadata and locators; never strip a guessed text prefix
+    # or reuse /text-window offsets against a different native value.
+    result["nodes"] = copy.deepcopy(payload.get("nodes", {}))
+    for node in result["nodes"].values():
+        if "textRange" in node:
+            continue
+        path, text = _source_text(node)
+        if path != "/text":
+            node["text"] = text
+            node["textRange"] = {"path": path, "start": 0, "end": len(text)}
     result["tables"] = {}
     for ref, table in payload.get("tables", {}).items():
         cells = table["cells"]
@@ -452,7 +464,7 @@ def structure_payload(payload):
                             cell["col"],
                             cell.get("colSpan", 1),
                             cell["sourceRef"],
-                            payload.get("nodes", {}).get(cell["sourceRef"], {}).get("text", ""),
+                            result["nodes"].get(cell["sourceRef"], {}).get("text", ""),
                         ]
                         for cell in observed
                     ],
@@ -460,7 +472,12 @@ def structure_payload(payload):
                 for row, observed in sorted(rows.items())
             ],
         }
-        result["tables"][ref] = {**table, "rowCandidates": candidates}
+        projected = copy.deepcopy(table)
+        for column in projected.get("columnCandidates", []):
+            column["headerText"] = " > ".join(
+                result["nodes"].get(source, {}).get("text", "") for source in column["headerRefs"]
+            )
+        result["tables"][ref] = {**projected, "rowCandidates": candidates}
     return compact_table_sources(result)
 
 
