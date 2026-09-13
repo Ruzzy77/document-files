@@ -70,7 +70,8 @@ Scope integration v15 / scope protocol v7 now discover the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
 The next-row guide uses effective compiled column definitions, not rejected citations
 from the original model response. Whole-record provenance remains stored, not replayed
-as column context. These current changes still need the bounded Spark comparison.
+as column context. The bounded comparison below verifies the later-row delivery
+change; actual parent-table applicability still needs a completed comparison.
 
 Table selection wire v4 requests only one status string per owned source. Canonical
 selection record v2 explicitly records that per-source explanations were not requested;
@@ -124,57 +125,55 @@ budget increase is used to manufacture a successful result.
 
 ## Latest Spark-B verification
 
-Source **671518f29e95685a2d82b5dd5c61c527c5f40a06** ran the unchanged 50-row
-native development files with table protocol v27 / selection wire v4. The task-owned
-9B runtime used 16,384 context tokens. Document limits stayed at 12 calls, 900 seconds
-and 16,000 input characters; selection kept its **1,536-token output cap**.
+Source **e3452fba507a1f5dd1ddb1d87549d59c2fdf1295** ran the unchanged 50-row
+native development files through the actual product path. The task-owned 9B runtime
+used 16,384 context tokens. Document limits stayed at **12 calls / 900 seconds /
+16,000 input characters**; selection kept its 1,536-token output cap. Expectations
+were frozen before the first run and stayed local, not in the extractor's input.
 
 | File | Actual processing | Remaining failure |
 |---|---|---|
-| HWPX | Returned partial: 5 calls / 118.5 seconds; 7 of 50 rows | All 48 offered source choices completed in 634 tokens. All 21 returned values, row order and original cells match. Later row requests exceed the input cap; native title/unit/caption structure remains invalid. |
-| XLSX | 3 completed responses, then a fourth attempt failed; last checkpoint holds 11 of 50 rows | All 37 source choices completed in 490 tokens. All 33 saved values, row order and original cells match. The product did not return: its separate nonrecord-value request passed token-count preflight but the pinned runtime rejected the expanded grammar before generating a response. |
+| HWPX | Returned partial: 7 calls / 147.2 seconds; 12 of 50 rows | All 36 returned values, row order and original cells match. The second selection incorrectly marked five bare specimen IDs as additional meanings; its detail request measured 16,899 characters and was not sent. Native title/unit/caption structure also remains invalid. |
+| XLSX | Returned partial: 12 calls / 207.5 seconds; 45 of 50 rows | All 135 returned values, row order and original cells match, including the stored blank at row 37. No input overflow remained, but the call budget ran out before the remaining rows, nonrecord content and applicability. |
 
-Both first-table selections explicitly chose `no_additional_meaning` for every
-owned source. They were accepted with exact coverage and `not_requested` explanation
-state; no synthetic model rationale or truncated JSON was accepted. This removes the
-observed classification-output truncation, **not** the whole-document failures.
-Unit/condition/note applicability, all 50 rows, the blank at row 37 and both equal-valued
-rows 11/12 together remain unverified. Both documents fail full-document quality.
+Equal-valued rows 11 and 12 retain distinct IDs and source cells in both results.
+XLSX row 37's width retains its empty value and `stored_empty_cell` observation,
+not an absent value or an inferred zero. These checks cover the returned rows only.
+**Neither document passes whole-document quality**, and this run does not establish
+correct unit/condition/note applicability. Evidence:
+`structural-kpi-20260913/native-mapping-scope-45/`.
 
-The next-row input failure is now isolated: the model cited already-read data cells
-as record/column definitions. Carrying all of those sources as later mapping context
-produced **17,089 HWPX / 16,423 XLSX characters for a single row**, above the unchanged
-16,000-character cap. Definition evidence must be distinguished from general record
-provenance without discarding original sources or legitimate headerless definitions.
-The scalar runtime failure reports excessive grammar repetition, not invalid JSON
-from the model. Its generic limits include 5,000 dispositions and 2,000 excluded
-bindings despite only 7 offered sources and 4 bindings. Candidate-specific limits
-already enforced by compiler uniqueness are a possible fix; the exact triggering
-rule still needs a bounded runtime check. Arbitrary array-limit removal is not a fix.
+The comparison follows three specific corrections:
 
-Source/input hashes and shared RPC were unchanged; the host OOM count stayed zero.
-Owned server, container and key, 219 source exports, duplicate inputs and remote
-collected copies were removed after hash verification. The source passed **141 selected
-ARM tests** on Python 3.12.3. Evidence: `structural-kpi-20260913/native-table-status-42/`.
-The XLSX checkpoint is explicitly distinguished from a returned product result.
+- **Scalar decoder limits.** An exact failed request, with only the disposition and
+  exclusion limits changed from 5,000/2,000 to its 7/4 unique candidates, started
+  sampling on the same pinned runtime. This one-token diagnostic is not a JSON or
+  quality pass (`native-scalar-grammar-43/`). The subsequent actual product run
+  returned a partial result normally, without the prior grammar initialization error.
+- **Effective mapping evidence.** The compiler already corrected improper data-cell
+  citations, but the engine replayed the raw proposal and whole-record provenance
+  as later column context. It now uses the compiled column definitions. No source
+  is discarded from the stored result and no new header heuristic is introduced.
+- **Parent-table applicability candidates.** The preceding XLSX product comparison
+  (`native-scalar-product-44/`, 6 calls / 138.4 seconds, 11 rows) misread unit wording
+  as scalar values, then applied the unit to one of those fields. Its scope request
+  could not see the actual parent columns because its routed child was nonadjacent
+  in execution order. Explicit routing now supplies those candidates. Saved-input
+  replay and regressions verify discovery, **not** the model's corrected choice;
+  the latest full run exhausted its budget before that stage.
 
-Earlier transport failures explain the design:
-- v23 source groups repeated an ID in HWPX and misclassified all XLSX sources.
-- v24 tuple schema was rejected by b10853; v25 passed token-count preflight but its
-  actual generated tuple items violated the required types.
-- v26 closed choice objects still copied 48 / 37 separate explanations until output
-  truncation. Optional explanation sharing was not a bounded-output design.
+The source passed **73 directly selected ARM tests** on Python 3.12.3. Study 45's
+69 received files were checked by hash. Source/input hashes and shared RPC were
+unchanged; host OOM stayed zero. Owned servers, containers and keys, temporary source
+and input exports, remote collected copies and transfer archives for 43–45 were
+removed after verification. Existing model/runtime components and original failure
+evidence remain. Installed packs and consumers were not changed.
 
-Those failures remain in `native-table-selection-38/` and `native-table-reasons-39/`
-through `41/`. No malformed response or completed-looking prefix was salvaged.
-
-Earlier runs 35/36 established that the first table's 6,317 input + 3,072 output + 32
-margin tokens exceeded the old 8,192-token task-owned server. The larger server
-resumed the exact saved checkpoint with prior usage retained and no completed call
-repeated. v22's lossless meaning display then removed the specific input overflows
-observed in that comparison. None of this changes the installed managed-pack default
-or qualifies an installed Spark service. Earlier evidence remains in
-`native-table-context-35/`, `native-table-runtime-36/` and `native-table-meaning-37/`.
+Earlier request-format failures remain in `native-table-selection-38/` through
+`native-table-status-42/`; context/resume evidence is in `native-table-context-35/`,
+`native-table-runtime-36/` and `native-table-meaning-37/`. No malformed response or
+completed-looking prefix was salvaged. Successful token-count preflight alone is
+not proof that the pinned runtime can initialize its decoder or complete a request.
 
 ### Earlier 50-row baseline
 
@@ -366,18 +365,18 @@ platform-installer or independent quality qualification**.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The latest 50-row runs stop at 7 HWPX / 11 XLSX rows because source-selection output truncates. Prose-record runs separately retain per-item scalars, title copies, wrong missing states and equal-valued source occurrences. | Bound source classification output by construction; optional free-form reason sharing has failed in the actual model. Separate diagnostic prose from the choices without fabricating reasons, and separately bound larger work if needed; do not raise the output cap or omit sources to pass. Then check every row/value/meaning in the complete path. |
-| 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
-| 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. The 50-row HWPX also retains empty-fragment evidence against a joined nonempty array. | Review actual values, bindings, field set, order and applicability. Correct evidence remapping across continuation; retain explicit blank cells and distinct equal-valued records. Do not delete evidence just to satisfy the reviewer or infer correctness from text elsewhere in a node. |
-| 4 | Long-table scope delivery is partly improved. The reproduced 50-row request now fits at 15,858 characters instead of 24,557, with all 51 observed rows and 102 source texts retained. A 96-row fixture still loses the record candidate at the unchanged discovery limit; provenance limits also remain. | Verify the new display with an actual model, then address bounded discovery and source binding without dropping rows or raising caps. This scripted request/selection check is not a full document or long-table quality pass. |
-| 5 | New HWP/HWPX and XLSX documents have not passed independent end-to-end structural and semantic review. | Freeze unseen native inputs with prior expected structure, values, relationships and provenance; run the actual product path on Spark. Review the full result independently of execution. A failed holdout used for a fix becomes a development case. |
+| 1 | **Native complete extraction is not approved.** HWPX stops at 12/50 rows after bare IDs are selected as meanings; XLSX reaches 45/50 before its call budget expires. `regions.py`, `engine.py`, `table_protocol.py` / meaning execution. | Check whether contiguous, unstarted slices of the same physical table can be rebatched against the effective mapping instead of retaining small per-slice tails. Bound selected-meaning detail work without removing source context. Preserve accepted rows, ownership, history and fixed budgets; verify every row in the actual product path. These changes are not yet implemented. |
+| 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
+| 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Empty-fragment evidence may still target a joined nonempty array. | Correct evidence mapping across continuation while preserving explicit blank cells and distinct equal-valued records. Review fields, values, bindings, order and applicability together; do not delete evidence just to satisfy a reviewer. |
+| 4 | Larger scope discovery and provenance bounds remain. A 96-row fixture loses the record candidate at the unchanged discovery limit; smaller scripted request delivery is not model quality. | Provide bounded discovery and source binding without dropping rows or hiding incomplete coverage. Check actual-model long-document applicability after the complete table path is fixed. |
+| 5 | HWP/HWPX and XLSX lack independent end-to-end approval across varied forms. Prose records still have wrong per-item states and occurrence bindings. | Freeze new expectations for hierarchy, label/value and prose records, merged/nested/continued tables, subtotal/note rows and three-page content. Compare equivalent content in different layouts and genuinely different forms, not a fixed template. A failed holdout used for a fix becomes development evidence. |
 
 Fix reproduced preservation defects before another broad inference run. Run only
 affected examples within a predeclared budget; retain raw failures and do not
 increase that budget automatically. A result-to-file writer, visual editor and
 pixel-matched reproduction are not prerequisites for this work.
 
-The next selection change must also separate original cell text from generated
+Meaning requests must also separate original cell text from generated
 display labels. XLSX value candidates already use native cell strings, but the
 table meaning inventory still reads `node.text`, such as `B10=10.0600`. The
 coordinate prefix is not source content. Replace it only through a verified native
@@ -387,7 +386,9 @@ classified as a `header` is not necessarily a column definition. Distinguish tit
 caption and column-header roles without assigning them from row position alone.
 These changes are not implemented yet. Meaning-input packing also does not make
 every inventory fit: a larger synthetic HWPX inventory remains over 16,000
-characters with all sources retained and needs bounded processing.
+characters with all sources retained and needs bounded processing. In the latest
+actual HWPX run, five selected identifiers already produce a 16,899-character detail
+request; the input guard correctly leaves that work unresolved.
 
 ## What finishes the primary formats
 

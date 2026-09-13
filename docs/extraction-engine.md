@@ -75,6 +75,17 @@ Both partial and completed checkpoints have regression coverage for no replay of
 accepted rows. This does not fix the remaining model, applicability or empty-fragment
 evidence errors.
 
+The current replanner splits each previously planned region in isolation. It does
+not rebalance adjacent unstarted views of the same source table. In the latest
+50-row XLSX development run, 13- and 12-row regions became 10+3 and 10+2 rows;
+each tail still required structure and source-selection calls. The product reached
+45 rows before its fixed call allowance ended. This is a planning cost, not a reason
+to increase the allowance or accept missing rows. Any replacement must retain source
+ownership, observed row order, mapping context and checkpoint history, and must not
+combine unrelated physical tables. Before another model comparison, estimate the
+remaining content/applicability calls as well: fewer slices alone does not establish
+that the whole document fits. Rebalancing and further stage redesign are not implemented.
+
 Meaning selection and details share cell/relation metadata **after** reference-wire
 translation. Source choice inventories, literal quotes and the frozen structure
 are unchanged by this display codec. Checkpoint reference dictionaries
