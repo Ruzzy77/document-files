@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,539 tests,
+The full local check including the native outline path passed **3,551 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v15, native-structure v20,
 structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v41,
-region plan v26, table protocol v38, table layout v3 and compiler v39. Public v1 result
+region plan v27, table protocol v39, table layout v3 and compiler v40. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -216,22 +216,24 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-Current implementation source is **93c3f461aeb35790499a554847b0ce1db643a9fa**.
-Table layout v3 presents named row/cell coordinates and exact source text before the
-unchanged native metadata. It preserves gaps, vertical spans and distinct equal-valued
-cells without assigning header roles. Table protocol v38 / region plan v26 identify
-this changed request and sizing; compiler v39 retains the native-formula correction.
-Native observation v5 / HWPX extractor v11, prompt v41 and public v1 contracts are
-unchanged. Incompatible checkpoints cannot resume.
+Current implementation source is **325e32d950c8de04478d8e536184bb12905f91de**.
+Compiler v40 / table protocol v39 retain verified precision and native-formula type
+failures in column repair rather than spending a layout review. Feedback reproduces
+the read against the offered source; it does not trust a model-written cause. The
+mapping contract distinguishes exact decimal strings from binary-float numbers.
+Precision rejection, native formulas, complete source and genuine row/content checks
+remain. Region plan v27 identifies the changed request sizing. Layout v3, native
+observation v5 / HWPX extractor v11, prompt v41 and public v1 contracts are unchanged;
+incompatible checkpoints cannot resume.
 
-Local checks passed **3,539 tests / 227 skips / 12 subtests**. Related checks passed
-**286 tests with warnings treated as errors**, and the same committed source passed
-**286 related tests on Spark-A Python 3.12.3**. These are source checks, not model-quality
-approval. The later model attempt reuses that exact source/environment/Python evidence;
-it does not claim another ARM test run. Full-page 50/96-row sizing preserves all cells
-and the prior region counts: HWPX **6/12**, XLSX **4/7**, at 16,000 input characters.
-The earlier incomplete 96-row sizing was a paginated test-helper error, not native
-extraction loss; the semantic engine already projects all native analysis units.
+Local checks passed **3,551 tests / 227 skips / 12 subtests**. Related checks passed
+**113 tests with warnings treated as errors**, and the same committed source passed
+**113 related tests on Spark-A Python 3.12.3**. These are source checks, not model-quality
+approval. Replaying the original failed layout and two mapping replies now takes
+layout → mapping → mapping, with the exact precision cause in feedback. The unchanged
+wrong types still fail, and native source is identical; no automatic type/value
+correction or model success is implied. Full-page 50/96-row sizing preserves the prior
+region counts: HWPX **6/12**, XLSX **4/7**, at 16,000 input characters.
 
 ### Same-source HWP backend comparison
 
@@ -301,61 +303,63 @@ and membership change), `table-read-feedback-64/` (source-local feedback), and
 (full-path attempt stopped at the initial output limit), and `table-bounded-thinking-74/`
 (bounded reasoning failure, native-formula correction, complete-page sizing and source checks),
 and `table-row-view-75/` (named source rows, unchanged capacity, correct development
-layout and unresolved numeric-type repair).
+layout and unresolved numeric-type repair), and `table-precision-repair-76/`
+(verified precision feedback, column-only repair and source-read domain investigation).
 
-### Correct development layout with named rows; numeric-type repair still fails
+### Column-only repair works; the model still chooses unreadable numeric types
 
-The current **93c3f46** source replaces the layout stage's positional row cells with
-named coordinates, source references and exact text, shown before the unchanged native
-metadata. The initial request is **13,346 characters / 3,913 prompt tokens**. Restoring
-that derived view and version labels reproduces the previous request's complete source
-payload exactly. No corrected roles or expected answers were supplied. This is still
-the original development XLSX, not an independent holdout.
-
-The actual public path returned **partial after 4 calls / 579.9 seconds**, with no
-compiled values. Its native document is exactly equal to the prior run's document.
+The current **325e32d** source preserves the correct row layout, delivers the exact
+precision failure and repairs columns directly. The actual public path returned
+**partial after 3 calls / 465.9 seconds**, with no accepted mapping or values. This is
+the same original development XLSX and unchanged local-only expectations, not a new
+holdout. Its native document is exactly equal to the prior run's document.
 
 | Stage | Time | Actual result |
 |---|---:|---|
-| Initial layout | 121.3 seconds | Correctly selects two header, two data and two note rows. |
-| Initial column mapping | 198.0 seconds | Requests `number` for the exact long decimals and formula; data cells also appear in header references. Compilation rejects the first precision-losing number read. |
-| Layout review | 65.1 seconds | Retains the same correct rows. The precision error did not require this role review. |
-| Column repair | 195.0 seconds | Corrects column header references and uses `native` for the formula, but still requests `number` for the long decimals. Compilation rejects it again. |
+| Initial layout | 99.8 seconds | Correctly selects two header, two data and two note rows. |
+| Initial column mapping | 194.0 seconds | Correct header references and string formula type, but `number` for the long decimals. The exact read rejects precision loss. |
+| Column repair | 171.7 seconds | Receives `number_precision_loss`, yet retains the same wrong numeric types and changes the formula type to `number`. The first decimal read fails again. |
 
-The precision guard is working: it does **not** round the original decimal into a
-binary float. The defect is in repair information and routing. `bindings.resolve`
-identifies a number round-trip precision failure; the compiler reports only
-`binding_cannot_represent_requested_type`. The located read then spends a layout
-review, while the column repair is not told that the numeric representation loses
-precision. An offline replay of that source read reproduces the exact cause. No
-successful values, units, conditions or applicability may be inferred from the correct
-row proposal; those later stages did not run. The native-formula fallback fix remains
-in compiler v39, but no mapping was accepted in this run.
+There is no redundant layout call: the prior run used four calls, including a 65.1-second
+row review. The runs are not a controlled throughput benchmark. All three current
+responses finish normally; the two-attempt mapping limit is reached, not the existing
+**12-call / 900-second** document allowance. Values, units, conditions and applicability
+are unverified; meaning stages did not run. The precision guard accepts no rounded value,
+and the formula is not evaluated. The later formula-type regression was proposed, not
+executed after the first decimal failure.
 
-All four replies finished normally. The run reached the existing two-attempt mapping
-limit, not the **12-call / 900-second** document allowance. The private reasoning
-policy now uses `min(1536, actual_output_limit // 2)` and rejects conflicts before
-generation. This run requested 3,072 total / 1,536 reasoning tokens in every executed
-stage. Selection's 1,536 total / 768 reasoning setting was checked offline only;
-selection was not executed. This policy is diagnostic, not an adopted product default
-or a certification of exact runtime reasoning-token enforcement.
+Both the public and actual wire schemas offer `decimal`. The response explanation
+uses the native source's `kind: number` as a reason to select the output type `number`,
+despite the mapping instructions distinguishing binary-float reads from exact decimal
+strings. That is evidence of a source-type/representation confusion, not proof of its
+only cause. More prose or an unchanged retry is not sufficient evidence of progress.
 
-Two preliminary checks stopped before generation: the local capture had not applied
-the driver's 300-second per-exchange timeout, and reuse compared a reformatted local
-manifest's bytes with the remote original. Request bodies, dependency records and
-source were unchanged. Both stops and the completed model attempt were collected,
-hash-checked and cleaned. The same-source 286-test ARM result was reused, not rerun
-or counted twice. Shared services and original components are unchanged; neither
-host's OOM count increased. No whole-job memory, swap-free or deployment qualification
-is claimed.
+An offline compiler audit probes all four read modes and seven types for each of the
+five original columns over both saved data rows. In `source` mode, `decimal`, `string`
+and `native` can retain the original quantity scalars while `number` is rejected.
+The formula can remain text/native; `decimal` yields uncertainty rather than a hard
+failure. Missing formula/cache bindings yield absence, not a successful present read.
+These isolated probes do not supply answers to a model, change native source, select
+field meanings or constitute complete results. **No source-derived output restriction
+has been adopted yet.**
 
-**Next:** retain the precise source-read cause in feedback and keep precision-only
-or native-formula numeric errors in column repair, without reinterpreting correct rows.
-Explain `number` versus exact `decimal`/text reads in the mapping contract. Preserve
-precision rejection, genuine header/content review, full source, finite allowances
-and checkpoint compatibility. Verify the original failures before another versioned
-bounded run. Complete values, relationships and fresh independent HWP/HWPX/XLSX
-qualification remain open; one correctly interpreted layout is not general reliability.
+The diagnostic reasoning policy is unchanged: `min(1536, actual_output_limit // 2)`,
+with conflicts rejected before generation. Executed stages each requested 3,072 total /
+1,536 reasoning tokens. Selection's 1,536/768 combination remains offline-only because
+selection was not reached. Exact runtime reasoning-token enforcement is not certified.
+The new source passed 113 ARM tests before inference. All 28 collected evidence files
+were hash-checked; the owned copy and transfer archives were removed. Shared services
+and original components are unchanged, with no OOM increase. No independent quality,
+whole-job memory, swap-free or deployment qualification is claimed.
+
+**Next:** derive permitted read combinations from the saved layout and the same source
+reader used by compilation, so impossible representations can be excluded before model
+generation. Distinguish native kind from output representation; do not force one type,
+coerce values or infer field meaning in code. Keep absence, uncertainty, multipart cells
+and bounded source views explicit. Measure complete request/schema capacity before
+adoption and retain names, business keys, header provenance, all source and checkpoint
+identity. Full primary-format values/relationships and fresh independent inputs remain
+required; correct rows and diagnostic routing are not whole-document quality approval.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -428,7 +432,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Complete primary-format extraction is not approved.** The named-row XLSX run keeps the correct layout, but both column proposals request a precision-losing numeric representation and no values are accepted. HWP remains incomplete; the 50-row baseline still retains only 12/45 rows. | Carry the verified precision/type cause into feedback and keep those errors in column repair. Preserve exact reads and genuine row/content review, then test the bounded whole path and fresh independent inputs. |
+| 1 | **Complete primary-format extraction is not approved.** The current XLSX run keeps correct rows and repairs columns directly, but the model repeats the precision-losing numeric choices. No values are accepted. HWP remains incomplete; the 50-row baseline still retains only 12/45 rows. | Investigate compiler-derived permitted read combinations before generation, without forcing semantic types or dropping source. Verify absence/uncertainty and full-input capacity before a new versioned actual run. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |

@@ -1101,8 +1101,8 @@ have no undecided row positions. General semantic requests use the same neutral
 list: a record covers its observed table range with explicit row roles, and only
 rows chosen as data are read as records. The program does not infer a header from
 the first row, numeric types or formatting, or change native header flags.
-The neutral row positions remain in layout-first table protocol v38 / region plan
-v26 / prompt v41. Correct row metadata does not establish correct interpretation;
+The neutral row positions remain in layout-first table protocol v39 / region plan
+v27 / prompt v41. Correct row metadata does not establish correct interpretation;
 the new layout response is checked separately before column definitions are requested.
 
 `table_layout.mapping_schema` derives the current model-facing column contract
@@ -1200,6 +1200,22 @@ span. A merged cell's origin is not the particular expanded record row that trie
 to read it. The diagnostic does not copy cell text, generated field names or binding
 IDs that were absent from the structural request.
 
+Representation failures also include a verified `readFailure` code:
+`number_precision_loss`, `native_number_precision_loss` or `formula_requires_text`.
+`bindings.resolve` raises these as typed errors while retaining precision rejection.
+The feedback builder reproduces the read against the offered, owned source binding;
+it does not trust a cause attached to an exception, model response or saved feedback.
+No literal value is included in that diagnostic. A rounded native value cannot be
+read as text to conceal its lost digits; its exact raw source must be selected.
+
+These causes stay in column repair and do not spend a layout review. Other located
+type failures, such as a text header read as a number, can still require row review;
+blank/source and header/content checks are unchanged. The mapping contract explains
+that `number` requires an exact binary-float decimal round-trip, while `decimal`
+preserves the original numeric literal as a string, including trailing zeros. Native
+formula expressions remain text/native reads, never calculated or substituted caches.
+The program neither changes a model-selected type nor accepts a lossy value itself.
+
 The model must reconsider its row role, column mapping, type or binding mode in the
 complete source context. The engine does not promote a row to a header, coerce a
 rejected value, evaluate a formula or change a field merely to make compilation pass.
@@ -1233,7 +1249,7 @@ chosen type/mode, not an invented failing cell. The `source`, `text` and `cached
 mode/type choices are otherwise unchanged and still require actual source validation.
 No formula is evaluated; a saved cache is a separate explicit read. Older table
 checkpoints are incompatible rather than normalized into a different choice. The
-current table protocol is v37, including separate layout decisions, neutral row
+current table protocol is v39, including separate layout decisions, neutral row
 metadata, coordinate decisions, source-specific feedback and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
@@ -1323,8 +1339,9 @@ It asks only for coordinate-keyed definitions, not another row-role decision.
 
 Layout and mapping each allow at most **two calls** inside the caller's existing
 allowance. A failed first mapping can spend a layout review only for a located typed
-read, a checked header/content conflict or a blank/content contradiction. ID/key,
-wire-shape, range and formula-mode errors stay in mapping repair. Unlocated diagnostic
+read without a verified representation-only cause, a checked header/content conflict
+or a blank/content contradiction. ID/key, wire-shape, range, verified precision and
+formula-mode errors stay in mapping repair. Unlocated diagnostic
 codes do not justify revisiting rows. An eligible review receives the full source,
 prior layout and source-local feedback. A retained or changed layout does not
 reset the failed mapping attempt. No mapping or meaning was accepted at this point;
@@ -1357,7 +1374,7 @@ layout response and the engine charges that call. Tests focused on scope partiti
 use their known scripted layout to isolate scope scheduling; every actual request still
 passes the production input limit. Generic planning has separate native-file tests.
 
-Table protocol v38, layout v3, region plan v26 and compiler v39 distinguish these
+Table protocol v39, layout v3, region plan v27 and compiler v40 distinguish these
 states from earlier layouts and the former combined path. General prompt v41 and public v1 interfaces remain unchanged.
 Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
@@ -1800,10 +1817,10 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v26 / v39 |
+| Semantic prompt / region plan / result compiler | v41 / v27 / v40 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v38 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v39 / v2 / v1 / v4 |
 | Table layout | v3 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
