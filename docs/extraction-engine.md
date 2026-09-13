@@ -1101,8 +1101,8 @@ have no undecided row positions. General semantic requests use the same neutral
 list: a record covers its observed table range with explicit row roles, and only
 rows chosen as data are read as records. The program does not infer a header from
 the first row, numeric types or formatting, or change native header flags.
-The neutral row positions remain in layout-first table protocol v40 / region plan
-v28 / prompt v41. Correct row metadata does not establish correct interpretation;
+The neutral row positions remain in layout-first table protocol v41 / region plan
+v29 / prompt v41. Correct row metadata does not establish correct interpretation;
 the new layout response is checked separately before column definitions are requested.
 
 `table_layout.mapping_schema` derives the current model-facing column contract
@@ -1124,6 +1124,24 @@ Subtotal, note and unmapped value cells use a separate scalar child region with
 child cannot regenerate records. Its context contains relevant headers and nearby
 text, not every already compiled record value. An unresolved mapped value remains
 in its original record. Label/value forms keep the existing scalar path.
+
+An owned table slice containing only model-confirmed `note`, `subtotal` and optional
+`blank` rows takes the scalar path directly, without column mapping or a new empty
+record. At least one note/subtotal row is required. Header-only tables, entirely blank
+tables, data rows and unresolved rows retain their existing paths. The predicate uses
+all rows spanned by owned cells; context-only headers do not become owned rows. It
+never infers a role from note text. Existing accepted records are not reclassified.
+The saved layout response is unchanged. Structure records `routing: layout-nonrecord.v1`
+and its layout hash; resume rechecks that route against the source and accepted roles.
+Mapping and table-meaning usage stay zero; scalar interpretation remains charged and
+can fail or leave uncertainty. Skipping mapping does not mean the notes were understood.
+
+Both routed scalar children and scalar forms use the existing reversible table-source
+metadata encoding when its savings exceed the decoder instructions. Source text,
+identifiers, bindings, geometry, relations and the canonical response contract remain
+complete. Child planning counts the same `contract_messages` used at dispatch, including
+the decoder instructions; actual requests and repairs still undergo the full character
+and token checks. An oversized request stays partial rather than trimming its sources.
 
 The scalar request grammar bounds `dispositions` and `excludedBindings` by the
 number of unique issued source IDs (owned plus context) and binding IDs. It keeps
@@ -1254,7 +1272,7 @@ chosen type/mode, not an invented failing cell. The `source`, `text` and `cached
 mode/type choices are otherwise unchanged and still require actual source validation.
 No formula is evaluated; a saved cache is a separate explicit read. Older table
 checkpoints are incompatible rather than normalized into a different choice. The
-current table protocol is v40, including source-derived reads, layout decisions, neutral row
+current table protocol is v41, including source-derived reads, layout decisions, neutral row
 metadata, coordinate decisions, source-specific feedback and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
@@ -1420,7 +1438,7 @@ layout response and the engine charges that call. Tests focused on scope partiti
 use their known scripted layout to isolate scope scheduling; every actual request still
 passes the production input limit. Generic planning has separate native-file tests.
 
-Table protocol v40, layout v3, region plan v28 and compiler v41 distinguish these
+Table protocol v41, layout v3, region plan v29 and compiler v41 distinguish these
 states from earlier layouts and the former combined path. General prompt v41 and public v1 interfaces remain unchanged.
 Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
@@ -1482,7 +1500,7 @@ It restores inventory order before decoding reference aliases. Equal-valued reco
 and their source links remain distinct. Every source still requires an explicit
 model choice; there is no program-generated default or inferred shared decision.
 
-Canonical selection record v2 stores `explanation: null` and
+Canonical selection record v3 stores `explanation: null` and
 `explanationState: not_requested` in the hashed record. This is an explicit absence
 of requested diagnostic prose, not an invented rationale. Internal canonical callers
 can retain supplied explanations (`provided` or `partly_provided`); the wire display
@@ -1493,6 +1511,16 @@ remainder explanations, exact quotes and detailed meanings are still required la
 Reselection still requires one overall correction reason and a genuine status change.
 Checkpoint validation includes explanation state; old table protocol checkpoints
 are rejected before any model call.
+
+An inventory with no owned source entries has exactly one possible selection:
+`sourceDecisions: {}`. The controller records it with `origin: empty_inventory`,
+without dispatch, model usage or a claimed model decision. A nonempty inventory,
+including an entry whose text is the empty string, still needs model choices.
+Ordinary responses carry `origin: model`. The origin participates in the hash and
+checkpoint validation; a locally computed empty record cannot be revised, duplicated
+or attached to nonempty source inventory. Its negative meaning compilation can resume
+without charging a model call, but only after source and history validation. This does
+not certify document completeness or remove a real empty table.
 
 Earlier optional reason sharing did not bound actual model output: v23 repeated
 source IDs, v24/v25 tuple schemas were unsupported or incorrectly enforced by the
@@ -1885,13 +1913,13 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v28 / v41 |
+| Semantic prompt / region plan / result compiler | v41 / v29 / v41 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v40 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v41 / v2 / v1 / v4 |
 | Table layout / source-derived read domains | v3 / v1 |
 | Local llama.cpp generation grammar projection | v2 |
-| Table source inventory | v2 |
+| Table source inventory / canonical selection record | v2 / v3 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
 | Native observation / native note objects | v5 / v1 |
