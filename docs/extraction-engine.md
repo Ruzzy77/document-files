@@ -1175,6 +1175,21 @@ blank rows now contain genuinely empty source cells; separate contradiction test
 reject a blank role over content. These are source-preservation and compiler checks,
 not independent model-quality approval.
 
+### Default source reads for formulas
+
+Compiler v39 prefers native raw/value candidates, then a native formula expression,
+before using display text in `source` mode. A spreadsheet display such as `E4==C4-D4`
+must not replace its native `=C4-D4` expression. Evidence retains the formula path and
+original expression. No cache is evaluated or substituted. Explicit `formula` and
+`cached` modes remain separate; explicit `text` still selects the observed display.
+Numeric/boolean requests do not make an expression numeric, and a decimal request
+without a numeric literal remains uncertain under the existing rule.
+
+The public structure-reading API is paginated. Extraction completeness does not mean
+one page contains all units. The semantic engine projects all native analysis units;
+tests or external consumers constructing observations from structure pages must check
+`unitPage.hasMore` rather than silently treating the first page as the whole document.
+
 ### Failed table reads and structural repair
 
 `table_structure_feedback.py` locates a compiler-rejected typed read using the
@@ -1324,7 +1339,7 @@ layout response and the engine charges that call. Tests focused on scope partiti
 use their known scripted layout to isolate scope scheduling; every actual request still
 passes the production input limit. Generic planning has separate native-file tests.
 
-Table protocol v37, layout v2, region plan v25 and compiler v38 distinguish these
+Table protocol v37, layout v2, region plan v25 and compiler v39 distinguish these
 states from earlier layouts and the former combined path. General prompt v41 and public v1 interfaces remain unchanged.
 Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
@@ -1767,7 +1782,7 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v25 / v38 |
+| Semantic prompt / region plan / result compiler | v41 / v25 / v39 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
 | Table protocol / table reference wire / table source wire / selection wire | v37 / v2 / v1 / v4 |

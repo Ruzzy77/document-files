@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,517 tests,
+The full local check including the native outline path passed **3,533 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v15, native-structure v20,
 structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v41,
-region plan v25, table protocol v37, table layout v2 and compiler v38. Public v1 result
+region plan v25, table protocol v37, table layout v2 and compiler v39. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -216,15 +216,21 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-Current implementation source is **52b15b98f76f084355a880891437e3b4f75385be**.
-Table protocol v37 / layout v2 / compiler v38 reject a blank-row choice contradicted
-by nonempty or unresolved source evidence. Mapping-only errors no longer consume a
-layout review. Native observation v5 / HWPX extractor v11 preserve cell whitespace
-and rejoin adjacent chunks without inserting a newline inside one source unit.
-Region plan v25, general prompt v41 and public v1 contracts remain unchanged.
-Local checks passed **3,517 tests / 227 skips / 12 subtests**; related checks passed
-**423 tests / 12 subtests with warnings treated as errors**. The same source passed
-**1,004 related tests on Spark-A Python 3.12.3**. These are not model-quality results.
+Current implementation source is **11918f5b9a995b4a83c9dc57db464f4a601dddfa**.
+Compiler v39 reads native formulas in default `source` mode before falling back to
+display text; explicit formula, cache and display modes remain distinct. It never
+evaluates a formula. Table protocol v37 / layout v2 retain blank/source checks and
+source-local layout review. Native observation v5 / HWPX extractor v11 retain cell
+whitespace and contiguous chunks. Region plan v25, prompt v41 and public v1 contracts
+are unchanged; incompatible compiler checkpoints cannot resume.
+
+Local checks passed **3,533 tests / 227 skips / 12 subtests**. Related checks passed
+**183 tests with warnings treated as errors**, and the same committed source passed
+**183 related tests on Spark-A Python 3.12.3** without model calls. The geometry-test
+helper now verifies that its structured-API page contains every unit. Earlier 96-row
+HWPX sizing had only consumed the first page; this was a test-helper error, not native
+extraction loss. The semantic engine already projects the full native analysis.
+These checks and the offline response replay below are not new model-quality approval.
 
 ### Same-source HWP backend comparison
 
@@ -291,64 +297,69 @@ and membership change), `table-read-feedback-64/` (source-local feedback), and
 (previous layout/mapping failure), and `table-blank-review-71/`
 (blank/source checks and HWPX whitespace/chunks), `table-thinking-72/`
 (exact-request reasoning comparison), and `table-thinking-full-73/`
-(full-path attempt stopped at the initial output limit).
+(full-path attempt stopped at the initial output limit), and `table-bounded-thinking-74/`
+(bounded reasoning failure, native-formula correction, complete-page sizing and source checks).
 
-### Reasoning can resolve the layout, but complete extraction remains unstable
+### Row interpretation still fails; formula source fallback is corrected
 
-All three comparisons below use source **52b15b9**, the same original XLSX and frozen,
-local-only expectations. Native source, all values and bindings are identical. No
-corrected layout or answer was injected into a subsequent run.
+These comparisons all use **52b15b9**, the same original XLSX and frozen local-only
+expectations. Native nodes, values and bindings are identical; no correct layout or
+answer was injected. The current **11918f5** source has an additional compiler fix,
+verified by replay and source tests rather than another unchanged model retry.
 
 | Comparison | Actual execution | Result |
 |---|---|---|
-| Non-thinking, two-call early diagnostic | 2 calls / 33.1 seconds | Both replies misread the leaf-header row as data and a nonempty note as blank. The source-consistency check rejects both. |
-| Thinking enabled, one-call diagnostic | 1 call / 79.0 seconds; 991 completion tokens | Correctly selects two header, two data and two note rows. One layout accepted; no column, value or meaning call was allowed. |
-| Same thinking setting, complete-path allowance | 1 call / 245.3 seconds; 3,072 completion tokens; `finish_reason:length` | No final content or accepted layout. The engine returns partial with `ai_response_incomplete` before mapping or meaning. |
+| Non-thinking early diagnostic | 2 calls / 33.1 seconds | Leaf headers become data and a note becomes blank; both layouts are rejected. |
+| Thinking, one-call diagnostic | 1 call / 79.0 seconds | Correctly selects two header, two data and two note rows; later stages were not allowed. |
+| Same thinking setting, full-path allowance | 1 call / 245.3 seconds | Uses 3,072 output tokens without final content; partial, no accepted layout. |
+| Requested reasoning limit 1,536, full-path allowance | 3 calls / 469.0 seconds | Accepts a wrong layout and mapping, then truncates meaning selection. Returns the second account and two notes as three records; the first account is missing. |
 
-The last two runs have exactly equal initial public requests, HTTP payloads and model
-configuration identities. The first request differs from the non-thinking baseline only
-in `enable_thinking`. Source/model/runtime, temperature 0, seed 1, 8,192-token context,
-16,000-character input limit and 3,072-token output limit are unchanged. Requests are
-12,288 characters. Both thinking runs also report the same cached/prefilled token counts;
-the cause of different generations is not isolated. Greedy settings do not establish
-repeatability. The single correct layout is not a product-quality pass.
+The two unrestricted-thinking runs have identical initial requests, HTTP payloads
+and configuration identities but different outputs. Their cause is not isolated;
+greedy settings are not proof of repeatability. In the bounded comparison the first
+request is also unchanged apart from the two declared transport controls: the reasoning
+limit and explicit reasoning/content separation. No whole-document quality pass exists.
 
-The complete-path run retained the ordinary **12-call / 900-second** allowance. It
-stopped on one truncated response, not exhaustion of that document allowance. The
-returned reasoning and final content were recorded separately; completion usage includes
-both, with no separately captured token split. Do not label unexecuted column/meaning
-steps as new failures or infer final roles from unfinished reasoning.
+The last run exposes two separate defects. First, the model labels the first data row
+as a header and notes as data. Second, default `source` mode falls back from a formula
+to the display string `E4==C4-D4`. Compiler v39 now prefers the actual native expression
+`=C4-D4`, with `/semantic/value/formula` evidence. Replaying all three unchanged model
+responses through the public API changes only that formula value and binding. The
+wrong rows and incomplete meaning remain. Explicit `text` mode still reads display
+text; cached values require explicit `cached` mode. No formula is calculated.
 
-The unsuccessful response struggled to map packed cell tuples and metadata templates
-back to physical rows, even though explicit row candidates were present. That is an
-observed interpretation difficulty, not evidence of source loss or proof that encoding
-alone caused the failure. A future layout-specific view should expose original rows,
-cells, spans, text and references directly without selecting roles in program code.
+The retained credit value is numeric `4.5` with original `4.5000` in value evidence.
+This is not itself evidence of lost source spelling; the missing first record's exact
+decimals are not approved. Unit/condition details and applicability were not reached.
 
-Current guards reject nonempty/unclear source labelled blank and keep mapping-only ID
-errors out of layout review. HWPX cell whitespace and contiguous text chunks are preserved;
-unrelated paragraph display normalization is unchanged. The full 3,517-test, focused
-423-test and ARM 1,004-test results remain the source checks. The last two comparisons
-reuse the exact ARM source/library/Python evidence rather than claiming new test runs.
+The private diagnostic also used an inappropriate uniform reasoning limit. Layout
+and mapping requested 3,072 total tokens, but selection's existing limit was **1,536**.
+Its 1,536-token reasoning setting left no assured final-output space and bypassed the
+managed client's conflict check. Selection returned truncated JSON after 1,536 total
+tokens. This is not exhaustion of the unchanged **12-call / 900-second** allowance.
+Raw HTTP usage was captured; the server does not separately report reasoning tokens,
+so exact per-block enforcement is not claimed from character counts.
 
-Both thinking runs returned and their evidence was hash-checked before their owned
-temporary copies and transfer archives were removed. Shared services and original
-components are unchanged; neither host's OOM counter increased. No whole-job memory,
-swap-free, deployment or independent quality qualification is implied. A preliminary
-private-runner manifest-format mismatch used zero model calls and was separately
-retained and cleaned; it was not a product or model failure.
+A lossless prototype expanded only physical cell tuples into named objects. It keeps
+every source and coordinate, but increases regions at the same input limit: 50-row
+HWPX **6→8**, XLSX **4→6**; 96-row HWPX **12→14**, XLSX **7→10**. The latter audit uses
+all 291 cells after fixing the paginated test helper. The prototype is **not adopted**.
+Clarity should not be claimed to solve quality while silently worsening long-document
+capacity. Original failed evidence, specifications and the corrected sizing audit remain.
 
-**Next:** test a predeclared 1,536-token per-block reasoning limit while keeping total
-output at 3,072 and the ordinary document allowance unchanged. The matching runtime's
-[request parser](https://github.com/hebo1221/llama.cpp/blob/cc3f13b3f172978d7b3c215780d4cc98bb0e1c80/tools/server/server-common.cpp#L1261-L1273)
-contains this control; enforcement with the loaded model/template has not yet been tested.
-This is a diagnostic setting, not an adopted default or guaranteed final-output reserve.
-Verify actual termination and returned content before drawing a conclusion. Do not
-repeat unrestricted thinking, increase limits, change the shared service or inject roles.
-If tuple decoding still obstructs interpretation, first evaluate a layout-specific
-source view with preserved geometry, exact text and provenance. Complete native
-table/value/meaning/applicability checks and fresh independent HWP/HWPX/XLSX inputs
-remain necessary.
+The model run and subsequent source-only ARM check returned; both sets of evidence
+were hash-checked and their owned copies and transfer archives removed. Shared services
+and original components are unchanged, with no OOM increase. No independent quality,
+whole-job memory, swap-free or deployment qualification is implied.
+
+**Next:** develop a directly readable row/cell view without duplicating native metadata.
+Check all coordinates, spans, exact text, source types and full 50/96-row capacity before
+adoption; do not select header roles in code or remove sources. Any new model comparison
+must use a separately identified source/protocol and derive its reasoning limit from
+each actual stage output limit, strictly below that limit—including selection's 1,536.
+Reject conflicts before generation; do not raise the document/output allowance or retry
+the same wrong layout unchanged. Complete values, records, header provenance, units,
+conditions and fresh independent HWP/HWPX/XLSX checks remain necessary.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -421,7 +432,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Complete primary-format extraction is not approved.** HWP lacks complete occurrence-bound values and relationships. Thinking produced one correct XLSX layout, but the same request in the full-path attempt exhausted output with no final answer. The 50-row baseline still retains only 12/45 rows. | Verify a per-request reasoning limit within the existing output/document allowance; assess a clearer layout-only source view if needed. Then require full native table/meaning/applicability results and new independent inputs. No unrestricted retry, forced role, source deletion or approval by one correct layout. |
+| 1 | **Complete primary-format extraction is not approved.** HWP lacks complete occurrence-bound values and relationships. Bounded-thinking XLSX misclassifies a data row and notes; its source-formula fallback is now corrected offline, not its row interpretation. The 50-row baseline still retains only 12/45 rows. | Design readable coordinates without expanding redundant metadata; verify full-source capacity and stage-aware reasoning/output compatibility before the next bounded full-path comparison. No unchanged wrong-layout retry, forced role or source deletion. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |
