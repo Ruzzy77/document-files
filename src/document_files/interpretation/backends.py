@@ -245,7 +245,7 @@ def managed_reasoning_identity(budget):
     }
 
 
-LOCAL_GRAMMAR_VERSION = "document-files.llama-grammar.v1"
+LOCAL_GRAMMAR_VERSION = "document-files.llama-grammar.v2"
 SAMPLING_KEYS = {"temperature", "top_p", "top_k", "seed"}
 # The internal interpreter decodes greedily: structural decisions must not vary
 # between runs of the same input, contract and pack. The seed is recorded for
@@ -290,22 +290,57 @@ def _strict_wire_schema(schema):
 
 
 def _local_grammar_schema(schema):
-    """Keep the wire shape while checking large cardinalities after generation.
+    """Keep the wire shape; validate large upper bounds in the original contract.
 
-    Pinned llama.cpp b10853 cannot parse the 2,000-item bounded expansion and
-    already turns larger bounds into unbounded grammar repetitions. The complete
-    original contract stays in the model prompt and product validation. Output
-    token/byte budgets remain enforced; this is not a JSON-only grammar fallback.
+    Pinned llama.cpp cannot initialize an exact 2,000-repeat expansion for either
+    strings or arrays, and treats larger maxima as unbounded. Omit the exact
+    string boundary and the existing large-array maxima only in this local
+    generation grammar. Other string limits, minima, types, source enums, object
+    closure and smaller maxima remain. The unchanged prompt and canonical parser
+    retain every upper bound: a grammar-admissible response is not acceptance.
+    Output token/byte budgets remain enforced. Never rewrite literal JSON values
+    (const/enum/default/examples) or extension metadata as if they were schemas.
     """
-    if isinstance(schema, dict):
-        return {
-            key: _local_grammar_schema(value)
-            for key, value in schema.items()
-            if not (key == "maxItems" and type(value) is int and value >= 2000)
+    if not isinstance(schema, dict):
+        return deepcopy(schema)
+    result = deepcopy(schema)
+    for key in ("maxItems", "maxLength"):
+        if type(result.get(key)) is int and (
+            result[key] == 2000 or key == "maxItems" and result[key] > 2000
+        ):
+            del result[key]
+    for key in ("$defs", "definitions", "properties", "patternProperties", "dependentSchemas"):
+        if isinstance(result.get(key), dict):
+            result[key] = {
+                name: _local_grammar_schema(value) for name, value in result[key].items()
+            }
+    for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+        if isinstance(result.get(key), list):
+            result[key] = [_local_grammar_schema(value) for value in result[key]]
+    for key in (
+        "items",
+        "additionalItems",
+        "additionalProperties",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+        "contains",
+        "propertyNames",
+        "not",
+        "if",
+        "then",
+        "else",
+    ):
+        if isinstance(result.get(key), (dict, bool)):
+            result[key] = _local_grammar_schema(result[key])
+        elif key == "items" and isinstance(result.get(key), list):
+            result[key] = [_local_grammar_schema(value) for value in result[key]]
+    # Draft 7 dependencies may contain either schemas or property-name arrays.
+    if isinstance(result.get("dependencies"), dict):
+        result["dependencies"] = {
+            name: _local_grammar_schema(value) if isinstance(value, dict) else value
+            for name, value in result["dependencies"].items()
         }
-    if isinstance(schema, list):
-        return [_local_grammar_schema(value) for value in schema]
-    return schema
+    return result
 
 
 class ModelClient(Protocol):

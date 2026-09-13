@@ -223,6 +223,30 @@ def test_positive_selection_and_details_are_separate_charged_calls():
     assert len(model.requests) == 3
 
 
+def test_local_grammar_admissible_long_description_is_not_accepted_as_meaning():
+    from document_files.interpretation.backends import _local_grammar_schema
+
+    class TooLong(SelectionModel):
+        def infer(self, request):
+            response = super().infer(request)
+            value = json.loads(response.text)
+            if value.get("meanings"):
+                value["meanings"][0]["description"] = "한" * 2001
+                # Generation grammar can allow it; the untouched product contract cannot.
+                Draft202012Validator(_local_grammar_schema(request.output_schema)).validate(value)
+                assert not Draft202012Validator(request.output_schema).is_valid(value)
+                return InferenceResponse(json.dumps(value), response.usage)
+            return response
+
+    model, states = TooLong(), []
+    result = run(model, states=states, maxModelCalls=12, completionSeconds=900)
+    assert result["extraction"]["status"] == "partial"
+    assert result["data"]["records"][0] == {"code": "0007", "size": "1.2300"}
+    assert not result["semanticDetails"]
+    assert not progress(states[-1]).get("acceptedResponse")
+    assert result["extraction"]["modelCalls"] <= 12
+
+
 def test_detail_response_reuses_exact_saved_choices_and_only_reviews_positive_remainders():
     class Capture(SelectionModel):
         def infer(self, request):

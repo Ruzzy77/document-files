@@ -362,7 +362,11 @@ def test_local_grammar_avoids_upstream_large_repeat_failure_without_relaxing_pro
     assert "maxItems" not in grammar["properties"]["excludedBindings"]
     assert "maxItems" not in grammar["properties"]["dispositions"]
     assert grammar["properties"]["fields"] == schema["properties"]["fields"]
-    assert grammar["$defs"] == schema["$defs"]
+    from document_files.interpretation.backends import _local_grammar_schema
+
+    assert grammar["$defs"] == {
+        key: _local_grammar_schema(value) for key, value in schema["$defs"].items()
+    }
     assert grammar["additionalProperties"] is False
     with pytest.raises(ValueError):
         RegionInterpretation.model_validate(
@@ -372,6 +376,89 @@ def test_local_grammar_avoids_upstream_large_repeat_failure_without_relaxing_pro
                 * 2001,
             }
         )
+
+
+def test_local_grammar_string_boundary_retains_canonical_limit_and_prompt(monkeypatch, tmp_path):
+    from copy import deepcopy
+
+    from document_files.interpretation.backends import LOCAL_GRAMMAR_VERSION
+    from document_files.interpretation.semantic_types import Meaning
+
+    fake_packs(monkeypatch)
+    calls = response_transport(monkeypatch)
+    schema = Meaning.model_json_schema()
+    original = deepcopy(schema)
+    messages = [{"role": "user", "content": json.dumps(schema)}]
+    client = ManagedPackClient(tmp_path, "runtime", "model")
+    try:
+        assert client.identity["grammarAdapter"] == LOCAL_GRAMMAR_VERSION
+        assert LOCAL_GRAMMAR_VERSION == "document-files.llama-grammar.v2"
+        client.infer(InferenceRequest(messages, output_schema=schema, max_output_tokens=3072))
+    finally:
+        client.close()
+    wire = calls[0]["response_format"]["json_schema"]["schema"]
+    assert schema == original
+    assert calls[0]["messages"] == messages and calls[0]["max_tokens"] == 3072
+    expected = deepcopy(schema)
+    del expected["properties"]["description"]["maxLength"]
+    assert wire == expected
+    value = {"id": "m", "kind": "note", "sourceRefs": ["n"]}
+    for text in ["한" * 2000, '\n"\\😀' * 500]:
+        assert Meaning.model_validate({**value, "description": text}).description == text
+    for text in ["", "한" * 2001]:
+        with pytest.raises(ValueError):
+            Meaning.model_validate({**value, "description": text})
+
+
+def test_local_grammar_visits_only_schema_keywords_not_literal_json():
+    from copy import deepcopy
+
+    from document_files.interpretation.backends import _local_grammar_schema
+
+    literal = {"maxLength": 2000, "maxItems": 9000, "properties": {"x": {"maxLength": 3000}}}
+    leaf = {"type": "string", "minLength": 1, "maxLength": 2000}
+    small = {"type": "string", "maxLength": 1999}
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "$defs": {"Leaf": leaf},
+        "properties": {"long": leaf, "short": small},
+        "anyOf": [{"items": leaf, "maxItems": 2000, "minItems": 1}],
+        "if": {"properties": {"key": leaf}},
+        "then": {"additionalProperties": leaf},
+        "dependentSchemas": {"long": {"properties": {"other": leaf}}},
+        "dependencies": {"long": ["short"], "short": {"properties": {"other": leaf}}},
+        "prefixItems": [leaf],
+        "not": {"allOf": [leaf]},
+        "enum": [literal],
+        "const": literal,
+        "default": literal,
+        "examples": [literal],
+        "x-metadata": literal,
+    }
+    before = deepcopy(schema)
+    wire = _local_grammar_schema(schema)
+    assert schema == before and _local_grammar_schema(wire) == wire
+    for key in ["enum", "const", "default", "examples", "x-metadata"]:
+        assert wire[key] == schema[key]
+    for node in [
+        wire["$defs"]["Leaf"],
+        wire["properties"]["long"],
+        wire["anyOf"][0]["items"],
+        wire["if"]["properties"]["key"],
+        wire["then"]["additionalProperties"],
+        wire["dependentSchemas"]["long"]["properties"]["other"],
+        wire["dependencies"]["short"]["properties"]["other"],
+        wire["prefixItems"][0],
+        wire["not"]["allOf"][0],
+    ]:
+        assert node == {"type": "string", "minLength": 1}
+    assert wire["properties"]["short"] == small
+    assert wire["anyOf"][0] == {"items": {"type": "string", "minLength": 1}, "minItems": 1}
+    assert wire["dependencies"]["long"] == ["short"]
+    assert wire["additionalProperties"] is False
+    wire["const"]["maxLength"] = 7
+    assert schema == before
 
 
 def test_numeric_timings_filter_does_not_forward_response_content():
