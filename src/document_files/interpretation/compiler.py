@@ -121,7 +121,9 @@ def preferred_binding(bindings, source_ref, mode="source"):
     elif mode == "text":
         paths = ["/text"]
     else:
-        paths = ["/semantic/value/raw", "/semantic/value/value", "/text"]
+        # A native formula is source content, not the display string containing
+        # its cell address. Its cached result remains an explicit separate mode.
+        paths = ["/semantic/value/raw", "/semantic/value/value", "/semantic/value/formula", "/text"]
     for path in paths:
         for key, candidate in items:
             if candidate["path"] == path and (

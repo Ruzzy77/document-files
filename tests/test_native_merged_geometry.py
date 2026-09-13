@@ -11,6 +11,7 @@ from test_regional_interpretation import ReferenceModel, run
 from document_files.api import AnalysisInput, AnalysisJob, extract_structure_from_stream
 from document_files.document_model.native import NATIVE_OBSERVATION_VERSION
 from document_files.document_model.observe import observe_document
+from document_files.engine import MAX_PUBLIC_STRUCTURED_UNITS
 from document_files.interpretation.engine import observation_identity
 
 
@@ -20,8 +21,11 @@ def observe(raw, format_id):
             job_id="native-geometry", input=AnalysisInput.from_bytes(raw, format_id=format_id)
         ),
         io.BytesIO(raw),
+        max_units=MAX_PUBLIC_STRUCTURED_UNITS,
     )
     assert result["ok"] and result["completeness"] == "complete"
+    assert not result["unitPage"]["hasMore"]
+    assert len(result["units"]) == result["unitPage"]["total"]
     nodes = {f"n{n['ordinal']}": n for n in result["units"]}
     before = deepcopy(nodes)
     doc = observe_document(raw, format_id, nodes)
