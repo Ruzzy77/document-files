@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,423 tests,
+The full local check including the native outline path passed **3,441 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -63,8 +63,8 @@ qualify a platform installer, a live agent session or a formal release.
 ## Current extraction behavior
 
 The current internal contracts are document protocol v15, native-structure v20,
-structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v40,
-region plan v23, table protocol v34 and compiler v36. Public v1 result
+structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v41,
+region plan v24, table protocol v35 and compiler v36. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -215,13 +215,13 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-Current implementation source is **b5833dea985bb2adea34c8221359c0a6381f0e28**.
-Table protocol v34 separates known coordinates from semantic choices: columns are
-keyed by physical index, and row roles follow a program-supplied order. Canonical
-records, source evidence, native value-first review and compiler v36 are unchanged.
-Local checks passed **3,423 tests / 227 skips / 12 subtests**; the related checks
-passed **212 tests with warnings treated as errors**. The same source passed
-**738 related tests on Spark-A Python 3.12.3**. These are not model-quality results.
+Current implementation source is **5759fd4fce7de3a327262599600726f7b8695162**.
+Table protocol v35 / region plan v24 / prompt v41 replace the misleading `dataRows`
+hint with exact neutral `rowRoleOrder` positions. Header roles are not inferred;
+geometry, native source, coordinate-keyed column decisions and compiler v36 remain.
+Local checks passed **3,441 tests / 227 skips / 12 subtests**; the related checks
+passed **173 tests with warnings treated as errors**. The same source passed
+**767 related tests on Spark-A Python 3.12.3**. These are not model-quality results.
 
 ### Same-source HWP backend comparison
 
@@ -282,50 +282,53 @@ Evidence: `structural-kpi-20260913/native-value-first-61/` (314B and criterion a
 and membership change), `table-read-feedback-64/` (source-local feedback), and
 `table-read-contract-65/` (formula contract and repair-context audit),
 `table-source-feedback-66/` (grouped diagnostics and native-source discrepancy), and
-`table-native-view-67/` (native source delivery), and `table-coordinate-wire-68/`
-(current source, coordinate decisions, actual responses, repair-design audit and cleanup).
+`table-native-view-67/` (native source delivery), `table-coordinate-wire-68/`
+(coordinate decisions and repair sizing), and `table-neutral-rows-69/`
+(current source, neutral row metadata, actual failure, layout-first design and cleanup).
 
-### Coordinate duplication fixed; header interpretation still fails
+### Neutral row metadata does not resolve header interpretation
 
-The current source returned **partial after 2 calls / 128.3 seconds**, with no
-accepted data. Both replies now choose each of the five physical columns once and
-supply exactly one role for every offered row. The native strings, exact decimals,
-formula expressions and source paths are unchanged. This verifies the coordinate
-response on the actual model path, not correct whole-document interpretation.
+The current source returned **partial after 2 calls / 122.7 seconds**, with no
+accepted data. Both replies choose each of five physical columns once, but still
+classify the leaf-header row as data and request C2 `Credit` as a number. Both also
+call the nonempty explanatory note row blank. The first mixes content references
+into column definitions; the repair shifts Credit/Debit definitions one column right
+and omits Balance formula. Compilation stops at the typed read, before grouped
+structural findings or meanings can be accepted.
 
-Both replies still classify the leaf-header row as data and request C2 `Credit`
-as a number. The second request includes its exact source/type/coordinate diagnostic,
-but the repair retains that role and adds data-cell references as column definitions.
-The first also cites the Volume group rather than the Credit leaf. Compilation
-stops at the typed read; grouped compiler findings, meanings and applicability are
-not reached. The two automatic structural attempts end within the original
-12-call / 900-second allowance; it was not exhausted or enlarged.
+The inaccurate `dataRows` hint is gone, with native source and exact row positions
+unchanged. This is a confirmed request correction, **not a demonstrated quality
+improvement**. Actual requests are **15,292 / 15,543 characters**, with all source in
+one region. Exact source/type/coordinate feedback reaches the second request but
+does not correct the row decision. The two automatic structural attempts end within
+the unchanged 12-call / 900-second allowance; that allowance was not exhausted or
+increased. Meanings and applicability were not reached.
 
-All source remains in one region. Actual requests are **15,329 / 15,580 characters**.
-A draft with a separate schema property for every row made requests larger and split
-this source and a scope regression fixture. The adopted role-string array instead
-follows explicit `rowRoleOrder`, preserving actual coordinates without repeated
-per-row schema metadata. The failed draft checks remain private evidence.
+Nineteen evidence files were hash-checked; the owned engine returned and 3,815
+temporary files plus transfer archives were removed. Shared services and retained
+components are unchanged. Sampled minima were 13.75 GiB on A / 26.14 GiB on B,
+with no OOM count increase. These are not peak-memory, swap-free or deployment
+qualifications.
 
-Nineteen evidence files were hash-checked; the owned engine returned and 3,814 temporary
-files plus transfer archives were removed. Shared services and retained components
-are unchanged. Sampled minima were 13.78 GiB on A / 26.12 GiB on B, with no OOM count
-increase. These are not peak-memory, swap-free or deployment qualifications.
+**Next: test layout decisions before column definitions, not another same-protocol
+retry.** The current grammar requests columns before row roles. A proposed layout
+stage would decide table kind and exact row roles first. The program could then
+calculate header paths from those checked choices and original geometry for the
+column stage, without changing native header flags or forcing semantic roles.
+The ordering is confirmed; its causal effect on model quality is not.
 
-**Next: correct an inaccurate row hint before another repair redesign.**
-`dataRows` is calculated from cells not declared as headers, not model-confirmed data.
-For this XLSX it spans rows 0–6, including the leaf headers and notes. Its wording
-can imply a role the program has not established; the causal model effect is unproven.
-The general semantic prompt also calls for a repeat over all `dataRows`. Remove or
-rename that implication, preserving the exact positions already carried by
-`rowRoleOrder` and row candidates. Check native/predicted/mixed headers, spans, gaps,
-scalar forms and request sizing; do not alter native flags or force header roles.
+An offline layout-only draft retains the complete source and fits in **10,808
+characters**, or **11,284** with the actual rejected layout and source-local feedback.
+It uses the recorded wrong answer, not the expected answer. This is not implemented
+or model-tested. Column-stage sizing, checked layout revision, dependent-state
+invalidation and finite call accounting must be designed and tested first. Scalar
+forms keep the scalar path; unresolved layouts cannot be approved by a valid schema.
 
-A complete prior-response repair remains deferred. Adding the actual first proposal
-requires **16,770 characters**. A hypothetical program-owned-ID/range contract needs
-15,967 even before its new instructions. It is not a lossless rewrite of the old
-model-chosen IDs, an implemented contract or a demonstrated repair. No source or
-semantic choice may be discarded and no budget raised merely to fit it.
+A full prior-proposal repair under the former combined contract remains unadopted:
+the v34 measurement was 16,770 characters. A hypothetical program-owned-ID/range
+contract needed 15,967 before new instructions and was not a lossless rewrite of
+model-chosen IDs. Neither source nor semantic choices may be dropped, or allowances
+raised, merely to fit a repair.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -398,7 +401,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Complete primary-format extraction is not approved.** HWP lacks complete occurrence-bound values and relationships. Current XLSX replies no longer duplicate physical coordinates but still read leaf headers as data, even with source-local repair feedback. The 50-row baseline still retains only 12/45 rows. | Correct the unclassified-row hint currently called `dataRows`; preserve exact geometry and all semantic choices. Then verify actual header/record interpretation and HWP occurrence binding. A full-prior-proposal contract remains oversized and unadopted. No role forcing, source deletion or approval by labels/counts. |
+| 1 | **Complete primary-format extraction is not approved.** HWP lacks complete occurrence-bound values and relationships. XLSX still reads leaf headers as data and calls a note blank after neutral row metadata and source-local feedback. The 50-row baseline still retains only 12/45 rows. | Design and test layout-first table decisions, geometry-based candidate paths from checked model roles, explicit revision and finite state/budget handling. Verify actual header/record interpretation and HWP occurrence binding. No further unchanged retry, role forcing, source deletion or approval by labels/counts. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |

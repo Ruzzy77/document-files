@@ -27,9 +27,10 @@ ordinary value candidates. Context-only bindings cannot become values in a secon
 region. Unknown or conflicting observations remain visible.
 
 For each column, `columnCandidates` contains program-derived header references and
-text. The legacy-named `dataRows` is the range of cells not declared as headers,
-not confirmed data roles; it can include unknown headers and notes. Table structure
-also receives the exact unclassified positions in `rowRoleOrder`. Header-group candidates
+text. Every table view carries `rowRoleOrder`: exact observed row positions except
+rows wholly declared as headers. These are decisions still to make, not confirmed
+data rows. Headers, notes, subtotals, blanks and unresolved rows remain possible.
+No unclassified minimum/maximum range is labelled `dataRows`. Header-group candidates
 come from actual geometry and mapped child columns. Choosing a group expands to
 those existing columns; it neither invents a new data group nor infers a unit.
 Definitions receive their own provenance, separate from cell-value evidence.
@@ -1091,6 +1092,17 @@ The program rejects a wrong count or type and restores the original coordinates 
 source references before compilation. Declared headers are still program-derived;
 recognition predictions and mixed rows are not forced to be headers.
 
+`document_model/table_headers.py` owns that row list for the region payload,
+structural schema, structural request and coordinate decoder. Spans contribute
+their occupied rows; gaps are not filled. Empty and wholly declared-header tables
+have no undecided row positions. General semantic requests use the same neutral
+list: a record covers its observed table range with explicit row roles, and only
+rows chosen as data are read as records. The program does not infer a header from
+the first row, numeric types or formatting, or change native header flags.
+Table protocol v35, region plan v24 and prompt v41 prevent incompatible checkpoint
+reuse. The structural instructions and output grammar are unchanged by this
+payload correction; it does not establish correct model interpretation.
+
 `structure_model_schema` is the model-facing contract; `structure_schema` and
 `structural_ir` retain the canonical record definition used by the compiler. Accepted
 records, meanings and checkpoints retain their existing arrays and original IDs,
@@ -1178,8 +1190,8 @@ chosen type/mode, not an invented failing cell. The `source`, `text` and `cached
 mode/type choices are otherwise unchanged and still require actual source validation.
 No formula is evaluated; a saved cache is a separate explicit read. Older table
 checkpoints are incompatible rather than normalized into a different choice. The
-current table protocol is v34, including coordinate decisions, source-specific feedback
-and native text views.
+current table protocol is v35, including neutral row metadata, coordinate decisions,
+source-specific feedback and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
 the leaf-header row was marked as data, then the compiler tried to read its text as a
@@ -1203,6 +1215,37 @@ checked reconstruction of program-owned IDs/ranges, a source-bound saved proposa
 reproduction of the rejected compile on resume, and unchanged finite attempt limits.
 The benefit of showing that proposal to the model remains unverified. Neither request
 sizing nor successful error delivery establishes correct table interpretation.
+
+### Layout before column decisions: proposed, not implemented
+
+The current combined output grammar emits column definitions before row roles.
+A layout-first design would separate table kind and ordered row roles from names,
+keys, types and read modes. A schema-valid layout would still be a model proposal,
+not a verified reading or a native header declaration. Original observations stay
+unchanged. This is the next design to test, not the current execution path.
+
+For a checked record-table layout, column candidates would be calculated from the
+chosen header rows and actual cell spans. Candidate membership must retain the
+layout identity and source references and distinguish AI-selected roles from native
+header declarations. Mixed rows and cells spanning several roles cannot be promoted
+solely from their origin row. Scalar forms retain the scalar path; an unresolved
+choice does not manufacture a record.
+
+Layout, mapping and repairs need separate saved attempted/returned/accepted states.
+A mapping failure may require an explicit bounded layout revision. A changed layout
+must invalidate only its dependent mapping and meanings; an unchanged layout cannot
+silently reset attempted calls. Cancellation, resume, source identity and incompatible
+checkpoint versions must be checked before running this path. Caller time, call,
+context and output limits remain unchanged, including complete feedback when a repair
+is too large. Already accepted unrelated regions must survive failure.
+
+The offline short-XLSX draft retains all current source and uses the recorded wrong
+layout, not the expected answer. The layout-only request measures 10,808 characters;
+adding its exact prior layout and actual typed-read feedback measures 11,284. These
+are initial feasibility measurements, not a complete mapping contract, a guarantee
+for larger documents or a model-quality result. Mapping payloads, candidate paths,
+revision rules and finite scheduling still need implementation and tests before a
+new bounded actual-model comparison.
 
 ### Prior table mapping context
 
@@ -1643,10 +1686,10 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v40 / v23 / v36 |
+| Semantic prompt / region plan / result compiler | v41 / v24 / v36 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v34 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v35 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
