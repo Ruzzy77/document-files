@@ -23,18 +23,26 @@ def failure_record(response, payload, schema, *, batch=None):
 
 
 def can_reopen(review, content):
+    if not isinstance(review, dict) or not isinstance(content, dict):
+        return False
+    base = review.get("base")
+    early = base.get("content") if isinstance(base, dict) else None
+    failure = content.get("roleValueFailure")
+    if not isinstance(early, dict) or not isinstance(failure, dict):
+        return False
     return bool(
-        review
-        and "priorReview" not in review
+        "priorReview" not in review
         and review["status"] == "complete"
         and review.get("decision") == "retain"
+        and type(review["attempts"]) is int
         and 0 < review["attempts"] < MAX_CALLS
         and review["base"]["content"].get("roleSourceReview")
         and review["base"]["content"]["attempts"] == 0
         and content["status"] == "failed"
+        and type(content["attempts"]) is int
         and content["attempts"] > 0
         and not content.get("halted")
-        and content.get("roleValueFailure", {}).get("code") == CODE
+        and failure.get("code") == CODE
     )
 
 

@@ -147,7 +147,17 @@ def test_unknown_followup_needs_a_grant_without_erasing_early_usage():
 
 @pytest.mark.parametrize(
     "damage",
-    ["prior_decision", "prior_overlap", "prior_usage", "request", "no_conflict", "nested", "usage"],
+    [
+        "prior_decision",
+        "prior_overlap",
+        "prior_usage",
+        "request",
+        "no_conflict",
+        "nested",
+        "usage",
+        "none_failure",
+        "nonobject_early",
+    ],
 )
 def test_replay_reproduces_the_failure_and_rechecks_the_early_review(damage):
     model, states = FollowupModel(), []
@@ -164,6 +174,10 @@ def test_replay_reproduces_the_failure_and_rechecks_the_early_review(damage):
         review["priorReview"]["priorReview"] = copy.deepcopy(review["priorReview"])
     elif damage == "usage":
         review["attempts"] = 1
+    elif damage == "none_failure":
+        review["base"]["content"]["roleValueFailure"] = None
+    elif damage == "nonobject_early":
+        review["priorReview"]["base"]["content"] = []
     else:
         failure = review["base"]["content"]["roleValueFailure"]
         if damage == "request":
