@@ -4,13 +4,14 @@
 
 ### Document extraction
 
-- Share literal selection explanations through a reason table while requiring a
-  closed, exactly-once source decision map. Preserve canonical choices, revision
-  history and fixed output/call/time caps (table protocol v26 / selection wire v3).
-  This replaces the v23 grouped-source lists that repeated a source in an actual
-  HWPX response. Invalid or truncated output leaves compiled rows intact; transport
-  checks do not approve semantic choices or model quality. Closed choice objects
-  also avoid tuple-item constraints that the pinned b10853 runtime does not enforce.
+- Bound table source classification to one explicit status per owned source, without
+  requesting per-source explanation prose (table protocol v27 / selection wire v4).
+  Preserve every source, choice and value; canonical selection record v2 hashes the
+  explicit absent-explanation state. Detailed meanings, exact quotes, remainder
+  reviews and the overall reselection reason remain required. Keep existing output,
+  call and time caps; reject incomplete responses and incompatible checkpoints.
+  This replaces optional explanation sharing, which actual Spark responses repeated
+  until truncation. Scripted transport checks do not approve semantic quality.
 - Share repeated table source metadata and relation/cell properties losslessly
   (table protocol v22 / table source wire v1 / region plan v21). Apply the display
   to both structure and meaning requests, after meaning reference translation;

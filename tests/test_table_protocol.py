@@ -127,7 +127,7 @@ class TableModel:
                 "sourceDecisions": {
                     item["sourceRef"]: {
                         "decision": "no_additional_meaning",
-                        "explanation": "Scripted plain labels and values",
+                        "explanation": None,
                     }
                     for item in payload["meaningSources"]
                 },

@@ -84,7 +84,7 @@ class SelectionModel:
                         if s["text"] == "Size uses mm."
                         or (self.wrong_choice and s["text"] == "Size")
                         else "no_additional_meaning",
-                        "explanation": "Scripted source choice; not a heuristic in the product",
+                        "explanation": None,
                     }
                     for s in sources
                 }
@@ -106,7 +106,7 @@ class SelectionModel:
                             "decision": "has_meaning"
                             if s["text"] == "Size uses mm."
                             else "no_additional_meaning",
-                            "explanation": "Explicit corrected source choice",
+                            "explanation": None,
                         }
                         for s in sources
                     },
@@ -250,10 +250,14 @@ def test_detail_response_reuses_exact_saved_choices_and_only_reviews_positive_re
     reviews = next(iter(states[-1]["accepted"].values()))["tableMeaningState"]["sourceReviews"]
     for ref, choice in choices.items():
         if choice["decision"] != "has_meaning":
+            assert choice["explanation"] is None
             assert {
                 "sourceRefs": [ref],
                 "role": choice["decision"],
-                "explanation": choice["explanation"],
+                "explanation": (
+                    f"Model source choice: {choice['decision']}. "
+                    "No per-source explanation was requested."
+                ),
             } in reviews
 
 
@@ -453,6 +457,7 @@ def test_unselected_quotes_are_rejected_even_when_model_ignores_grammar():
         "phase_usage",
         "association",
         "history_missing",
+        "explanation_state",
     ],
 )
 def test_tampered_selection_or_usage_is_rejected_before_resume_dispatch(mutation):
@@ -467,6 +472,8 @@ def test_tampered_selection_or_usage_is_rejected_before_resume_dispatch(mutation
         record["inputIdentity"][mutation + "SHA256"] = "0" * 64
     elif mutation in {"model", "wire"}:
         record["inputIdentity"]["referenceWire" if mutation == "wire" else "model"] = None
+    elif mutation == "explanation_state":
+        record["explanationState"] = "provided"
     elif mutation == "phase_usage":
         state["phaseUsage"]["selection"]["modelCalls"] += 1
     elif mutation == "association":

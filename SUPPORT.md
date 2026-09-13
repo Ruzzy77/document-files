@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,061 tests,
+The full local check including the native outline path passed **3,066 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,8 +64,15 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v39,
-region plan v21, table protocol v26 and compiler v32. Public v1 result
+region plan v21, table protocol v27 and compiler v32. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
+
+Table selection wire v4 requests only one status string per owned source. Canonical
+selection record v2 explicitly records that per-source explanations were not requested;
+the program does not fabricate reasons. Detail quotes, meanings, remainder reviews and
+the overall correction reason remain required. Source inventories, values and fixed
+document/output budgets are unchanged. The actual comparison below is still v26;
+a current-source Spark check is pending.
 
 Native observation adapter v2 now preserves the public cell's `columnSpan` when
 building internal geometry. XLSX extractor v10 retains explicitly stored empty XML

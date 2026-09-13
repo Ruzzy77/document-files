@@ -1130,7 +1130,7 @@ def test_engine_integrates_unresolved_unit_once_and_reuses_committed_scope(
                             "sourceDecisions": {
                                 s["sourceRef"]: {
                                     "decision": "no_additional_meaning",
-                                    "explanation": "Scripted plain values",
+                                    "explanation": None,
                                 }
                                 for s in payload["meaningSources"]
                             }

@@ -37,7 +37,7 @@ from .table_source_decisions import (
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v26"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v27"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -77,17 +77,18 @@ for units, conditions, qualifications, annotations, references and relationships
 Restating only a field name or ordinary value adds no meaning.
 sourceSelection identifies text needing interpretation; it has NOT yet extracted
 any units, conditions or other meanings. Now produce those details in meanings.
-Each sourceDecisions item contains decision and a zero-based reasonIndex into
-reasonTable. Each source has its own saved decision; only identical reasons are shared.
+sourceSelection maps each owned source directly to its saved status. Per-source
+explanation prose was not requested during classification; do not invent it here.
 Do not repeat sourceDecisions or reviews of unselected sources: the program retains
-the saved model choices and reasons. Use sourceQuotes with the smallest exact
+the saved model choices and their absent-explanation state. Use sourceQuotes with the smallest exact
 phrases and their owned sourceRefs. Every has_meaning source must have a direct
 quote in meanings; other sources cannot be quoted. Do not restate the plain labels
 or values already reviewed. Describing a unit or condition only in a review
 explanation does not extract it: its kind, description and quote must be in meanings.
 If a source choice is wrong, return only the revise_selection response with the
 current selectionSHA256 as baseSelectionSHA256, a reason and every new source
-choice with its short explanation. This is a separate response, not a way to quote
+choice as a status string. The overall revision reason is still required. This is
+a separate response, not a way to quote
 an unselected source. Do not defer a previously reviewed source. A revision is
 saved first; detailed interpretation remains subject to the existing call budget.
 An empty source has no nonempty quote; never substitute a space or invent text.

@@ -53,7 +53,7 @@ decoder for model output. The original observation and compiler inputs are uncha
 
 Savings include the decoding instruction. Planning and dispatch both measure the
 messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
-The public response contract is unchanged. Table protocol v26 and region plan v21
+The public response contract is unchanged. Table protocol v27 and region plan v21
 invalidate checkpoints made with the previous display and planning behavior.
 
 An earlier region's column mapping may not exist when the initial plan is made.
@@ -828,40 +828,44 @@ child cannot regenerate records. Its context contains relevant headers and nearb
 text, not every already compiled record value. An unresolved mapped value remains
 in its original record. Label/value forms keep the existing scalar path.
 
-The meaning stage first selects every owned source as `has_meaning`,
-`no_additional_meaning`, `unresolved` or `unreviewed`, with a short reason. A literal
-empty source cannot select `has_meaning`. Plain data-cell values need not be repeated
-as meanings; this is a model decision, not a blanket rule that numeric text has no note.
+The meaning stage first classifies every owned source as `has_meaning`,
+`no_additional_meaning`, `unresolved` or `unreviewed`. A literal empty source cannot
+select `has_meaning`. Plain data-cell values need not be repeated as meanings;
+source classification does not discard their original text or compiled values.
 Validated `sourceSelections` bind source inventory, frozen structure, model identity,
 reference dictionary and revision. A stopped detail call reuses the saved selection.
 
-`table_selection_wire.py` shares literal explanations in `reasonTable`. The model
-must answer every offered source key exactly once in a closed `sourceDecisions`
-object. Each value has `decision` and `reasonIndex` members; the zero-based index
-refers to a literal reason, not another source or an inferred group. The decoder
-rejects missing or unknown sources, malformed choices, invalid indices and unused
-or duplicate reasons. The JSON parser rejects duplicate keys rather than keeping
-the last value. It expands reasons into existing per-source decisions in inventory
-order, then decodes reference aliases without translating literal explanations.
-Equal-valued records and their source links stay distinct. History, details and
-reselection use the same canonical decisions and existing revision rules.
+Selection wire v4 / table protocol v27 require one finite status string per offered
+source in a closed `sourceDecisions` object. Classification requests no free-form
+explanation, reason table, source lists or positional tuples. The decoder requires
+exact source coverage and valid statuses; the JSON parser rejects duplicate keys.
+It restores inventory order before decoding reference aliases. Equal-valued records
+and their source links remain distinct. Every source still requires an explicit
+model choice; there is no program-generated default or inferred shared decision.
 
-Selection wire v3 / table protocol v26 use ordinary closed choice objects. The
-previous group-list transport repeated source IDs in an actual HWPX response.
-The subsequent two-slot tuple schema was not supported correctly by the pinned
-b10853 runtime: `items: false` was rejected and `items: {}` admitted objects where
-string/integer slots were required. A successful token-count preflight did not prove
-those generated values obeyed the schema. No invalid response was accepted. The
-active wire avoids tuples; older checkpoints are rejected before dispatch.
-Reasons should describe the basis of a choice, not copy each source value into a
-separate explanation or create entries for context-only nodes. The actual v26 development responses still copied per-source explanations despite
-this instruction. Optional reuse alone is not a bounded-output design. Classification
-output and diagnostic prose need a separate budgeted design; all original sources,
-explicit choices, uncertainty and provenance remain required.
+Canonical selection record v2 stores `explanation: null` and
+`explanationState: not_requested` in the hashed record. This is an explicit absence
+of requested diagnostic prose, not an invented rationale. Internal canonical callers
+can retain supplied explanations (`provided` or `partly_provided`); the wire display
+helper rejects those rather than silently dropping them. Compiled negative-source
+reviews report the saved status and say that no per-source explanation was requested.
+They do not pretend this procedural text is a model-authored reason. Positive-source
+remainder explanations, exact quotes and detailed meanings are still required later.
+Reselection still requires one overall correction reason and a genuine status change.
+Checkpoint validation includes explanation state; old table protocol checkpoints
+are rejected before any model call.
 
-The source-selection output cap remains 1,536 tokens. Sharing identical reasons can
-reduce repeated text but does not guarantee that a model response or input fits.
-Truncated JSON is not accepted; compiled structure remains a partial result.
+Earlier optional reason sharing did not bound actual model output: v23 repeated
+source IDs, v24/v25 tuple schemas were unsupported or incorrectly enforced by the
+pinned b10853 runtime, and v26 copied a separate explanation for each source until
+truncation. A successful token-count preflight alone did not prove generated output
+obeyed the schema. No invalid or truncated response was accepted.
+
+The source-selection output cap remains 1,536 tokens. Finite status-only output
+removes unbounded explanation prose but does not guarantee that arbitrarily large
+source inventories fit. Input planning, exact source coverage and existing document
+call/time caps still apply. Truncation leaves the compiled structure as a partial
+result; transport and scripted checks are not model-quality approval.
 
 Detail replies contain meanings, exact owned-source quotes, status and remainder
 reviews, **not applicability**. `scope`, target IDs and row bounds are rejected in
@@ -1009,7 +1013,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v39 / v21 / v32 |
 | Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
 | Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
-| Table protocol / table reference wire / table source wire / selection wire | v26 / v2 / v1 / v3 |
+| Table protocol / table reference wire / table source wire / selection wire | v27 / v2 / v1 / v4 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |

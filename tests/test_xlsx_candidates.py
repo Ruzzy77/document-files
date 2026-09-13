@@ -107,7 +107,7 @@ class PlainRegisterModel:
                 "sourceDecisions": {
                     s["sourceRef"]: {
                         "decision": "no_additional_meaning",
-                        "explanation": "Scripted plain labels and cell values",
+                        "explanation": None,
                     }
                     for s in payload["meaningSources"]
                 }

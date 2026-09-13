@@ -148,7 +148,7 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
                     role = "unreviewed"
                 decisions[source["sourceRef"]] = {
                     "decision": role,
-                    "explanation": "Explicit scripted selection",
+                    "explanation": None,
                 }
             return InferenceResponse(
                 json.dumps(encode_selection({"sourceDecisions": decisions})),
@@ -169,7 +169,7 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
                 model.requests.append(payload)
                 decisions[data["sourceRef"]] = {
                     "decision": "no_additional_meaning",
-                    "explanation": "Already represented data",
+                    "explanation": None,
                 }
                 return InferenceResponse(
                     json.dumps(
