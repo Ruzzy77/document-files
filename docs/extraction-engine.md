@@ -40,6 +40,47 @@ pending, not truncated. Table slices keep declared leading headers as context;
 headers do not become a fabricated standalone data region. OCR header predictions
 are not native declarations.
 
+### Binary HWP notes and exact body ownership
+
+Native observation adapter v3 adds relationships from stored HWP controls in
+`document_model/hwp_notes.py`. A note is keyed by section number, section stream,
+control kind (`fn  ` or `en  `) and native note ID. IDs from different section
+streams, footnotes and endnotes cannot alias one another. The control's
+`owner_paragraph_record` identifies the body paragraph; the parent of a number field
+usually identifies a paragraph *inside* the note and is not a substitute body anchor.
+
+The nearest note frame in `container_path` owns its contents, including nested table
+content. A nested note's content is not also attached to its outer note. Explicit
+control membership produces `contains` edges; body paragraphs point to note paragraphs
+with `noteReference` edges. These retain `noteKind`, `nativeNoteId`, `controlRef`,
+`basis: native_hwp_control`, `anchorGranularity: paragraph` and the original
+`numberSourceRefs`. Number references require the matching native kind and a stored
+integer control value. There is no generated numbering or invented character offset.
+Multiple text segments of the exact body paragraph remain separate source nodes.
+
+Missing or ambiguous controls, missing section/owner/content and conflicting frame
+ownership produce `native_hwp_note_*` issues rather than nearest-text guesses.
+Blank note paragraphs remain present. A 100,000-new-edge guard stops with an explicit
+observation budget issue; it does not silently discard the tail or alter source nodes,
+values or bindings. Region context can expose the declared body/note links to the
+interpreter, but it does not certify the model's note roles or final interpretation.
+
+This is an internal observation addition. Native structured projection still exposes
+its existing units and `sourceStructure`; it does not acquire a new graph response
+shape. The AI result retains the observed relationships under `document.structure`.
+Public v1 contracts are unchanged. The adapter version participates in observation
+identity, so checkpoints with the old observation cannot silently resume as the new one.
+
+The binary HWP development run confirms these links survive through the public AI
+stream API. It also exposes a later boundary failure: distinct native note controls
+can still be grouped into one interpreted scalar. All text remaining in the observation
+is not equivalent to reading each occurrence into the interpreted structure. Before
+relaxing any completeness check, verify source-object identity (including multi-paragraph
+and nested content) across structure choices and value bindings. Revision change mappings
+must reference entities that actually exist in the replacement; accepting malformed
+mappings is not a remedy for an incomplete structure. These are remaining interpretation
+work, not capabilities supplied by the note adapter.
+
 ### Table metadata and evolving request context
 
 `interpretation/table_source_wire.py` shares repeated properties in table structure

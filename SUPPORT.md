@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,197 tests,
+The full local check including the native outline path passed **3,217 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -99,11 +99,17 @@ the program does not fabricate reasons. Detail quotes, meanings, remainder revie
 the overall correction reason remain required. Source inventories, values and fixed
 document/output budgets are unchanged. Actual Spark results are described below.
 
-Native observation adapter v2 now preserves the public cell's `columnSpan` when
+Native observation adapter v3 preserves the public cell's `columnSpan` when
 building internal geometry. XLSX extractor v10 retains explicitly stored empty XML
 cells, distinguishing them from implicit gaps, empty strings, formulas without caches
 and covered merge positions. These source fixes have direct native-file regressions;
 they do not fix the long-table request/understanding failures below.
+
+Binary HWP note controls now connect each note paragraph to its stored body owner,
+keeping footnotes/endnotes, section-local IDs and number sources distinct. The original
+14,848-byte development fixture retains 18 nodes and 28 bindings and now has all four
+expected body/note links; it previously had none. This native graph check does not
+establish final AI understanding, reading order or inline character positions.
 
 - **Document roles and hierarchy:** source text, native markers, direct formatting
   and XML references remain separate from inferred title/heading/caption roles.
@@ -242,6 +248,39 @@ historical reference-count and candidate-loss failures. Partitioned delivery is 
 implemented for divisible candidate/row groups; actual model quality remains unapproved.
 
 ## Latest Spark-B verification
+
+### Binary HWP note ownership and interpretation
+
+Source **aad6524f8da8da372cef6438805160bd7672d441** processed the original binary HWP
+note fixture through the public stream API on Spark-B's retained 9B CUDA runtime.
+The predeclared short budget remained **12 calls / 900 seconds / 16,000 characters**;
+no expected answers were sent. The result returned **partial after 8 calls / 151.3
+seconds**, not because it exhausted that whole-document allowance.
+
+All 18 original nodes, 28 bindings, six exact text contents and four declared
+body/note links survive in the result. However, the initial AI structure merges two
+body references into one scalar and four distinct notes into another. Only the first
+body text and first note become interpreted values. The four stored note-number
+bindings remain unaccounted. Later scope choices apply the merged descriptions to
+those two fields; they do not recover the missing occurrences.
+
+The two structure revisions are rejected for duplicate change mappings and an unknown
+replacement entity. Their proposed kind split still merges separate same-kind notes.
+No invalid revision is accepted and `partial` is not relabeled as success. This is a
+**development quality failure**, despite the corrected native graph. Next, distinguish
+separate source-declared objects from multiple paragraphs within one object, preserve
+that occurrence identity during field/record decisions, and constrain revision references
+to the actual replacement. Do not invent headings or new records from note wording.
+
+The exact source passed **397 related ARM64 tests** on Python 3.12.3, with warnings as
+errors. After hash-checked collection, the owned server, one input copy, 233 exported
+source/test files and two bytecode files proven to match those sources were removed.
+Shared RPC and host OOM 0 remained unchanged. There was no new dependency/model download.
+Evidence: `structural-kpi-20260913/native-note-audit-53/`, including the frozen-specification
+comparison, full request/response trace and cleanup receipt. This is not a CPU-only
+memory qualification or an independent quality pass.
+
+### Earlier 50-row HWPX / XLSX comparison
 
 Source **e3452fba507a1f5dd1ddb1d87549d59c2fdf1295** ran the unchanged 50-row
 native development files through the actual product path. The task-owned 9B runtime
@@ -483,7 +522,7 @@ platform-installer or independent quality qualification**.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The latest actual run retains 12/50 HWPX and 45/50 XLSX rows. Repacking and the reproduced detail overflow are corrected in code, but the optimistic table-only cost remains 20 / 12 calls. | Verify the complete product path under a budget fixed before evaluation, distinguishing it from the failed 12-call runs. Review every row and meaning, including wrong bare-identifier selection. Larger detail work must still remain explicitly partial if it cannot fit; do not waive missing sources or silently extend a run. |
+| 1 | **Native complete extraction is not approved.** Binary HWP preserves exact native note links but collapses separate body/note objects into two interpreted values; invalid structure revisions cannot repair it. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Preserve distinct source-object occurrences during structure/value decisions; distinguish multiple paragraphs of one note from separate notes. Make revision references valid without weakening source/change checks. Then compare the full product path under a predeclared budget; do not waive missing items or silently extend a run. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |
@@ -540,6 +579,14 @@ Use prior expected structure and independently inspect the actual bindings, not
 just whether a string appears somewhere in the source. Secondary formats and broad
 PDF qualification do not gate this target, and finishing it is not the older
 multi-format formal release approval.
+
+The earlier prepared independent set was re-audited: the identical HWPX receipt had
+already been used in failed model runs, and the binary HWP note fixture guided the
+native correction above. Both are development-only, removed from active independent
+membership with original bytes, expectations and the membership-change evidence retained.
+Nine candidates remain; that count is not approval or a fresh unseen-status guarantee
+for every retained case. The primary XLSX credit-register is still only a candidate;
+new independent HWP and HWPX cases are required.
 
 There is no separate response-time SLA. Evaluation defaults remain short **12 calls /
 900 seconds**, long **64 calls / 3,600 seconds**; development comparisons can use an

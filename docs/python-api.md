@@ -81,6 +81,14 @@ a merged anchor are not fabricated as independent cells. A missing formula cache
 remains unavailable, not blank or zero. Native cell geometry uses public `columnSpan`
 and preserves the original merged extent in the internal observation.
 
+Binary HWP native units retain note control IDs, section streams, paragraph ownership
+and stored note-number sources in `sourceStructure`. The internal AI observation
+additionally links body paragraphs to footnote/endnote paragraphs from those exact
+controls, without inferring inline character offsets. Its `noteReference` edges are
+preserved in the AI result's `document.structure`; the native structured projection's
+unit response is unchanged. An observed link does not approve an AI-generated role
+or mean that all note content was interpreted. See [note ownership](extraction-engine.md#binary-hwp-notes-and-exact-body-ownership).
+
 For HWPX cell editing, use the `tableMap.tables` returned by `inspect` with verified `sectionPath`,
 `tableIndex`, `row` and `col`. The `selectorBasis` value
 `verified-section-xml-table-order` records alignment with the section XML and editor's
