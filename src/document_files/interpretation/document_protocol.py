@@ -19,7 +19,7 @@ from .document_outline import (
 )
 from .source_dictionary import compact_sources
 
-VERSION = "document-files.document-protocol.v7"
+VERSION = "document-files.document-protocol.v8"
 MAX_CALLS = 2
 REASONING_BUDGET = 1024
 
@@ -162,6 +162,11 @@ def role_request(observation, region, fragments=()):
         "blocks": blocks,
         "documentContext": context,
     }
+    from ..document_model.note_objects import note_context
+
+    notes = note_context(observation, region)
+    if notes["objects"] or notes["status"] != "complete":
+        payload["nativeNotes"] = notes
     schema = RoleDecision.model_json_schema()
     schema["properties"]["regionId"] = {"type": "string", "const": region["id"]}
     constrain_schema(schema, observation, region)

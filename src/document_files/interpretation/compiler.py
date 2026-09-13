@@ -1347,6 +1347,15 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
     derived = bound_node_dispositions(
         observation, region, resolved_fields, out.consumed_bindings, header_definition_sources
     )
+    from ..document_model.note_objects import note_context
+
+    note_catalog = note_context(observation, region)
+    native_notes = {}
+    if note_catalog["status"] == "complete":
+        for object_ref, note in note_catalog["objects"].items():
+            if note["status"] == "linked":
+                for ref in note["contentRefs"]:
+                    native_notes.setdefault(ref, []).append(object_ref)
     for element in out.document_elements:
         # Source use follows a separately validated role decision, not vice versa.
         # This does not exempt any of the required value candidates below.
@@ -1381,13 +1390,18 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
             out.issues.append({"code": "node_semantics_" + disposition.role, "sourceRef": ref})
         elif disposition.role == "note" and not any(
             ref in item["sourceRefs"] for item in out.semantic_details
-        ):
+        ) and ref not in native_notes:
             out.issues.append({"code": "note_scope_unresolved", "sourceRef": ref})
     out.dispositions = [
         *[d.model_dump() for d in ir.dispositions],
         *[value for ref, value in derived.items() if ref not in dispositions],
     ]
     for disposition in out.dispositions:
+        if disposition["role"] == "note" and disposition["sourceRef"] in native_notes:
+            # A stored body/note reference accounts for the structural note, not
+            # for an inferred unit/condition or a new business-data target.
+            disposition["nativeNoteObjects"] = native_notes[disposition["sourceRef"]]
+            disposition["nativeNoteBasis"] = "native_hwp_control"
         window = region.get("nodeViews", {}).get(disposition["sourceRef"])
         if window is not None:
             disposition.update(regionId=region["id"], textRange={"path": "/text", **window})

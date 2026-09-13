@@ -324,6 +324,8 @@ def _restored_usage(value):
 
 
 def _initial_result(job, observation, analyzer, selected, client, content):
+    from ..document_model.note_objects import note_objects
+
     result = {
         "schemaVersion": RESULT_VERSION,
         "jobId": job.job_id,
@@ -370,6 +372,9 @@ def _initial_result(job, observation, analyzer, selected, client, content):
             "model": client.identity if client else None,
         },
     }
+    notes = note_objects(observation)
+    if notes["objects"] or notes["status"] != "complete":
+        result["document"]["structure"]["nativeNotes"] = notes
     if selected.reconstructionContext:
         result["reconstructionContext"] = capture(
             content, job.input.format_id, max_expanded_bytes=selected.maxInputBytes * 4
@@ -584,6 +589,12 @@ def extract_schema_from_stream(
                 coverage=result["coverage"]["observation"],
                 provenance=result["provenance"]["observation"],
             )
+            from ..document_model.note_objects import note_objects
+
+            notes = note_objects(observation)
+            expected_notes = notes if notes["objects"] or notes["status"] != "complete" else None
+            if structure.get("nativeNotes") != expected_notes:
+                raise ValueError("native note objects changed in checkpoint")
             regions = copy.deepcopy(restore["regions"])
             accepted = {
                 key: RegionInterpretation.model_validate(value)

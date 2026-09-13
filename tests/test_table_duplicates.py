@@ -175,7 +175,7 @@ def two_pages(*, rows2=ROWS, unit2="pcs", extra_statement=False, **page2):
 
 def test_versions_and_contract_name_the_duplicate_decision():
     assert PROMPT_VERSION == "document-files.semantic-prompts.v40"
-    assert COMPILER_VERSION == "document-files.result-compiler.v34"
+    assert COMPILER_VERSION == "document-files.result-compiler.v35"
     assert SCOPE_VERSION == "document-files.scope-integration.v18"
     assert "duplicate" in INTEGRATE and "text equality is not record identity" in INTEGRATE
     assert "Cite sourceRefs from the sourceNodes keys only" in INTEGRATE
