@@ -1157,7 +1157,7 @@ does not have the suspected first-fragment-only defect in this case.
 
 ### Complete inventory and request preflight
 
-Scope integration v17 / protocol v9 use `build_scope_inventory` before request
+Scope integration v18 / protocol v10 retain `build_scope_inventory` before request
 planning. Eligibility still follows the existing same-region, adjacency, note-link
 and explicit parent-table routing rules; this does not add arbitrary cross-document
 targets. The old `build_scope_tasks` display-limited helper remains for compatibility,
@@ -1182,8 +1182,9 @@ For complete inventories, `scope_readiness` constructs the existing selection wi
 and measures all message content: system instructions, payload and output schema.
 `ready` means it fits the effective input-character allowance. `requires_partition`
 means the complete request is too large. Unavailable inventories and invalid catalogs
-receive separate diagnostics. Only ready tasks reach existing independent-task
-batching; an oversized task causes no model call or successful prefix decision.
+receive separate diagnostics. Ready whole tasks reach existing independent-task
+batching; oversized complete tasks use the partition path below rather than sending
+an incomplete candidate prefix.
 Tokenizer, model-context and output-reservation checks remain separate.
 
 Inventory diagnostics are exposed through `coverage.scopeIntegration`, not sent to
@@ -1195,13 +1196,13 @@ are unchanged.
 In the same offline fixture, 10/50 rows retain all three candidates and fit
 10,773 / 15,932 characters. The 96/200-row inventories also retain all three candidates,
 but the requests require 22,924 / 39,844 characters and remain `requires_partition`
-at 16,000. This fixes premature candidate loss, **not** oversized request execution.
-No actual model call is part of this comparison.
+at 16,000 in whole-task preflight. Partition v1 now delivers these fixtures in bounded
+windows as described below. No actual model call is part of this comparison.
 
 ### Compiler-owned scope provenance
 
 Source binding v3, introduced with integration v16 / protocol v8 and retained by
-integration v17 / protocol v9, separates a model selection
+integration v18 / protocol v10, separates a model selection
 from its compiler-produced source union. The legacy `ScopeDecision` JSON schema,
 including its 100-citation bound, is unchanged. The active selection wire still
 accepts no citations from the model. Only after checking current definitions, row
@@ -1243,44 +1244,72 @@ replay preserves the result without another call. No discovery override is used.
 This does not demonstrate that this HTML request fits the 16,000-character model
 profile, nor does it establish actual-model or native-format quality.
 
-### Next scope implementation — not implemented
+### Partitioned applicability
 
-The next actual native-file run must first establish complete table extraction and
-meaning selection under a budget fixed before execution. This long-scope work must
-not replace that check with increasingly large scripted tables. When that path
-reaches applicability, implement the following boundaries in order:
+`scope_partition.py` implements partition v1 for complete inventories whose whole
+request exceeds the effective character allowance. The plan is deterministic and
+does not authorize extra model calls or time. Whole tasks that already fit retain
+their existing wire; `no_target` is added only to the partition response contract.
 
-1. **Complete inventory and preflight — implemented.** Use the bounded inventory and
-   actual message-content sizing described above. Full eligible candidates are no
-   longer discarded merely because one request is too small. Keep a single task
-   when it fits. This prerequisite does not implement the remaining steps.
-2. **Partition only an oversized task.** Create disjoint candidate/row windows with
-   explicit coverage of the frozen inventory. Each window retains the current meaning,
-   relevant surrounding text and column/header definitions. A window's “all rows”
-   means only its offered rows, never the remainder of the table. Physical row
-   coordinates, fragment-local record numbers and joined output positions remain
-   distinct. A required context block that cannot fit must produce an explicit
-   incomplete task; truncating it is not a successful partition.
-3. **Aggregate reviewed windows, not guesses about missing work.** The new internal
-   response needs distinct apply, reviewed-with-no-target and unresolved outcomes.
-   The last two cannot be inferred from an omitted response or an empty selection.
-   Combine validated window selections without double-counting overlaps, and record
-   reviewed exclusions separately from unseen windows. An exhausted call/time budget
-   preserves completed data and checked partial links but cannot clear unresolved
-   applicability. If every window excludes all targets, keep the meaning unresolved
-   under the existing public contract rather than inventing an applicable target.
-4. **Version and replay the complete plan.** Include inventory, partition boundaries,
-   exclusions, source proofs and actual wire identities in checkpoint validation.
-   Recompute proofs against current observations. Changed values, row roles, column
-   membership, joins or quotes invalidate affected decisions. Scheduling uses the
-   existing cumulative document allowance; partitioning does not create extra budget.
+**Planning.** Related candidates stay together: each record includes its column and
+header-group handles, and containment links join overlapping candidate families.
+The planner bisects families, then source-row ranges of a single record family if
+necessary. Each proposed window is sized with its complete system instructions,
+payload and output schema. Wide indivisible definitions or connected multi-record
+families are not silently reduced to fit; a leaf that still exceeds the allowance is
+`context_unavailable`. Column partitioning of such a family is not implemented.
 
-Acceptance must cover both sides of the measured source-reference boundary, complete
-96/200-row delivery or explicit pending windows, exact equal-valued rows, stored
-blanks versus missing/unread cells, subtotal/note rows, partial column groups and
-continued tables. Include interrupted/resumed work, stale proofs, rejected siblings,
-all-negative windows and missing responses. Scripted checks establish preservation
-and failure behavior only; actual HWP/HWPX/XLSX outputs still need independent review.
+**Row ownership.** Every window retains the meaning, surrounding context and column
+definitions. It removes only data-row context exclusive to other windows. Shared
+source nodes, header definitions, notes, unresolved rows and reference links remain
+exact. Selectable row boundaries keep their original coordinates and original
+`dataRowNumberInFragment`; numbering does not restart. A window's `allDataRows`, direct
+column or header-group choice decodes to an explicit row intersection against the
+original task. It cannot become a whole-column definition or select a foreign window's
+row reference. Source binding still checks the original unsliced compiler mapping.
+
+**Review and aggregation.** Each response explicitly chooses `apply`, `no_target`
+or `unresolved`. `apply` selects the applicable subset and reviews the rest of that
+window as excluded; the other two require empty selections. Missing or invalid
+responses do not become negative reviews. Checked selections are combined only over
+their offered ranges; adjacent identical column/range selections can be coalesced
+without crossing a negative or unseen interval. All-negative review leaves the
+meaning unresolved rather than inventing an applicable target. Unknown row roles or
+missing source coordinates cannot prove complete applicability.
+
+When budget, cancellation or an undecided window stops the work, compiled data and
+checked partial links remain. If the combined source proof exceeds its resource
+limit or overlaps incompatibly, an admissible checked partial union is retained.
+Coverage lists `appliedWindows`, `unappliedWindows` and the aggregation issue; all
+positive window answers/proofs remain saved. This is explicitly partial, not a
+successful truncated source list. Resource limits are not waived to report success.
+
+**Checkpoint replay.** `scopePartitions` stores the plan identity, each actual wire's
+fingerprint, response and compiler proof, plus an exact value/evidence identity for
+eligible regions. It does not trust a saved request body. Replay reconstructs the
+plan and wire, decodes each response, rebinds
+its sources and compares the saved proof. Negative reviews also depend on unchanged
+values, source context, row roles, header membership and joins. Public coverage flags
+are recomputed. Changed scope policy or stale proofs are rejected before a new call.
+Ordinary resume skips answered windows; invalid or unresolved answers are retried only
+with an explicit additional call allowance. Cancellation can resume within unused
+existing allowance. Every invocation uses the cumulative document budget.
+
+The plan has at most **128 windows** and **8 MiB of retained serialized window
+payload/schema content**. Saved window responses/proofs have a separate **8 MiB
+per-task state bound**. These are operational content limits, not peak-memory or
+CPU-only qualification. A plan exceeding its bound sends no prefix. Inventory and
+source-binding limits remain independent.
+
+The 96/200-row scripted fixtures fit 4/8 windows under 16,000 characters, preserving
+every observed row once, every exact source text, 192/400 linked values and 194/402
+references. Tests also cover header groups, blank/subtotal/note and missing rows,
+positive/negative/unresolved/unseen states, invalid siblings and changed-value replay.
+The HTML engine scheduling tests isolate a 12,000-character scope preflight while
+all invocations obey the configured 16,000 cap; they are not a complete native-format
+model run. The next actual HWP/HWPX/XLSX evaluation must establish complete table and
+meaning extraction under a predeclared budget, then review the model's window decisions
+against independent expectations. Scripted delivery success does not replace that check.
 
 ## 6. Request sizing, checkpoints and result validation
 

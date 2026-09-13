@@ -308,11 +308,21 @@ resume. They do not change the public v1 evidence contract or certify semantic a
 Each entry in `coverage.scopeIntegration` reports its eligible candidate `inventory`.
 Unvalidated tasks also report `requestPlanning`: `ready`, `requires_partition`,
 `inventory_unavailable` or `invalid_catalog`. A complete inventory can still exceed
-the model input allowance. Oversized tasks are not yet split; their meanings remain
-unresolved without dropping compiled data or approving a candidate prefix. Inventory
+the model input allowance. Divisible oversized tasks add `partition` coverage with
+per-window outcomes: `apply`, `no_target`, `unresolved`, `unseen`, `invalid` or
+`context_unavailable`. A window's “all rows” means its offered original rows only.
+`appliedWindows` and `unappliedWindows` distinguish checked answers from links admitted
+to the combined proof. Incomplete work retains data and checked partial links without
+approving unseen rows. All-negative review still leaves the meaning unresolved. Inventory
 resource limits and missing context are explicit; `no_candidates` does not mean the
 document contains no data. These diagnostics do not change the public v1 contract or
 replace independent quality review.
+
+Partition requests spend the same cumulative call/time allowance. Ordinary resume
+continues unseen windows without repeating answered ones. Retrying invalid or
+unresolved answers requires an explicit additional call allowance. Cancelled work may
+resume within unused existing allowance. New internal scope policies reject old
+incompatible checkpoints; the public v1 result/CLI/MCP contracts remain unchanged.
 
 `extract_schema(..., request_id="stable")` returns the existing result for identical
 inputs; changing the input/options/model/observation/prompt/compiler identity conflicts.
