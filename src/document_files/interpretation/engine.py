@@ -136,6 +136,7 @@ from .table_selection_wire import decode_selection, encode_selection
 from .table_selection_wire import selection_schema as wire_selection_schema
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, source_inventory
+from .table_structure_feedback import check_structure, structure_feedback
 
 CHECKPOINT_VERSION = "document-files.regional-checkpoint.v3"
 
@@ -1863,23 +1864,7 @@ def extract_schema_from_stream(
                         candidate, observation, region, target_schema=selected.targetSchema
                     )
                     if stage == "structure":
-                        structural_errors = sorted(
-                            {
-                                i["code"]
-                                for i in fragment.issues
-                                if i["code"]
-                                in {
-                                    "column_definition_not_above_column",
-                                    "column_definition_conflicts_with_content",
-                                    "column_leaf_header_missing",
-                                    "table_rows_outside_repeat",
-                                    "header_cell_bound_as_value",
-                                    "repeat_row_roles_incomplete",
-                                }
-                            }
-                        )
-                        if structural_errors:
-                            raise CompileError(",".join(structural_errors))
+                        check_structure(fragment.issues, observation, region)
                     # Meaning can add assertions/accounting, never change committed cells.
                     if stage == "meaning" and (
                         fragment.data != compiled[rid].data
@@ -1956,8 +1941,6 @@ def extract_schema_from_stream(
                         else [feedback]
                     )
                     if stage == "structure":
-                        from .table_structure_feedback import structure_feedback
-
                         repair = structure_feedback(exc, observation, region)
                     progress.update(status="failed", feedback=repair)
                     issue(

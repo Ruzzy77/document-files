@@ -4,8 +4,94 @@ import json
 
 from .compiler import CompileError
 
+_COLUMN_ERRORS = {
+    "column_definition_not_above_column",
+    "column_definition_conflicts_with_content",
+    "column_leaf_header_missing",
+}
+_ROW_ERRORS = {"table_rows_outside_repeat", "repeat_row_roles_incomplete"}
+_STRUCTURAL_ERRORS = _COLUMN_ERRORS | _ROW_ERRORS | {"header_cell_bound_as_value"}
+
+
+class _StructureIssues(CompileError):
+    def __init__(self, codes, feedback):
+        super().__init__(",".join(codes))
+        self.feedback = feedback
+
+
+def check_structure(issues, observation, region):
+    """Reject the same structural issues, retaining their safe source locations.
+
+    Group duplicate findings without dropping distinct sources or row/cell pairs.
+    Do not truncate diagnostics to fit a request: the ordinary preflight preserves
+    the failed state and reports an oversized repair without making a model call.
+    """
+    selected = [i for i in issues if i.get("code") in _STRUCTURAL_ERRORS]
+    if not selected:
+        return
+    codes = sorted({i["code"] for i in selected})
+    table = observation.tables.get(region.get("tableRef"), {})
+    cells = table.get("cells", [])
+    allowed = set(region["nodeIds"]) | set(region.get("contextNodeIds", []))
+    sources = {
+        c["sourceRef"]
+        for c in [*cells, *table.get("headerCells", [])]
+        if c["sourceRef"] in allowed and c["sourceRef"] in observation.nodes
+    }
+    high_column = max((c["col"] + c.get("colSpan", 1) for c in cells), default=0)
+
+    def valid_column(value):
+        return type(value) is int and 0 <= value < high_column
+
+    def valid_row(value):
+        return type(value) is int and any(
+            c["row"] <= value < c["row"] + c.get("rowSpan", 1) for c in cells
+        )
+
+    feedback = []
+    for code in codes:
+        columns, rows, locations = {}, set(), set()
+        for issue in selected:
+            if issue["code"] != code or issue.get("tableRef", region.get("tableRef")) != region.get(
+                "tableRef"
+            ):
+                continue
+            refs = {
+                ref
+                for ref in [issue.get("sourceRef"), *issue.get("sourceRefs", [])]
+                if isinstance(ref, str) and ref in sources
+            }
+            column, row = issue.get("column"), issue.get("row")
+            if code in _COLUMN_ERRORS and valid_column(column) and refs:
+                columns.setdefault(column, set()).update(refs)
+            elif code in _ROW_ERRORS:
+                rows.update(r for r in issue.get("rows", []) if valid_row(r))
+            elif code == "header_cell_bound_as_value" and refs:
+                location = {"sourceRefs": sorted(refs)}
+                if valid_row(row):
+                    location["row"] = row
+                if valid_column(column):
+                    location["column"] = column
+                locations.add(json.dumps(location, ensure_ascii=False, separators=(",", ":")))
+        if columns:
+            detail = {str(col): sorted(refs) for col, refs in sorted(columns.items())}
+        elif rows:
+            detail = {"rows": sorted(rows)}
+        elif locations:
+            detail = {"cells": [json.loads(x) for x in sorted(locations)]}
+        else:
+            detail = None
+        feedback.append(
+            code
+            if detail is None
+            else code + ":" + json.dumps(detail, ensure_ascii=False, separators=(",", ":"))
+        )
+    raise _StructureIssues(codes, feedback)
+
 
 def structure_feedback(error, observation, region):
+    if isinstance(error, _StructureIssues):
+        return list(error.feedback)
     if not isinstance(error, CompileError):
         return ["invalid_table_contract"]
     feedback = [str(error)]

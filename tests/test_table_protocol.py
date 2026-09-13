@@ -241,6 +241,7 @@ def test_unrepaired_content_only_definitions_do_not_report_complete():
         ("tableProtocolVersion", "document-files.table-protocol.v28"),
         ("tableProtocolVersion", "document-files.table-protocol.v29"),
         ("tableProtocolVersion", "document-files.table-protocol.v30"),
+        ("tableProtocolVersion", "document-files.table-protocol.v31"),
         ("compilerVersion", "document-files.result-compiler.v26"),
         ("promptVersion", "document-files.semantic-prompts.v30"),
         ("regionPlanVersion", "document-files.region-plan.v15"),
