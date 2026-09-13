@@ -7,7 +7,7 @@ definitions and non-fixed row roles remain model decisions, not inferred default
 
 from copy import deepcopy
 
-from ..document_model.table_headers import fixed_header_rows, observed_rows
+from ..document_model.table_headers import row_role_order
 from .compiler import CompileError
 
 
@@ -17,8 +17,7 @@ def _domain(observation, region):
     # Preserve the old bounded column range, including unoccupied grid positions.
     # A column can be omitted; known geometry does not require mapping every slot.
     high = max((c["col"] + c.get("colSpan", 1) for c in cells), default=0)
-    rows = sorted(set(observed_rows(cells)) - fixed_header_rows(table))
-    return [str(c) for c in range(high)], rows
+    return [str(c) for c in range(high)], row_role_order(table)
 
 
 def schema(canonical, observation, region):

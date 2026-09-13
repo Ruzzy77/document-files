@@ -28,3 +28,8 @@ def fixed_header_rows(table):
         for row, cells in observed_rows(table["cells"]).items()
         if cells and all(declared_header(cell, table) for cell in cells)
     }
+
+
+def row_role_order(table):
+    """Observed rows not wholly declared as headers, not predicted data rows."""
+    return sorted(set(observed_rows(table["cells"])) - fixed_header_rows(table))

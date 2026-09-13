@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from ..document_model.table_headers import fixed_header_rows, observed_rows
+from ..document_model.table_headers import fixed_header_rows, observed_rows, row_role_order
 from ..result_types import Contract
 from .compiler import CompileError
 from .semantic_types import (
@@ -37,7 +37,7 @@ from .table_source_decisions import (
 from .table_source_wire import compact_table_sources
 from .table_sources import SourceReviewError, _source_text, resolve_quotes, source_inventory
 
-TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v34"
+TABLE_PROTOCOL_VERSION = "document-files.table-protocol.v35"
 STAGE_INITIAL_MAX_CALLS = 2
 MEANING_REVIEW_MAX_CALLS = 1
 STAGE_MAX_OUTPUT_TOKENS = 3072
@@ -197,9 +197,7 @@ def structure_schema(observation, region, catalog=None, *, coordinate_wire=False
     repeat["rowStart"] = {"type": "integer", "const": start}
     repeat["rowEnd"] = {"type": "integer", "const": end}
     repeat["groupId"] = {"type": "null"}
-    rows = observed_rows(cells)
-    fixed = fixed_header_rows(observation.tables[region["tableRef"]])
-    choices = sorted(set(rows) - fixed)
+    choices = row_role_order(observation.tables[region["tableRef"]])
     repeat["rowRoles"].update(minItems=len(choices), maxItems=len(choices), uniqueItems=True)
     if choices:
         schema["$defs"]["RowDecision"]["properties"]["row"] = {"type": "integer", "enum": choices}
@@ -491,7 +489,7 @@ def structure_payload(payload):
         result["tables"][ref] = {
             **projected,
             "rowCandidates": candidates,
-            "rowRoleOrder": sorted(set(rows) - fixed),
+            "rowRoleOrder": row_role_order({**table, "cells": cells}),
         }
     return compact_table_sources(result)
 

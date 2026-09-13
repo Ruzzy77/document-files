@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 
-from ..document_model.table_headers import declared_header
+from ..document_model.table_headers import declared_header, row_role_order
 from .compiler import preferred_binding
 from .document_outline import enabled as outline_enabled
 from .document_outline import role_context
@@ -13,7 +13,7 @@ from .legacy_engine import contract_messages
 from .table_protocol import STRUCTURE_SYSTEM, structure_model_schema, structure_payload
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v23"
+REGION_PLAN_VERSION = "document-files.region-plan.v24"
 
 
 def _encoded(value):
@@ -99,12 +99,12 @@ def _table_payload(table):
         }
         if len(_encoded(packed)) < len(_encoded(cells)):
             result[key] = packed
-    result["columnCandidates"], result["dataRows"] = column_candidates(table)
+    result["columnCandidates"], result["rowRoleOrder"] = column_candidates(table)
     return result
 
 
 def column_candidates(table):
-    """Derive column indices with their declared header cells and the observed data rows.
+    """Derive declared header paths and exact rows needing contextual role choices.
 
     Geometry is program work: the interpreter names, types and scopes columns but
     does not invent column indices. Header references come only from cells declared
@@ -132,16 +132,7 @@ def column_candidates(table):
         }
         for column in range(col_count)
     ]
-    data_rows = sorted(
-        {
-            row
-            for cell in cells
-            if not declared_header(cell, table)
-            for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1))
-        }
-    )
-    data_range = {"rowStart": data_rows[0], "rowEnd": data_rows[-1]} if data_rows else None
-    return candidates, data_range
+    return candidates, row_role_order(table)
 
 
 def region_payload(observation, region):

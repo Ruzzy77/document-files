@@ -267,7 +267,8 @@ def test_table_payload_lists_program_derived_column_candidates_and_data_rows():
         "Measurements > Length",
         "Measurements > Width",
     ]
-    assert payload["dataRows"] == {"rowStart": 2, "rowEnd": 3}
+    assert payload["rowRoleOrder"] == [2, 3]
+    assert "dataRows" not in payload
     caption = next(n for n in doc.nodes if doc.nodes[n].get("semanticRole") == "caption")
     assert caption in region["nodeIds"] and caption not in region["contextNodeIds"]
     assert not any(doc.bindings[b].get("candidateRole") == "lexeme" for b in region["bindingIds"])
@@ -275,7 +276,7 @@ def test_table_payload_lists_program_derived_column_candidates_and_data_rows():
     offered = {doc.bindings[b]["sourceRef"] for b in region["bindingIds"]}
     assert not offered & (headers | {caption})
     assert any(doc.bindings[b].get("candidateRole") == "lexeme" for b in doc.bindings)
-    assert "columnCandidates" not in table and "dataRows" not in table
+    assert "columnCandidates" not in table and "rowRoleOrder" not in table
 
 
 def test_sliced_table_reads_its_caption_with_the_first_slice_only():
