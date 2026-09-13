@@ -720,6 +720,36 @@ revision base. Replay verifies both original and effective roles, the overlap re
 source/structure identities and exhaustive changes before trusting new values. A failed
 replacement leaves the old partial data and roles intact.
 
+Revision v9 adds a bounded follow-up in `native_revision_followup.py`. If an early
+review used one attempt and chose `retain`, and actual subsequent value selection
+reproduces `document_role_value_conflict`, the engine uses the one remaining review
+attempt before repeating an incapable value-only request. No third automatic review
+is available. An early review that already used both attempts cannot reopen.
+
+The new review stores the unchanged early request identity, response, usage and base
+in `priorReview`; its own base contains the actual attempted values and compiler failure.
+`retainedReviewHash` identifies the previous decision, not an approval. The live early
+review marker is removed before actual reading; its original snapshot remains intact.
+Combined attempt and usage counters include both reviews. Unknown transport still
+stops without an explicit grant; a grant does not erase consumed calls or prior history.
+
+`roleValueFailure` stores the failed response, its hash and the original value-request
+base hash. The base hash is not represented as a full transport/feedback hash. For a
+batch it also records the phase, index, raw failed proposal and exact batch-request
+hash. A failed batch is not inserted into the accepted batch responses. Replay checks
+these identities, rebuilds the aggregate and reruns schema/source/value compilation:
+the same specific conflict must recur. A fabricated error code or internally consistent
+hash alone cannot authorize review. Malformed early/failure objects are rejected on
+checkpoint loading.
+
+A checked replacement invalidates all current values and forces fresh reads, including
+previously accepted sibling batches; prior partial data stays in the review base. A
+follow-up `retain` may use the remaining value attempt to select a genuine inner quote,
+but cannot approve the rejected whole-title value. Regression cases cover single and
+batched values, multiple batches, exhaustion, unknown transport, explicit resume,
+invalid/no-op proposals, later retain, cumulative cost and tampered saved history.
+Those scripted native-parser results do not prove that a live model chooses correctly.
+
 Before committing edited roles, the engine recomputes all other saved role-request
 fingerprints with the prospective heading context. A changed fingerprint rejects the
 replacement with `native_revision_role_context_dependency`; it does not silently stale
@@ -961,24 +991,36 @@ review. Complete interpretation needs source-grounded model decisions, not just 
 successful state transition. Neither native note membership nor row position alone
 decides the right document role.
 
-The latest actual comparison reached both early reviews, but each retained a title
-that the subsequent whole-text value selection contradicted. `interpret_native_revision`
-currently returns immediately for any completed review, including early retention.
-Value repair cannot change accepted roles, so the same conflict can recur while one
-of the two permitted review attempts remains unused. This is a reproduced controller
-limitation, not a reason to relax role/value validation.
+The retained-review limitation reproduced by the earlier HWP run is fixed by revision
+v9, as described above. The next actual comparison failed before reaching that path:
+first-region structural discovery repeated a colliding scalar property key, while the
+second region consumed both early review attempts on an incomplete then unchanged
+replacement. No value request ran. The model also called a prior inferred title role
+native evidence. This does not establish a failure of the new follow-up transition;
+it establishes that its regression success is insufficient for complete extraction.
 
-The next bounded change is planned, **not implemented**: preserve the early review and
-its request/response/usage, then permit its remaining review attempt only after a
-compiler-confirmed role/value conflict. Rebuild the later review's base and failure
-evidence from the actual attempted values; do not overwrite the early record or reuse
-its old request identity. Route this before repeating an incapable value-only repair.
-The combined review attempts must stay at two and all calls stay inside the original
-document allowance. Full replacement accounting, current-source checks, atomic value
-invalidation, unknown-transport stops and checkpoint replay remain mandatory. Tests
-must distinguish a legitimate retained title/inner value from a later real conflict,
-and cover rejection, exhaustion, partial preservation and downstream role dependencies.
-This does not authorize unlimited review cycles or guarantee a semantic correction.
+The next investigation is **not yet an implemented protocol change**:
+
+1. Reproduce the duplicate-key and early-review failures using the collected responses.
+   Keep the source/specification bytes and both original outcomes unchanged.
+2. Design collision feedback around program-owned field references, their common
+   property scope and distinct source positions. Repeated labels and equal values
+   are legitimate; do not append suffixes, merge occurrences or discard fields by
+   policy. Any changed structure must still be source-grounded and compile uniquely.
+3. Compare the present potential-overlap review with a review scheduled only after
+   concrete value failure. A possible overlap is not a failed read. The comparison
+   must cover real title inner values, contradictory whole-title reads, initial
+   structure failure, exhausted/unknown review states and downstream role context.
+   Accepted native observations must remain separate from prior model role choices.
+4. Select and implement the smallest supported change, including request identity,
+   attempt/usage accounting and checkpoint compatibility. Check saved-request size
+   before another bounded actual run; keep the existing 12-call/900-second/16,000-
+   character allowance. Full change accounting cannot be bypassed to accept a no-op
+   replacement or to manufacture completion.
+
+This focuses on avoiding unproductive stages, not merely adding prompt instructions,
+loosening role/value validation or allocating another automatic review cycle. It does
+not establish that a larger model or further compression will fix semantic decisions.
 
 Cross-region logical continuation still requires source-bound earlier-record context
 and an explicit relation decision. Nearby text or equal keys cannot authorize merging.
@@ -1566,8 +1608,8 @@ its owning behavior. Do not patch stored IDs to resume.
 | Contract | Version |
 |---|---|
 | Semantic prompt / region plan / result compiler | v40 / v23 / v36 |
-| Document outline / native role-content protocol / native structure | v1 / v13 / v18 |
-| Native structural response wire / native value batches / structure revision | v3 / v4 / v8 |
+| Document outline / native role-content protocol / native structure | v1 / v14 / v19 |
+| Native structural response wire / native value batches / structure revision | v3 / v4 / v9 |
 | Table protocol / table reference wire / table source wire / selection wire | v29 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
