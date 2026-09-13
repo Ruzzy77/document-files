@@ -492,20 +492,38 @@ complete missingness, metadata scope or value bindings. No later definition/valu
 stage was run against groups already known to be wrong, and no prototype was promoted
 merely because its deterministic projection passed.
 
-The next bounded hypothesis is to describe each individual item together with its actual
-attributes before requesting an abstract shared record type. Each item needs its own
-source-anchored entry and attribute descriptions; this is not another whole-document
-summary prefix. The description remains an untrusted model proposal. Only original source ranges/bindings may establish accepted
-values or missing states; the draft must not become a substitute truth specification.
-Scalar forms, metadata and separate meanings must remain explicit. Equivalent layouts
-and a genuine non-repeating form stay in the comparison; do not hardcode item counts or
-exclude inconvenient source facts to make the mapping succeed.
+The subsequent per-item/attribute draft also failed: it classified unrelated source
+paragraphs as items or copied record/note paragraphs into metadata. A matched control
+removed only the `response_format` wire member; generated content was byte-identical
+on all three files. Decoder grammar did not cause this particular failure. The original
+text, metadata, output contract and sampling were identical in that control.
 
-This hypothesis is not implemented or approved. Any candidate must fit the original
-source, output, call and time limits with repair headroom, preserve checked failure/resume
-behavior, and pass the complete actual Spark path before independent varied-format tests.
+A separate free-form data-tree draft removed the prescribed item/attribute/evidence
+schema while retaining complete original source views. It represented both ordered items
+and their main counts in both layouts, and connected the scalar form's separate label
+and precise value. It also introduced internal region IDs as business data, copied source
+formatting in one case, used null instead of explicit missing states, and left qualifier
+and metadata scope insufficiently specified. These are untrusted hypotheses, not values
+or source evidence. Neither draft design has been integrated or approved.
+
+The next bounded comparison is **free structure proposal followed by separate source
+grounding**, not direct acceptance of model JSON. Program handles can identify draft
+nodes without supplying a business template. A subsequent decision must distinguish
+actual data, qualifiers and unsupported wrapper metadata, and select original definition,
+value, item-range and missing-state evidence. It must not use draft nesting to infer
+applicability, silently coerce null into blank/absent, or copy draft literals into results.
+Equal-valued attributes still require distinct correct source occurrences. Scalar forms,
+standalone metadata and all separate meanings remain in scope. Original observations and
+prior independent expectations, never the draft, remain the comparison basis.
+
+Only a bounded prototype should be tested first; do not add an unused module to the
+product. Any adopted path needs explicit stage/checkpoint identity, complete accounting,
+repair headroom and failure/resume semantics within the original document budget.
 Existing atomic replacement, complete history, exhaustive change checks and public v1
-contracts remain in force. Cross-region continuation remains separately unfinished.
+contracts remain in force. It must pass the complete actual Spark path before independent
+varied-format tests. Cross-region continuation remains separately unfinished. Current
+evidence is in private `native-occurrence-comparison-27/` and `native-item-facts-28/` under
+`structural-kpi-20260913/`; failed proposals remain preserved.
 
 ### Bounded native value requests
 

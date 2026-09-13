@@ -147,34 +147,43 @@ of item records also fail semantic review. The actual feedback would make the re
 16,102 characters, so there was no repair call or increased allowance. This is a targeted
 stage comparison, not a v11 full-product pass (`native-review-probe-26/`).
 
-### Occurrence-first comparison: not adopted
+### Native structure comparisons: no replacement adopted
 
-The planned occurrence-first design was compared on the original HWPX, an equivalent
-one-paragraph version, and a scalar form. Each used **6 calls** in total (133.8, 76.6 and
-42.0 seconds), within its original 12-call / 900-second allowance. The comparison retained
-all source text and metadata; **126 complete source views** matched, including JSON types.
-No product code or public contract changed.
+These are development design comparisons, not product executions or independent
+holdouts. No product code or public contract changed. Source text and formatting remain
+complete; preserving them and returning valid JSON do not establish semantic accuracy.
 
-None of the five structured grouping variants found both seed-item records correctly.
-The model grouped repeated words/titles, individual paragraphs, or the entire document.
-Bounded thinking, explicit entity/record terminology, lossless text-first presentation
-and a generated source-summary prefix did not resolve this. Some scalar controls correctly
-returned no collection, but others invented one. Invalid or overlapping source quotes
-were rejected rather than repaired by hand.
+Occurrence-first grouping failed on the original HWPX, an equivalent one-paragraph
+version and a scalar control. Five structured variants grouped words, paragraphs or the
+whole document rather than both real items. A readable prose summary did not fix the
+subsequent grouping. No value/applicability stage ran against the known-wrong groups.
+The six-call-per-document evidence remains in `native-occurrence-comparison-27/`.
 
-The separate ordinary-prose control described the two seed items and principal facts.
-However, it did not provide validated source bindings, complete missing-state distinctions
-or reliable metadata scope. A generated summary could describe two items while the same
-response still made one document-wide record. **A readable summary is not structured
-extraction success.**
+The subsequent item/attribute draft still made six paragraph-shaped items in the original
+and copied record/note paragraphs into metadata. Removing **only** constrained JSON
+decoding produced byte-identical generated content on all three files. In this matched
+comparison, decoder enforcement was not the cause; this is not a claim about all models
+or requests.
 
-No definition, value or applicability call was dispatched with the known-wrong groups,
-and this design was not integrated into the product. The next bounded comparison should
-keep individual item descriptions and their attributes together before asking for abstract
-record-type grouping. Each item needs its own source-anchored entry, not just a document
-summary. This remains a hypothesis, not an adopted replacement. Whole-result
-and independent varied-format approval are still required. Evidence is in private
-`structural-kpi-20260913/native-occurrence-comparison-27/`; original failures remain.
+A free-form JSON draft, without the prescribed item/evidence schema, described both
+ordered items and their main counts in both layouts. The scalar form linked its separate
+label/value paragraphs and preserved `0007` and `001.2300`. However, the drafts copied an
+internal region ID into document data, one copied formatting metadata, and null erased
+the distinction between blank and absent. Missing facts and applicability remained
+partly narrative and ungrounded. **This is a useful structural proposal, not extracted
+or approved data.**
+
+This latest comparison used **3 calls per document** (99.2, 83.8 and 42.4 seconds), within
+the predeclared 12-call / 900-second limit. All **63 complete source views**, original
+inputs and observation identities matched. Evidence and separate semantic reviews are
+in `structural-kpi-20260913/native-item-facts-28/`.
+
+The next bounded design check is to ground a model-chosen data tree separately: assign
+program-owned handles, classify actual fields versus qualifiers and unsupported wrapper
+metadata, and select exact original evidence for values, missing states and item ranges.
+Do not copy draft values, infer scope from nesting or hardcode business field names.
+Distinct equal-valued source occurrences and explicit blanks must survive. This is not
+an adopted pipeline; complete-product and independent varied-format approval remain open.
 
 ## Earlier evidence that still limits the claim
 
