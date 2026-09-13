@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,353 tests,
+The full local check including the native outline path passed **3,387 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -217,12 +217,14 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-Current implementation source is **998c3e86dc89a7d22c20bb913c2e97c9de7ab1ec**.
-Table protocol v30 adds source-localized feedback for rejected typed cell reads;
-compiler v36 and the native value-first review policy are unchanged. Local checks
-passed **3,353 tests / 227 skips / 12 subtests**; the diagnostic/controller suite
-passed **83 tests with warnings treated as errors**. These are not model-quality results.
-The same source passed **524 related tests on Spark-A Python 3.12.3**.
+Current implementation source is **935cd8989f6d79e6e615cd94953b4334ac476743**.
+Table protocol v31 retains source-localized read feedback and prevents formula-mode
+reads from requesting numeric, boolean, decimal or null values. Expressions remain
+text; saved caches are separate reads. Compiler v36 and native value-first review
+are unchanged. Local checks
+passed **3,387 tests / 227 skips / 12 subtests**; the diagnostic/controller suite
+passed **117 tests with warnings treated as errors**. These are not model-quality results.
+The same source passed **558 related tests on Spark-A Python 3.12.3**.
 
 ### Same-source HWP backend comparison
 
@@ -280,36 +282,48 @@ swap-free or deployment qualification is implied.
 
 Evidence: `structural-kpi-20260913/native-value-first-61/` (314B and criterion audit),
 `native-backend-62/` (9B comparison), `independent-xlsx-63/` (original failed holdout
-and membership change), and `table-read-feedback-64/` (current implementation and run).
+and membership change), `table-read-feedback-64/` (source-local feedback), and
+`table-read-contract-65/` (current formula contract, actual run and repair-context audit).
 
-### Current diagnostic verified; XLSX interpretation still fails
+### Current formula contract verified; header interpretation still fails
 
-The current source reran that XLSX as development evidence under the same allowance.
-It returned **partial after 2 calls / 135.2 seconds**, with no accepted records.
-The first response chose decimal columns but retained the wrong leaf-header row role;
-its first rejected read was formula **E3 requested as a number**. The repair request
-delivered that exact source, path, type and geometry in **15,387 characters**, below
-the unchanged limit. The next response changed the decimal columns to number and
-formula binding to ordinary source binding, then failed first at **C2 `Credit`**.
+The current source reran the development XLSX under the unchanged allowance and
+returned **partial after 2 calls / 124.0 seconds**, with no accepted records. Both
+responses chose `formula/native`, not a numeric formula read. The first rejected
+fragment read both original formula expressions exactly. That fragment was not
+committed as product data: the model still marked the leaf-header row as data,
+creating an extra record containing header content.
 
-Thus source-localized diagnostics are confirmed in the actual model path, but they
-did not repair the document. Both proposals were rejected after the two automatic
-structural attempts; the whole 12-call allowance was not exhausted. Native document
-content is unchanged from the preceding run's document object.
-No value, unit/condition applicability or semantic missingness result was accepted.
+The compiler detected **four column-definition/content conflicts and two missing
+leaf-header links**, each with source/column details. The structural-stage handler
+collapsed those six findings to two code names in the repair request. The second
+response kept the wrong row/header decisions, changed decimal columns to number,
+and failed first at C2 `Credit`. Values, applicability and semantic missingness remain
+unaccepted. The whole 12-call allowance was not exhausted; the two automatic structural
+attempts ended normally. Native document content is unchanged from the previous run.
 
-The owned engine returned, all 19 evidence files were hash-checked, and 3,809 temporary
+This confirms consistent formula choices in the actual constrained path, not complete
+interpretation. The preceding source-localized read diagnostic had reached the model
+but also failed to produce a correct repair; neither mechanism is semantic approval.
+
+The owned engine returned, 19 evidence files were hash-checked, and 3,810 temporary
 files plus both transfer archives were removed. Shared services/components are unchanged.
-Sampled minima were 13.93 GiB on A / 26.13 GiB on B, with no OOM count increase;
+Sampled minima were 13.88 GiB on A / 26.13 GiB on B, with no OOM count increase;
 the earlier resource-qualification limitations still apply.
 
-Before another inference run, inspect the allowed formula/type combinations and the
-repair request's missing prior structural proposal. The latter is a testable design
-hypothesis, not an established cause: the current repair sees original source and error
-locations but not the complete rejected mapping. Keep source facts separate from model
-choices, verify formula/cache and merged-header regressions, and fit any retained
-proposal inside the same budget. Do not add repeated prompt advice, force header roles,
-coerce rejected values or increase calls merely to pass this case.
+**Next: preserve the compiler's existing source/column diagnostics in table repair.**
+A compact grouping of those same six findings would use 15,887 request characters,
+versus the actual 15,791, without removing original source or copying model field names.
+That grouping is an offline prototype, not installed behavior or a demonstrated model fix.
+Test completeness, safe references, context limits and resume before another inference run.
+
+A larger retained-proposal design is deferred: copying the prior structural response
+with the current contract would require 17,166 characters. Even a hypothetical wire
+that removes only program-owned scaffolding needs 16,374 before new instructions.
+Do not exceed the original 16,000-character allowance or discard source to fit it.
+Its semantic benefit remains unverified; the simpler loss of existing diagnostics is
+now directly reproduced and should be addressed first. Do not force header roles,
+coerce values or increase calls merely to pass this case.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -382,7 +396,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Complete primary-format extraction is not approved.** The same-source 9B HWP comparison stopped at invalid structures; 314B accepted only two footnote values. XLSX still fails after confirmed source-localized feedback. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Inspect formula/type compatibility and the complete rejected mapping available to table repair before another model call. Then verify remaining row/header decisions and occurrence-bound HWP structures. Review native facts, declared fields and added meanings separately. No forced roles, unsupported absence, blanket scalar deletion or approval by labels/counts. |
+| 1 | **Complete primary-format extraction is not approved.** The same-source 9B HWP comparison stopped at invalid structures; 314B accepted only two footnote values. XLSX now chooses textual formula reads, but header-row and definition choices still fail; detailed compiler findings are reduced to code names in repair. The 50-row HWPX/XLSX baseline still retains only 12/45 rows. | Preserve existing compiler column/source diagnostics within the same context limit, then verify actual header-row repair and occurrence-bound HWP structures. A complete prior-proposal wire remains unproven and oversized. Review native facts, declared fields and added meanings separately. No forced roles, unsupported absence, blanket scalar deletion or approval by labels/counts. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |

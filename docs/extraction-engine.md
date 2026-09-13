@@ -1107,14 +1107,38 @@ complete source context. The engine does not promote a row to a header, coerce a
 rejected value, evaluate a formula or change a field merely to make compilation pass.
 Unrelated errors retain their existing diagnostics. Failed diagnostics survive in the
 table-stage checkpoint and result; structural repair still has at most two automatic
-attempts within the document allowance. Table protocol v30 rejects older checkpoint
-identities; the compiler and public v1 contracts are unchanged.
+attempts within the document allowance. The compiler and public v1 contracts are unchanged.
+
+Table protocol v31 permits `bindingMode: formula` only with `valueType: string` or
+`native`: this operation reads the stored expression, not a computed result. The
+model schema uses two ordinary JSON Schema object alternatives, and `structural_ir`
+enforces the same rule for backends without constrained decoding. A contradictory
+choice produces `table_structure_formula_requires_text` plus the column index and
+chosen type/mode, not an invented failing cell. The `source`, `text` and `cached`
+mode/type choices are otherwise unchanged and still require actual source validation.
+No formula is evaluated; a saved cache is a separate explicit read. Older table
+checkpoints are incompatible rather than normalized into a different choice.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
 the leaf-header row was marked as data, then the compiler tried to read its text as a
 number. Source-local feedback has actual native-geometry and scripted repair tests.
 Those tests establish error delivery and bounded rejection, not that a model will
 correct its interpretation. Current actual-model results belong in `SUPPORT.md`.
+
+#### Prior structure in a repair request: measured boundary, not implemented
+
+The repair request currently carries source and diagnostics, not the complete rejected
+proposal. Adding that proposal to the v31 contract would make the recorded XLSX repair
+17,166 characters, beyond the unchanged 16,000-character allowance. Removing only
+program-owned scaffolding from a hypothetical wire still leaves 16,374 characters
+before new prompt instructions. That prototype is not an adopted product contract.
+
+A retained-proposal design must reduce the decision/repair wire without losing source,
+business keys, labels, header references, row roles or chosen reads. It also needs
+checked reconstruction of program-owned IDs/ranges, a source-bound saved proposal,
+reproduction of the rejected compile on resume, and unchanged finite attempt limits.
+The benefit of showing that proposal to the model remains unverified. Neither request
+sizing nor successful error delivery establishes correct table interpretation.
 
 ### Prior table mapping context
 
@@ -1558,7 +1582,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v40 / v23 / v36 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v30 / v2 / v1 / v4 |
+| Table protocol / table reference wire / table source wire / selection wire | v31 / v2 / v1 / v4 |
 | Table source inventory | v2 |
 | Scope integration / scope-axis protocol | v18 / v10 |
 | Scope inventory / scope partition | v1 / v1 |
