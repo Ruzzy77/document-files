@@ -468,40 +468,44 @@ final source accounting; this is a controller check, not a short-document qualit
 Cross-region logical continuation still needs separately source-bound earlier-record
 context and a relation decision; nearby text or equal keys cannot authorize merging.
 
-### Next native structure comparison — not implemented
+### Native structure design comparison — not adopted
 
-The current single structural response mixes attribute naming, record grouping, row
-boundaries, types, presence and meaning discovery. Actual failures include item-numbered
-scalars, mismatched row states, values used as labels and missing change-ledger entries.
-A fitted initial request can still leave no repair headroom. A complete ledger would
-not make the underlying proposal semantically correct.
+Separating occurrence discovery from attribute/state decisions was tested as a private
+prototype, not added to the product controller. It locates source-grounded occurrences,
+issues program IDs, and can transpose per-column state maps into the existing native
+row wire without changing values, row order or source ownership. Eight scripted projection
+checks cover exact transposition and rejection of missing/extra/foreign references; they
+do not validate model grouping or whole-product role compilation.
 
-The next bounded comparison should separate **occurrence discovery** from **attribute
-and state decisions** before changing the product protocol:
+Actual grouping failed on both multi-paragraph and one-paragraph presentations of the
+same items. The model selected repeated text, paragraph containers or the whole document
+instead of comparable item records. A scalar form also exposed false-positive grouping.
+Bounded thinking, more explicit record terminology, lossless text-first presentation and
+a source-summary prefix did not make this abstraction reliable. Source text, formatting,
+metadata types and original references were not trimmed. A fitted initial request and
+valid source anchors are insufficient evidence of the correct semantic granularity.
 
-1. Discover standalone attributes versus logical repeated-item groups and their exact
-   owned source ranges, without reading values or inventing table geometry. Multiple
-   items in one paragraph must remain separate. Plain label/value forms remain scalar.
-2. Issue program-owned group/occurrence references, then define shared attributes and
-   per-occurrence states against that fixed inventory. Distinguish an item's value range
-   from separate metadata or missing-state evidence about it; a note outside the range
-   is not automatically a value source or permission to merge occurrences.
-3. Read exact values and decide each meaning's applicability separately. Equal values
-   must keep distinct source positions. A row-first result is not successful if it loses
-   identifiers, metadata, explicit blanks, missing facts or notes.
+The ordinary-prose control described the main items and facts, and a summary-first reply
+could explicitly name two items yet still return one document-wide record. These reading
+notes are model output, not source evidence or accepted data. They also did not establish
+complete missingness, metadata scope or value bindings. No later definition/value/scope
+stage was run against groups already known to be wrong, and no prototype was promoted
+merely because its deterministic projection passed.
 
-Compare equivalent content in separate paragraphs and in one paragraph, plus a genuine
-scalar form. Freeze expected structure before calls and judge complete fields, records,
-values, relationships and bindings, not just the proposed number of rows. Development
-inputs cannot certify independence. Keep the original 12-call/900-second document
-allowance, all source context and actual request/repair sizing; extra stages do not
-create additional budget. Reject a design that merely moves the same failure downstream.
+The next bounded hypothesis is to describe each individual item together with its actual
+attributes before requesting an abstract shared record type. Each item needs its own
+source-anchored entry and attribute descriptions; this is not another whole-document
+summary prefix. The description remains an untrusted model proposal. Only original source ranges/bindings may establish accepted
+values or missing states; the draft must not become a substitute truth specification.
+Scalar forms, metadata and separate meanings must remain explicit. Equivalent layouts
+and a genuine non-repeating form stay in the comparison; do not hardcode item counts or
+exclude inconvenient source facts to make the mapping succeed.
 
-This is a design comparison, not an adopted replacement. Existing atomic replacement,
-full history, exhaustive change checks and public v1 contracts remain in force. Any
-adopted internal request/state change needs a new identity and checked failure/resume
-behavior. Cross-region continuation and independent varied-format tests remain separate
-unfinished work.
+This hypothesis is not implemented or approved. Any candidate must fit the original
+source, output, call and time limits with repair headroom, preserve checked failure/resume
+behavior, and pass the complete actual Spark path before independent varied-format tests.
+Existing atomic replacement, complete history, exhaustive change checks and public v1
+contracts remain in force. Cross-region continuation remains separately unfinished.
 
 ### Bounded native value requests
 

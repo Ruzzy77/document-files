@@ -147,11 +147,34 @@ of item records also fail semantic review. The actual feedback would make the re
 16,102 characters, so there was no repair call or increased allowance. This is a targeted
 stage comparison, not a v11 full-product pass (`native-review-probe-26/`).
 
-The next comparison will test occurrence-first structure decisions rather than repeat
-whole-document inference or add accounting-only repairs. That design is **not implemented
-or adopted as successful**; its boundaries and acceptance checks are in the extraction
-engine document. Exact source occurrences, complete metadata/missing states and review
-headroom must be checked alongside row grouping.
+### Occurrence-first comparison: not adopted
+
+The planned occurrence-first design was compared on the original HWPX, an equivalent
+one-paragraph version, and a scalar form. Each used **6 calls** in total (133.8, 76.6 and
+42.0 seconds), within its original 12-call / 900-second allowance. The comparison retained
+all source text and metadata; **126 complete source views** matched, including JSON types.
+No product code or public contract changed.
+
+None of the five structured grouping variants found both seed-item records correctly.
+The model grouped repeated words/titles, individual paragraphs, or the entire document.
+Bounded thinking, explicit entity/record terminology, lossless text-first presentation
+and a generated source-summary prefix did not resolve this. Some scalar controls correctly
+returned no collection, but others invented one. Invalid or overlapping source quotes
+were rejected rather than repaired by hand.
+
+The separate ordinary-prose control described the two seed items and principal facts.
+However, it did not provide validated source bindings, complete missing-state distinctions
+or reliable metadata scope. A generated summary could describe two items while the same
+response still made one document-wide record. **A readable summary is not structured
+extraction success.**
+
+No definition, value or applicability call was dispatched with the known-wrong groups,
+and this design was not integrated into the product. The next bounded comparison should
+keep individual item descriptions and their attributes together before asking for abstract
+record-type grouping. Each item needs its own source-anchored entry, not just a document
+summary. This remains a hypothesis, not an adopted replacement. Whole-result
+and independent varied-format approval are still required. Evidence is in private
+`structural-kpi-20260913/native-occurrence-comparison-27/`; original failures remain.
 
 ## Earlier evidence that still limits the claim
 
