@@ -86,6 +86,18 @@ def _source_binding(candidate, representation):
 
 
 def _read(candidate, value_type, nodes):
+    # A binding to the native expression is text, regardless of the requested
+    # source/formula mode. A stored numeric cache has a separate source path.
+    if candidate.get("path") == "/semantic/value/formula" and value_type not in {
+        "string", "native",
+    }:
+        semantic = nodes.get(candidate["sourceRef"], {}).get("semantic")
+        native = semantic.get("value") if isinstance(semantic, dict) else None
+        expression = native.get("formula") if isinstance(native, dict) else None
+        if isinstance(expression, str) and candidate.get("start") in (None, 0) and (
+            candidate.get("end") is None or candidate["end"] == len(expression)
+        ):
+            raise CompileError("formula_expression_requires_text")
     representation = {"string": "text", "decimal": "text"}.get(value_type, value_type)
     binding = _source_binding(candidate, representation)
     try:

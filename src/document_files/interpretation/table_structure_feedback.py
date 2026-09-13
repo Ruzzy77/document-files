@@ -3,7 +3,7 @@
 import json
 
 from .bindings import BindingReadError, resolve
-from .compiler import CompileError
+from .compiler import CompileError, _read
 from .contracts import SourceBinding
 from .table_row_checks import BLANK_ROW_ERROR, blank_row_conflicts
 
@@ -19,6 +19,11 @@ _STRUCTURAL_ERRORS = _COLUMN_ERRORS | _ROW_ERRORS | {"header_cell_bound_as_value
 def _verified_read_failure(candidate, requested_type, nodes):
     # Reproduce the source read. Never trust a failure code from a model,
     # persisted feedback, or an exception's optional selection metadata.
+    try:
+        _read(candidate, requested_type, nodes)
+    except CompileError as exc:
+        if str(exc) == "formula_expression_requires_text":
+            return str(exc)
     try:
         binding = SourceBinding(
             **{k: candidate.get(k) for k in ("sourceRef", "path", "start", "end")},
@@ -141,7 +146,9 @@ def structure_feedback(error, observation, region):
             + json.dumps(selection, ensure_ascii=False, separators=(",", ":"))
         )
         return feedback
-    if str(error) != "binding_cannot_represent_requested_type" or not selection:
+    if str(error) not in {
+        "binding_cannot_represent_requested_type", "formula_expression_requires_text",
+    } or not selection:
         return feedback
     binding_id = selection.get("bindingId")
     if binding_id not in region["bindingIds"]:

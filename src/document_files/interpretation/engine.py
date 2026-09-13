@@ -26,6 +26,7 @@ from . import (
     native_structure_revision,
     native_value_batches,
     scope_partition,
+    table_identity,
     table_layout,
 )
 from .backends import (
@@ -707,6 +708,7 @@ def extract_schema_from_stream(
                 if state.get("kind") == "record_table" and rid not in accepted:
                     raise ValueError
                 if state.get("kind") == "record_table":
+                    table_identity.validate(structural.get("identityAssignment"), accepted[rid])
                     from .table_read_domains import identity as read_domains_identity
 
                     expected_roles = table_layout.effective_roles(
@@ -2027,6 +2029,7 @@ def extract_schema_from_stream(
                         continue
                     if stage == "structure":
                         value = table_layout.decode_mapping(value, layout, observation, region)
+                        value, identity_assignment = table_identity.assign(value)
                         decision, candidate = structural_ir(value, observation, region)
                         if candidate is None:
                             raise CompileError("table_mapping_cannot_change_layout")
@@ -2065,6 +2068,7 @@ def extract_schema_from_stream(
                         progress.setdefault("meaningSelections", []).append(selection["sha256"])
                     if stage == "structure":
                         state["kind"] = "record_table"
+                        progress["identityAssignment"] = identity_assignment
                         child, routes = route_table_values(
                             observation,
                             region,

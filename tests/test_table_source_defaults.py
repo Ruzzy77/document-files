@@ -37,14 +37,7 @@ def test_source_default_does_not_evaluate_a_formula_to_satisfy_a_numeric_type(va
     doc, region, value = formula_table(cache=True)
     value["record"]["columns"][1].update(bindingMode="source", valueType=value_type)
     _, candidate = structural_ir(value, doc, region)
-    if value_type == "decimal":
-        result = compile_region(candidate, doc, region)
-        assert result.data["records"][0]["expression"] is None
-        assert "decimal_format_unresolved" in {issue["code"] for issue in result.issues}
-        evidence = result.value_evidence[-1]
-        assert evidence["raw"] == "=A2+1" and evidence["status"] == "uncertain"
-        return
-    with pytest.raises(CompileError, match="binding_cannot_represent_requested_type"):
+    with pytest.raises(CompileError, match="formula_expression_requires_text"):
         compile_region(candidate, doc, region)
 
 

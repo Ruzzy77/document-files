@@ -125,3 +125,47 @@ def test_omitted_binding_mode_keeps_ordinary_source_default():
     assert Draft202012Validator(structure_schema(doc, region)).is_valid(value)
     _, candidate = structural_ir(value, doc, region)
     assert candidate.repeats[0].columns[1].bindingMode == "source"
+
+
+@pytest.mark.parametrize('value_type', ['decimal', 'integer', 'number', 'boolean', 'null'])
+def test_source_formula_binding_is_not_a_numeric_or_boolean_value(value_type):
+    from document_files.interpretation.table_layout import accept, mapping_schema
+    from document_files.interpretation.table_read_domains import encode_columns, permitted_reads
+    from document_files.interpretation.table_structure_feedback import needs_layout_review
+    from document_files.interpretation.table_structure_wire import encode
+
+    doc, region, proposal = formula_table(cache=True)
+    before = copy.deepcopy(doc)
+    proposal['record']['columns'][1].update(bindingMode='source', valueType=value_type)
+    layout = accept({'regionId': region['id'], 'tableKind': 'record_table',
+                     'rowRoles': ['header', 'data'], 'baseRevision': None}, doc, region)
+    wire = encode(proposal)
+    wire['record'].pop('rowRoles')
+    wire = encode_columns(wire)
+    assert not Draft202012Validator(mapping_schema(doc, region, layout=layout)).is_valid(wire)
+    assert value_type not in permitted_reads(doc, region, {0: 'header', 1: 'data'})['1']['source']
+    _, frozen = structural_ir(proposal, doc, region)
+    with pytest.raises(CompileError, match='formula_expression_requires_text') as caught:
+        compile_region(frozen, doc, region)
+    feedback = structure_feedback(caught.value, doc, region)
+    detail = json.loads(feedback[1].split(':', 1)[1])
+    assert detail['path'] == '/semantic/value/formula'
+    assert detail['readFailure'] == 'formula_expression_requires_text'
+    assert detail['sourceCell'] == {'row': 1, 'column': 1, 'rowSpan': 1, 'columnSpan': 1}
+    assert not needs_layout_review(caught.value, doc, region)
+    assert doc == before
+
+
+def test_explicit_partial_formula_literal_is_not_mistaken_for_whole_expression():
+    from document_files.interpretation.compiler import _read
+
+    doc, region, _ = formula_table()
+    binding = next(v for v in doc.bindings.values() if v['path'] == '/semantic/value/formula')
+    source = doc.nodes[binding['sourceRef']]['semantic']['value']['formula']
+    assert source == '=A2+1'
+    with pytest.raises(CompileError, match='formula_expression_requires_text'):
+        _read(binding | {'start': 0, 'end': len(source)}, 'decimal', doc.nodes)
+    value, raw, _ = _read(
+        binding | {'start': len(source)-1, 'end': len(source)}, 'decimal', doc.nodes
+    )
+    assert value == raw == '1'

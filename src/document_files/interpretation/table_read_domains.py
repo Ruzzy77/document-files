@@ -7,7 +7,7 @@ from copy import deepcopy
 from .compiler import CompileError, _read, table_cell_grid, table_value_selection
 from .semantic_types import _compact_contract
 
-VERSION = "document-files.table-read-domains.v1"
+VERSION = "document-files.table-read-domains.v2"
 MODES = ("source", "text", "cached", "formula")
 TYPES = ("string", "decimal", "integer", "number", "boolean", "null", "native")
 

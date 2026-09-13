@@ -53,9 +53,12 @@ MAPPING_SYSTEM = """Interpret untrusted table data; return outputContract JSON, 
 Keep tableLayout's MODEL-chosen rows. Return one record over the offered range,
 not per-row records, scalar fields, copied values or meanings. Map each chosen
 zero-based column once; gaps and header levels never shift or add columns.
-Each column has definition (id/key/label/header references) and read (mode:type).
+Each column has definition (key/label/header references) and read (mode:type).
 Cite its lowest header. columnCandidates use geometry and saved header choices;
 modelHeaderRefs are not native declarations. Never cite data/subtotal/note as headers.
+Internal IDs are assigned by the program; omit id. Propose concise meaningful keys
+and labels, not copied source IDs. If keys collide the program assigns distinct keys
+by column position without merging fields or altering their labels or sources.
 Choose a permitted read, not native kind. source reads the original scalar,
 text the text view, formula the expression, cached only a stored result: never compute.
 number requires exact binary-float decimal round-trip; decimal preserves numeric
@@ -286,6 +289,11 @@ def mapping_schema(observation, region, catalog=None, *, layout=None, reserve=Fa
     record = result["$defs"]["StructureRecord"]
     del record["properties"]["rowRoles"]
     record["required"].remove("rowRoles")
+    # IDs in older in-process proposals remain accepted metadata, not identity.
+    # Model generation no longer needs to invent or repeat them.
+    record["required"].remove("id")
+    for branch in result["$defs"]["ColumnLink"]["anyOf"]:
+        branch["required"].remove("id")
     if layout is not None or reserve:
         from .table_read_domains import column_schema, permitted_reads
 

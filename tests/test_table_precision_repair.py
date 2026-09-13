@@ -171,7 +171,10 @@ def test_numeric_native_formula_errors_stay_in_mapping_without_evaluating_a_cach
     with pytest.raises(CompileError) as caught:
         compile_region(ir, doc, region)
     feedback = structure_feedback(caught.value, doc, region)
-    assert json.loads(feedback[1].split(":", 1)[1])["readFailure"] == "formula_requires_text"
+    assert (
+        json.loads(feedback[1].split(":", 1)[1])["readFailure"]
+        == "formula_expression_requires_text"
+    )
     assert not needs_layout_review(caught.value, doc, region)
     assert (doc, response) == before
 
