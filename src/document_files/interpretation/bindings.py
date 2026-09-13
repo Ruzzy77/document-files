@@ -11,6 +11,22 @@ from .contracts import Proposal, SourceBinding
 from .validation import leaves, pointer
 
 
+class BindingReadError(ValueError):
+    """A source-verified representation failure, not a model-authored diagnosis."""
+
+    MESSAGES = {
+        "number_precision_loss": "number loses precision; use a decimal string",
+        "native_number_precision_loss": (
+            "native number lost precision; bind the exact raw scalar"
+        ),
+        "formula_requires_text": "formula reads require text or native, never a numeric result",
+    }
+
+    def __init__(self, code):
+        super().__init__(self.MESSAGES[code])
+        self.code = code
+
+
 def _assign(root, path, value):
     if not path:
         return value
@@ -42,7 +58,7 @@ def resolve(binding: SourceBinding, nodes: dict):
             and "raw" in parent
             and Decimal(str(source)) != Decimal(parent["raw"])
         ):
-            raise ValueError("native number lost precision; bind the exact raw scalar")
+            raise BindingReadError("native_number_precision_loss")
     if source is None:
         parent = pointer(nodes[binding.sourceRef], binding.path.rpartition("/")[0])
         if not (
@@ -56,6 +72,12 @@ def resolve(binding: SourceBinding, nodes: dict):
         raise ValueError("binding must address an explicit scalar")
     else:
         raw = source if isinstance(source, str) else str(source).lower()
+    if (
+        binding.path == "/semantic/value/formula"
+        and nodes[binding.sourceRef].get("semantic", {}).get("value", {}).get("kind") == "formula"
+        and binding.representation in {"number", "integer", "boolean"}
+    ):
+        raise BindingReadError("formula_requires_text")
     if binding.representation == "null":
         if raw != "null":
             raise ValueError("null binding requires a literal or explicitly typed null")
@@ -76,7 +98,7 @@ def resolve(binding: SourceBinding, nodes: dict):
         raise ValueError("number binding needs a JSON number literal")
     number = float(raw)
     if not math.isfinite(number) or Decimal(str(number)) != Decimal(raw):
-        raise ValueError("number loses precision; use a decimal string")
+        raise BindingReadError("number_precision_loss")
     return number, raw
 
 

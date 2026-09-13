@@ -2,7 +2,9 @@
 
 import json
 
+from .bindings import BindingReadError, resolve
 from .compiler import CompileError
+from .contracts import SourceBinding
 from .table_row_checks import BLANK_ROW_ERROR, blank_row_conflicts
 
 _COLUMN_ERRORS = {
@@ -12,6 +14,24 @@ _COLUMN_ERRORS = {
 }
 _ROW_ERRORS = {"table_rows_outside_repeat", "repeat_row_roles_incomplete"}
 _STRUCTURAL_ERRORS = _COLUMN_ERRORS | _ROW_ERRORS | {"header_cell_bound_as_value"}
+
+
+def _verified_read_failure(candidate, requested_type, nodes):
+    # Reproduce the source read. Never trust a failure code from a model,
+    # persisted feedback, or an exception's optional selection metadata.
+    try:
+        binding = SourceBinding(
+            **{k: candidate.get(k) for k in ("sourceRef", "path", "start", "end")},
+            representation={"string": "text", "decimal": "text"}.get(
+                requested_type, requested_type
+            ),
+        )
+        resolve(binding, nodes)
+    except BindingReadError as exc:
+        return exc.code
+    except (ValueError, KeyError, TypeError, IndexError, ArithmeticError):
+        pass
+    return None
 
 
 class _StructureIssues(CompileError):
@@ -140,6 +160,9 @@ def structure_feedback(error, observation, region):
         "path": binding["path"],
         "requestedType": selection["requestedType"],
     }
+    cause = _verified_read_failure(binding, selection["requestedType"], observation.nodes)
+    if cause is not None:
+        detail["readFailure"] = cause
     if len(cells) == 1:
         cell = cells[0]
         detail["sourceCell"] = {
@@ -164,6 +187,10 @@ def needs_layout_review(error, observation, region):
     if not isinstance(error, CompileError):
         return False
     feedback = structure_feedback(error, observation, region)
+    if str(error) == "binding_cannot_represent_requested_type" and len(feedback) > 1:
+        detail = json.loads(feedback[1].split(":", 1)[1])
+        if detail.get("readFailure") in BindingReadError.MESSAGES:
+            return False
     if str(error) in {"binding_cannot_represent_requested_type", BLANK_ROW_ERROR}:
         return len(feedback) > 1
     return isinstance(error, _StructureIssues) and any(
