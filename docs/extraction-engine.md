@@ -866,6 +866,14 @@ removes unbounded explanation prose but does not guarantee that arbitrarily larg
 source inventories fit. Input planning, exact source coverage and existing document
 call/time caps still apply. Truncation leaves the compiled structure as a partial
 result; transport and scripted checks are not model-quality approval.
+The v27 Spark development comparison completed all 48 HWPX / 37 XLSX source statuses
+in 634 / 490 tokens, respectively, without a detail call for these all-negative
+inventories. It did not complete either whole document. Prior data cells cited as
+record/column definitions inflated subsequent mapping context beyond the input cap;
+the scalar child then exposed a separate grammar-repetition failure. Keep definition
+evidence distinct from record/value provenance when revising this path. Original
+source evidence remains required, including legitimate definitions in headerless tables.
+
 
 Detail replies contain meanings, exact owned-source quotes, status and remainder
 reviews, **not applicability**. `scope`, target IDs and row bounds are rejected in

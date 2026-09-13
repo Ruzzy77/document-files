@@ -71,8 +71,7 @@ Table selection wire v4 requests only one status string per owned source. Canoni
 selection record v2 explicitly records that per-source explanations were not requested;
 the program does not fabricate reasons. Detail quotes, meanings, remainder reviews and
 the overall correction reason remain required. Source inventories, values and fixed
-document/output budgets are unchanged. The actual comparison below is still v26;
-a current-source Spark check is pending.
+document/output budgets are unchanged. Actual Spark results are described below.
 
 Native observation adapter v2 now preserves the public cell's `columnSpan` when
 building internal geometry. XLSX extractor v10 retains explicitly stored empty XML
@@ -120,43 +119,49 @@ budget increase is used to manufacture a successful result.
 
 ## Latest Spark-B verification
 
-Source **a18b52f4a7f67133301137ef6888de5930489f3c** ran the unchanged 50-row
-native development files with table protocol v26 / selection wire v3. The task-owned
+Source **671518f29e95685a2d82b5dd5c61c527c5f40a06** ran the unchanged 50-row
+native development files with table protocol v27 / selection wire v4. The task-owned
 9B runtime used 16,384 context tokens. Document limits stayed at 12 calls, 900 seconds
-and 16,000 input characters; selection still has a **1,536-token output cap**.
+and 16,000 input characters; selection kept its **1,536-token output cap**.
 
 | File | Actual processing | Remaining failure |
 |---|---|---|
-| HWPX | 5 calls / 140.7 seconds; 7 of 50 rows | All 21 returned values, row order and original cells match. Selection fits at 15,222 input characters, but writes 48 separate reasons and truncates at 1,536 tokens. Native title/unit/caption structure remains invalid. |
-| XLSX | 3 calls / 109.3 seconds; 11 of 50 rows | All 33 returned values, row order and original cells match. Selection fits at 14,579 characters, but writes 37 separate reasons and truncates at 1,536 tokens. Reasons also describe context-only nodes and misidentify some source roles. |
+| HWPX | Returned partial: 5 calls / 118.5 seconds; 7 of 50 rows | All 48 offered source choices completed in 634 tokens. All 21 returned values, row order and original cells match. Later row requests exceed the input cap; native title/unit/caption structure remains invalid. |
+| XLSX | 3 completed responses, then a fourth attempt failed; last checkpoint holds 11 of 50 rows | All 37 source choices completed in 490 tokens. All 33 saved values, row order and original cells match. The product did not return: its separate nonrecord-value request passed token-count preflight but the pinned runtime rejected the expanded grammar before generating a response. |
 
-No incomplete response or completed-looking prefix is accepted. No meaning or
-applicability is committed. The original blank at row 37 and both equal-valued rows
-11/12 together are not reached. Neither document exhausts its call/time allowance;
-**both remain full-document quality failures**. Source/input hashes and shared RPC
-were unchanged; owned servers, containers and keys were removed. The source passed
-**85 selected ARM tests** on Python 3.12.3. Evidence:
-`structural-kpi-20260913/native-table-reasons-41/`.
+Both first-table selections explicitly chose `no_additional_meaning` for every
+owned source. They were accepted with exact coverage and `not_requested` explanation
+state; no synthetic model rationale or truncated JSON was accepted. This removes the
+observed classification-output truncation, **not** the whole-document failures.
+Unit/condition/note applicability, all 50 rows, the blank at row 37 and both equal-valued
+rows 11/12 together remain unverified. Both documents fail full-document quality.
 
-The earlier transport comparisons explain the current design, not quality progress:
+The next-row input failure is now isolated: the model cited already-read data cells
+as record/column definitions. Carrying all of those sources as later mapping context
+produced **17,089 HWPX / 16,423 XLSX characters for a single row**, above the unchanged
+16,000-character cap. Definition evidence must be distinguished from general record
+provenance without discarding original sources or legitimate headerless definitions.
+The scalar runtime failure reports excessive grammar repetition, not invalid JSON
+from the model. Its generic limits include 5,000 dispositions and 2,000 excluded
+bindings despite only 7 offered sources and 4 bindings. Candidate-specific limits
+already enforced by compiler uniqueness are a possible fix; the exact triggering
+rule still needs a bounded runtime check. Arbitrary array-limit removal is not a fix.
 
-- v23 grouped-source lists reduced the XLSX selection to 341 tokens, but the model
-  selected every source as additional meaning and the details request exceeded the
-  input cap. HWPX covered the inventory, then repeated a source until truncation.
-- v24's two-slot tuple schema was rejected by the pinned b10853 runtime because
-  it contained `items: false`. Four HWPX model responses completed; the fifth attempt
-  failed at token-count preflight, with no selection response. XLSX did not run.
-- v25's equivalent `items: {}` passed that preflight, but actual output ignored the
-  required string/integer slots. v26 therefore uses ordinary closed choice objects.
-  Their emitted prefix has the expected shape, but neither full response finishes.
+Source/input hashes and shared RPC were unchanged; the host OOM count stayed zero.
+Owned server, container and key, 219 source exports, duplicate inputs and remote
+collected copies were removed after hash verification. The source passed **141 selected
+ARM tests** on Python 3.12.3. Evidence: `structural-kpi-20260913/native-table-status-42/`.
+The XLSX checkpoint is explicitly distinguished from a returned product result.
 
-These runs are `native-table-selection-38/`, `native-table-reasons-39/` and `40/` in
-the same private root. Optional reason sharing and another request to be concise do
-**not** provide a bounded-output design: this model keeps copying per-source values
-and labels into separate explanations. Further work must bound classification
-output by construction, distinguish model choices from diagnostic prose, and retain
-all sources, uncertainty, revision history and compiled rows without inventing
-model-authored reasons or enlarging the budget.
+Earlier transport failures explain the design:
+- v23 source groups repeated an ID in HWPX and misclassified all XLSX sources.
+- v24 tuple schema was rejected by b10853; v25 passed token-count preflight but its
+  actual generated tuple items violated the required types.
+- v26 closed choice objects still copied 48 / 37 separate explanations until output
+  truncation. Optional explanation sharing was not a bounded-output design.
+
+Those failures remain in `native-table-selection-38/` and `native-table-reasons-39/`
+through `41/`. No malformed response or completed-looking prefix was salvaged.
 
 Earlier runs 35/36 established that the first table's 6,317 input + 3,072 output + 32
 margin tokens exceeded the old 8,192-token task-owned server. The larger server
