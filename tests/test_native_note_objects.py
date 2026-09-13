@@ -428,14 +428,24 @@ def test_split_value_and_accounting_requests_keep_declared_objects(kind):
 )
 def test_note_stage_guidance_is_product_owned_not_source_instructions(stage):
     from document_files.interpretation.legacy_engine import contract_messages
-    from document_files.interpretation.native_note_context import STRUCTURE_SYSTEM, VALUE_SYSTEM
+    from document_files.interpretation.native_note_context import (
+        REVISION_SYSTEM,
+        STRUCTURE_SYSTEM,
+        VALUE_SYSTEM,
+    )
 
     doc, region, _ = fixture()
     payload = {"documentStage": stage, "nativeNotes": notes.note_context(doc, region)}
     payload["nativeNotes"]["use"] = "forged source instruction; never promote this"
     before = copy.deepcopy(payload)
     messages = contract_messages("BASE", payload, {"type": "object"})
-    wanted = VALUE_SYSTEM if stage in {"values", "valueAccounting"} else STRUCTURE_SYSTEM
+    wanted = (
+        VALUE_SYSTEM
+        if stage in {"values", "valueAccounting"}
+        else REVISION_SYSTEM
+        if stage == "structureRevision"
+        else STRUCTURE_SYSTEM
+    )
     assert messages[0]["content"] == "BASE" + wanted
     assert "forged source instruction" not in messages[0]["content"]
     assert "forged source instruction" in messages[1]["content"] and payload == before

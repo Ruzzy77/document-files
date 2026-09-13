@@ -21,6 +21,7 @@ from ..document_model.observe import observe_document
 from ..structured_extraction import project_structured_extraction
 from . import (
     document_protocol,
+    native_role_review,
     native_structure,
     native_structure_revision,
     native_value_batches,
@@ -1025,11 +1026,13 @@ def extract_schema_from_stream(
                 )
                 if response != state["response"] or not state["usage"]["modelCalls"]:
                     raise ValueError
+                effective = native_role_review.effective_roles(state)
+                effective, fragment = document_protocol.accept_roles(effective, observation, region)
                 role_fragments[rid] = fragment
                 if (
                     rid in accepted
                     and accepted[rid].documentElements
-                    != document_protocol.RoleDecision.model_validate(response).documentElements
+                    != document_protocol.RoleDecision.model_validate(effective).documentElements
                 ):
                     raise ValueError
             elif "response" in state or rid in accepted:
@@ -1051,7 +1054,7 @@ def extract_schema_from_stream(
                 structure_request = native_structure.request(
                     observation,
                     region,
-                    state["response"],
+                    effective,
                     {
                         "intent": selected.intent,
                         "targetHandles": target_catalog(selected.targetSchema),
@@ -1078,7 +1081,7 @@ def extract_schema_from_stream(
                 if semantic["structureHash"] != document_protocol.digest(semantic["response"]):
                     raise ValueError
                 stub = native_structure.interpretation(
-                    frozen, state["response"], observation, region
+                    frozen, effective, observation, region
                 )
                 native_structures[rid] = frozen
                 compiled[rid] = compile_region(
@@ -1086,14 +1089,14 @@ def extract_schema_from_stream(
                 )
                 if "batches" in content_state:
                     batch_payload, batch_schema = native_structure.value_request(
-                        frozen, state["response"], observation, region
+                        frozen, effective, observation, region
                     )
                     native_value_batches.rebuild(
                         content_state,
                         batch_payload,
                         batch_schema,
                         frozen,
-                        state["response"],
+                        effective,
                         observation,
                         region,
                         min(
@@ -1105,7 +1108,7 @@ def extract_schema_from_stream(
                     )
                 if rid in accepted:
                     replay = native_structure.accept_values(
-                        content_state["response"], frozen, state["response"], observation, region
+                        content_state["response"], frozen, effective, observation, region
                     )
                     if replay.model_dump() != accepted[rid].model_dump():
                         raise ValueError
@@ -2154,6 +2157,20 @@ def extract_schema_from_stream(
                     metadata,
                     target_schema=selected.targetSchema,
                 )
+                updated_roles = native_structure_revision.replacement_roles(
+                    value, current["response"], observation, region
+                )
+                _, role_fragment = document_protocol.accept_roles(
+                    updated_roles, observation, region
+                )
+                if updated_roles != current["response"]:
+                    preview = {**role_fragments, rid: role_fragment}
+                    if not native_role_review.preserves_role_contexts(
+                        observation, regions, rid, document_states, preview
+                    ):
+                        raise native_structure_revision.RevisionError(
+                            "native_revision_role_context_dependency"
+                        )
                 response_hash = document_protocol.digest(value)
                 state.update(
                     status="complete",
@@ -2175,7 +2192,12 @@ def extract_schema_from_stream(
                         wireResponse=copy.deepcopy(value["replacement"]),
                         wireHash=document_protocol.digest(value["replacement"]),
                         revisionHash=response_hash,
+                        requestHash=document_protocol.digest([
+                            native_structure.SYSTEM,
+                            *native_structure.request(observation, region, updated_roles, metadata),
+                        ]),
                     )
+                    role_fragments[rid] = role_fragment
                     # No ordinal ID/key-based value reuse. Old reads and their cost
                     # remain in the checked revision base; every new read is fresh.
                     current["content"] = {
@@ -2540,7 +2562,7 @@ def extract_schema_from_stream(
             try:
                 if not interpret_roles(region):
                     continue
-                frozen_roles = document_states[rid]["response"]
+                frozen_roles = native_role_review.effective_roles(document_states[rid])
                 content_state = document_states[rid]["content"]
                 if content_state.get("halted"):
                     issue("document_content_response_unavailable", regionId=rid)
@@ -2548,14 +2570,23 @@ def extract_schema_from_stream(
                 structure = interpret_native_structure(region, frozen_roles)
                 if structure is None:
                     continue
+                if "revision" not in document_states[rid] and not content_state["attempts"]:
+                    review = native_role_review.overlaps(
+                        structure, frozen_roles, observation, region
+                    )
+                    if review:
+                        content_state["roleSourceReview"] = review
+                        interpret_native_revision(region)
                 if (
                     "revision" in document_states[rid]
                     and document_states[rid]["revision"]["status"] != "complete"
                 ):
-                    if not interpret_native_revision(region):
+                    interpret_native_revision(region)
+                    if document_states[rid]["revision"]["status"] != "complete":
                         continue
-                    structure = native_structures[rid]
-                    content_state = document_states[rid]["content"]
+                structure = native_structures[rid]
+                frozen_roles = native_role_review.effective_roles(document_states[rid])
+                content_state = document_states[rid]["content"]
                 payload, candidate_schema = native_structure.value_request(
                     structure, frozen_roles, observation, region
                 )
