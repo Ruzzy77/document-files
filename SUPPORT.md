@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,586 tests,
+The full local check including the native outline path passed **3,605 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v15, native-structure v20,
 structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v41,
-region plan v29, table protocol v41, table layout v3, read domains v1 and compiler v41. Public v1 result
+region plan v30, table protocol v42, table layout v3, read domains v2 and compiler v42. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -216,31 +216,31 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-Current implementation source is **a4c3198e0c21aac03661b870554cb7f7445f5c63**.
-Table protocol v41 / region plan v29 send model-confirmed note/subtotal-only slices
-straight to scalar interpretation, rather than asking for columns of a new empty
-record. Entirely blank tables, header-only tables, data and unresolved rows retain
-their prior paths. Accepted layouts and source ownership remain unchanged, and the
-derived route is revalidated on resume. Existing compiled records are not reclassified.
+Current implementation source is **56ad6317ba6c55b2481468411ed69b5d3938d146**.
+Table protocol v42 / region plan v30 / component identity v1 allocate internal record
+and column IDs before accepting a mapping. The model need not supply IDs; supplied
+legacy IDs are bounded metadata, not field identity. Unique proposed keys remain;
+collisions receive deterministic coordinate suffixes without merging or dropping
+columns. Labels, references, reads and explicit target-schema checks are preserved.
+`identityAssignment` records allocation and is replayed against the accepted repeat
+on resume. Existing results are not renamed during meaning repair or resume.
 
-Scalar forms and routed nonrecord children now use the existing reversible source
-metadata wire, with the same complete-message sizing at planning and dispatch.
-Every source and the canonical output contract remain; decoding instructions count
-against the input budget. Canonical selection record v3 distinguishes model choices
-from a locally computed empty inventory. Only a genuinely absent inventory skips the
-call; a source entry with empty text still requires a choice. Zero-call history,
-usage, cancellation/resume and tamper rejection have direct regressions.
+Compiler v42 also rejects a nontextual read of a whole native formula binding, including
+`source:decimal`. Read domains v2 use that same reader to exclude the demonstrated
+bad choice before generation. Verified formula-cell/type feedback remains a column
+repair, not a reason to reclassify rows. No formula or missing cache is computed;
+ordinary ambiguous decimal text, explicit partial literal ranges and nonpresent
+sources retain their existing behavior.
 
-Compiler v41, read domains v1, layout v3, native observation v5 / HWPX extractor v11,
-prompt v41 and public v1 are unchanged. Grammar adapter v2 retains its canonical
-post-validation policy; generation-only string/array relaxation is not a model-quality
-approval. No document or output allowance was increased.
+The preceding note/subtotal-only route, lossless scalar source encoding and
+empty-inventory zero-call selection remain. Layout v3, native observation v5 / HWPX
+extractor v11, prompt v41, grammar adapter v2 and public v1 remain unchanged.
+No document or output allowance was increased.
 
-Local checks passed **3,586 tests / 227 skips / 12 subtests**. The directly related
-suite passed **252 tests with warnings treated as errors**; fresh same-product-source
-Spark-A ARM checks passed **252 tests** on Python 3.12.3. One further test-only change
-updates the expected selection-record version to v3 and checks `origin: model`.
-These checks verify contracts and source preservation, not independent model quality.
+Local checks passed **3,605 tests / 227 skips / 12 subtests**. The directly related
+suite passed **354 tests with warnings treated as errors**; fresh same-source Spark-A
+ARM checks passed **354 tests** on Python 3.12.3. These verify contracts and source
+preservation, not independent model quality.
 
 Full-page 50/96-row sizing retains every cell and uses HWPX **6/11** regions and XLSX
 **4/7**, within 16,000 characters. HWPX 96 rows previously used 12 regions. The original
@@ -324,66 +324,59 @@ native grammar boundary failure). The current adapter and full-path attempt are 
 `structural-kpi-20260914/grammar-adapter-78/`, including original requests/responses,
 checkpoint, native parser probes, canonical rejection tests and note-routing sizing.
 
-### XLSX note request now fits; avoidable mapping repair still exhausts the budget
+### XLSX table and note responses complete; local repair blocks applicability
 
-Source **a4c3198** ran the same frozen development XLSX through the public engine on
-Spark's existing 314B service, with grammar adapter v2 and the unchanged **12-call /
-900-second** allowance. Expected answers stayed local. There were **seven attempts /
-898.8 seconds**: six completed responses and a timeout on scalar note interpretation.
-That request received the remaining 148.0 seconds, not a renewed document budget.
-The private driver aborted further calls on the timeout; it received **no final public
-API result**. The authoritative partial result is in the checkpoint. Whole owned-run
-elapsed time, including ARM checks, was 996.4 seconds.
+Source **56ad631** ran the same frozen development XLSX through the public engine on
+Spark's existing 314B service, with the unchanged **12-call / 900-second** allowance.
+Expected answers stayed local. All **six** requests returned responses; table mapping
+was accepted without a repair. The actual API returned a **partial** result after
+**740.7 seconds** (739.7 seconds in requests; 844.5 seconds including ARM checks).
+This run did **not** time out: six calls and about 159.3 seconds remained when an
+oversized scalar repair stopped the pipeline.
 
 | Work | Actual result |
 |---|---|
-| Record layout | Correct two header rows and two data rows. |
-| First column mapping | The three columns under `Volume (L)` reuse `n4` as both component ID and key. Shared header citations are legitimate, but component identity collides; compilation rejects the mapping. |
-| Mapping repair | One additional 168.3-second response supplies distinct columns and preserves both records, all nine present values and their original source bindings. The accepted reads are strings, not a new numeric-type quality approval. |
-| Meaning selection/details | The unit is quoted from `Volume (L)`. Its description names Credit, Debit and Balance formula, but no applicability decision is accepted. A descriptive sentence is not an applied scope. |
-| Note slice | Both rows are classified `note`. The new route performs **zero column-mapping and zero table-meaning calls**, and creates no extra empty record. |
-| Scalar note request | **15,958 characters**, including source-decoding instructions, the canonical contract and initial feedback; **4,169 input tokens** plus the 3,072-token output reservation fit the unchanged limits. All note/header context and the prior table mapping remain. The request is dispatched but times out without a response. |
+| Layout and mapping | Two header rows and two data rows. The model omitted internal IDs; the program assigned `record` and `column_0` through `column_4`. No component-ID collision or mapping repair occurred. |
+| Record values | Both records, all nine present values, leading-zero identifiers, exact decimals and formula expressions retain their source bindings. Accepted reads are strings; this is not a numeric-type quality approval. |
+| Unit detail | `Volume (L)` is quoted and interpreted as liters. No applicability request has run, so it has no accepted column scope. |
+| Note slice | Both rows are classified `note`; the direct scalar route creates no empty record and performs no column or table-meaning calls. |
+| Note response | The **15,954-character** request returns after 200.5 seconds. Both notes are captured through display-text bindings, including `A6=` / `A7=` prefixes. The blank-debit note is linked to its transcribed note field, not the Debit value. The pending-account condition remains without an accepted scope. |
+| Local repair | The colon-derived native value candidate `b57` is excluded as `unresolved`, not reviewed. A repair is needed, but its **16,036-character** request exceeds the 16,000-character limit and is not dispatched. |
+| Integration | Applicability is not reached. A record-continuation proposal involving the note-only scalar slice remains `table_continuation_mapping_ambiguous`. |
 
-The original zero-prefixed identifiers, decimal digits including `4.5000`, formula
-expressions, header references and nine source bindings match the frozen expectations.
-No formula or missing cache is computed. Original nodes, bindings and all 17 table
-cells remain. Unlike the preceding run, there is no note-derived empty record or
-column-conflict issue, and no note input-capacity rejection. D4 still has native
-**absent** evidence; A6's explicit blank-not-zero meaning and A7's pending-only
-restriction have not been interpreted. Applicability and document integration were
-not reached. These results do **not** pass whole-document accuracy.
+Original nodes, bindings and all 17 table cells remain unchanged. Every present
+record value resolves to the unchanged frozen expectations. The formula source is
+`/semantic/value/formula`, not a computed or cached result. D4 retains native **absent**
+evidence; its blank-not-zero business meaning is still not connected through A6.
+Transcribing a note or giving it a self-scope is not the required business relationship.
+The unit must apply to Credit, Debit and Balance formula, and the restriction to the
+pending account only. These remain **unapproved**; this is not a whole-document pass.
 
-The first mapping is valid against its JSON Schema but fails canonical component
-uniqueness. An offline diagnostic changed only its conflicting IDs/keys: both formula
-cells then became uncertain under `source:decimal`, with `decimal_format_unresolved`.
-The read-choice filter currently removes hard conversion failures, not returned
-uncertainty, so it still offers this combination. **Unique IDs alone would not make
-that first response correct.** The diagnostic is not an accepted or edited model
-result; the original responses and expectations remain unchanged.
+The unissued repair is reproducible exactly. `local_issues` already excludes
+applicability-only issues, but the feedback serializes all fragment issues, including
+`semantic_scope_unresolved:semantic-region:2:m2`. Sending only the actual local issue,
+`value_candidate_unaccounted:b57`, produces **15,987 characters** with identical source,
+bindings, context and output contract. That stage-local feedback change is **not yet
+implemented or model-tested**. The unreviewed candidate must remain visible; removing
+it or treating an unresolved exclusion as approved would not fix the defect.
 
-The earlier unissued scalar child reproduces at 17,141 → 15,204 characters under the
-existing reversible wire. The direct note route, including prior mapping context,
-reproduces at 17,846 → 15,909 (15,929 with empty initial feedback). The actual 15,958
-request differs because the repaired mapping has different labels. Inverse checks
-preserve every source and contract. Empty-inventory zero-call selection is covered by
-regressions; this run avoids that phase through direct note routing instead.
+The earlier failed mapping is now rejected by the generated read schema at its
+formula-as-decimal choice and by the compiler's verified formula-read error. Program
+identity allocation keeps all columns despite their shared header citation. An offline
+probe of one permitted read preserves the two rows and exact values, but that probe
+is not a rewritten model answer or quality approval.
 
-All **43** execution evidence files were hash-checked before removing the owned source
-and runtime copy and transfer archives. The shared slot was idle at collection; shared
-services, original components and OOM counters are unchanged. Stage-aware reasoning
-remains `min(1536, actual_output_limit // 2)`; exact reasoning-token enforcement is not
-certified. No independent quality, whole-job memory, swap-free or deployment
-qualification is claimed.
+All **43** execution evidence files were hash-checked before removing the owned source,
+runtime copy and transfer archives. The shared slot was idle at collection; shared
+services, original components and OOM counters remain unchanged. No independent
+quality, whole-job memory, swap-free or deployment qualification is claimed.
 
-**Next:** separate mechanically unique table/column IDs and keys from model-authored
-labels, header choices and read types. Do not confuse a legitimately shared source
-reference with shared field identity, or silently rename accepted public values.
-Also handle the demonstrated formula-as-decimal choice without using absent or
-uncertain cells to infer a replacement type. Keep canonical rejection, checkpoint
-identity, original model evidence and the same finite budgets. Then complete actual
-note content, applicability and integration before claiming this development case
-passes. HWP and 50-row HWPX/XLSX failures and fresh independent primary formats remain
-required.
+**Next:** use the same stage-local issue set for scalar repair selection and feedback,
+including resume, without omitting the unreviewed binding. Remove only inapplicable
+record-continuation work for a confirmed note-only scalar slice while preserving its
+physical parent-table context and source relationships. Then finish actual blank-note,
+unit and pending-only condition applicability within the same finite budget. HWP and
+50-row HWPX/XLSX failures and fresh independent primary formats remain required.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
@@ -456,7 +449,7 @@ library and input copies were hash-checked and removed after evidence collection
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Complete primary-format extraction is not approved.** Note routing now avoids empty records and its full request fits, but an extra mapping repair consumed 168.3 seconds and the note response exhausted the document budget. | Derive collision-free internal identity rather than asking the model to invent IDs/keys. Handle the separately confirmed formula-as-decimal uncertainty; unique IDs alone are insufficient. Preserve source, checkpoints and fixed budgets, then finish notes, applicability and integration on the actual full path. |
+| 1 | **Complete primary-format extraction is not approved.** Mapping and note responses now finish without a mapping repair, but an unreviewed note value candidate needs a scalar repair whose irrelevant scope feedback exceeds the input limit. Applicability and business relationships remain incomplete. | Filter feedback by the same stage-local issue set used to request repair; retain the unreviewed source. Remove only inapplicable record-continuation work for confirmed note-only slices, preserving parent-table context. Finish actual notes, applicability and integration without raising limits. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
 | 4 | Complete inventory, per-task partitioning, checked partial aggregation and replay are implemented. The 96/200-row fixtures fit 4/8 windows at 16,000 characters, with no actual model run. Oversized fixed context or indivisible overlapping multi-record families can still remain partial. | Verify actual-model applicability after the complete native table path is fixed. Review group membership, row coordinates and positive/negative decisions together; measure remaining indivisible cases before changing the plan or its finite limits. |

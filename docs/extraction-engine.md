@@ -1101,8 +1101,8 @@ have no undecided row positions. General semantic requests use the same neutral
 list: a record covers its observed table range with explicit row roles, and only
 rows chosen as data are read as records. The program does not infer a header from
 the first row, numeric types or formatting, or change native header flags.
-The neutral row positions remain in layout-first table protocol v41 / region plan
-v29 / prompt v41. Correct row metadata does not establish correct interpretation;
+The neutral row positions remain in layout-first table protocol v42 / region plan
+v30 / prompt v41. Correct row metadata does not establish correct interpretation;
 the new layout response is checked separately before column definitions are requested.
 
 `table_layout.mapping_schema` derives the current model-facing column contract
@@ -1111,13 +1111,37 @@ With a saved layout it additionally supplies the source-derived column read cont
 described below. Each coordinate contains `definition` and a permitted `read` pair;
 the code restores the same canonical column definition, type and mode.
 `decode_mapping` rejects attempts to change the saved layout, then restores its row
-roles before the existing coordinate decoder and `structural_ir` compile the record.
-Canonical arrays, original IDs, keys, labels, types and provenance remain intact.
+roles before the existing coordinate decoder produces canonical arrays. Before a new
+mapping is accepted, `table_identity.assign` allocates component IDs and resolves
+colliding proposed keys, as described below. Source IDs, labels, read types and
+provenance remain unchanged; `structural_ir` and the compiler still validate them.
 The inverse codec is for inspection and scripted fixtures. Explicit inner
 `valueType`/`bindingMode` columns from an in-process client still pass canonical read
 checks; they do not bypass precision or structural rejection. Legacy coordinate
 arrays remain invalid model wire. Scalar-form and unresolved choices use the earlier
 layout response; neither manufactures a record. Older table checkpoints are rejected.
+
+Table component identity v1 assigns the record ID `record` and each column ID
+`column_<zero-based coordinate>`. The region prefix makes public semantic IDs distinct
+across regions. Model IDs are optional in the mapping schema and the instructions ask
+for omission. Supplied legacy IDs are checked as bounded strings but are not used as
+internal identity. A group header can legitimately be cited by several columns without
+turning those columns into one component. No source reference is renamed.
+
+The model still proposes meaningful keys and labels. Unique keys are retained exactly.
+If several columns propose the same key, every colliding key gets a coordinate suffix;
+allocation reserves all original names, resolves secondary collisions and respects the
+existing 120-character limit. Sorting by coordinates makes this independent of response
+member order. This is not field deduplication: every coordinate, label, source and read
+survives. Repeated coordinates still fail, and explicit target-schema handles remain
+subject to their original assignability and collision checks.
+
+This assignment happens only before accepting a new mapping, not on previously returned
+data or during meaning repair. `structure.identityAssignment` stores the policy version,
+assigned record ID/key and each column's ID, proposed key and assigned key. Resume replays
+allocation and checks it against the accepted repeat. Changed/missing assignments or
+incompatible protocol versions are rejected before another model call. This mechanical
+step cannot repair wrong types, row roles, header citations or semantic relationships.
 
 Subtotal, note and unmapped value cells use a separate scalar child region with
 `parentRegionId` / `tableContextRef`. `valueRoutes` records each cell's owner; the
@@ -1269,10 +1293,17 @@ model schema uses two ordinary JSON Schema object alternatives, and `structural_
 enforces the same rule for backends without constrained decoding. A contradictory
 choice produces `table_structure_formula_requires_text` plus the column index and
 chosen type/mode, not an invented failing cell. The `source`, `text` and `cached`
-mode/type choices are otherwise unchanged and still require actual source validation.
-No formula is evaluated; a saved cache is a separate explicit read. Older table
+mode/type choices still require actual source validation. Compiler v42 additionally
+rejects nontextual reads of an entire native `/semantic/value/formula` binding, including
+`source:decimal`: decimal's text representation must not bypass the expression rule.
+`formula_expression_requires_text` includes verified source-cell/type feedback and stays
+in column repair, not layout review. Read domains v2 invoke the same reader and exclude
+these choices before generation. A stored cache remains a separate explicit read;
+absence is not proof of a compatible type. Explicit partial literal ranges retain their
+existing handling, and ambiguous decimal text elsewhere stays uncertain rather than
+being converted or silently assigned another type. No formula is evaluated. Older table
 checkpoints are incompatible rather than normalized into a different choice. The
-current table protocol is v41, including source-derived reads, layout decisions, neutral row
+current table protocol is v42, including source-derived reads, layout decisions, neutral row
 metadata, coordinate decisions, source-specific feedback and native text views.
 
 The motivating XLSX failure was reproduced offline from both original model responses:
@@ -1368,7 +1399,7 @@ but distinct cells with equal values are never folded. Regional binding paths an
 start/end offsets are retained. Original native kinds are evidence, not automatically
 chosen output types.
 
-A column response separates its `definition` (ID, key, label, header provenance and
+A column response separates its `definition` (key, label, header provenance and
 optional target handle) from `read`, such as `source:decimal` or `formula:string`.
 The schema offers only mode/type pairs without a hard source-read failure in those
 rows. `decimal`, text and native reads can remain available together; the program
@@ -1378,8 +1409,10 @@ unknown read/definition channels, restores ordinary canonical fields and lets th
 existing compiler validate the actual read again. A changed layout rebuilds the
 schema before another mapping call.
 
-Blank cells, absent bindings, observation conflicts and decimal-format uncertainty
-do not prove a representation impossible. Overlapping geometry remains ambiguous;
+Blank cells, absent bindings, observation conflicts and ordinary decimal-format
+uncertainty do not prove a representation impossible. A whole native formula expression
+is separately known to be text, not an uncertain numeric spelling; compiler v42 and
+read domains v2 reject its numeric read rather than silently nulling its values. Overlapping geometry remains ambiguous;
 the planner does not pick one cell, and the compiler still rejects that selected
 overlap. An offered pair therefore is not proof of a present value, correct role,
 field meaning or full document extraction. Missing caches are not computed values.
@@ -1438,7 +1471,7 @@ layout response and the engine charges that call. Tests focused on scope partiti
 use their known scripted layout to isolate scope scheduling; every actual request still
 passes the production input limit. Generic planning has separate native-file tests.
 
-Table protocol v41, layout v3, region plan v29 and compiler v41 distinguish these
+Table protocol v42, layout v3, region plan v30 and compiler v42 distinguish these
 states from earlier layouts and the former combined path. General prompt v41 and public v1 interfaces remain unchanged.
 Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
@@ -1913,11 +1946,11 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v29 / v41 |
+| Semantic prompt / region plan / result compiler | v41 / v30 / v42 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
-| Table protocol / table reference wire / table source wire / selection wire | v41 / v2 / v1 / v4 |
-| Table layout / source-derived read domains | v3 / v1 |
+| Table protocol / table reference wire / table source wire / selection wire | v42 / v2 / v1 / v4 |
+| Table layout / source-derived read domains / component identity | v3 / v2 / v1 |
 | Local llama.cpp generation grammar projection | v2 |
 | Table source inventory / canonical selection record | v2 / v3 |
 | Scope integration / scope-axis protocol | v18 / v10 |
