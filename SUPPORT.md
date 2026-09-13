@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,151 tests,
+The full local check including the native outline path passed **3,167 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -66,7 +66,7 @@ The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v40,
 region plan v23, table protocol v29 and compiler v34. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
-Scope integration v16 / scope protocol v8 retain discovery of the explicit parent table
+Scope integration v17 / scope protocol v9 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
 The next-row guide uses effective compiled column definitions, not rejected citations
 from the original model response. Whole-record provenance remains stored, not replayed
@@ -145,7 +145,31 @@ budget increase is used to manufacture a successful result.
 
 ## Latest deterministic verification
 
-Source **81c85df4e6b1a77517d84d7f02c4480e9c6c72c4** separates compiler-owned scope
+Source **705a782bb43adc3e0c7b83aeb63a0d94fe893439** separates the complete eligible
+scope inventory from model request sizing. The active engine no longer drops a
+record candidate at the old 12,000-character discovery limit, limits discovery to
+24 candidates, or clips each source text at 500 characters. Inventory admission has
+separate 4 MiB serialized-content and 1,024-candidate bounds. Incomplete inventories
+remain unresolved; their retained prefix is not sent as a successful complete task.
+Candidate eligibility rules and model selection contracts are unchanged.
+
+The 96/200-row fixtures retain all three candidates, including every record row.
+Their complete requests still require **22,924 / 39,844 characters**, above the
+unchanged 16,000 limit. Preflight records `requires_partition` without a model call;
+splitting one task and aggregating its decisions are **not implemented**. The 10/50-row
+fixtures fit with the same wire content as the legacy helper. A scripted 50-row HTML
+engine test now completes without a discovery override at its configured 120,000
+input-character allowance, preserves 103 source references, and resumes without a
+new call. This is not a native-format or actual-model quality result.
+
+The local full suite passed **3,167 tests / 227 skips / 12 subtests** with warnings as
+errors. The identical source passed **335 related Spark-B ARM tests** on the retained
+Python 3.12.3 dependencies. All 229 exported source/test files were verified and
+removed after evidence collection; shared RPC, dependencies and host OOM were unchanged.
+Evidence: `structural-kpi-20260913/scope-inventory-51/`. No actual model call or quality
+approval is claimed. The latest actual product run remains the one below.
+
+The preceding source **81c85df4e6b1a77517d84d7f02c4480e9c6c72c4** separated compiler-owned scope
 provenance from the legacy model citation limit. The compiler preserves full source
 lists under a 1 MiB combined serialized decision/trace limit; the existing 1,000
 trace-entry and 1,000,000 row/column work limits remain. Row-filtered values and scalar
@@ -163,10 +187,8 @@ The identical source passed **319 related Spark-B ARM tests** on the retained
 Python 3.12.3 dependencies. All 227 exported source/test files were verified and
 removed after evidence collection; shared RPC, dependencies and host OOM were unchanged.
 
-Discovery and actual request sizing are **not fixed by this change**. The scripted
-50-row HTML engine example remains partial under normal discovery; its large-source
-persistence test explicitly isolates that boundary. No new real model call or native
-quality approval is claimed. The latest actual product run remains the one below.
+That change did not fix discovery or request sizing. The inventory/preflight change
+above removes the premature candidate cutoff; oversized tasks still need partitioning.
 
 Source **b80b4c7c50b46a9c51f3d7c6213c8955407b0c04** passed **349 directly related
 Spark-B ARM tests** on the retained Python 3.12.3 dependencies, without a model call.
@@ -211,8 +233,9 @@ a checked join covers the current compiled definition, including continued rows.
 Evidence: `structural-kpi-20260913/scope-discovery-audit-49/` (32 scripted cases, no
 model calls). The implementation sequence is described in
 [long-table applicability](docs/extraction-engine.md#next-scope-implementation--not-implemented);
-The v3 compiler-provenance correction above addresses that historical source-count
-failure; partitioned discovery is still not implemented, and neither is quality approval.
+The compiler-provenance and complete-inventory corrections above address those
+historical reference-count and candidate-loss failures. Partitioned requests and
+quality approval are still incomplete.
 
 ## Latest Spark-B verification
 
@@ -459,7 +482,7 @@ platform-installer or independent quality qualification**.
 | 1 | **Native complete extraction is not approved.** The latest actual run retains 12/50 HWPX and 45/50 XLSX rows. Repacking and the reproduced detail overflow are corrected in code, but the optimistic table-only cost remains 20 / 12 calls. | Verify the complete product path under a budget fixed before evaluation, distinguishing it from the failed 12-call runs. Review every row and meaning, including wrong bare-identifier selection. Larger detail work must still remain explicitly partial if it cannot fit; do not waive missing sources or silently extend a run. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
-| 4 | Larger scope discovery and actual request size remain blockers. The 96-row fixture loses its record candidate or requires 22,924 characters. Compiler provenance no longer reuses the model's 100-reference count, but explicit byte/trace/work limits remain. | Plan complete candidate/row coverage against the actual request size. Preserve reviewed, unresolved and unseen work separately and retain full source proofs. Check actual-model applicability after the complete table path is fixed; partitioned discovery is not implemented. |
+| 4 | Complete scope inventory and actual-request preflight are implemented. The 96/200-row fixtures retain every candidate but require 22,924 / 39,844 characters; they remain `requires_partition`. Compiler provenance retains its explicit byte/trace/work limits. | Split oversized tasks against the complete candidate/row inventory. Preserve reviewed, unresolved and unseen work separately and retain full source proofs. Check actual-model applicability after the complete table path is fixed; per-task partitioning and aggregation are not implemented. |
 | 5 | HWP/HWPX and XLSX lack independent end-to-end approval across varied forms. Prose records still have wrong per-item states and occurrence bindings. | Freeze new expectations for hierarchy, label/value and prose records, merged/nested/continued tables, subtotal/note rows and three-page content. Compare equivalent content in different layouts and genuinely different forms, not a fixed template. A failed holdout used for a fix becomes development evidence. |
 
 Fix reproduced preservation defects before another broad inference run. Run only

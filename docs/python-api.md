@@ -305,6 +305,15 @@ leaves applicability unresolved rather than returning a truncated successful lis
 Exact value/binding proofs belong to internal checkpoints and are recomputed on
 resume. They do not change the public v1 evidence contract or certify semantic accuracy.
 
+Each entry in `coverage.scopeIntegration` reports its eligible candidate `inventory`.
+Unvalidated tasks also report `requestPlanning`: `ready`, `requires_partition`,
+`inventory_unavailable` or `invalid_catalog`. A complete inventory can still exceed
+the model input allowance. Oversized tasks are not yet split; their meanings remain
+unresolved without dropping compiled data or approving a candidate prefix. Inventory
+resource limits and missing context are explicit; `no_candidates` does not mean the
+document contains no data. These diagnostics do not change the public v1 contract or
+replace independent quality review.
+
 `extract_schema(..., request_id="stable")` returns the existing result for identical
 inputs; changing the input/options/model/observation/prompt/compiler identity conflicts.
 `resume_extraction` is explicit. Existing result-only v1 databases remain readable;

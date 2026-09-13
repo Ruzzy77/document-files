@@ -1117,12 +1117,12 @@ but does not promise bit-identical output across floating-point execution orders
 
 ### Long-table applicability: measured boundaries
 
-Three separate limits apply. `build_scope_tasks` sizes the uncompressed
-candidate payload; the engine supplies at most 12,000 characters for this discovery.
-The selection codec then packs retained candidates and builds the actual request.
-After a selection, source binding separately checks provenance resources. Passing
-one limit does not pass the others. The historical v2 binder reused the legacy
-model's 100-reference count; v3 separates that model limit from compiler provenance.
+Inventory, actual request size and source-binding resources are separate limits.
+Before integration v17, the active engine used `build_scope_tasks` to size the
+uncompressed candidate payload against at most 12,000 characters. The selection
+codec then packed only the retained candidates. The historical v2 binder also reused
+the legacy model's 100-reference count. These older limits explain the comparison
+below; current inventory and provenance handling are described after it.
 
 At product source `b80b4c7c50b46a9c51f3d7c6213c8955407b0c04`, the existing scripted
 two-column fixture gives these sizes, including system instructions and the output
@@ -1155,9 +1155,53 @@ root column definition covers all six rows in the two-fragment fixture; the seco
 fragment's column covers only its last three rows. Whole-column selection therefore
 does not have the suspected first-fragment-only defect in this case.
 
+### Complete inventory and request preflight
+
+Scope integration v17 / protocol v9 use `build_scope_inventory` before request
+planning. Eligibility still follows the existing same-region, adjacency, note-link
+and explicit parent-table routing rules; this does not add arbitrary cross-document
+targets. The old `build_scope_tasks` display-limited helper remains for compatibility,
+but is no longer the engine's discovery path.
+
+Scope inventory v1 admits up to **1,024 candidates and 4 MiB of compact UTF-8 JSON**
+for candidate payload, private mappings and source signature. Final serialization is
+checked again after containment links are added. This content measure excludes the
+small inventory diagnostic itself and is not a process peak-memory guarantee.
+Node text, scalar raw origins and note links are retained without the legacy
+500-character/eight-link display clipping. Missing required context is still incomplete.
+
+`inventory.status` is `complete`, `no_candidates`, `incomplete_context` or
+`resource_limited`. Retained and omitted counts are explicit; counts not established
+because the base content already exceeds the allowance remain unknown, not zero.
+A bounded prefix may remain inspectable but cannot be sent as a complete task.
+Candidate text and mapping hashes, including candidates omitted by admission, enter
+the task fingerprint. `complete` describes this eligible inventory, not semantic
+correctness or proof that every possible target in the document was discovered.
+
+For complete inventories, `scope_readiness` constructs the existing selection wire
+and measures all message content: system instructions, payload and output schema.
+`ready` means it fits the effective input-character allowance. `requires_partition`
+means the complete request is too large. Unavailable inventories and invalid catalogs
+receive separate diagnostics. Only ready tasks reach existing independent-task
+batching; an oversized task causes no model call or successful prefix decision.
+Tokenizer, model-context and output-reservation checks remain separate.
+
+Inventory diagnostics are exposed through `coverage.scopeIntegration`, not sent to
+the model. Readiness issues are recomputed from current tasks, not restored as stale
+errors from a checkpoint. Inventory policy joins the execution identity; older
+incompatible scope checkpoints are rejected. Model selection and public v1 contracts
+are unchanged.
+
+In the same offline fixture, 10/50 rows retain all three candidates and fit
+10,773 / 15,932 characters. The 96/200-row inventories also retain all three candidates,
+but the requests require 22,924 / 39,844 characters and remain `requires_partition`
+at 16,000. This fixes premature candidate loss, **not** oversized request execution.
+No actual model call is part of this comparison.
+
 ### Compiler-owned scope provenance
 
-Scope integration v16 / protocol v8 / source binding v3 separate a model selection
+Source binding v3, introduced with integration v16 / protocol v8 and retained by
+integration v17 / protocol v9, separates a model selection
 from its compiler-produced source union. The legacy `ScopeDecision` JSON schema,
 including its 100-citation bound, is unchanged. The active selection wire still
 accepts no citations from the model. Only after checking current definitions, row
@@ -1192,10 +1236,12 @@ authority to bypass source binding. Changed values, bindings, missingness or pro
 are rejected. Older scope policies are incompatible before another model call.
 Public v1 values, evidence contracts and API names are unchanged.
 
-The large-provenance engine regression first confirms that the default discovery
-limit still leaves its 50-row HTML example partial. It then isolates discovery to
-test JSON checkpoint persistence/replay with 103 source references and no additional
-scripted call. That isolated result is not complete-product or native-format approval.
+The large-provenance engine regression now uses normal complete inventory discovery
+for its 50-row HTML example. At its configured 120,000-character input allowance,
+four scripted calls complete the result with 103 source references; JSON checkpoint
+replay preserves the result without another call. No discovery override is used.
+This does not demonstrate that this HTML request fits the 16,000-character model
+profile, nor does it establish actual-model or native-format quality.
 
 ### Next scope implementation — not implemented
 
@@ -1204,12 +1250,10 @@ meaning selection under a budget fixed before execution. This long-scope work mu
 not replace that check with increasingly large scripted tables. When that path
 reaches applicability, implement the following boundaries in order:
 
-1. **Separate inventory from request size.** Freeze the complete eligible candidate
-   inventory, exact row coordinates/roles, header groups, continuation mappings and
-   source references under document resource limits. Inventory completeness and
-   model-visible coverage are different states. Size the final serialized request,
-   including instructions and its schema, before scheduling it. Keep one request
-   when the complete task fits; packing after candidates have been dropped is too late.
+1. **Complete inventory and preflight — implemented.** Use the bounded inventory and
+   actual message-content sizing described above. Full eligible candidates are no
+   longer discarded merely because one request is too small. Keep a single task
+   when it fits. This prerequisite does not implement the remaining steps.
 2. **Partition only an oversized task.** Create disjoint candidate/row windows with
    explicit coverage of the frozen inventory. Each window retains the current meaning,
    relevant surrounding text and column/header definitions. A window's “all rows”
