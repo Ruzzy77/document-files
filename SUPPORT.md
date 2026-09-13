@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v39,
-region plan v21, table protocol v25 and compiler v32. Public v1 result
+region plan v21, table protocol v26 and compiler v32. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 
 Native observation adapter v2 now preserves the public cell's `columnSpan` when

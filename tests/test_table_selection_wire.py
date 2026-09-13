@@ -93,25 +93,25 @@ def test_untrusted_shared_reason_output_is_checked_without_schema_enforcement(mu
     elif mutation == "canonical_reply":
         value = decisions()
     elif mutation == "wrong_role":
-        choices["@s0"][0] = "skip"
+        choices["@s0"]["decision"] = "skip"
     elif mutation == "blank_reason":
         value["reasonTable"][0] = " \t"
     elif mutation == "long_reason":
         value["reasonTable"][0] = "x" * 241
     elif mutation == "bool_index":
-        choices["@s0"][1] = False
+        choices["@s0"]["reasonIndex"] = False
     elif mutation == "negative_index":
-        choices["@s0"][1] = -1
+        choices["@s0"]["reasonIndex"] = -1
     elif mutation == "out_of_range":
-        choices["@s0"][1] = len(value["reasonTable"])
+        choices["@s0"]["reasonIndex"] = len(value["reasonTable"])
     elif mutation == "empty_positive":
-        choices["n2"][0] = "has_meaning"
+        choices["n2"]["decision"] = "has_meaning"
     elif mutation == "unused_reason":
         value["reasonTable"].append("Unused")
     elif mutation == "duplicate_reason":
         value["reasonTable"].append(value["reasonTable"][0])
     elif mutation == "wrong_pair":
-        choices["@s0"] = {"decision": "has_meaning", "reason": 0}
+        choices["@s0"] = ["has_meaning", 0]
     elif mutation == "object_reason":
         value["reasonTable"][0] = {}
     else:
@@ -135,26 +135,21 @@ def test_schema_keeps_existing_empty_and_bare_number_choice_restrictions():
     Draft202012Validator(schema).validate(encode_selection(value))
 
 
-def test_runtime_compatible_tuple_schema_keeps_the_same_closed_two_slot_contract():
+def test_choice_schema_uses_supported_closed_objects_not_runtime_ignored_tuples():
     schema = selection_schema(sources())
-    old = deepcopy(schema)
-    for name, definition in schema["$defs"].items():
-        assert definition["items"] == {} and definition["maxItems"] == 2
-        old["$defs"][name]["items"] = False
-    for pair in [
-        [],
-        ["has_meaning"],
+    for definition in schema["$defs"].values():
+        assert definition["type"] == "object"
+        assert definition["required"] == ["decision", "reasonIndex"]
+        assert definition["additionalProperties"] is False
+    for choice in [
         ["has_meaning", 0],
-        ["has_meaning", 0, 0],
-        ["invalid", 0],
-        ["has_meaning", False],
-        ["has_meaning", -1],
+        {},
+        {"decision": "has_meaning"},
+        {"decision": "has_meaning", "reasonIndex": 0, "extra": True},
     ]:
         value = encode_selection(decisions())
-        value["sourceDecisions"]["@s0"] = pair
-        assert Draft202012Validator(schema).is_valid(value) == Draft202012Validator(old).is_valid(
-            value
-        )
+        value["sourceDecisions"]["@s0"] = choice
+        assert not Draft202012Validator(schema).is_valid(value)
 
 
 def test_empty_inventory_requires_empty_reasons_and_choices_and_roundtrips():
@@ -179,7 +174,8 @@ def test_fifty_sources_share_explanation_without_omitting_or_defaulting_any_choi
     value = decisions(items)
     wire = encode_selection(value)
     assert (
-        len(json.dumps(wire, ensure_ascii=False)) < len(json.dumps(value, ensure_ascii=False)) / 2
+        len(json.dumps(wire, ensure_ascii=False))
+        < len(json.dumps(value, ensure_ascii=False)) * 0.75
     )
     assert decode_selection(wire, items) == check_selection(value, {"sources": items})
     assert list(wire["sourceDecisions"]) == [s["sourceRef"] for s in items]
@@ -207,7 +203,7 @@ def test_actual_engine_keeps_fixed_output_cap_canonical_history_and_rejects_old_
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
     assert "sourceDecisions" in progress["sourceSelections"][0]["response"]
     old = deepcopy(states[-1])
-    old["identity"]["tableProtocolVersion"] = "document-files.table-protocol.v23"
+    old["identity"]["tableProtocolVersion"] = "document-files.table-protocol.v25"
     calls = len(model.requests)
     with pytest.raises(ValueError, match="incompatible"):
         execute(model, restore=old)

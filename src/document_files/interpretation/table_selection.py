@@ -30,11 +30,15 @@ referenceContext can clarify a source but cannot supply missing direct evidence.
 Do not produce interpretations, quotations, scopes or definitions in this selection
 response. Do not rewrite records or values. Review all sources in the given order.
 First write reasonTable: short reasons, each once. Then sourceDecisions must contain
-EVERY offered sourceRef exactly once, in the given order. Its value is a pair
-[decision, reasonIndex], where reasonIndex is the zero-based position in reasonTable.
+EVERY offered sourceRef exactly once, in the given order. Each choice is an object
+with decision and reasonIndex, the zero-based position in reasonTable.
 Reuse a reason only when it applies to that source's own decision; otherwise write
 another reason. Do not borrow context as direct evidence or force sources to share
-one decision. Every reason must be used. There is no default, range or wildcard.
+one decision. Reasons explain the basis of a choice; they are not a transcription
+or inventory of source nodes. Do not copy source IDs or literal cell values into
+reasons merely to create separate entries. Share a reason when its basis is the same.
+Do not add entries for context-only nodes. Every reason must be used by an owned
+source choice. There is no default, range or wildcard.
 """
 
 

@@ -5,7 +5,7 @@ from copy import deepcopy
 from .compiler import CompileError
 from .table_source_decisions import bare_number
 
-VERSION = "document-files.table-selection-wire.v2"
+VERSION = "document-files.table-selection-wire.v3"
 ROLES = {"has_meaning", "no_additional_meaning", "unresolved", "unreviewed"}
 
 
@@ -19,16 +19,13 @@ def selection_schema(sources):
     definitions = {}
     for name, roles in (("Choice", ROLES), ("ReviewChoice", ROLES - {"has_meaning"})):
         definitions[name] = {
-            "type": "array",
-            "prefixItems": [
-                {"type": "string", "enum": sorted(roles)},
-                {"type": "integer", "minimum": 0, "maximum": max(0, count - 1)},
-            ],
-            "minItems": 2,
-            "maxItems": 2,
-            # maxItems=2 already closes this two-slot tuple. The pinned runtime
-            # rejects a boolean items schema while accepting this equivalent form.
-            "items": {},
+            "type": "object",
+            "properties": {
+                "decision": {"type": "string", "enum": sorted(roles)},
+                "reasonIndex": {"type": "integer", "minimum": 0, "maximum": max(0, count - 1)},
+            },
+            "required": ["decision", "reasonIndex"],
+            "additionalProperties": False,
         }
     properties = {
         s["sourceRef"]: {
@@ -73,7 +70,7 @@ def encode_selection(value):
         reason = choice["explanation"]
         if reason not in reasons:
             reasons.append(reason)
-        decisions[ref] = [choice["decision"], reasons.index(reason)]
+        decisions[ref] = {"decision": choice["decision"], "reasonIndex": reasons.index(reason)}
     return {"reasonTable": reasons, **result, "sourceDecisions": decisions}
 
 
@@ -106,17 +103,22 @@ def decode_selection(value, sources):
     for ref, text in refs.items():
         choice = choices[ref]
         _require(
-            isinstance(choice, list)
-            and len(choice) == 2
-            and isinstance(choice[0], str)
-            and choice[0] in ROLES
-            and type(choice[1]) is int
-            and 0 <= choice[1] < len(reasons),
+            isinstance(choice, dict)
+            and set(choice) == {"decision", "reasonIndex"}
+            and isinstance(choice["decision"], str)
+            and choice["decision"] in ROLES
+            and type(choice["reasonIndex"]) is int
+            and 0 <= choice["reasonIndex"] < len(reasons),
             "table_selection_wire_choice",
         )
-        _require(choice[0] != "has_meaning" or text != "", "table_selection_wire_empty_source")
-        used.add(choice[1])
-        decisions[ref] = {"decision": choice[0], "explanation": reasons[choice[1]]}
+        _require(
+            choice["decision"] != "has_meaning" or text != "", "table_selection_wire_empty_source"
+        )
+        used.add(choice["reasonIndex"])
+        decisions[ref] = {
+            "decision": choice["decision"],
+            "explanation": reasons[choice["reasonIndex"]],
+        }
     _require(used == set(range(len(reasons))), "table_selection_wire_unused_reason")
     return {k: deepcopy(v) for k, v in value.items() if k not in required} | {
         "sourceDecisions": decisions

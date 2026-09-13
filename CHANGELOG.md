@@ -6,10 +6,11 @@
 
 - Share literal selection explanations through a reason table while requiring a
   closed, exactly-once source decision map. Preserve canonical choices, revision
-  history and fixed output/call/time caps (table protocol v25 / selection wire v2).
+  history and fixed output/call/time caps (table protocol v26 / selection wire v3).
   This replaces the v23 grouped-source lists that repeated a source in an actual
   HWPX response. Invalid or truncated output leaves compiled rows intact; transport
-  checks do not approve semantic choices or model quality.
+  checks do not approve semantic choices or model quality. Closed choice objects
+  also avoid tuple-item constraints that the pinned b10853 runtime does not enforce.
 - Share repeated table source metadata and relation/cell properties losslessly
   (table protocol v22 / table source wire v1 / region plan v21). Apply the display
   to both structure and meaning requests, after meaning reference translation;
