@@ -199,7 +199,8 @@ def test_engine_records_no_explanation_policy_keeps_cap_and_rejects_old_checkpoi
     assert model.requests[-1].max_output_tokens == 1536 and is_selection(model.requests[-1])
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
     selection = progress["sourceSelections"][0]
-    assert selection["version"] == "document-files.table-source-selection.v2"
+    assert selection["version"] == "document-files.table-source-selection.v3"
+    assert selection["origin"] == "model"
     assert selection["explanationState"] == "not_requested"
     assert all(d["explanation"] is None for d in selection["response"]["sourceDecisions"].values())
     old = deepcopy(states[-1])
