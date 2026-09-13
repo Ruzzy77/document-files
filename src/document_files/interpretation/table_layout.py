@@ -210,6 +210,26 @@ def effective_roles(layout, observation, region):
     )
 
 
+def nonrecord_only(layout, observation, region):
+    """Route owned note/subtotal rows, not empty tables or context-only headers.
+
+    This uses the accepted layout, never text heuristics. Keep that model response
+    unchanged: the derived route skips record mapping, not source interpretation.
+    """
+    if layout["response"]["tableKind"] != "record_table":
+        return False
+    owned = set(region["nodeIds"])
+    rows = {
+        row
+        for cell in observation.tables[region["tableRef"]]["cells"]
+        if cell["sourceRef"] in owned
+        for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1))
+    }
+    roles = effective_roles(layout, observation, region)
+    selected = {roles.get(row, "unresolved") for row in rows}
+    return bool(selected & {"note", "subtotal"}) and selected <= {"note", "subtotal", "blank"}
+
+
 def header_candidates(layout, observation, region):
     table = observation.tables[region["tableRef"]]
     roles = effective_roles(layout, observation, region)

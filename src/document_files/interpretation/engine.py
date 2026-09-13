@@ -245,7 +245,17 @@ def _validate_meaning_history(progress, current, observation, region, target_sch
         if history or current.tableMeaningState is not None:
             raise ValueError("invalid_table_meaning_history")
         return
-    if not isinstance(history, list) or not 1 <= len(history) <= progress["usage"]["modelCalls"]:
+    selections = progress.get("sourceSelections", [])
+    local_empty = (
+        isinstance(selections, list)
+        and len(selections) == 1
+        and isinstance(selections[0], dict)
+        and selections[0].get("origin") == "empty_inventory"
+        and source_inventory(observation, region)["sources"] == []
+    )
+    if not isinstance(history, list) or not 1 <= len(history) <= (
+        progress["usage"]["modelCalls"] + int(local_empty)
+    ):
         raise ValueError("invalid_table_meaning_history")
     previous, before = None, None
     for snapshot in history:
@@ -679,9 +689,17 @@ def extract_schema_from_stream(
                         "layoutRevisionPending"
                     ):
                         raise ValueError
-                    if (
-                        latest_layout is None
-                        or state.get("kind") != latest_layout["response"]["tableKind"]
+                    derived = structural.get("routing")
+                    if derived is not None and not (
+                        derived == "layout-nonrecord.v1"
+                        and latest_layout is not None
+                        and state.get("kind") == "scalar_form"
+                        and table_layout.nonrecord_only(latest_layout, observation, region)
+                    ):
+                        raise ValueError
+                    if latest_layout is None or (
+                        derived is None
+                        and state.get("kind") != latest_layout["response"]["tableKind"]
                     ):
                         raise ValueError
                     if structural.get("layoutSHA256") != latest_layout["sha256"]:
@@ -1793,7 +1811,10 @@ def extract_schema_from_stream(
                 )
 
         def nonrecord_result(layout):
-            state["kind"] = layout["response"]["tableKind"]
+            derived = table_layout.nonrecord_only(layout, observation, region)
+            state["kind"] = "scalar_form" if derived else layout["response"]["tableKind"]
+            if derived:
+                state["structure"]["routing"] = "layout-nonrecord.v1"
             state["structure"].pop("layoutRevisionPending", None)
             state["structure"].update(status="complete", layoutSHA256=layout["sha256"])
             issues[:] = [
@@ -1813,7 +1834,10 @@ def extract_schema_from_stream(
         layout = interpret_table_layout(region, payload, state)
         if layout is None:
             return True
-        if layout["response"]["tableKind"] != "record_table":
+        if layout["response"]["tableKind"] != "record_table" or (
+            state.get("kind") != "record_table"
+            and table_layout.nonrecord_only(layout, observation, region)
+        ):
             return nonrecord_result(layout)
         for stage in ("structure", "meaning"):
             progress = state[stage]
@@ -1860,7 +1884,9 @@ def extract_schema_from_stream(
                         progress.pop("layoutRevisionPending", None)
                         # No structure or meaning was accepted. Failed mapping
                         # attempts remain spent even when this layout changes.
-                        if layout["response"]["tableKind"] != "record_table":
+                        if layout["response"]["tableKind"] != "record_table" or (
+                            table_layout.nonrecord_only(layout, observation, region)
+                        ):
                             return nonrecord_result(layout)
                         request = table_layout.mapping_request(payload, layout, observation, region)
                         contract = table_layout.mapping_schema(
@@ -1940,7 +1966,14 @@ def extract_schema_from_stream(
                             else MEANING_SYSTEM
                         )
                         feedback = selected_meaning_feedback(feedback)
-                    if local_selection:
+                    empty_inventory = phase == "selection" and inventory["sources"] == []
+                    if empty_inventory:
+                        if cancelled and cancelled():
+                            raise ModelError("ai_cancelled")
+                        if wire.payload["meaningSources"] != []:
+                            raise ModelError("table_selection_wire_inventory")
+                        value = {"sourceDecisions": {}}
+                    elif local_selection:
                         if cancelled and cancelled():
                             raise ModelError("ai_cancelled")
                         value = negative_meaning_response(selection, rid)
@@ -1961,7 +1994,8 @@ def extract_schema_from_stream(
                         )
                     if phase == "selection":
                         selection = selection_record(
-                            value, inventory, accepted[rid], wire.identity, model_identity
+                            value, inventory, accepted[rid], wire.identity, model_identity,
+                            origin="empty_inventory" if empty_inventory else "model",
                         )
                         progress.setdefault("sourceSelections", []).append(selection)
                         progress.update(status="pending")
@@ -2740,6 +2774,8 @@ def extract_schema_from_stream(
                 issue(exc.code, regionId=rid)
                 save("paused")
                 return result
+        if payload.get("tableKind") in {"scalar_form", "nonrecord_values"}:
+            payload = compact_table_sources(payload)
         content_system = region_system(payload)
         frozen_roles = None
         content_state = None

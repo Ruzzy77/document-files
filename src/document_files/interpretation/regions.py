@@ -12,7 +12,7 @@ from .document_outline import enabled as outline_enabled
 from .document_outline import role_context
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v28"
+REGION_PLAN_VERSION = "document-files.region-plan.v29"
 
 
 def _encoded(value):
@@ -348,13 +348,19 @@ def route_table_values(observation, region, frozen, compiled, *, context_chars, 
             and observation.nodes.get(observation.bindings[bid]["sourceRef"], {}).get("text")
         ],
     }
-    request = {
+    from .legacy_engine import contract_messages
+    from .table_source_wire import compact_table_sources
+
+    request = compact_table_sources({
         **region_payload(observation, child),
         **metadata,
-        "outputContract": region_output_schema(observation, child, metadata.get("targetHandles")),
-    }
+    })
+    contract = region_output_schema(observation, child, metadata.get("targetHandles"))
     child["inputChars"] = len(_encoded(region_payload(observation, child)))
-    child["requestChars"] = len(region_system(request)) + len(_encoded(request))
+    child["requestChars"] = sum(
+        len(message["content"])
+        for message in contract_messages(region_system(request), request, contract)
+    )
     child["withinContextBudget"] = child["requestChars"] <= context_chars
     child["budgetReason"] = "nonrecord_value_region_exceeds_budget"
     region["nodeIds"] = [ref for ref in region["nodeIds"] if ref not in routed]

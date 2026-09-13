@@ -698,3 +698,122 @@ def test_bare_number_sources_are_offered_only_review_choices():
         "has_meaning"
         not in schema["$defs"]["ValueOnlySelectionChoice"]["properties"]["decision"]["enum"]
     )
+
+
+def test_empty_inventory_is_computed_without_claiming_a_model_choice():
+    from document_files.interpretation.table_source_wire import expand_table_sources
+
+    # A real empty-cell table keeps its empty record and routes the blank source.
+    # Only then is the parent's owned meaning inventory truly empty.
+    content = b"<table><tr><td></td></tr></table>"
+
+    class BlankTable:
+        identity = {"adapter": "blank-table-test"}
+
+        def __init__(self):
+            self.calls = []
+
+        def complete(self, messages, *, timeout):
+            payload = expand_table_sources(json.loads(messages[-1]["content"]))
+            self.calls.append(payload)
+            if payload.get("tableStage") == "layout":
+                return json.dumps(
+                    {
+                        "regionId": payload["regionId"],
+                        "tableKind": "record_table",
+                        "rowRoles": ["blank"],
+                        "baseRevision": None,
+                    }
+                )
+            assert payload["tableStage"] == "structure"
+            source = payload["nodeIds"][0]
+            record = {
+                "id": "rows",
+                "key": "rows",
+                "label": "Records",
+                "tableRef": next(iter(payload["tables"])),
+                "rowStart": 0,
+                "rowEnd": 0,
+                "definitionRefs": [source],
+                "rowRoles": [],
+                "columns": [
+                    {
+                        "id": "col",
+                        "key": "col",
+                        "label": "Column",
+                        "column": 0,
+                        "valueType": "string",
+                        "definitionRefs": [source],
+                    }
+                ],
+            }
+            return json.dumps(
+                encode_structure(
+                    {"regionId": payload["regionId"], "tableKind": "record_table", "record": record}
+                )
+            )
+
+    model, states = BlankTable(), []
+
+    def execute(restore=None):
+        return extract_schema_from_stream(
+            AnalysisJob(
+                job_id="empty-inventory", input=AnalysisInput.from_bytes(content, format_id="html")
+            ),
+            io.BytesIO(content),
+            model_client=model,
+            checkpoint=states.append,
+            restore=restore,
+            options=ExtractionOptions(reconstructionContext=False, maxModelCalls=2),
+        )
+
+    result = execute()
+    state = progress(states[-1])
+    assert len(model.calls) == 2 and result["data"] == {"rows": []}
+    assert state["usage"]["modelCalls"] == state["attempts"] == 0
+    assert state["sourceSelections"][0]["origin"] == "empty_inventory"
+    assert state["sourceSelections"][0]["response"] == {"sourceDecisions": {}}
+    assert state["meaningSelections"] == [state["sourceSelections"][0]["sha256"]]
+    assert state["status"] == "complete", result["issues"]
+    assert execute(states[-1])["data"] == result["data"]
+    assert len(model.calls) == 2
+    forged = copy.deepcopy(states[-1])
+    progress(forged)["sourceSelections"][0]["origin"] = "model"
+    with pytest.raises(ValueError, match="checkpoint is incompatible"):
+        execute(forged)
+
+
+def test_empty_inventory_origin_is_impossible_for_empty_text_or_nonempty_sources():
+    from document_files.interpretation.semantic_types import RegionInterpretation
+    from document_files.interpretation.table_selection import (
+        selection_record,
+        validate_selection_history,
+    )
+    from document_files.interpretation.table_sources import source_inventory
+
+    frozen = RegionInterpretation(regionId="test")
+    inventory = source_inventory({"nodes": {}}, {"nodeIds": []})
+    record = selection_record(
+        {"sourceDecisions": {}}, inventory, frozen, {}, {}, origin="empty_inventory"
+    )
+    state = {"sourceSelections": [record], "usage": {"modelCalls": 0}, "acceptedResponse": True}
+    assert validate_selection_history(state, inventory, frozen, {}, {}) == [record]
+    with pytest.raises(CompileError):
+        validate_selection_history(
+            dict(state, sourceSelections=[record, record]), inventory, frozen, {}, {}
+        )
+    for text in ("", " ", "note"):
+        offered = source_inventory({"nodes": {"a": {"text": text}}}, {"nodeIds": ["a"]})
+        with pytest.raises(CompileError, match="nonempty_inventory"):
+            selection_record(
+                {
+                    "sourceDecisions": {
+                        "a": {"decision": "no_additional_meaning", "explanation": None}
+                    }
+                },
+                offered,
+                frozen,
+                {},
+                {},
+                origin="empty_inventory",
+            )

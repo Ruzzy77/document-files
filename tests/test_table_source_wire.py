@@ -465,3 +465,37 @@ def test_later_slice_receives_the_nearest_accepted_mapping_not_the_first_one():
     result = execute(model, content=long_html(), contextChars=11000, maxModelCalls=60)
     assert model.structure_calls >= 3
     assert result["data"]["records"] == [{"code": f"{i:04}", "size": "1.2300"} for i in range(50)]
+
+
+def test_routed_scalar_preflight_counts_the_exact_lossless_dispatch_and_decoder():
+    from test_table_protocol import NONRECORD_HTML
+
+    from document_files.interpretation.regions import route_table_values
+    from document_files.interpretation.semantic_prompts import region_system
+    from document_files.interpretation.semantic_types import region_output_schema
+
+    doc = observe_document(NONRECORD_HTML, 'html', {})
+    region = prepare_regions(doc, context_chars=120000)[0]
+    value = record_response(region_payload(doc, region))
+    for role in value['record']['rowRoles']:
+        if role['row'] >= 3:
+            role['role'] = 'subtotal' if role['row'] == 3 else 'note'
+    _, frozen = structural_ir(value, doc, region)
+    fragment = compile_region(frozen, doc, region)
+    for node in doc.nodes.values():
+        node['semanticInput'] = {'sourceAnnotation': 'unchanged source annotation ' * 70}
+    before = deepcopy(doc)
+    child, _ = route_table_values(doc, region, frozen, fragment, context_chars=16000,
+                                 metadata={'intent': '', 'targetHandles': {}})
+    payload = region_payload(doc, child) | {'intent': '', 'targetHandles': {}}
+    contract = region_output_schema(doc, child, {})
+    packed = compact_table_sources(payload)
+    messages = contract_messages(region_system(packed), packed, contract)
+    assert 'tableSourceEncoding' in packed
+    assert SYSTEM in messages[0]['content']
+    assert expand_table_sources(packed) == payload
+    assert child['requestChars'] == sum(len(m['content']) for m in messages)
+    assert child['withinContextBudget'] == (child['requestChars'] <= 16000)
+    assert child['requestChars'] < sum(len(m['content']) for m in contract_messages(
+        region_system(payload), payload, contract))
+    assert doc == before
