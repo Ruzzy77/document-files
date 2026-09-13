@@ -13,7 +13,7 @@ from .legacy_engine import contract_messages
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v21"
+REGION_PLAN_VERSION = "document-files.region-plan.v22"
 
 
 def _encoded(value):
@@ -768,6 +768,25 @@ def prepare_regions(
         if not region["withinContextBudget"] and not region.get("tableRef"):
             region.setdefault("budgetReason", "atomic_candidate_or_context_exceeds_budget")
     return result
+
+
+def compiled_table_mapping(repeat, compiled):
+    """Reuse effective column definitions, not the uncorrected model proposal.
+
+    Whole-record provenance remains in its original compiled result. It is not
+    additional evidence that must be replayed to explain each mapped column.
+    No new header/type decisions or source filtering are made here.
+    """
+    definitions = {
+        item["id"]: item
+        for item in compiled.semantics
+        if item["kind"] == "field_definition"
+    }
+    columns = []
+    for column in repeat.columns:
+        definition = definitions[f"{compiled.id}:{column.id}"]
+        columns.append(column.model_dump() | {"definitionRefs": list(definition["sourceRefs"])})
+    return {"key": repeat.key, "label": repeat.label, "columns": columns}
 
 
 def add_table_definition_context(observation, region, definition_refs):

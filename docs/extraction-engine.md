@@ -53,7 +53,7 @@ decoder for model output. The original observation and compiler inputs are uncha
 
 Savings include the decoding instruction. Planning and dispatch both measure the
 messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
-The public response contract is unchanged. Table protocol v27 and region plan v21
+The public response contract is unchanged. Table protocol v27 and region plan v22
 invalidate checkpoints made with the previous display and planning behavior.
 
 An earlier region's column mapping may not exist when the initial plan is made.
@@ -828,6 +828,63 @@ child cannot regenerate records. Its context contains relevant headers and nearb
 text, not every already compiled record value. An unresolved mapped value remains
 in its original record. Label/value forms keep the existing scalar path.
 
+The scalar request grammar bounds `dispositions` and `excludedBindings` by the
+number of unique issued source IDs (owned plus context) and binding IDs. It keeps
+at most the existing typed-IR limits of 5,000 / 2,000. The compiler already rejects
+duplicates and unknown IDs in these two lists, so larger arrays cannot describe a
+valid result. This is not a source-count cap on fields, groups, meanings or legitimate
+absent fields; their existing limits remain. Prompt v40 separates checkpoints from
+the earlier request contract.
+
+The pinned b10853 runtime reproduced the old scalar grammar failure on the exact
+recorded XLSX request. Changing only those two limits, from 5,000 / 2,000 to the
+7 sources / 4 bindings actually offered, allowed sampling to start. Both versions
+passed token-count preflight. The diagnostic generated at most one token; it proves
+the specific initialization fix, not full JSON or document quality.
+
+### Prior table mapping context
+
+Region plan v22 uses the **compiled column definitions** when carrying a mapping
+into the next slice of the same original physical table. `compiled_table_mapping`
+reads the effective `field_definition.sourceRefs`, including compiler-added headers
+and already-recorded removal of content-row citations. It does not reuse the raw
+proposal's stale column references or make new header/type decisions.
+
+Only these effective column sources are added as mapping context. Whole-record
+provenance stays in the earlier result and checkpoint rather than being replayed
+as if every record source defined every column. Existing current source text,
+header/caption/note context, owned rows and value routes remain unchanged. The prior
+raw model response, correction records, complete record provenance and value evidence
+are retained. There is no reference-count cutoff or new header-only filter: every
+reference in a compiled column definition is retained, including legitimate non-header
+evidence. A missing compiled definition cannot silently fall back to the raw proposal.
+
+The engine still chooses the nearest previously compiled mapping from the same
+physical table, then measures and re-plans the complete current request before dispatch.
+Names/types remain a previous decision for the model to inspect, not an automatic
+reusable business template. Ambiguous structures and current row roles still require
+decisions. Old plan-v21 checkpoints cannot resume under this changed context policy.
+Scripted 50-row preservation is not a claim that the real model completes the document.
+
+### Applicability across a table and its nonrecord content
+
+Scope integration v15 also discovers candidates through the explicit
+`parentRegionId` / `tableContextRef` relation created by table value routing. The
+child's table reference must exist and equal its parent's physical view reference.
+This works in either direction and does not depend on how many unprocessed regions
+sit between them in the execution list. Similar labels, an unrelated parent name,
+or a table hint without that exact relationship do not establish the connection.
+
+Candidates expose `candidateBasis: tableValueRouting` and the checked relationship.
+This is a reason to inspect them, not proof of applicability. Existing source/context
+limits, candidate bounds, independent scope decisions and unresolved states remain.
+The relationship participates in the candidate fingerprint, so changed routing cannot
+silently reuse a saved scope decision. Discovery itself changes no values or meanings.
+Scope protocol v7 tells the model that a candidate may merely store a unit/condition's
+wording; it must inspect actual value origins instead of treating a present field or
+its label as the governed quantity. This removes an inaccurate earlier assurance that
+such fields were never offered. It is not a replacement for independent quality checks.
+
 The meaning stage first classifies every owned source as `has_meaning`,
 `no_additional_meaning`, `unresolved` or `unreviewed`. A literal empty source cannot
 select `has_meaning`. Plain data-cell values need not be repeated as meanings;
@@ -1018,11 +1075,11 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v39 / v21 / v32 |
+| Semantic prompt / region plan / result compiler | v40 / v22 / v32 |
 | Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
 | Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
 | Table protocol / table reference wire / table source wire / selection wire | v27 / v2 / v1 / v4 |
-| Scope integration / scope-axis protocol | v14 / v6 |
+| Scope integration / scope-axis protocol | v15 / v7 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |
 | Recognition adapter | 29 |

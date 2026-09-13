@@ -4,6 +4,15 @@
 
 ### Document extraction
 
+- Reuse compiled column definitions for later slices, including recorded compiler
+  corrections, rather than replaying the uncorrected model proposal or whole-record
+  provenance as column context (region plan v22). Retain original records, sources,
+  raw responses and correction evidence; apply no new header or reference-count filter.
+- Discover scope targets through exact table value-routing parentage, not just
+  execution-list adjacency (scope integration v15 / scope protocol v7). Include
+  that relationship in fingerprints while keeping applicability a separate decision.
+  Clarify that a present field can store the unit wording rather than a measured value.
+
 - Bound scalar disposition/exclusion arrays by their unique issued source/binding
   inventories (semantic prompt v40). This mirrors existing compiler rejection of
   duplicate or unknown references; it does not cap fields or meanings by source

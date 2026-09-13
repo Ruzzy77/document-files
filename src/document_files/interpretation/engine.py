@@ -50,6 +50,7 @@ from .pdf_visual_runner import review_identity, review_pdf_pages
 from .regions import (
     REGION_PLAN_VERSION,
     add_table_definition_context,
+    compiled_table_mapping,
     continuation_candidates,
     prepare_regions,
     region_payload,
@@ -2331,7 +2332,8 @@ def extract_schema_from_stream(
             original_table = table.get("sourceTableRef", region["tableRef"])
             for preceding in reversed(regions[: region_index - 1]):
                 prior_ir = accepted.get(preceding["id"])
-                if prior_ir is None:
+                prior_compiled = compiled.get(preceding["id"])
+                if prior_ir is None or prior_compiled is None:
                     continue
                 prior = next(
                     (
@@ -2343,12 +2345,14 @@ def extract_schema_from_stream(
                     None,
                 )
                 if prior is not None:
+                    mapping = compiled_table_mapping(prior, prior_compiled)
                     add_table_definition_context(
                         observation,
                         region,
                         [
-                            *prior.definitionRefs,
-                            *(ref for col in prior.columns for ref in col.definitionRefs),
+                            ref
+                            for column in mapping["columns"]
+                            for ref in column["definitionRefs"]
                         ],
                     )
                     payload = region_payload(observation, region) | {
@@ -2356,9 +2360,7 @@ def extract_schema_from_stream(
                         "targetHandles": catalog,
                     }
                     payload["sameTableMapping"] = {
-                        "key": prior.key,
-                        "label": prior.label,
-                        "columns": [c.model_dump() for c in prior.columns],
+                        **mapping,
                         "instruction": (
                             "Reuse these field keys/types for the same observed columns unless "
                             "this region explicitly changes their meaning; report such changes, "
