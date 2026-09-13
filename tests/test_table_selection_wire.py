@@ -1,4 +1,4 @@
-"""Grouped transport preserves explicit source decisions, not a model quality test."""
+"""Reason sharing preserves explicit source decisions, not a model quality test."""
 
 import json
 from copy import deepcopy
@@ -42,15 +42,13 @@ def decisions(items=None):
     }
 
 
-def test_groups_restore_distinct_equal_values_source_order_and_literal_reasons():
+def test_shared_reasons_restore_distinct_equal_values_source_order_and_literal_text():
     value = decisions()
     value["sourceDecisions"]["n6"]["explanation"] += " "
     original = deepcopy(value)
     wire = encode_selection(value)
-    assert len(wire["sourceChoices"]) == 3
-    wire["sourceChoices"].reverse()
-    for group in wire["sourceChoices"]:
-        group["sourceRefs"].reverse()
+    assert len(wire["reasonTable"]) == 2
+    wire["sourceDecisions"] = dict(reversed(list(wire["sourceDecisions"].items())))
     Draft202012Validator(selection_schema(sources())).validate(wire)
     assert decode_selection(wire, sources()) == original
     assert list(decode_selection(wire, sources())["sourceDecisions"]) == [
@@ -67,50 +65,55 @@ def test_groups_restore_distinct_equal_values_source_order_and_literal_reasons()
     [
         "missing",
         "unknown",
-        "duplicate_within",
-        "duplicate_across",
-        "empty_group",
         "extra",
         "canonical_reply",
         "wrong_role",
         "blank_reason",
         "long_reason",
-        "bool_ref",
-        "object_ref",
+        "bool_index",
+        "negative_index",
+        "out_of_range",
         "empty_positive",
-        "group_extra",
         "wrong_revision",
+        "unused_reason",
+        "duplicate_reason",
+        "wrong_pair",
+        "object_reason",
     ],
 )
-def test_untrusted_grouped_output_is_checked_without_schema_enforcement(mutation):
+def test_untrusted_shared_reason_output_is_checked_without_schema_enforcement(mutation):
     value = encode_selection(decisions())
-    groups = value["sourceChoices"]
+    choices = value["sourceDecisions"]
     if mutation == "missing":
-        groups[1]["sourceRefs"].pop()
+        choices.pop("n6")
     elif mutation == "unknown":
-        groups[1]["sourceRefs"][0] = "not-offered"
-    elif mutation == "duplicate_within":
-        groups[1]["sourceRefs"][-1] = groups[1]["sourceRefs"][0]
-    elif mutation == "duplicate_across":
-        groups.append(deepcopy(groups[0]))
-    elif mutation == "empty_group":
-        groups[0]["sourceRefs"] = []
+        choices["not-offered"] = choices.pop("n6")
     elif mutation == "extra":
         value["default"] = "no_additional_meaning"
     elif mutation == "canonical_reply":
         value = decisions()
     elif mutation == "wrong_role":
-        groups[0]["decision"] = "skip"
+        choices["@s0"][0] = "skip"
     elif mutation == "blank_reason":
-        groups[0]["explanation"] = " \t"
+        value["reasonTable"][0] = " \t"
     elif mutation == "long_reason":
-        groups[0]["explanation"] = "x" * 241
-    elif mutation in {"bool_ref", "object_ref"}:
-        groups[0]["sourceRefs"][0] = True if mutation == "bool_ref" else {}
+        value["reasonTable"][0] = "x" * 241
+    elif mutation == "bool_index":
+        choices["@s0"][1] = False
+    elif mutation == "negative_index":
+        choices["@s0"][1] = -1
+    elif mutation == "out_of_range":
+        choices["@s0"][1] = len(value["reasonTable"])
     elif mutation == "empty_positive":
-        groups[1]["decision"] = "has_meaning"
-    elif mutation == "group_extra":
-        groups[0]["scope"] = "all"
+        choices["n2"][0] = "has_meaning"
+    elif mutation == "unused_reason":
+        value["reasonTable"].append("Unused")
+    elif mutation == "duplicate_reason":
+        value["reasonTable"].append(value["reasonTable"][0])
+    elif mutation == "wrong_pair":
+        choices["@s0"] = {"decision": "has_meaning", "reason": 0}
+    elif mutation == "object_reason":
+        value["reasonTable"][0] = {}
     else:
         value.update(action="rewrite", baseSelectionSHA256="x", reason="x")
     with pytest.raises(CompileError, match="table_selection_wire_"):
@@ -132,10 +135,10 @@ def test_schema_keeps_existing_empty_and_bare_number_choice_restrictions():
     Draft202012Validator(schema).validate(encode_selection(value))
 
 
-def test_empty_inventory_requires_explicit_empty_groups_and_roundtrips():
+def test_empty_inventory_requires_empty_reasons_and_choices_and_roundtrips():
     schema = selection_schema([])
     Draft202012Validator.check_schema(schema)
-    value = {"sourceChoices": []}
+    value = {"reasonTable": [], "sourceDecisions": {}}
     Draft202012Validator(schema).validate(value)
     assert decode_selection(value, []) == {"sourceDecisions": {}}
 
@@ -154,13 +157,13 @@ def test_fifty_sources_share_explanation_without_omitting_or_defaulting_any_choi
     value = decisions(items)
     wire = encode_selection(value)
     assert (
-        len(json.dumps(wire, ensure_ascii=False)) < len(json.dumps(value, ensure_ascii=False)) / 4
+        len(json.dumps(wire, ensure_ascii=False)) < len(json.dumps(value, ensure_ascii=False)) / 2
     )
     assert decode_selection(wire, items) == check_selection(value, {"sources": items})
-    assert sum(len(g["sourceRefs"]) for g in wire["sourceChoices"]) == 50
+    assert list(wire["sourceDecisions"]) == [s["sourceRef"] for s in items]
 
 
-def test_reference_alias_decode_happens_after_group_expansion_without_touching_reasons():
+def test_reference_alias_decode_happens_after_reason_expansion_without_touching_literals():
     payload, contract, _, _, _ = fixture()
     wire = prepare_meaning_wire(payload, contract)
     assert wire.identity is not None
@@ -178,22 +181,22 @@ def test_actual_engine_keeps_fixed_output_cap_canonical_history_and_rejects_old_
     result = execute(model, states=states)
     assert result["extraction"]["status"] == "complete"
     assert model.requests[-1].max_output_tokens == 1536
-    assert "sourceChoices" in model.requests[-1].output_schema["properties"]
+    assert "reasonTable" in model.requests[-1].output_schema["properties"]
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
     assert "sourceDecisions" in progress["sourceSelections"][0]["response"]
     old = deepcopy(states[-1])
-    old["identity"]["tableProtocolVersion"] = "document-files.table-protocol.v22"
+    old["identity"]["tableProtocolVersion"] = "document-files.table-protocol.v23"
     calls = len(model.requests)
     with pytest.raises(ValueError, match="incompatible"):
         execute(model, restore=old)
     assert len(model.requests) == calls
 
 
-def test_truncated_grouped_response_preserves_structure_but_no_selection_is_accepted():
+def test_truncated_response_preserves_structure_but_no_selection_is_accepted():
     class Truncated(TableModel):
         def infer(self, request):
             response = super().infer(request)
-            if "sourceChoices" in request.output_schema.get("properties", {}):
+            if "reasonTable" in request.output_schema.get("properties", {}):
                 return InferenceResponse(response.text[:-3], response.usage, "length")
             return response
 
@@ -203,3 +206,26 @@ def test_truncated_grouped_response_preserves_structure_but_no_selection_is_acce
     progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
     assert not progress.get("sourceSelections")
     assert any(i["code"] == "ai_response_incomplete" for i in result["issues"])
+
+
+def test_duplicate_source_key_is_not_hidden_by_json_object_parsing():
+    class Duplicate(TableModel):
+        def infer(self, request):
+            response = super().infer(request)
+            if "reasonTable" in request.output_schema.get("properties", {}):
+                value = json.loads(response.text)
+                ref, choice = next(iter(value["sourceDecisions"].items()))
+                duplicate = json.dumps(ref) + ":" + json.dumps(choice) + ","
+                text = response.text.replace(
+                    '"sourceDecisions": {', '"sourceDecisions": {' + duplicate
+                )
+                assert text != response.text
+                return InferenceResponse(text, response.usage)
+            return response
+
+    model, states = Duplicate(), []
+    result = execute(model, states=states)
+    assert result["extraction"]["status"] == "partial" and len(result["data"]["records"]) == 2
+    progress = next(iter(states[-1]["tableStages"].values()))["meaning"]
+    assert not progress.get("sourceSelections")
+    assert any(i["code"] == "table_stage_invalid" for i in result["issues"])

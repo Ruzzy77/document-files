@@ -1,11 +1,11 @@
-"""Grouped model choices; canonical decisions still cover every source exactly once."""
+"""Shared model reasons; canonical decisions cover every source exactly once."""
 
 from copy import deepcopy
 
 from .compiler import CompileError
 from .table_source_decisions import bare_number
 
-VERSION = "document-files.table-selection-wire.v1"
+VERSION = "document-files.table-selection-wire.v2"
 ROLES = {"has_meaning", "no_additional_meaning", "unresolved", "unreviewed"}
 
 
@@ -15,102 +15,107 @@ def _require(condition, code):
 
 
 def selection_schema(sources):
-    refs = [s["sourceRef"] for s in sources]
-    positive = [s["sourceRef"] for s in sources if s["text"] and not bare_number(s["text"])]
-
-    def group(choices, roles):
-        return {
-            "type": "object",
-            "properties": {
-                "sourceRefs": {
-                    "type": "array",
-                    "items": {"type": "string", "enum": choices},
-                    "minItems": 1,
-                    "maxItems": len(refs),
-                    "uniqueItems": True,
-                },
-                "decision": {"type": "string", "enum": sorted(roles)},
-                "explanation": {"type": "string", "minLength": 1, "maxLength": 240},
-            },
-            "required": ["sourceRefs", "decision", "explanation"],
-            "additionalProperties": False,
+    count = len(sources)
+    definitions = {}
+    for name, roles in (("Choice", ROLES), ("ReviewChoice", ROLES - {"has_meaning"})):
+        definitions[name] = {
+            "type": "array",
+            "prefixItems": [
+                {"type": "string", "enum": sorted(roles)},
+                {"type": "integer", "minimum": 0, "maximum": max(0, count - 1)},
+            ],
+            "minItems": 2,
+            "maxItems": 2,
+            "items": False,
         }
-
-    variants = ([group(positive, {"has_meaning"})] if positive else []) + (
-        [group(refs, ROLES - {"has_meaning"})] if refs else []
-    )
+    properties = {
+        s["sourceRef"]: {
+            "$ref": "#/$defs/Choice"
+            if s["text"] and not bare_number(s["text"])
+            else "#/$defs/ReviewChoice"
+        }
+        for s in sources
+    }
     return {
         "type": "object",
         "properties": {
-            "sourceChoices": {
+            "reasonTable": {
                 "type": "array",
-                "items": {"anyOf": variants} if variants else False,
-                "minItems": 1 if refs else 0,
-                "maxItems": len(refs),
-            }
+                "items": {"type": "string", "minLength": 1, "maxLength": 240},
+                "minItems": 1 if count else 0,
+                "maxItems": count,
+                "uniqueItems": True,
+            },
+            "sourceDecisions": {
+                "type": "object",
+                "properties": properties,
+                "required": list(properties),
+                "additionalProperties": False,
+            },
         },
-        "required": ["sourceChoices"],
+        "required": ["reasonTable", "sourceDecisions"],
         "additionalProperties": False,
-        "$defs": {},
+        "$defs": definitions,
     }
 
 
 def encode_selection(value):
-    """Share only identical decisions and literal reasons, never infer a choice.
+    """Share identical literal reasons, never infer or group source decisions.
 
     This internal display helper preserves other response members; the receiving
     decoder and contract, not this helper, validate response shape and coverage.
     """
     result = deepcopy(value)
-    groups = {}
+    reasons, decisions = [], {}
     for ref, choice in result.pop("sourceDecisions").items():
-        key = choice["decision"], choice["explanation"]
-        groups.setdefault(key, {"sourceRefs": [], **choice})["sourceRefs"].append(ref)
-    result["sourceChoices"] = list(groups.values())
-    return result
+        reason = choice["explanation"]
+        if reason not in reasons:
+            reasons.append(reason)
+        decisions[ref] = [choice["decision"], reasons.index(reason)]
+    return {"reasonTable": reasons, **result, "sourceDecisions": decisions}
 
 
 def decode_selection(value, sources):
-    """Require an explicit, disjoint, complete inventory; restore original order."""
+    """Restore a closed source-keyed choice map before reference translation."""
     revision_keys = {"action", "baseSelectionSHA256", "reason"}
+    required = {"reasonTable", "sourceDecisions"}
     _require(
         isinstance(value, dict)
         and (
-            set(value) == {"sourceChoices"}
-            or (
-                set(value) == {"sourceChoices"} | revision_keys
-                and value["action"] == "revise_selection"
-            )
+            set(value) == required
+            or (set(value) == required | revision_keys and value["action"] == "revise_selection")
         ),
         "table_selection_wire_shape",
     )
     refs = {s["sourceRef"]: s["text"] for s in sources}
     _require(len(refs) == len(sources), "table_selection_wire_inventory")
-    groups = value["sourceChoices"]
-    _require(isinstance(groups, list) and len(groups) <= len(refs), "table_selection_wire_shape")
-    decisions = {}
-    for item in groups:
+    reasons, choices = value["reasonTable"], value["sourceDecisions"]
+    _require(
+        isinstance(reasons, list)
+        and len(reasons) <= len(refs)
+        and all(isinstance(r, str) and 0 < len(r) <= 240 and bool(r.strip()) for r in reasons),
+        "table_selection_wire_reasons",
+    )
+    _require(len(reasons) == len(set(reasons)), "table_selection_wire_duplicate_reason")
+    _require(
+        isinstance(choices, dict) and set(choices) == set(refs), "table_selection_wire_inventory"
+    )
+    decisions, used = {}, set()
+    for ref, text in refs.items():
+        choice = choices[ref]
         _require(
-            isinstance(item, dict)
-            and set(item) == {"sourceRefs", "decision", "explanation"}
-            and isinstance(item["sourceRefs"], list)
-            and 0 < len(item["sourceRefs"]) <= len(refs)
-            and isinstance(item["decision"], str)
-            and item["decision"] in ROLES
-            and isinstance(item["explanation"], str)
-            and 0 < len(item["explanation"]) <= 240
-            and bool(item["explanation"].strip()),
+            isinstance(choice, list)
+            and len(choice) == 2
+            and isinstance(choice[0], str)
+            and choice[0] in ROLES
+            and type(choice[1]) is int
+            and 0 <= choice[1] < len(reasons),
             "table_selection_wire_choice",
         )
-        for ref in item["sourceRefs"]:
-            _require(isinstance(ref, str) and ref in refs, "table_selection_wire_unknown_source")
-            _require(ref not in decisions, "table_selection_wire_duplicate_source")
-            _require(
-                item["decision"] != "has_meaning" or refs[ref] != "",
-                "table_selection_wire_empty_source",
-            )
-            decisions[ref] = {k: item[k] for k in ("decision", "explanation")}
-    _require(set(decisions) == set(refs), "table_selection_wire_inventory")
-    return {k: deepcopy(v) for k, v in value.items() if k != "sourceChoices"} | {
-        "sourceDecisions": {ref: decisions[ref] for ref in refs}
+        _require(choice[0] != "has_meaning" or text != "", "table_selection_wire_empty_source")
+        used.add(choice[1])
+        decisions[ref] = {"decision": choice[0], "explanation": reasons[choice[1]]}
+    _require(used == set(range(len(reasons))), "table_selection_wire_unused_reason")
+    return {k: deepcopy(v) for k, v in value.items() if k not in required} | {
+        "sourceDecisions": decisions
     }

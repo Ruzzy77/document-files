@@ -53,7 +53,7 @@ decoder for model output. The original observation and compiler inputs are uncha
 
 Savings include the decoding instruction. Planning and dispatch both measure the
 messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
-The public response contract is unchanged. Table protocol v23 and region plan v21
+The public response contract is unchanged. Table protocol v24 and region plan v21
 invalidate checkpoints made with the previous display and planning behavior.
 
 An earlier region's column mapping may not exist when the initial plan is made.
@@ -835,16 +835,18 @@ as meanings; this is a model decision, not a blanket rule that numeric text has 
 Validated `sourceSelections` bind source inventory, frozen structure, model identity,
 reference dictionary and revision. A stopped detail call reuses the saved selection.
 
-`table_selection_wire.py` lets the model group sources with the same decision and
-the same literal reason into `sourceChoices`. Every group lists its source IDs
-explicitly; there is no default, wildcard or range. The decoder rejects missing,
-unknown, duplicate and malformed choices, then expands the groups into the existing
-per-source `sourceDecisions` in inventory order. Grouping cannot merge equal-valued
-records or change their provenance. Reference aliases are decoded only after this
-expansion; literal reasons are not translated. Saved history and revision checks
-remain per-source. The details request shares only exactly equal saved choices and
-reasons; a reselection response uses the same grouped wire and existing revision
-rules. Table protocol v23 rejects older checkpoints before dispatch.
+`table_selection_wire.py` shares literal explanations in `reasonTable`. The model
+must answer every offered source key exactly once in a closed `sourceDecisions`
+object. Each value is `[decision, reasonIndex]`; the index refers to that literal
+reason, not another source or inferred group. The decoder rejects missing or unknown
+sources, malformed choices, invalid indices and unused or duplicate reasons. The
+JSON parser rejects duplicate keys rather than keeping the last value. It expands
+reasons into the existing per-source decisions in inventory order, then decodes
+reference aliases without translating literal explanations. Equal-valued records
+and their source links stay distinct. History, details and reselection use the same
+canonical decisions and existing revision rules. Selection wire v2 / table protocol
+v24 replace the v23 group-list transport, whose actual HWPX response repeated a source
+after covering the inventory. Older checkpoints are rejected before dispatch.
 
 The source-selection output cap remains 1,536 tokens. Grouping reduces repeated
 explanations but does not guarantee that every response or input inventory fits.
@@ -996,7 +998,7 @@ its owning behavior. Do not patch stored IDs to resume.
 | Semantic prompt / region plan / result compiler | v39 / v21 / v32 |
 | Document outline / native role-content protocol / native structure | v1 / v7 / v12 |
 | Native structural response wire / native value batches / structure revision | v1 / v3 / v4 |
-| Table protocol / table reference wire / table source wire / selection wire | v23 / v2 / v1 / v1 |
+| Table protocol / table reference wire / table source wire / selection wire | v24 / v2 / v1 / v2 |
 | Scope integration / scope-axis protocol | v14 / v6 |
 | Scope row-axis wire | v2 |
 | Scope selection wire / context display / source binding / regional checkpoint | v3 / v1 / v2 / v3 |

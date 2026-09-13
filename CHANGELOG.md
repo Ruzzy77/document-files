@@ -4,11 +4,12 @@
 
 ### Document extraction
 
-- Group identical source choices and reasons in the model-only table selection wire,
-  with explicit exactly-once coverage and canonical per-source history. Reuse the
-  compact choices in detail requests and selection revisions; keep the existing
-  output/call/time caps and preserve compiled rows after truncated responses
-  (table protocol v23 / selection wire v1). This is not model quality approval.
+- Share literal selection explanations through a reason table while requiring a
+  closed, exactly-once source decision map. Preserve canonical choices, revision
+  history and fixed output/call/time caps (table protocol v24 / selection wire v2).
+  This replaces the v23 grouped-source lists that repeated a source in an actual
+  HWPX response. Invalid or truncated output leaves compiled rows intact; transport
+  checks do not approve semantic choices or model quality.
 - Share repeated table source metadata and relation/cell properties losslessly
   (table protocol v22 / table source wire v1 / region plan v21). Apply the display
   to both structure and meaning requests, after meaning reference translation;

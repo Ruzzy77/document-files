@@ -29,11 +29,12 @@ source, including headers and values; do not exclude a category automatically.
 referenceContext can clarify a source but cannot supply missing direct evidence.
 Do not produce interpretations, quotations, scopes or definitions in this selection
 response. Do not rewrite records or values. Review all sources in the given order.
-Return sourceChoices groups. Each group lists explicit sourceRefs with one decision
-and one short reason that applies to every member. Combine sources only when you
-choose the same decision AND reason for each; otherwise use separate groups.
-Every offered sourceRef must appear exactly once across all groups. There is no
-default, range, omitted-source choice or wildcard. Grouping does not merge sources.
+First write reasonTable: short reasons, each once. Then sourceDecisions must contain
+EVERY offered sourceRef exactly once, in the given order. Its value is a pair
+[decision, reasonIndex], where reasonIndex is the zero-based position in reasonTable.
+Reuse a reason only when it applies to that source's own decision; otherwise write
+another reason. Do not borrow context as direct evidence or force sources to share
+one decision. Every reason must be used. There is no default, range or wildcard.
 """
 
 
