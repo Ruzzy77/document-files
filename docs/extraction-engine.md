@@ -854,11 +854,13 @@ string/integer slots were required. A successful token-count preflight did not p
 those generated values obeyed the schema. No invalid response was accepted. The
 active wire avoids tuples; older checkpoints are rejected before dispatch.
 Reasons should describe the basis of a choice, not copy each source value into a
-separate explanation or create entries for context-only nodes. This instruction
-reduces redundant output without removing sources or inferring their decisions.
+separate explanation or create entries for context-only nodes. The actual v26 development responses still copied per-source explanations despite
+this instruction. Optional reuse alone is not a bounded-output design. Classification
+output and diagnostic prose need a separate budgeted design; all original sources,
+explicit choices, uncertainty and provenance remain required.
 
-The source-selection output cap remains 1,536 tokens. Grouping reduces repeated
-explanations but does not guarantee that every response or input inventory fits.
+The source-selection output cap remains 1,536 tokens. Sharing identical reasons can
+reduce repeated text but does not guarantee that a model response or input fits.
 Truncated JSON is not accepted; compiled structure remains a partial result.
 
 Detail replies contain meanings, exact owned-source quotes, status and remainder

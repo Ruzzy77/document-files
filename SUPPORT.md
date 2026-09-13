@@ -113,33 +113,51 @@ budget increase is used to manufacture a successful result.
 
 ## Latest Spark-B verification
 
-Source **5e97a607a07aa34cda550533066531c49a0047cc** ran the unchanged 50-row
-development files with table protocol v22. The existing task-owned 9B runtime used
-16,384 tokens of context; document limits stayed at 12 calls, 900 seconds and 16,000
-input characters. Structure/details retain their 3,072-token output cap; source
-selection has its existing, smaller **1,536-token** cap.
+Source **a18b52f4a7f67133301137ef6888de5930489f3c** ran the unchanged 50-row
+native development files with table protocol v26 / selection wire v3. The task-owned
+9B runtime used 16,384 context tokens. Document limits stayed at 12 calls, 900 seconds
+and 16,000 input characters; selection still has a **1,536-token output cap**.
 
 | File | Actual processing | Remaining failure |
 |---|---|---|
-| HWPX | 5 calls / 140.0 seconds; 7 of 50 rows | The 21 returned values and original cells match. The selection request fits at 15,037 characters, but its per-source explanations exhaust the 1,536-token output cap. Native title/unit/caption structure also remains invalid. |
-| XLSX | 3 calls / 108.9 seconds; 11 of 50 rows | The 33 returned values and original cells match. Selection fits at 14,465 characters but also truncates at 1,536 output tokens. The model borrows a context-only unit note to describe numeric cells as additional meaning, and column-definition evidence includes the merged title. |
+| HWPX | 5 calls / 140.7 seconds; 7 of 50 rows | All 21 returned values, row order and original cells match. Selection fits at 15,222 input characters, but writes 48 separate reasons and truncates at 1,536 tokens. Native title/unit/caption structure remains invalid. |
+| XLSX | 3 calls / 109.3 seconds; 11 of 50 rows | All 33 returned values, row order and original cells match. Selection fits at 14,579 characters, but writes 37 separate reasons and truncates at 1,536 tokens. Reasons also describe context-only nodes and misidentify some source roles. |
 
-Incomplete JSON is not accepted; the already compiled rows remain in the partial
-result. Neither run exhausts the document's call/time allowance, and neither produces
-accepted meanings or applicability. The original blank at row 37 and both equal-valued
-rows together are not reached by these partial outputs. They are not full-quality passes.
-The same source passed **59 selected ARM tests** on Python 3.12.3. Inputs, source and
-shared RPC were unchanged; owned servers/containers were removed. Evidence:
-`structural-kpi-20260913/native-table-meaning-37/`.
+No incomplete response or completed-looking prefix is accepted. No meaning or
+applicability is committed. The original blank at row 37 and both equal-valued rows
+11/12 together are not reached. Neither document exhausts its call/time allowance;
+**both remain full-document quality failures**. Source/input hashes and shared RPC
+were unchanged; owned servers, containers and keys were removed. The source passed
+**85 selected ARM tests** on Python 3.12.3. Evidence:
+`structural-kpi-20260913/native-table-reasons-41/`.
 
-The preceding runtime comparison established why the old 8,192-token server was too
-small for this display: the first table required 6,317 input + 3,072 output + 32 margin
-tokens. It resumed the exact saved HWPX checkpoint on the larger task-owned server,
-retaining the charged calls/time and repeating no completed call. That comparison
-returned 7/11 rows but stopped before selection at 18,081/18,341 input characters;
-v22's meaning display removes those particular input overflows. This does **not**
-change the installed managed-pack default or qualify an installed Spark service.
-Evidence: `native-table-context-35/` and `native-table-runtime-36/` in the same private root.
+The earlier transport comparisons explain the current design, not quality progress:
+
+- v23 grouped-source lists reduced the XLSX selection to 341 tokens, but the model
+  selected every source as additional meaning and the details request exceeded the
+  input cap. HWPX covered the inventory, then repeated a source until truncation.
+- v24's two-slot tuple schema was rejected by the pinned b10853 runtime because
+  it contained `items: false`. Four HWPX model responses completed; the fifth attempt
+  failed at token-count preflight, with no selection response. XLSX did not run.
+- v25's equivalent `items: {}` passed that preflight, but actual output ignored the
+  required string/integer slots. v26 therefore uses ordinary closed choice objects.
+  Their emitted prefix has the expected shape, but neither full response finishes.
+
+These runs are `native-table-selection-38/`, `native-table-reasons-39/` and `40/` in
+the same private root. Optional reason sharing and another request to be concise do
+**not** provide a bounded-output design: this model keeps copying per-source values
+and labels into separate explanations. Further work must bound classification
+output by construction, distinguish model choices from diagnostic prose, and retain
+all sources, uncertainty, revision history and compiled rows without inventing
+model-authored reasons or enlarging the budget.
+
+Earlier runs 35/36 established that the first table's 6,317 input + 3,072 output + 32
+margin tokens exceeded the old 8,192-token task-owned server. The larger server
+resumed the exact saved checkpoint with prior usage retained and no completed call
+repeated. v22's lossless meaning display then removed the specific input overflows
+observed in that comparison. None of this changes the installed managed-pack default
+or qualifies an installed Spark service. Earlier evidence remains in
+`native-table-context-35/`, `native-table-runtime-36/` and `native-table-meaning-37/`.
 
 ### Earlier 50-row baseline
 
@@ -331,7 +349,7 @@ platform-installer or independent quality qualification**.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** The latest 50-row runs stop at 7 HWPX / 11 XLSX rows because source-selection output truncates. Prose-record runs separately retain per-item scalars, title copies, wrong missing states and equal-valued source occurrences. | Shared reasons and a closed source map now retain exact coverage and decisions in the model wire; verify them with the actual Spark model and separately bound larger work if needed; do not raise the output cap or omit sources to pass. Then check every row/value/meaning in the complete path. |
+| 1 | **Native complete extraction is not approved.** The latest 50-row runs stop at 7 HWPX / 11 XLSX rows because source-selection output truncates. Prose-record runs separately retain per-item scalars, title copies, wrong missing states and equal-valued source occurrences. | Bound source classification output by construction; optional free-form reason sharing has failed in the actual model. Separate diagnostic prose from the choices without fabricating reasons, and separately bound larger work if needed; do not raise the output cap or omit sources to pass. Then check every row/value/meaning in the complete path. |
 | 2 | HWP/HWPX and XLSX have not been characterized across enough different layouts and forms. Existing HTML/PDF development examples do not establish native-format accuracy. | Check current observations and the complete path against independent expectations. Cover role/reading hierarchy, title/caption ambiguity, label/value forms and prose records, merged/nested/continued tables, subtotal/note rows and long content. Role repair alone has not resolved the whole-result defects. Compare equivalent content in different layouts as well as genuinely different forms; do not force a fixed template. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. The 50-row HWPX also retains empty-fragment evidence against a joined nonempty array. | Review actual values, bindings, field set, order and applicability. Correct evidence remapping across continuation; retain explicit blank cells and distinct equal-valued records. Do not delete evidence just to satisfy the reviewer or infer correctness from text elsewhere in a node. |
 | 4 | Long-table scope delivery is partly improved. The reproduced 50-row request now fits at 15,858 characters instead of 24,557, with all 51 observed rows and 102 source texts retained. A 96-row fixture still loses the record candidate at the unchanged discovery limit; provenance limits also remain. | Verify the new display with an actual model, then address bounded discovery and source binding without dropping rows or raising caps. This scripted request/selection check is not a full document or long-table quality pass. |
