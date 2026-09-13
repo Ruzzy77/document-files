@@ -98,3 +98,35 @@ def test_engine_preserves_all_rows_without_readding_discarded_definition_sources
     assert result["data"]["records"] == [{"code": f"{i:04}", "size": "1.2300"} for i in range(50)]
     assert not any(i["code"] == "region_context_budget_exceeded" for i in result["issues"])
     assert any("sameTableMapping" in json.loads(r.messages[-1]["content"]) for r in model.requests)
+
+
+def test_output_contract_is_built_after_preceding_table_context_is_added(monkeypatch):
+    import json
+
+    import document_files.interpretation.engine as engine
+
+    events = []
+    original_add, original_schema = engine.add_table_definition_context, engine.region_output_schema
+
+    def add(observation, region, refs):
+        original_add(observation, region, refs)
+        events.append((region["id"], "context"))
+
+    def schema(observation, region, *args, **kwargs):
+        events.append((region["id"], "schema"))
+        return original_schema(observation, region, *args, **kwargs)
+
+    class Checked(TableModel):
+        def infer(self, request):
+            payload = json.loads(request.messages[-1]["content"])
+            if "sameTableMapping" in payload:
+                rid = payload["regionId"]
+                relevant = [kind for key, kind in events if key == rid]
+                assert "context" in relevant and relevant[-1] == "schema"
+            return super().infer(request)
+
+    monkeypatch.setattr(engine, "add_table_definition_context", add)
+    monkeypatch.setattr(engine, "region_output_schema", schema)
+    model = Checked()
+    execute(model, content=long_html(), contextChars=11000, maxModelCalls=60)
+    assert any(kind == "context" for _, kind in events)

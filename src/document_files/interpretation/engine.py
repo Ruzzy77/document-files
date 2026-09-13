@@ -63,6 +63,7 @@ from .regions import (
     continuation_candidates,
     prepare_regions,
     rebalance_table_pair,
+    record_continuation_candidates,
     region_payload,
     relation_node,
     replan_table_region,
@@ -141,7 +142,7 @@ CHECKPOINT_VERSION = "document-files.regional-checkpoint.v3"
 
 
 def _feedback_code(issue):
-    """Name the affected source, binding, field or statement; never document text."""
+    """Name the affected source, binding, field or meaning; never document text."""
     for key in ("sourceRef", "bindingId", "fieldId", "semanticId"):
         if issue.get(key):
             return f"{issue['code']}:{issue[key]}"
@@ -1311,7 +1312,9 @@ def extract_schema_from_stream(
     def linked_regions(*, strict=False):
         partition_coverage.clear()
         linked, join_issues, links = join_continuations(
-            list(compiled.values()), candidates, decisions
+            list(compiled.values()),
+            record_continuation_candidates(observation, regions, candidates, table_states),
+            decisions,
         )
         scope_tasks = build_scope_inventory(observation, regions, linked)
         if strict and set(scope_partitions) - {t.id for t in scope_tasks}:
@@ -1729,6 +1732,9 @@ def extract_schema_from_stream(
             if i.get("code")
             not in {"semantic_scope_unresolved", "semantic_interpretation_uncertain"}
         ]
+
+    def local_feedback(fragment):
+        return [_feedback_code(i) for i in local_issues(fragment)[:20]]
 
     def interpret_table_layout(region, payload, state):
         progress = state["layout"]
@@ -2678,7 +2684,6 @@ def extract_schema_from_stream(
             payload["documentContext"]["precedingHeadings"] = preceding_headings(
                 observation, region, role_fragments.values()
             )
-        candidate_schema = region_output_schema(observation, region, catalog)
         if region.get("tableRef"):
             table = observation.tables[region["tableRef"]]
             original_table = table.get("sourceTableRef", region["tableRef"])
@@ -2716,6 +2721,9 @@ def extract_schema_from_stream(
                         ),
                     }
                     break
+        # Context added from an accepted preceding mapping is part of this request's
+        # source vocabulary, on the initial attempt as well as after restoration.
+        candidate_schema = region_output_schema(observation, region, catalog)
         if region.get("tableRef"):
             try:
                 if rid not in table_states and rid not in accepted:
@@ -2768,6 +2776,14 @@ def extract_schema_from_stream(
                 if interpret_table(region, payload):
                     continue
                 payload["tableKind"] = "scalar_form"
+                if (
+                    table_states[rid]["structure"].get("routing") == "layout-nonrecord.v1"
+                    and "sameTableMapping" in payload
+                ):
+                    payload["sameTableMapping"]["instruction"] = (
+                        "Context from the same physical table; interpret this slice's "
+                        "nonrecord content, not those records."
+                    )
                 candidate_schema["properties"]["repeats"] = {
                     "type": "array",
                     "maxItems": 0,
@@ -2845,7 +2861,7 @@ def extract_schema_from_stream(
             feedback = repair_diagnostics.get(rid)
         else:
             feedback = (
-                [i["code"] for i in compiled[rid].issues[:20]]
+                local_feedback(compiled[rid])
                 if rid in compiled
                 else repair_diagnostics.get(rid, [])
             )
@@ -2947,7 +2963,7 @@ def extract_schema_from_stream(
                 save("interpreting")
                 if not local_issues(fragment) or attempt == 1:
                     break
-                feedback = [_feedback_code(i) for i in fragment.issues[:20]]
+                feedback = local_feedback(fragment)
                 continue
             except ModelError as exc:
                 if content_state is not None and usage["modelCalls"] > calls_before:
@@ -3013,7 +3029,7 @@ def extract_schema_from_stream(
                 return result
     pending = [
         c
-        for c in candidates
+        for c in record_continuation_candidates(observation, regions, candidates, table_states)
         if not c["confirmed"]
         and c["id"] not in decisions
         and c["leftRegion"] in compiled

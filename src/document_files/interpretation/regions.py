@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 
 from ..document_model.table_headers import declared_header, row_role_order
@@ -12,7 +13,7 @@ from .document_outline import enabled as outline_enabled
 from .document_outline import role_context
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v30"
+REGION_PLAN_VERSION = "document-files.region-plan.v31"
 
 
 def _encoded(value):
@@ -1086,6 +1087,55 @@ def _page_lines(observation, members, page):
         box = (node.get("sourceStructure") or {}).get("bbox") or {}
         lines.append(((box.get("top", 0), box.get("left", 0)), ref))
     return [ref for _, ref in sorted(lines)[:PAGE_LINE_LIMIT]]
+
+
+def record_continuation_candidates(observation, regions, candidates, table_states):
+    """Separate record joins from the unchanged physical table and scalar content.
+
+    Table states have already passed layout/route validation, including on resume.
+    Only the explicit nonrecord route removes an endpoint; missing repeats, empty
+    tables, unresolved layouts and ordinary scalar forms are not such evidence.
+    """
+    nonrecord = {
+        rid
+        for rid, state in table_states.items()
+        if state.get("kind") == "scalar_form"
+        and state.get("structure", {}).get("status") == "complete"
+        and state["structure"].get("routing") == "layout-nonrecord.v1"
+    }
+    if not nonrecord:
+        return candidates
+    result = [c for c in candidates if not {c["leftRegion"], c["rightRegion"]} & nonrecord]
+    # A note slice between two record slices must not sever their same-native-table
+    # continuation. Do not bridge an unrelated table or turn page adjacency into
+    # confirmed record identity. Keep existing candidate IDs stable as routes settle.
+    tables = [r for r in regions if r.get("tableRef")]
+    order = {r["id"]: i for i, r in enumerate(tables)}
+    pairs = {(c["leftRegion"], c["rightRegion"]) for c in result}
+    for c in continuation_candidates(observation, [r for r in regions if r["id"] not in nonrecord]):
+        left, right = c["leftRegion"], c["rightRegion"]
+        if (left, right) in pairs or not c["confirmed"]:
+            continue
+        between = tables[order[left] + 1 : order[right]]
+        native = observation.tables[c["leftTable"]].get("sourceTableRef", c["leftTable"])
+        if not between or any(
+            r["id"] not in nonrecord
+            or observation.tables[r["tableRef"]].get("sourceTableRef", r["tableRef"]) != native
+            for r in between
+        ):
+            continue
+        identity = hashlib.sha256(_encoded([left, right]).encode()).hexdigest()[:24]
+        result.append(
+            {
+                **c,
+                "id": "continuation:nonrecord-" + identity,
+                "interveningNonrecordRegions": [r["id"] for r in between],
+                "sourceRefs": list(
+                    dict.fromkeys([*c["sourceRefs"], *(n for r in between for n in r["nodeIds"])])
+                ),
+            }
+        )
+    return sorted(result, key=lambda c: (order[c["leftRegion"]], order[c["rightRegion"]]))
 
 
 def continuation_candidates(observation, regions):
