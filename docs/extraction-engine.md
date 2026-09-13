@@ -1097,9 +1097,9 @@ only on typed display positions, never text resembling encoding instructions.
 The full decoding instruction is added only when total savings exceed its cost.
 The packed payload and instruction are part of the wire fingerprint; selection
 contracts, canonical tasks, row/column mappings and source binding are unchanged.
-The 50-data-row regression retains all 51 observed rows and 102 complete texts,
-reducing the actual request from 24,557 to 15,858 characters at the unchanged 16,000
-limit. The same scripted 49-row subset resolves identical values and source traces.
+The original v3 display comparison retained all 51 observed rows and 102 complete
+texts, reducing the request from 24,557 to 15,858 characters at the unchanged 16,000
+limit. The same scripted 49-row subset resolved identical values and source traces.
 This checks delivery and compiler behavior, not actual model or independent quality.
 Earlier scope-selection checkpoints are incompatible with the new wire.
 
@@ -1115,12 +1115,94 @@ output tokens, or a smaller compatible client ceiling). Table-relation requests 
 1,024 / 2,048. Other phases retain their profile policy. Greedy sampling is explicit
 but does not promise bit-identical output across floating-point execution orders.
 
-Current long-source limits remain 100 source references, 1,000 trace entries and
-1,000,000 row/column work units. They can prevent long-table completion. Candidate
-discovery is also unchanged: the 96-row fixture still reports bounded coverage and
-does not offer its record candidate. Further work must check every binding,
-preserve public evidence and detect row/
-column/value changes on resume; raising limits or dropping the tail is not the fix.
+### Long-table applicability: measured boundaries
+
+Three separate limits currently apply. `build_scope_tasks` sizes the uncompressed
+candidate payload; the engine supplies at most 12,000 characters for this discovery.
+The selection codec then packs retained candidates and builds the actual request.
+After a selection, source binding separately limits unique references to 100, trace
+entries to 1,000 and row/column work to 1,000,000. Passing one limit does not pass the
+others. The 100-reference bound also appears in the canonical `ScopeDecision` model.
+
+At product source `b80b4c7c50b46a9c51f3d7c6213c8955407b0c04`, the existing scripted
+two-column fixture gives these sizes, including system instructions and the output
+contract. This is offline request construction, not native extraction or a model run.
+
+| Data rows | Discovery allowance | Record candidate retained | Actual request characters |
+|---|---|---|---|
+| 10 | 12,000 | Yes; complete candidate coverage | 10,773 |
+| 50 | 12,000 | Yes; complete candidate coverage | 15,932 |
+| 96 | 12,000 or 16,000 | No; bounded coverage | 5,433 |
+| 96 | 120,000, diagnostic only | Yes | 22,924 |
+| 200 | 120,000, diagnostic only | Yes | 39,844 |
+
+All compiled rows remain present in these fixtures. The smaller 5,433-character
+request omits the record candidate; it is not successful delivery of the complete
+scope task. Raising discovery alone would expose an oversized request. No configured
+input allowance was changed and no diagnostic request was sent.
+
+Provenance has a different boundary. An explicit range covering 49 rows and both
+columns binds exactly 100 unique references; 50 rows fails with
+`scope_source_binding_budget_exceeded`. A one-column range succeeds through 98 rows
+and fails at 99. These counts are fixture-specific, not universal document limits.
+The binding failure is atomic and does not change values or their evidence.
+
+Selecting a whole column instead uses its checked definition scope and can cover
+all 200 fixture rows with one reference. It is not interchangeable with a filtered
+row selection: the latter verifies each selected value's binding. Do not silently
+convert one form into the other to avoid a bound. After a checked continuation, the
+root column definition covers all six rows in the two-fragment fixture; the second
+fragment's column covers only its last three rows. Whole-column selection therefore
+does not have the suspected first-fragment-only defect in this case.
+
+### Next scope implementation — not implemented
+
+The next actual native-file run must first establish complete table extraction and
+meaning selection under a budget fixed before execution. This long-scope work must
+not replace that check with increasingly large scripted tables. When that path
+reaches applicability, implement the following boundaries in order:
+
+1. **Separate selection from compiler provenance.** Keep the model's citation-free
+   selection contract and the legacy model-citation bound. Introduce a distinct
+   compiler-bound decision, reconstructed only from the current selected definitions,
+   row mappings and value bindings. Check provenance in bounded blocks and retain the
+   complete reference union in the public result. Bound total work, stored bytes and
+   trace size explicitly; if a block cannot be checked, retain uncertainty rather
+   than omit its sources. The existing 100-item `ScopeDecision` must not be reused
+   for this compiler-produced union, nor may a saved tag bypass reconstruction.
+2. **Separate inventory from request size.** Freeze the complete eligible candidate
+   inventory, exact row coordinates/roles, header groups, continuation mappings and
+   source references under document resource limits. Inventory completeness and
+   model-visible coverage are different states. Size the final serialized request,
+   including instructions and its schema, before scheduling it. Keep one request
+   when the complete task fits; packing after candidates have been dropped is too late.
+3. **Partition only an oversized task.** Create disjoint candidate/row windows with
+   explicit coverage of the frozen inventory. Each window retains the current meaning,
+   relevant surrounding text and column/header definitions. A window's “all rows”
+   means only its offered rows, never the remainder of the table. Physical row
+   coordinates, fragment-local record numbers and joined output positions remain
+   distinct. A required context block that cannot fit must produce an explicit
+   incomplete task; truncating it is not a successful partition.
+4. **Aggregate reviewed windows, not guesses about missing work.** The new internal
+   response needs distinct apply, reviewed-with-no-target and unresolved outcomes.
+   The last two cannot be inferred from an omitted response or an empty selection.
+   Combine validated window selections without double-counting overlaps, and record
+   reviewed exclusions separately from unseen windows. An exhausted call/time budget
+   preserves completed data and checked partial links but cannot clear unresolved
+   applicability. If every window excludes all targets, keep the meaning unresolved
+   under the existing public contract rather than inventing an applicable target.
+5. **Version and replay the complete plan.** Include inventory, partition boundaries,
+   exclusions, source proofs and actual wire identities in checkpoint validation.
+   Recompute proofs against current observations. Changed values, row roles, column
+   membership, joins or quotes invalidate affected decisions. Scheduling uses the
+   existing cumulative document allowance; partitioning does not create extra budget.
+
+Acceptance must cover both sides of the measured source-reference boundary, complete
+96/200-row delivery or explicit pending windows, exact equal-valued rows, stored
+blanks versus missing/unread cells, subtotal/note rows, partial column groups and
+continued tables. Include interrupted/resumed work, stale proofs, rejected siblings,
+all-negative windows and missing responses. Scripted checks establish preservation
+and failure behavior only; actual HWP/HWPX/XLSX outputs still need independent review.
 
 ## 6. Request sizing, checkpoints and result validation
 

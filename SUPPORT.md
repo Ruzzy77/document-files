@@ -177,6 +177,19 @@ was performed. Complete-document evaluation needs a predeclared suitable budget;
 the existing long-document allowance is 64 calls / 3,600 seconds, not a result
 already verified here. Evidence: `structural-kpi-20260913/native-planning-46/`.
 
+An offline scope audit of the unchanged current product source separated discovery,
+request delivery and provenance limits. All 50 fixture rows fit a complete
+15,932-character scope request. The 96-row fixture loses its record candidate during
+discovery; retaining it for diagnosis produces 22,924 characters, above the unchanged
+16,000 limit. Independently, a 50-row/two-column explicit range exceeds the
+100-reference source-binding bound. Both preserve compiled data and remain failures,
+not permission to omit rows or increase model budgets. Whole-column selection after
+a checked join covers the current compiled definition, including continued rows.
+Evidence: `structural-kpi-20260913/scope-discovery-audit-49/` (32 scripted cases, no
+model calls). The implementation sequence is described in
+[long-table applicability](docs/extraction-engine.md#next-scope-implementation--not-implemented);
+it is not implemented or a new quality approval.
+
 ## Latest Spark-B verification
 
 Source **e3452fba507a1f5dd1ddb1d87549d59c2fdf1295** ran the unchanged 50-row
@@ -422,7 +435,7 @@ platform-installer or independent quality qualification**.
 | 1 | **Native complete extraction is not approved.** The latest actual run retains 12/50 HWPX and 45/50 XLSX rows. Repacking and the reproduced detail overflow are corrected in code, but the optimistic table-only cost remains 20 / 12 calls. | Verify the complete product path under a budget fixed before evaluation, distinguishing it from the failed 12-call runs. Review every row and meaning, including wrong bare-identifier selection. Larger detail work must still remain explicitly partial if it cannot fit; do not waive missing sources or silently extend a run. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Zero-record fragment evidence mapping is corrected, but the model's field and row decisions remain unapproved. | Review fields, values, bindings, order and applicability together while preserving explicit blank cells and distinct equal-valued records. Retain the fragment's original evidence; do not delete sources just to satisfy a reviewer. |
-| 4 | Larger scope discovery and provenance bounds remain. A 96-row fixture loses the record candidate at the unchanged discovery limit; smaller scripted request delivery is not model quality. | Provide bounded discovery and source binding without dropping rows or hiding incomplete coverage. Check actual-model long-document applicability after the complete table path is fixed. |
+| 4 | Larger scope discovery, actual request size and provenance are separate blockers. The 96-row fixture loses its record candidate or requires 22,924 characters; a 50-row/two-column explicit range exceeds 100 source references. | First separate compiler-owned provenance from model citation limits, then plan complete candidate/row coverage against the actual request size. Preserve reviewed, unresolved and unseen work separately. Check actual-model applicability after the complete table path is fixed; the detailed design is not implemented. |
 | 5 | HWP/HWPX and XLSX lack independent end-to-end approval across varied forms. Prose records still have wrong per-item states and occurrence bindings. | Freeze new expectations for hierarchy, label/value and prose records, merged/nested/continued tables, subtotal/note rows and three-page content. Compare equivalent content in different layouts and genuinely different forms, not a fixed template. A failed holdout used for a fix becomes development evidence. |
 
 Fix reproduced preservation defects before another broad inference run. Run only
