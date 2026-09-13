@@ -129,6 +129,10 @@ def run(model, *, states=None, restore=None, additional_budget=None, content=HTM
 
     def current_wire(request):
         payload = json.loads(request.messages[-1]["content"])
+        if payload.get("meaningPhase") == "details":
+            feedback = payload.get("repairFeedback")
+            has_revision = isinstance(feedback, dict) and bool(feedback.get("baseRevision"))
+            assert ("remainingSourceRanges" in request.messages[0]["content"]) == has_revision
         if "tableStage" not in payload and not hasattr(model, "scope_calls"):
             model.scope_requests.append(payload)
             return InferenceResponse(json.dumps(scripted_size_scope(payload)), {})

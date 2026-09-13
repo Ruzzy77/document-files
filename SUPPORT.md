@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,086 tests,
+The full local check including the native outline path passed **3,097 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v7, native-structure v12,
 native-value-batches v3, structure-revision v4, scope-selection wire v3, prompt v40,
-region plan v22, table protocol v27 and compiler v32. Public v1 result
+region plan v23, table protocol v28 and compiler v32. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v15 / scope protocol v7 now discover the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -72,6 +72,13 @@ The next-row guide uses effective compiled column definitions, not rejected cita
 from the original model response. Whole-record provenance remains stored, not replayed
 as column context. The bounded comparison below verifies the later-row delivery
 change; actual parent-table applicability still needs a completed comparison.
+
+The current planner additionally repacks two adjacent unstarted views without
+changing source ownership or replaying attempted work. Meaning requests no longer
+expose unused value-binding candidates that neither response stage can address;
+all source text, actual value/definition usage and compiler accounting remain.
+Initial content and accepted-meaning repair receive their respective instructions.
+These latest changes have regression/offline evidence, **not a new actual-model pass**.
 
 Table selection wire v4 requests only one status string per owned source. Canonical
 selection record v2 explicitly records that per-source explanations were not requested;
@@ -122,6 +129,22 @@ they do not fix the long-table request/understanding failures below.
 Regression coverage verifies these mechanics, not the model's decisions. No relevance
 filter, fixed business template, automatic deletion of legitimate fields or silent
 budget increase is used to manufacture a successful result.
+
+## Latest planning and request verification
+
+The same saved HWPX detail choices now produce a **15,251-character** initial
+request rather than 16,899, within the existing 16,000 limit. All original source
+texts, selections, frozen structure and compiler binding rules remain. This is
+request reconstruction, not resume or a new model answer.
+
+Repacking the 50-row examples against the first accepted column mapping still
+needs 10 HWPX / 6 XLSX table regions. At two successful calls per record-table
+region, the optimistic table cost is **20 / 12 calls**, before other content and
+applicability. Packing alone cannot make their whole result fit the 12-call test.
+The prior failures are retained; no automatic allowance increase or new inference
+was performed. Complete-document evaluation needs a predeclared suitable budget;
+the existing long-document allowance is 64 calls / 3,600 seconds, not a result
+already verified here. Evidence: `structural-kpi-20260913/native-planning-46/`.
 
 ## Latest Spark-B verification
 
@@ -365,7 +388,7 @@ platform-installer or independent quality qualification**.
 
 | Priority | Defect / owning code | Required correction and acceptance check |
 |---|---|---|
-| 1 | **Native complete extraction is not approved.** HWPX stops at 12/50 rows after bare IDs are selected as meanings; XLSX reaches 45/50 before its call budget expires. `regions.py`, `engine.py`, `table_protocol.py` / meaning execution. | Check whether contiguous, unstarted slices of the same physical table can be rebatched against the effective mapping instead of retaining small per-slice tails. Bound selected-meaning detail work without removing source context. Preserve accepted rows, ownership, history and fixed budgets; verify every row in the actual product path. These changes are not yet implemented. |
+| 1 | **Native complete extraction is not approved.** The latest actual run retains 12/50 HWPX and 45/50 XLSX rows. Repacking and the reproduced detail overflow are corrected in code, but the optimistic table-only cost remains 20 / 12 calls. | Verify the complete product path under a budget fixed before evaluation, distinguishing it from the failed 12-call runs. Review every row and meaning, including wrong bare-identifier selection. Larger detail work must still remain explicitly partial if it cannot fit; do not waive missing sources or silently extend a run. |
 | 2 | Nonrecord title/caption/unit content is still confused with values. Run 44 applied a unit to a field containing its wording. Exact parent-table discovery is fixed, but actual applicability quality is unverified. | Distinguish document roles and inner values; confirm that units govern measured columns and conditions govern the intended values. Keep uncertainty when the source does not resolve the target. Do not infer correctness from a field's present state. |
 | 3 | Repeated condition fields and blank-cell scalars remain in continued/form outputs. Empty-fragment evidence may still target a joined nonempty array. | Correct evidence mapping across continuation while preserving explicit blank cells and distinct equal-valued records. Review fields, values, bindings, order and applicability together; do not delete evidence just to satisfy a reviewer. |
 | 4 | Larger scope discovery and provenance bounds remain. A 96-row fixture loses the record candidate at the unchanged discovery limit; smaller scripted request delivery is not model quality. | Provide bounded discovery and source binding without dropping rows or hiding incomplete coverage. Check actual-model long-document applicability after the complete table path is fixed. |
@@ -387,8 +410,10 @@ caption and column-header roles without assigning them from row position alone.
 These changes are not implemented yet. Meaning-input packing also does not make
 every inventory fit: a larger synthetic HWPX inventory remains over 16,000
 characters with all sources retained and needs bounded processing. In the latest
-actual HWPX run, five selected identifiers already produce a 16,899-character detail
-request; the input guard correctly leaves that work unresolved.
+actual HWPX run, five selected identifiers produced a 16,899-character detail
+request and were correctly left unresolved. That saved request fits after the current
+stage-specific correction, but neither the selections nor their meaning quality
+have been rechecked by the model.
 
 ## What finishes the primary formats
 

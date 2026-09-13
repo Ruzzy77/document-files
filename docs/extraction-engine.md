@@ -53,7 +53,7 @@ decoder for model output. The original observation and compiler inputs are uncha
 
 Savings include the decoding instruction. Planning and dispatch both measure the
 messages produced by `contract_messages`; a shorter JSON payload alone is not enough.
-The public response contract is unchanged. Table protocol v27 and region plan v22
+The public response contract is unchanged. Table protocol v28 and region plan v23
 invalidate checkpoints made with the previous display and planning behavior.
 
 An earlier region's column mapping may not exist when the initial plan is made.
@@ -75,16 +75,30 @@ Both partial and completed checkpoints have regression coverage for no replay of
 accepted rows. This does not fix the remaining model, applicability or empty-fragment
 evidence errors.
 
-The current replanner splits each previously planned region in isolation. It does
-not rebalance adjacent unstarted views of the same source table. In the latest
-50-row XLSX development run, 13- and 12-row regions became 10+3 and 10+2 rows;
-each tail still required structure and source-selection calls. The product reached
-45 rows before its fixed call allowance ended. This is a planning cost, not a reason
-to increase the allowance or accept missing rows. Any replacement must retain source
-ownership, observed row order, mapping context and checkpoint history, and must not
-combine unrelated physical tables. Before another model comparison, estimate the
-remaining content/applicability calls as well: fewer slices alone does not establish
-that the whole document fits. Rebalancing and further stage redesign are not implemented.
+`rebalance_table_pair` uses a bounded window of two adjacent **unstarted** views of
+the same original physical table. It repacks them against the current compiled
+mapping so a small tail can share a request with the following rows. No model role,
+header, value or continuation decision is made by packing. Different physical tables,
+gapped view boundaries, overlapping sources/spanning cells, text windows and altered
+source geometry are not combined. An unsuccessful or unchanged proposal is rolled
+back, including trial views and planning issues. Original sources, source order,
+value ownership and required bindings must match exactly before replacement.
+
+The engine does not replace either region once it has table state or an accepted
+interpretation. Replacement IDs have bounded, non-nesting suffixes; continuation
+candidates and the plan are saved before another call. A cancelled, attempted
+structure keeps its identity and budget on resume. `replan_table_region` remains
+the single-region fallback when pair packing cannot safely help.
+
+This reduces planning overhead, not the number of semantic decisions the model
+must make. Offline replay with the first accepted mapping produces 10 HWPX / 6 XLSX
+table regions for the existing 50-row examples. Even if every structure and negative
+source selection succeeds immediately, that is 20 / 12 table calls **before** other
+content, repairs, continuation and applicability. A 12-call whole-document run is
+therefore not a useful completion test for these examples under this protocol.
+The original fixed-budget failures remain failures; no automatic budget extension
+or new model run is implied by this planning result. Evidence: private
+`structural-kpi-20260913/native-planning-46/`.
 
 Meaning selection and details share cell/relation metadata **after** reference-wire
 translation. Source choice inventories, literal quotes and the frozen structure
@@ -92,6 +106,21 @@ are unchanged by this display codec. Checkpoint reference dictionaries
 still use canonical sources, not display templates. Exact expansion is tested for
 both native HWPX and XLSX. Larger meaning inventories or repair feedback can still
 exceed the limit; sharing is not permission to omit them or expand the budget.
+
+Meaning selection/details cannot return a binding ID or read a candidate value path.
+Their requests therefore omit `unaccountedBindings`: unused alternative candidates
+are not unresolved document facts for the model to reinterpret. Full bindings,
+required-value checks and accounting remain in the observation/compiler. Every
+owned source text/range, actual value/definition usage and frozen structure stays
+in the request. Initial details receive the content rules; revision-ledger
+instructions are added only when an accepted meaning is being repaired. Quote,
+coverage, change-ledger and applicability checks are unchanged.
+
+Reconstructing the previously blocked HWPX detail request with the same sources and
+saved choices measures 15,251 characters instead of 16,899 at the unchanged 16,000
+limit. This is an offline current-protocol comparison, not checkpoint resume,
+model generation or semantic approval. Larger requests can still remain partial.
+No additional status-display codec or new model output format was introduced.
 
 ### Native spreadsheet projections
 

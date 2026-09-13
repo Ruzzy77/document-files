@@ -277,7 +277,9 @@ def test_engine_replans_before_call_and_checkpoint_resume_never_replays_accepted
         "issues"
     ]
     assert result["data"]["records"] == [{"code": f"{i:04}", "size": "1.2300"} for i in range(50)]
-    assert any(":part:" in region["id"] for region in states[-1]["regions"])
+    assert any(
+        ":part:" in region["id"] or ":repack:" in region["id"] for region in states[-1]["regions"]
+    )
     calls = len(model.requests)
     resumed = execute(
         model, content=content, restore=states[-1], contextChars=11000, maxModelCalls=60
@@ -292,7 +294,9 @@ def test_partial_checkpoint_keeps_new_slices_without_replaying_the_first_structu
     result = execute(model, content=content, states=states, contextChars=11000, maxModelCalls=2)
     assert result["extraction"]["status"] == "partial"
     assert len(model.requests) == 2 and len(states[-1]["accepted"]) == 1
-    assert any(":part:" in region["id"] for region in states[-1]["regions"])
+    assert any(
+        ":part:" in region["id"] or ":repack:" in region["id"] for region in states[-1]["regions"]
+    )
     prior_region = next(iter(states[-1]["accepted"]))
     resumed = execute(
         model,

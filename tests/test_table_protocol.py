@@ -17,6 +17,8 @@ from document_files.interpretation.contracts import ExtractionOptions
 from document_files.interpretation.engine import extract_schema_from_stream
 from document_files.interpretation.regions import prepare_regions, region_payload
 from document_files.interpretation.table_protocol import (
+    MEANING_REPAIR_SYSTEM,
+    MEANING_SYSTEM,
     STAGE_MAX_OUTPUT_TOKENS,
     TABLE_PROTOCOL_VERSION,
     TableMeaning,
@@ -1221,3 +1223,44 @@ def test_active_completed_checkpoint_rejects_disabled_wire_and_preserves_canonic
     with pytest.raises(ValueError, match="incompatible with table reference wire"):
         execute(model, restore=checkpoint, contextChars=100000)
     assert len(model.requests) == 2
+
+
+def test_initial_content_does_not_ask_for_a_nonexistent_revision_but_repair_keeps_the_ledger():
+    assert "remainingSourceRanges" not in MEANING_SYSTEM
+    assert "Initial response: baseRevision:null, changes:[]." in MEANING_SYSTEM
+    assert "remainingSourceRanges" in MEANING_REPAIR_SYSTEM
+    assert "every changed or removed prior ID" in MEANING_REPAIR_SYSTEM
+    assert "No silent deletions" in MEANING_REPAIR_SYSTEM
+    for prompt in (MEANING_SYSTEM, MEANING_REPAIR_SYSTEM):
+        assert "Keep the existing records, values" in prompt
+        assert "baseSelectionSHA256" in prompt
+        assert "Every has_meaning source must have a direct" in prompt
+        assert "do not choose its applicability" in prompt
+
+
+def test_meaning_receives_source_accounting_not_unusable_value_binding_candidates():
+    doc = observe_document(HTML, "html", {})
+    region = prepare_regions(doc, context_chars=16000)[0]
+    original_payload = region_payload(doc, region)
+    _, frozen = structural_ir(record_response(original_payload), doc, region)
+    compiled = compile_region(frozen, doc, region)
+    original = copy.deepcopy(doc)
+    inventory = source_inventory(doc, region)
+    request = meaning_payload(original_payload, frozen, compiled, inventory)
+    assert "unaccountedBindings" not in request
+    assert request["sourceUsage"]["valueRefs"] == sorted(
+        {
+            original_payload["bindings"][bid]["sourceRef"]
+            for bid in compiled.consumed_bindings
+            if bid in original_payload["bindings"]
+        }
+    )
+    assert set(request["sourceUsage"]) == {"valueRefs", "definitionRefs"}
+    assert request["meaningSources"] == [
+        {"sourceRef": s["sourceRef"], "text": s["text"]} for s in inventory["sources"]
+    ]
+    assert request["sourceInventorySHA256"] == inventory["sha256"]
+    assert doc == original
+    assert compiled.data == {
+        "records": [{"code": "0007", "size": "1.2300"}, {"code": "0008", "size": "0.00"}]
+    }

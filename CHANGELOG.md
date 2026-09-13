@@ -4,6 +4,17 @@
 
 ### Document extraction
 
+- Repack adjacent unstarted row views in a bounded two-view window (region plan v23).
+  Preserve exact source/binding ownership and row order, reject unsafe overlaps or
+  changed source geometry, and retain attempted work and budgets on resume. This
+  reduces small tail requests; it does not imply that a whole document fits a fixed
+  call allowance.
+- Keep meaning requests focused on source text and frozen values/definitions
+  (table protocol v28). Omit unused binding IDs/value-path choices that no meaning
+  response can address; retain all compiler accounting and original observations.
+  Initial content and accepted-meaning repair receive phase-appropriate instructions.
+  Selection output, exact quote rules, revision ledgers and applicability remain unchanged.
+
 - Reuse compiled column definitions for later slices, including recorded compiler
   corrections, rather than replaying the uncorrected model proposal or whole-record
   provenance as column context (region plan v22). Retain original records, sources,

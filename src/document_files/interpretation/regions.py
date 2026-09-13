@@ -13,7 +13,7 @@ from .legacy_engine import contract_messages
 from .table_protocol import STRUCTURE_SYSTEM, structure_payload, structure_schema
 from .text_views import split_text_region
 
-REGION_PLAN_VERSION = "document-files.region-plan.v22"
+REGION_PLAN_VERSION = "document-files.region-plan.v23"
 
 
 def _encoded(value):
@@ -778,9 +778,7 @@ def compiled_table_mapping(repeat, compiled):
     No new header/type decisions or source filtering are made here.
     """
     definitions = {
-        item["id"]: item
-        for item in compiled.semantics
-        if item["kind"] == "field_definition"
+        item["id"]: item for item in compiled.semantics if item["kind"] == "field_definition"
     }
     columns = []
     for column in repeat.columns:
@@ -859,6 +857,114 @@ def replan_table_region(observation, region, *, context_chars, request_metadata)
     for ref in set(observation.tables) - original_tables:
         del observation.tables[ref]
     return None
+
+
+def rebalance_table_pair(observation, first, second, *, context_chars, request_metadata):
+    """Repack two adjacent, unstarted views of one physical table.
+
+    A bounded two-view window fills small tails without rebuilding the whole
+    remaining document on every iteration. The caller protects attempted work.
+    This makes no continuation, row-role, header or value decision.
+    """
+    if any(
+        not region.get("tableRef")
+        or region.get("parentRegionId")
+        or region.get("nodeViews")
+        or region.get("boundaryContext")
+        for region in (first, second)
+    ):
+        return None
+    left, right = (observation.tables[r["tableRef"]] for r in (first, second))
+    root_ref = left.get("sourceTableRef")
+    if (
+        not root_ref
+        or root_ref != right.get("sourceTableRef")
+        or root_ref not in observation.tables
+        or any(t.get("derivation") != "bounded_row_view" for t in (left, right))
+        or any(
+            type(t.get(key)) is not int or t[key] < 0
+            for t in (left, right)
+            for key in ("viewRowStart", "viewRowEnd")
+        )
+        or any(t["viewRowStart"] > t["viewRowEnd"] for t in (left, right))
+        or left.get("viewRowEnd", -2) + 1 != right.get("viewRowStart")
+        or set(first["nodeIds"]) & set(second["nodeIds"])
+    ):
+        return None
+    cells = [*left["cells"], *right["cells"]]
+    # Spanning cells can occur in both older views. Do not change that ownership
+    # or fold observations while repairing request packing.
+    refs = [c["sourceRef"] for c in cells]
+    if len(refs) != len(set(refs)):
+        return None
+    source_cells = {c["sourceRef"]: c for c in observation.tables[root_ref]["cells"]}
+    if any(source_cells.get(c["sourceRef"]) != c for c in cells):
+        return None
+
+    tables_before = dict(observation.tables)
+    issues_before = list(observation.issues)
+
+    def rollback():
+        observation.tables.clear()
+        observation.tables.update(tables_before)
+        observation.issues[:] = issues_before
+
+    joined_ref = f"{root_ref}#repack:{left['viewRowStart']}:{right['viewRowEnd']}"
+    # Keep the original unique region namespace, without nesting suffixes on
+    # every replan. Bounds distinguish later windows from already accepted ones.
+    prefix = (
+        f"{first['id'].split(':repack:', 1)[0]}:repack:{left['viewRowStart']}:{right['viewRowEnd']}"
+    )
+    joined = copy.deepcopy(first)
+    joined.update(id=prefix + ":0", tableRef=joined_ref)
+    for key in ("nodeIds", "contextNodeIds", "bindingIds", "requiredBindingIds"):
+        joined[key] = list(dict.fromkeys([*first.get(key, []), *second.get(key, [])]))
+    observation.tables[joined_ref] = {
+        **left,
+        "id": joined_ref,
+        "cells": cells,
+        "viewRowEnd": right["viewRowEnd"],
+    }
+    for key in ("headerCells", "leadingCells"):
+        combined = {}
+        for cell in [*left.get(key, []), *right.get(key, [])]:
+            ref = cell["sourceRef"]
+            if ref in combined and combined[ref] != cell:
+                rollback()
+                return None
+            combined[ref] = cell
+        observation.tables[joined_ref][key] = copy.deepcopy(list(combined.values()))
+    try:
+        planned = prepare_regions(
+            observation,
+            context_chars=context_chars,
+            request_metadata=request_metadata,
+            source_regions=[joined],
+            id_prefix=prefix,
+        )
+        # Binding/source ownership must remain exactly the same. Context may
+        # become owned within the union, but can never become a second value.
+        unchanged = len(planned) == 2 and all(
+            a["nodeIds"] == b["nodeIds"] for a, b in zip(planned, (first, second), strict=True)
+        )
+        preserved = all(
+            sorted(item for r in planned for item in r.get(key, []))
+            == sorted(item for r in (first, second) for item in r.get(key, []))
+            for key in ("nodeIds", "bindingIds", "requiredBindingIds")
+        )
+        preserved = preserved and [n for r in planned for n in r["nodeIds"]] == [
+            n for r in (first, second) for n in r["nodeIds"]
+        ]
+        if unchanged or not preserved or not all(r["withinContextBudget"] for r in planned):
+            rollback()
+            return None
+        used = {r["tableRef"] for r in planned}
+        if joined_ref not in used:
+            del observation.tables[joined_ref]
+        return planned
+    except BaseException:
+        rollback()
+        raise
 
 
 def _norm_text(value):

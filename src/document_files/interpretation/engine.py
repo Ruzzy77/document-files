@@ -53,6 +53,7 @@ from .regions import (
     compiled_table_mapping,
     continuation_candidates,
     prepare_regions,
+    rebalance_table_pair,
     region_payload,
     relation_node,
     replan_table_region,
@@ -78,6 +79,7 @@ from .semantic_types import (
     region_output_schema,
 )
 from .table_protocol import (
+    MEANING_REPAIR_SYSTEM,
     MEANING_REVIEW_MAX_CALLS,
     MEANING_SYSTEM,
     STAGE_INITIAL_MAX_CALLS,
@@ -1686,6 +1688,11 @@ def extract_schema_from_stream(
                                 ),
                             )
                     if phase == "details":
+                        call_system = (
+                            MEANING_REPAIR_SYSTEM
+                            if progress.get("acceptedResponse")
+                            else MEANING_SYSTEM
+                        )
                         feedback = selected_meaning_feedback(feedback)
                     if local_selection:
                         if cancelled and cancelled():
@@ -2349,11 +2356,7 @@ def extract_schema_from_stream(
                     add_table_definition_context(
                         observation,
                         region,
-                        [
-                            ref
-                            for column in mapping["columns"]
-                            for ref in column["definitionRefs"]
-                        ],
+                        [ref for column in mapping["columns"] for ref in column["definitionRefs"]],
                     )
                     payload = region_payload(observation, region) | {
                         "intent": selected.intent,
@@ -2371,6 +2374,33 @@ def extract_schema_from_stream(
         if region.get("tableRef"):
             try:
                 if rid not in table_states and rid not in accepted:
+                    following = regions[region_index] if region_index < len(regions) else None
+                    if (
+                        following is not None
+                        and following["id"] not in table_states
+                        and following["id"] not in accepted
+                        and following["id"] not in document_states
+                    ):
+                        replacements = rebalance_table_pair(
+                            observation,
+                            region,
+                            following,
+                            context_chars=min(
+                                selected.contextChars,
+                                getattr(client, "input_budget_chars", selected.contextChars),
+                            ),
+                            request_metadata={
+                                key: payload[key]
+                                for key in ("intent", "targetHandles", "sameTableMapping")
+                                if key in payload
+                            },
+                        )
+                        if replacements:
+                            regions[region_index - 1 : region_index + 1] = replacements
+                            region_index -= 1
+                            candidates = continuation_candidates(observation, regions)
+                            save("interpreting")
+                            continue
                     replacements = replan_table_region(
                         observation,
                         region,
