@@ -25,6 +25,7 @@ from . import (
     native_structure,
     native_structure_revision,
     native_value_batches,
+    note_content,
     scope_partition,
     table_identity,
     table_layout,
@@ -523,6 +524,7 @@ def extract_schema_from_stream(
         "scopeVersion": SCOPE_VERSION,
         "scopeReferenceWireVersion": SCOPE_REFERENCE_WIRE_VERSION,
         "tableProtocolVersion": TABLE_PROTOCOL_VERSION,
+        "noteContentVersion": note_content.VERSION,
         "tableReferenceWireVersion": TABLE_REFERENCE_WIRE_VERSION,
         "regionPlanVersion": REGION_PLAN_VERSION,
         "documentOutlineVersion": DOCUMENT_OUTLINE_VERSION,
@@ -1217,6 +1219,16 @@ def extract_schema_from_stream(
     for region in regions:
         if region["id"] in accepted:
             try:
+                current = accepted[region["id"]]
+                note_context = note_content.context(observation, regions, table_states, region)
+                if bool(current.noteContentState) != bool(note_context) or (
+                    note_context and (
+                        current.noteContentState.layout != note_context[0]
+                        or current.noteContentState.layoutRegion
+                        != note_content.layout_region(note_context[1])
+                    )
+                ):
+                    raise ValueError("note content does not match accepted layout")
                 compiled[region["id"]] = compile_region(
                     accepted[region["id"]], observation, region, target_schema=selected.targetSchema
                 )
@@ -2794,9 +2806,14 @@ def extract_schema_from_stream(
                 issue(exc.code, regionId=rid)
                 save("paused")
                 return result
-        if payload.get("tableKind") in {"scalar_form", "nonrecord_values"}:
+        note_context = note_content.context(observation, regions, table_states, region)
+        note_layout = note_context[0] if note_context else None
+        if note_layout is not None:
+            payload, candidate_schema = note_content.request(payload, observation, region)
             payload = compact_table_sources(payload)
-        content_system = region_system(payload)
+        elif payload.get("tableKind") in {"scalar_form", "nonrecord_values"}:
+            payload = compact_table_sources(payload)
+        content_system = note_content.SYSTEM if note_layout is not None else region_system(payload)
         frozen_roles = None
         content_state = None
         if payload.get("documentContext") and not region.get("tableRef"):
@@ -2903,6 +2920,11 @@ def extract_schema_from_stream(
                     issue("region_repair_no_progress", regionId=rid)
                     break
                 last_response = response_hash
+                if note_layout is not None:
+                    note_ir, _ = note_content.accept(
+                        value, note_layout, observation, region, note_context[1]
+                    )
+                    value = note_ir.model_dump()
                 if frozen_roles is not None:
                     raw_native_value = copy.deepcopy(value)
                     value = native_structure.accept_values(
@@ -2912,7 +2934,10 @@ def extract_schema_from_stream(
                 if frozen_roles is not None and candidate.repeats:
                     raise CompileError("document_content_cannot_generate_records")
                 if candidate.tableMeaningState is not None or (
-                    frozen_roles is None and any(m.sourceRanges for m in candidate.meanings)
+                    candidate.noteContentState is not None and note_layout is None
+                ) or (
+                    frozen_roles is None and note_layout is None
+                    and any(m.sourceRanges for m in candidate.meanings)
                 ):
                     raise CompileError("scalar_response_cannot_set_table_review_metadata")
                 if (
@@ -2936,6 +2961,10 @@ def extract_schema_from_stream(
                         not previous.consumed_bindings - previous.header_value_bindings
                         <= fragment.consumed_bindings
                         or loses_logical_content(previous, fragment)
+                        or (
+                            note_layout is not None
+                            and not note_content.preserves(accepted[rid], candidate)
+                        )
                         or len(local_issues(fragment)) >= len(local_issues(previous))
                     )
                 )

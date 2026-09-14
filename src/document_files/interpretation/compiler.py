@@ -235,7 +235,17 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
         for element in out.document_elements
         if element["status"] == "uncertain" or element["role"] == "unresolved"
     )
-    if ir.tableMeaningState is not None:
+    if ir.noteContentState is not None:
+        from . import note_content
+
+        inventory = source_inventory(observation, region)
+        out.meaning_review = note_content.validate(ir, observation, region)
+        for key in ("unreviewed", "unresolved"):
+            out.issues.extend(
+                {"code": "note_content_source_" + key, "sourceRef": ref}
+                for ref in out.meaning_review[key]
+            )
+    elif ir.tableMeaningState is not None:
         state = ir.tableMeaningState
         if len(ir.repeats) != 1 or not region.get("tableRef"):
             raise CompileError("table_meaning_review_requires_frozen_table")
@@ -1322,7 +1332,8 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                             for ref in source_refs
                         ],
                         "sourceInventorySHA256": (
-                            ir.nativeMeaningInventorySHA256 or ir.tableMeaningState.inventorySHA256
+                            ir.nativeMeaningInventorySHA256
+                            or (ir.noteContentState or ir.tableMeaningState).inventorySHA256
                         ),
                     }
                     if meaning.sourceRanges
@@ -1409,7 +1420,7 @@ def compile_region(ir: RegionInterpretation, observation, region: dict, *, targe
                 out.issues.append({"code": "node_semantics_unaccounted", "sourceRef": ref})
         elif disposition.role in {"unresolved", "unsupported"}:
             out.issues.append({"code": "node_semantics_" + disposition.role, "sourceRef": ref})
-        elif disposition.role == "note" and not any(
+        elif ir.noteContentState is None and disposition.role == "note" and not any(
             ref in item["sourceRefs"] for item in out.semantic_details
         ) and ref not in native_notes:
             out.issues.append({"code": "note_scope_unresolved", "sourceRef": ref})

@@ -2082,7 +2082,7 @@ class TripleFieldModel(ReferenceModel):
 def test_label_and_whole_line_fields_collapse_into_the_bound_value():
     from document_files.interpretation.semantic_types import COMPILER_VERSION
 
-    assert COMPILER_VERSION == "document-files.result-compiler.v42"
+    assert COMPILER_VERSION == "document-files.result-compiler.v43"
     model = TripleFieldModel()
     result = run(b"cond: do not ship\n", model)
     assert result["data"] == {"cond": "do not ship"}

@@ -12,7 +12,7 @@ from .document_outline import DocumentElement, constrain_schema
 from .table_sources import SourceTextPath
 
 SEMANTIC_VERSION = "document-files.semantic-ir.v1"
-COMPILER_VERSION = "document-files.result-compiler.v42"
+COMPILER_VERSION = "document-files.result-compiler.v43"
 ValueType = Literal["string", "decimal", "integer", "number", "boolean", "null", "native"]
 Presence = Literal["present", "blank", "absent", "unreadable", "uncertain"]
 
@@ -163,6 +163,14 @@ class BindingDisposition(Contract):
     explanation: str = Field(min_length=1, max_length=500)
 
 
+class NoteContentState(Contract):
+    version: Literal["document-files.note-content.v1"] = "document-files.note-content.v1"
+    inventorySHA256: str = Field(pattern="^[0-9a-f]{64}$")
+    layout: dict
+    layoutRegion: dict
+    response: dict
+
+
 class RegionInterpretation(Contract):
     """A region's references and meaning. There is deliberately no `data` field."""
 
@@ -177,6 +185,7 @@ class RegionInterpretation(Contract):
     unresolved: list[str] = Field(default_factory=list, max_length=100)
     tableMeaningState: TableMeaningState | None = None
     nativeMeaningInventorySHA256: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
+    noteContentState: NoteContentState | None = None
     documentElements: list[DocumentElement] = Field(default_factory=list, max_length=5000)
 
 
@@ -191,6 +200,7 @@ def region_output_schema(observation, region, target_handles=None, *, compact=Tr
     # These are compiler/checkpoint metadata, not the scalar interpretation wire.
     schema["properties"].pop("tableMeaningState")
     schema["properties"].pop("nativeMeaningInventorySHA256")
+    schema["properties"].pop("noteContentState")
     # Offered only by the native text-content protocol, not physical table stages.
     schema["properties"]["logicalRecords"]["maxItems"] = 0
     schema["$defs"]["FieldLink"]["properties"].pop("sourceQuote")

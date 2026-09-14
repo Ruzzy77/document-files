@@ -233,6 +233,19 @@ def nonrecord_only(layout, observation, region):
     return bool(selected & {"note", "subtotal"}) and selected <= {"note", "subtotal", "blank"}
 
 
+def notes_only(layout, observation, region):
+    """Notes have a content path; subtotal, mixed and unresolved values stay scalar."""
+    if not nonrecord_only(layout, observation, region):
+        return False
+    roles = effective_roles(layout, observation, region)
+    return all(
+        roles.get(row) in {"note", "blank"}
+        for cell in observation.tables[region["tableRef"]]["cells"]
+        if cell["sourceRef"] in region["nodeIds"]
+        for row in range(cell["row"], cell["row"] + cell.get("rowSpan", 1))
+    )
+
+
 def header_candidates(layout, observation, region):
     table = observation.tables[region["tableRef"]]
     roles = effective_roles(layout, observation, region)

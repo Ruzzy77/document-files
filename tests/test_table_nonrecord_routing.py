@@ -32,7 +32,7 @@ NOTES = (
         (["header", "header"], False),
     ],
 )
-def test_only_owned_confirmed_nonrecord_rows_use_scalar_route(roles, expected):
+def test_only_owned_confirmed_nonrecord_rows_use_nonrecord_route(roles, expected):
     doc, region, _ = fixture(NOTES)
     for cell in doc.tables[region["tableRef"]]["cells"]:
         if roles[cell["row"]] == "blank":
@@ -62,9 +62,10 @@ def test_context_headers_do_not_change_owned_note_route_but_spanning_rows_do():
 class NotesModel:
     identity = {"adapter": "notes-routing-test", "model": "scripted-not-qualified"}
 
-    def __init__(self, fail=False):
+    def __init__(self, fail=False, role="note"):
         self.requests = []
         self.fail = fail
+        self.role = role
 
     def infer(self, request):
         payload = expand_table_sources(json.loads(request.messages[-1]["content"]))
@@ -73,8 +74,28 @@ class NotesModel:
             value = {
                 "regionId": payload["regionId"],
                 "tableKind": "record_table",
-                "rowRoles": ["note", "note"],
+                "rowRoles": [self.role, self.role],
                 "baseRevision": None,
+            }
+        elif payload.get("tableStage") == "note_content":
+            if self.fail:
+                raise ModelError("ai_cancelled")
+            value = {
+                "regionId": payload["regionId"],
+                "sourceDecisions": {
+                    s["sourceRef"]: {
+                        "meanings": [
+                            {
+                                "kind": "condition",
+                                "status": "interpreted",
+                                "quotes": [{"text": s["text"]}],
+                            }
+                        ],
+                        "remainder": "no_additional_meaning",
+                        "explanation": "Whole note quoted.",
+                    }
+                    for s in payload["meaningSources"]
+                },
             }
         else:
             assert payload["tableKind"] == "scalar_form" and "tableStage" not in payload
@@ -113,11 +134,12 @@ def execute(model, states, restore=None, cancelled=None):
     )
 
 
-def test_note_layout_skips_mapping_without_fabricating_record_or_dropping_values():
+def test_note_layout_skips_mapping_and_preserves_content_without_inventing_values():
     model, states = NotesModel(), []
     result = execute(model, states)
     assert len(model.requests) == 2
-    assert set(result["data"].values()) == {
+    assert result["data"] == {}
+    assert {d["sourceText"][0] for d in result["semanticDetails"]} == {
         "Blank debit is not zero.",
         "Release only after clearance.",
     }
@@ -127,7 +149,7 @@ def test_note_layout_skips_mapping_without_fabricating_record_or_dropping_values
     assert stage["structure"]["routing"] == "layout-nonrecord.v1"
     assert stage["structure"]["usage"]["modelCalls"] == stage["meaning"]["usage"]["modelCalls"] == 0
     assert all(not value["repeats"] for value in states[-1]["accepted"].values())
-    assert result["extraction"]["status"] == "complete", result["issues"]
+    assert result["extraction"]["status"] == "partial"  # applicability has not run
     assert execute(model, [], states[-1])["data"] == result["data"]
     assert len(model.requests) == 2
 
@@ -151,7 +173,7 @@ def test_forged_route_is_rejected_before_new_model_call(mutation):
     assert len(model.requests) == 2
 
 
-def test_pause_after_layout_keeps_ownership_and_resumes_only_scalar_interpretation():
+def test_pause_after_layout_keeps_ownership_and_resumes_only_note_content():
     model, states = NotesModel(), []
 
     def stop():
@@ -165,5 +187,6 @@ def test_pause_after_layout_keeps_ownership_and_resumes_only_scalar_interpretati
     assert len(model.requests) == 1 and partial["data"] is None
     before = copy.deepcopy(states[-1]["regions"])
     done = execute(model, [], states[-1])
-    assert done["extraction"]["status"] == "complete", done["issues"]
+    assert done["extraction"]["status"] == "partial"
+    assert len(done["semanticDetails"]) == 2 and done["data"] == {}
     assert len(model.requests) == 2 and states[-1]["regions"] == before

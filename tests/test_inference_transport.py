@@ -90,6 +90,9 @@ def test_strict_schema_wire_projection_keeps_product_optional_contract(monkeypat
 
     calls = response_transport(monkeypatch)
     schema = RegionInterpretation.model_json_schema()
+    # This open receipt is checkpoint metadata, not part of a generation contract.
+    schema["properties"].pop("noteContentState")
+    schema["$defs"].pop("NoteContentState")
     before = deepcopy(schema)
     client = ChatCompletionsClient(
         "https://example.invalid/v1/chat/completions", "test", response_format="json_schema"

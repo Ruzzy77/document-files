@@ -15,7 +15,7 @@ from document_files.interpretation.engine import extract_schema_from_stream
 
 class RepairModel(NotesModel):
     def __init__(self):
-        super().__init__()
+        super().__init__(role="subtotal")
         self.content = []
 
     def infer(self, request):
