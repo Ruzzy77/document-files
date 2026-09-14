@@ -58,7 +58,13 @@ where = ["src"]
 document_files = ["_vendor/*.md", "schemas/*.json", "py.typed"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# Bare pytest is a native-input smoke check, not full regression or AI quality approval.
+# Explicit paths select affected tests; `pytest tests` requests the complete suite.
+testpaths = [
+  "tests/test_analysis.py",
+  "tests/test_structured_extraction.py",
+  "tests/test_native_merged_geometry.py",
+]
 
 [tool.ruff]
 line-length = 100

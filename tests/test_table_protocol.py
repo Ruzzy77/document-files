@@ -331,33 +331,16 @@ def test_unrepaired_content_only_definitions_do_not_report_complete():
 
 
 @pytest.mark.parametrize(
-    "key, version",
-    [
-        ("compilerVersion", "document-files.result-compiler.v33"),
-        ("compilerVersion", "document-files.result-compiler.v32"),
-        ("tableProtocolVersion", "document-files.table-protocol.v28"),
-        ("tableProtocolVersion", "document-files.table-protocol.v29"),
-        ("tableProtocolVersion", "document-files.table-protocol.v30"),
-        ("tableProtocolVersion", "document-files.table-protocol.v31"),
-        ("tableProtocolVersion", "document-files.table-protocol.v32"),
-        ("tableProtocolVersion", "document-files.table-protocol.v33"),
-        ("tableProtocolVersion", "document-files.table-protocol.v34"),
-        ("tableProtocolVersion", "document-files.table-protocol.v35"),
-        ("compilerVersion", "document-files.result-compiler.v36"),
-        ("regionPlanVersion", "document-files.region-plan.v24"),
-        ("promptVersion", "document-files.semantic-prompts.v40"),
-        ("regionPlanVersion", "document-files.region-plan.v23"),
-        ("compilerVersion", "document-files.result-compiler.v26"),
-        ("promptVersion", "document-files.semantic-prompts.v30"),
-        ("regionPlanVersion", "document-files.region-plan.v15"),
-    ],
+    "key", ["compilerVersion", "tableProtocolVersion", "regionPlanVersion", "promptVersion"]
 )
-def test_checkpoint_from_earlier_source_interpretation_policy_cannot_resume(key, version):
+def test_checkpoint_from_different_interpretation_policy_cannot_resume(key):
+    # Identity is compared as a whole; enumerating historical version strings
+    # exercises the same branch, not distinct migration behavior.
     states = []
     model = TableModel()
     execute(model, states=states)
     checkpoint = copy.deepcopy(states[-1])
-    checkpoint["identity"][key] = version
+    checkpoint["identity"][key] = "incompatible-policy"
     with pytest.raises(ValueError, match="incompatible"):
         execute(model, restore=checkpoint)
     assert len(model.requests) == 2

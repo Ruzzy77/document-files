@@ -37,12 +37,39 @@ notification settings or dispatch expensive builds for documentation-only edits.
 ## Development
 
 Use the pinned Python/dependency environment (`uv sync --frozen --python 3.12`).
-Run the existing tests that cover the change (`uv run --frozen pytest`), and apply
-the repository Ruff settings. Optional OCR/LLM dependencies belong in separate
+Run only the existing tests that cover the change, and apply the repository Ruff
+settings to changed files. Optional OCR/LLM dependencies belong in separate
 packs; never add GPU wheels to the core or install dependencies during processing.
 For CPU recognition, prepare an explicit target-specific CPU wheelhouse, with
 exact wheel filenames and SHA256. A generic resolver lock containing CUDA packages
 is not an approved CPU recognition lock.
+
+### Minimal verification
+
+- Bare `uv run --frozen pytest -q` runs only the native-input smoke files listed in
+  `pyproject.toml`: byte-stream API boundaries, original typed values and HWP/HWPX/XLSX
+  source structure/merged geometry. It is neither a full regression nor an AI quality check.
+- For a code change, select the owning test file or test node explicitly, for example
+  `uv run --frozen pytest -q tests/test_note_content.py`. Add a directly affected
+  integration check only when the change crosses that boundary. Passing smoke alone
+  does not validate an unrelated code change. Documentation-only changes need no pytest.
+- The complete suite is explicit: `uv run --frozen pytest -q tests`. Use it only for
+  a broad integration change or a release candidate, once after focused checks pass.
+  Do not rerun it after each small edit or repeat it merely to recount passes.
+- Keep PDF/OCR, packaging, HTTP and secondary-platform tests for changes in those
+  components; they are not the default HWP/HWPX/XLSX development loop. Preserve their
+  safety and source-integrity checks rather than marking unexecuted tests as passing.
+- Do not run hundreds of the same pure-Python tests again on Spark before every model
+  evaluation. Reuse verified source/environment evidence; select fresh checks only
+  for affected ARM, Python-version, runtime or integration behavior. No model run,
+  installation or broad environment setup is required for a test-only cleanup.
+- Extend the owning regression rather than adding another file for each work session.
+  One case per distinct failure/boundary is enough. Do not enumerate old version
+  numbers for a shared identity-equality check or multiply independent validation
+  cases across settings. Keep cross-products only for genuine interactions.
+- If a necessary check is unexpectedly slow, add `--durations=10` to that selected
+  run. Do not launch the full suite solely to obtain timings. Report the behavior
+  checked and any remaining failure, not cumulative test counts as product progress.
 
 ## Changes and evidence
 

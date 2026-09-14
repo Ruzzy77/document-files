@@ -39,10 +39,11 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,633 tests,
-with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
-passes, and this count is not a measure of model quality or qualification of the
-pinned Python 3.12 deployment runtime.
+Default development checks cover the native-input smoke paths only; affected component
+tests are selected explicitly. Full regression remains available for broad changes and
+release candidates. See [verification policy](CONTRIBUTING.md#minimal-verification).
+Historical test counts below describe those exact runs, not current readiness or an
+obligation to repeat them. AI quality still requires actual document comparison.
 
 ### Standalone package checks
 

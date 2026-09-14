@@ -34,7 +34,7 @@ jobs:
       - name: Prepare test environment
         run: uv sync --frozen --python 3.12
       - name: Regression tests
-        run: uv run --frozen pytest -q
+        run: uv run --frozen pytest -q tests
       - name: Build checkbox-preserving backend and portable candidates
         shell: bash
         run: |

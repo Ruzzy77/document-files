@@ -519,26 +519,7 @@ def test_recognition_rejects_intel_native_and_online_configuration(tmp_path):
         validate_manifest(manifest)
 
 
-@pytest.mark.parametrize(
-    "bad",
-    [
-        {"tableOcrRepair": "try-all-engines"},
-        {"repairBudget": {"maxCalls": True}},
-        {"repairBudget": {"maxPixels": 64000001}},
-        {"repairBudget": {"unknown": 1}},
-        *[
-            {"repairBudget": {key: value}}
-            for key, maximum in (("batchSize", 2), ("maxImages", 64), ("maxInputPixels", 64000000))
-            for value in (True, False, 0, -1, maximum + 1, 1.0, "1", None)
-        ],
-        {"tableOcrRepair": "off", "repairBudget": {"batchSize": 2}},
-        {"tableOcrRepair": "ruled_tables_v1", "repairBudget": {"batchSize": 2}},
-    ],
-)
-@pytest.mark.parametrize("policy", ["off", "ruled_tables_v1", "ruled_cells_v2"])
-def test_recognition_policy_is_pinned_and_budgeted_in_manifest(tmp_path, bad, policy):
-    from document_files.runtime_packs import validate_manifest
-
+def recognition_manifest(tmp_path, policy="ruled_cells_v2"):
     with zipfile.ZipFile(fixture_pack(tmp_path)) as archive:
         manifest = json.loads(archive.read("manifest.json"))
     manifest.update(
@@ -558,10 +539,16 @@ def test_recognition_policy_is_pinned_and_budgeted_in_manifest(tmp_path, bad, po
         "tableOcrRepair": policy,
         "repairBudget": {"maxCalls": 2},
     }
-    before = json.dumps(manifest, sort_keys=True)
-    validate_manifest(manifest)
-    assert json.dumps(manifest, sort_keys=True) == before  # Never modify immutable pack defaults.
+    return manifest
+
+
+@pytest.mark.parametrize("policy", ["off", "ruled_tables_v1", "ruled_cells_v2"])
+def test_recognition_policy_accepts_boundaries_without_mutating_manifest(tmp_path, policy):
+    from document_files.runtime_packs import validate_manifest
+
+    manifest = recognition_manifest(tmp_path, policy)
     for budget in (
+        {"maxCalls": 2},
         {"batchSize": 1, "maxImages": 1, "maxInputPixels": 1},
         {
             "batchSize": 2 if policy == "ruled_cells_v2" else 1,
@@ -570,7 +557,34 @@ def test_recognition_policy_is_pinned_and_budgeted_in_manifest(tmp_path, bad, po
         },
     ):
         manifest["recognition"]["repairBudget"] = budget
+        before = json.dumps(manifest, sort_keys=True)
         validate_manifest(manifest)
+        assert json.dumps(manifest, sort_keys=True) == before
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"tableOcrRepair": "try-all-engines"},
+        {"repairBudget": {"maxCalls": True}},
+        {"repairBudget": {"maxPixels": 64000001}},
+        {"repairBudget": {"unknown": 1}},
+        # All budget keys share exact-integer and lower-bound checks. Cover each
+        # distinct invalid JSON type and the zero boundary once, not per policy.
+        *[{"repairBudget": {"batchSize": value}} for value in (0, 1.0, "1", None)],
+        *[
+            {"repairBudget": {key: maximum + 1}}
+            for key, maximum in (("batchSize", 2), ("maxImages", 64), ("maxInputPixels", 64000000))
+        ],
+        # Batch size 2 is the policy-dependent rule; retain both rejected modes.
+        {"tableOcrRepair": "off", "repairBudget": {"batchSize": 2}},
+        {"tableOcrRepair": "ruled_tables_v1", "repairBudget": {"batchSize": 2}},
+    ],
+)
+def test_recognition_policy_rejects_invalid_configuration(tmp_path, bad):
+    from document_files.runtime_packs import validate_manifest
+
+    manifest = recognition_manifest(tmp_path)
     manifest["recognition"].update(bad)
     with pytest.raises(PackError, match="unapproved_recognition_configuration"):
         validate_manifest(manifest)
