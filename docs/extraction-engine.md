@@ -1102,7 +1102,7 @@ list: a record covers its observed table range with explicit row roles, and only
 rows chosen as data are read as records. The program does not infer a header from
 the first row, numeric types or formatting, or change native header flags.
 The neutral row positions remain in layout-first table protocol v42 / region plan
-v30 / prompt v41. Correct row metadata does not establish correct interpretation;
+v31 / prompt v41. Correct row metadata does not establish correct interpretation;
 the new layout response is checked separately before column definitions are requested.
 
 `table_layout.mapping_schema` derives the current model-facing column contract
@@ -1159,6 +1159,28 @@ The saved layout response is unchanged. Structure records `routing: layout-nonre
 and its layout hash; resume rechecks that route against the source and accepted roles.
 Mapping and table-meaning usage stay zero; scalar interpretation remains charged and
 can fail or leave uncertainty. Skipping mapping does not mean the notes were understood.
+
+Record continuation eligibility is evaluated from the validated table state. A slice
+with the explicit nonrecord route is not an endpoint for a business-record join. Its
+physical table, original cells, scalar ownership and applicability context stay intact.
+Missing repeats or an unresolved layout are not enough to skip a join. If such a slice
+lies between record slices of the same native table, the engine retains their record
+continuation with a stable pair-derived ID and references to the intervening content.
+It does not bridge an unrelated table or treat page adjacency as confirmed identity.
+The compiler still checks row order, overlap and column compatibility before joining.
+
+Prior mapping context is added before the scalar output contract is built. The initial
+request and a restored request therefore offer the same complete source-reference
+vocabulary; context-only headers do not gain value ownership. For a nonrecord slice,
+`sameTableMapping` is context for understanding the notes, not an instruction to recreate
+those records or their column fields.
+
+Scalar repair selection and feedback use the same local issue set, on the first attempt
+and on resume. Applicability-only uncertainty remains visible in the result but is not
+sent back as a scalar content defect. Local feedback keeps the affected source/binding
+identifier and the existing 20-issue bound. An unresolved binding exclusion is still
+unreviewed; this change neither deletes its source nor approves it. Region plan v31
+separates this scheduling and request policy from earlier checkpoints.
 
 Both routed scalar children and scalar forms use the existing reversible table-source
 metadata encoding when its savings exceed the decoder instructions. Source text,
@@ -1471,7 +1493,7 @@ layout response and the engine charges that call. Tests focused on scope partiti
 use their known scripted layout to isolate scope scheduling; every actual request still
 passes the production input limit. Generic planning has separate native-file tests.
 
-Table protocol v42, layout v3, region plan v30 and compiler v42 distinguish these
+Table protocol v42, layout v3, region plan v31 and compiler v42 distinguish these
 states from earlier layouts and the former combined path. General prompt v41 and public v1 interfaces remain unchanged.
 Current actual-model results and remaining quality gaps are in `SUPPORT.md`.
 
@@ -1946,7 +1968,7 @@ its owning behavior. Do not patch stored IDs to resume.
 
 | Contract | Version |
 |---|---|
-| Semantic prompt / region plan / result compiler | v41 / v30 / v42 |
+| Semantic prompt / region plan / result compiler | v41 / v31 / v42 |
 | Document outline / native role-content protocol / native structure | v1 / v15 / v20 |
 | Native structural response wire / native value batches / structure revision | v3 / v4 / v10 |
 | Table protocol / table reference wire / table source wire / selection wire | v42 / v2 / v1 / v4 |
