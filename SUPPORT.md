@@ -39,7 +39,7 @@ Installed consumers and packs are unchanged.
 | Mac | Existing native core and CPU pack preparation are retained. Personal 1.8.0 end-to-end use still needs a separate check. |
 | Distribution | Pack builders, integrity/license checks and manual CI are retained. There is no qualified public 1.8.0 release; no consumer migration is claimed. |
 
-The full local check including the native outline path passed **3,615 tests,
+The full local check including the native outline path passed **3,633 tests,
 with 227 skips and 12 subtests** on the current Mac's Python 3.13.15. Skips are not
 passes, and this count is not a measure of model quality or qualification of the
 pinned Python 3.12 deployment runtime.
@@ -64,7 +64,7 @@ qualify a platform installer, a live agent session or a formal release.
 
 The current internal contracts are document protocol v15, native-structure v20,
 structural wire v3, native-value-batches v4, structure-revision v10, scope-selection wire v3, prompt v41,
-region plan v31, table protocol v42, table layout v3, read domains v2 and compiler v42. Public v1 result
+region plan v32, table protocol v43, note content v1, table layout v3, read domains v2 and compiler v43. Public v1 result
 and API contracts are unchanged. Old incompatible checkpoints cannot resume.
 Scope integration v18 / scope protocol v10 / scope inventory v1 retain discovery of the explicit parent table
 of routed nonrecord content even when the regions are not adjacent in processing order.
@@ -216,37 +216,36 @@ are not accumulated here as a substitute for current readiness.
 
 ## Latest Spark verification
 
-Current implementation source is **8804cd033ea21371e16cb989556b263ee7db3fb4**.
-Region plan v31 uses the same stage-local issues to select scalar repair and compose
-its feedback, including resume. Source/binding IDs remain in that feedback; scope-only
-uncertainty remains in the result for the separate applicability phase. Unresolved
-exclusions are not treated as reviewed sources.
+Current implementation source is **3f16b5b235a41bf8d733f04f030fc61159fcb44f**.
+Model-confirmed note-only rows now use a source-bound content path rather than scalar
+business fields. This covers standalone note slices and note-only children routed
+from record tables. Subtotals, mixed values, unresolved rows and label/value forms
+keep their value-reading path. Every owned source remains present and requires an
+explicit review decision; deferred review remains visible.
 
-A model-confirmed nonrecord slice is no longer an endpoint of a business-record join.
-Its original table, scalar content and applicability context remain. Record slices on
-both sides of intervening note/subtotal slices can still join when all belong to the
-same native table; unrelated tables and unclassified slices cannot establish that
-bridge. Row/column checks remain in the compiler. Original proposals and unrelated
-candidate IDs are not rewritten.
+The note response selects meaning kinds and literal quotations; the program derives
+IDs, descriptions, ranges and source references. It offers no field or scope output.
+Complete qualifiers and explicit deferred review remain visible. Applicability is a
+separate decision against the actual records, fields and document parts. Whole source
+coverage does not certify correct interpretation. Receipt validation and restore
+replay the accepted parent layout, native source inventory, quotations and accounting.
 
-Prior mapping context is added before building the scalar output contract, so initial
-and restored requests offer the same complete source-reference vocabulary. The
-nonrecord request describes the preceding mapping as context, not instructions to
-recreate its records. In an unchanged-response replay, both the initial and resumed
-repair fit at **15,933 characters**. All original nodes, bindings, values and native
-table structure remain; the unreviewed note candidate is still present. This replay
-is not a new model result or a semantic quality approval.
+The existing scalar-local repair policy, native-table continuation across confirmed
+nonrecord slices, source-derived value reads and formula-expression guard remain.
+Region plan v32 / table protocol v43 / compiler v43 / note-content v1 reject earlier
+incompatible checkpoints. Layout v3, read domains v2, component identity v1, native
+observation v5 / HWPX extractor v11, prompt v41, grammar adapter v2 and public v1 remain
+unchanged. No document or output allowance was increased.
 
-Table protocol v42 / component identity v1 / compiler v42 / read domains v2 retain
-program-assigned internal IDs, deterministic key collision handling and the whole
-formula expression guard. Layout v3, native observation v5 / HWPX extractor v11,
-prompt v41, grammar adapter v2 and public v1 remain unchanged. No document or output
-allowance was increased.
+Replaying five unchanged prior model responses produces the new note request at
+**7,050 characters**, with both complete native note texts and no display-address
+prefix or scalar field generation. Original nodes, bindings, record values and table
+structure are identical. The replay contains no new model generation and is not a
+semantic quality approval.
 
-Local checks passed **3,615 tests / 227 skips / 12 subtests** on Python 3.13.15.
-Fresh same-source Spark-A ARM checks passed **412 tests with warnings treated as
-errors** on Python 3.12.3. These verify contracts and preservation, not independent
-model quality.
+Local checks passed **3,633 tests / 227 skips / 12 subtests** on Python 3.13.15.
+Same-source Spark-A checks passed **482 tests with warnings treated as errors** on
+Python 3.12.3. These verify contracts and preservation, not independent model quality.
 
 Full-page 50/96-row sizing retains every cell and uses HWPX **6/11** regions and XLSX
 **4/7**, within 16,000 characters. HWPX 96 rows previously used 12 regions. The original
@@ -330,60 +329,48 @@ native grammar boundary failure). The current adapter and full-path attempt are 
 `structural-kpi-20260914/grammar-adapter-78/`, including original requests/responses,
 checkpoint, native parser probes, canonical rejection tests and note-routing sizing.
 
-### XLSX reaches applicability; note-to-value relationships still fail
+### XLSX note content and unit scope improve; whole-document scope is unfinished
 
-Source **8804cd0** ran the same frozen development XLSX through the public engine on
-Spark's existing 314B service, with the unchanged **12-call / 900-second** allowance.
-Expected answers stayed local. There were **seven attempts and six completed responses**,
-with **899.0 seconds** in requests. No mapping or scalar repair was needed. The first
-unit applicability request received the remaining **126.8 seconds** and timed out.
-The private driver stopped on that failed exchange; there is **no final public API
-return**. The authoritative partial result is the checkpoint, whose last completed
-stage accounts for 773.2 seconds. Whole owned-run time, including ARM tests, was
-1,019.9 seconds. This is not a check of the product's normal timeout return behavior.
+Source **3f16b5b** ran the same frozen development XLSX through the public engine on
+Spark's existing 314B service with the unchanged **12-call / 900-second** allowance.
+Expected answers stayed local. **Eight attempts produced seven completed responses**,
+using **898.8 seconds** in requests. No mapping or content repair was needed.
 
 | Work | Actual result |
 |---|---|
-| Layout and mapping | Two header rows, two records and five distinct columns. All nine present values retain leading zeros, exact decimals, formula expressions and original bindings. Reads are strings; numeric-type quality is not approved. |
-| Table meanings | The model selected the unit, the Balance formula header and two formula cells. Four source-bound meanings were accepted for separate applicability. Their descriptions and scope are not independently approved. |
-| Note slice | Two `note` rows take the direct scalar path without an empty record or a record-continuation error. The **15,887-character** content request returns in 198.1 seconds. |
-| Note bindings | A6 is read as display text including `A6=`. A7's native partial value `b57` is read; the model's separate label field is removed by existing label accounting. No unaccounted value candidate remains and no scalar repair is called. |
-| Note meaning | Both meanings are classified `note` and point to their own transcribed fields. The complete A7 note still contains the pending-account qualifier, but no business scope targets that account. A6 does not establish the meaning of the blank Debit cell. |
-| Applicability | The unit request fits at **14,649 characters / 3,663 input tokens**, with the same 3,072-token output reservation. It offers the three-column header group and record/column candidates, but returns no decision before timeout. |
+| Layout and values | Two header rows, two records and five columns. All nine present values retain leading zeros, exact decimal spelling, formula expressions and original bindings. Reads are strings; numeric-type quality is not approved. |
+| Note content | Both rows are classified `note` by layout and then read through the new note-content contract. The request is **7,050 characters / 1,893 input tokens** and returns in **107.8 seconds**, compared with the preceding scalar request's 15,887 characters / 198.1 seconds. These are individual shared-service runs, not a latency guarantee. |
+| Note preservation | No business fields are generated from the wording. Complete native A6 and A7 text is retained with exact ranges. A7 is classified `condition`, including the pending-account restriction. Neither meaning falsely acquires self-scope. |
+| Unit applicability | The **12,722-character / 3,200-token** request returns in **136.3 seconds**. `L` applies to Credit, Debit and Balance formula in both rows—six exact targets, not account IDs, clearance or the whole record. Header and column evidence is preserved. This part matches the frozen development expectations. |
+| Remaining applicability | The next request concerns the Balance formula header definition. It fits at **12,752 characters / 3,184 tokens**, but its remaining **42.0 seconds** expires. Two formula-cell definitions and the actual note/condition applicability are not reached. |
 
-Original nodes, bindings and all 17 table cells remain unchanged. Formulas are read
-from `/semantic/value/formula`, not evaluated or replaced with missing caches. D4
-retains native **absent** evidence. The raw note response incorrectly describes the
-full native note bindings as null/unreadable; they are present. That explanation
-neither changes the source nor supplies a valid quality judgment.
+The driver stops on the failed exchange, so there is **no final public API return**.
+The authoritative partial result is the checkpoint; its 858.0 seconds ends at the last
+completed stage and is not the full request cost. Whole owned-run time, including ARM
+checks, was **1,026.4 seconds**. This does not test the product's normal timeout return.
 
-Source accounting is not business understanding: the current self-scope guard covers
-units and conditions, while a meaning labeled `note` can still point to its own wording
-and appear interpreted. Both notes in this run do that. The pending restriction and
-blank-not-zero explanation are therefore **not approved**, even though their text is
-present and the local source-accounting issues are gone. The unit and formula meanings
-also have no accepted applicability. Whole-document accuracy remains unapproved.
+Original nodes, bindings and all 17 native table cells are unchanged. Formulas remain
+unevaluated expressions without fabricated caches. D4 retains native **absent** evidence;
+the A6 explanation of its business meaning remains to be linked. A6 currently combines
+blank-not-zero and missing formula caches into one note meaning even though these
+explanations concern different targets. A7's complete condition text is preserved, but
+applicability to only the pending account is still unresolved. Preserving source content
+and correctly applying the unit do **not** establish whole-document understanding.
 
-A separate unchanged-response replay confirms the implemented repair fix: both initial
-and resumed repair requests are **15,933 characters**, preserve the unreviewed binding,
-and omit only irrelevant scope feedback. The initially discovered 15,987-character
-request had an incomplete initial source-reference contract; adding prior headers
-before contract construction fixes that first/resume mismatch. The note-specific
-mapping instruction now describes context instead of requesting record-field reuse.
-No original source or accepted model answer was shortened to make it fit.
+All **49** execution evidence files were hash-checked before removing the owned source,
+reused-library copy and transfer archives. The shared slot was idle at collection;
+shared services, original components and OOM counters are unchanged. Evidence is in
+`structural-kpi-20260914/note-content-82/`: `model-run/review.json` separates comparison
+results from the checkpoint; `replay.json` records the zero-generation request audit.
+No independent quality, whole-job memory, swap-free or deployment qualification is claimed.
 
-All **43** execution evidence files were hash-checked before removing the owned source,
-runtime copy and transfer archives. The shared slot was idle at collection; shared
-services, original components and OOM counters remain unchanged. No independent
-quality, whole-job memory, swap-free or deployment qualification is claimed.
-
-**Next:** separate a note's content from the business values it governs. Reproduce the
-note-kind self-scope bypass and assess a source-bound note-only interpretation path,
-without manufacturing business fields from note wording or breaking subtotal/form
-values. Keep the full pending-account qualifier, blank-not-zero meaning and formula
-cache distinction. Measure request and output costs before the next fixed-budget run;
-do not discard valid formula relationships merely to reduce applicability work.
-HWP and 50-row HWPX/XLSX failures and fresh independent primary formats remain required.
+**Next:** keep the successful source-bound note path, but separate explanations that
+need different applicability within one source. Inspect repeated scope context and
+stage costs so formula definitions do not consume the entire allowance before notes
+and conditions. Preserve qualifiers, formula relationships, every row and the fixed
+budget; do not hide work or approve only the successful unit. Actual pending-only,
+blank-not-zero and cache applicability, HWP and 50-row HWPX/XLSX failures, and fresh
+independent primary-format cases remain required.
 
 ### Outstanding 50-row HWPX / XLSX baseline
 
